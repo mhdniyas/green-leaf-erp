@@ -35,7 +35,11 @@ class TransactionGenerator
         return DB::transaction(function () use ($input) {
             $entryType = LedgerEntryType::where('code', $input['entry_type_code'])
                 ->where('active', true)
-                ->firstOrFail();
+                ->first();
+
+            if (! $entryType) {
+                $entryType = LedgerEntryType::where('code', $input['entry_type_code'])->firstOrFail();
+            }
 
             $setting = $this->ruleResolver->resolve(
                 (int) $input['shop_id'],
@@ -43,13 +47,16 @@ class TransactionGenerator
                 $input['business_date']
             );
 
-            $fundingSource = isset($input['funding_source'])
-                ? FundingSource::from($input['funding_source'])
-                : FundingSource::from($setting->default_funding_source);
+            $fundingSourceInput = $input['funding_source'] ?? null;
+            if ($fundingSourceInput && $fundingSourceInput !== 'none') {
+                $fundingSource = FundingSource::tryFrom((string) $fundingSourceInput) ?? FundingSource::None;
+            } else {
+                $fundingSource = FundingSource::tryFrom((string) ($setting->default_funding_source ?? 'none')) ?? FundingSource::None;
+            }
 
             $this->assertFundingSourceAllowed($fundingSource, $setting);
 
-            $direction = LedgerDirection::from($entryType->category);
+            $direction = LedgerDirection::tryFrom((string) $entryType->category) ?? LedgerDirection::Expense;
             $amount    = round((float) $input['amount'], 2);
 
             $effect = $this->effectResolver->resolve($direction, $fundingSource, $amount, $setting);
@@ -61,10 +68,10 @@ class TransactionGenerator
                 'amount'                    => $amount,
                 'direction'                 => $direction->value,
                 'funding_source'            => $fundingSource->value,
-                'affects_sales'             => $setting->include_in_sales,
-                'affects_income'            => $setting->include_in_income,
-                'affects_expense'           => $setting->include_in_expense,
-                'affects_pl'                => $setting->include_in_pl,
+                'affects_sales'             => (bool) $setting->include_in_sales,
+                'affects_income'            => (bool) $setting->include_in_income,
+                'affects_expense'           => (bool) $setting->include_in_expense,
+                'affects_pl'                => (bool) $setting->include_in_pl,
                 'pl_delta'                  => $effect->plDelta,
                 'settlement_delta'          => $effect->settlementDelta,
                 'settlement_direction'      => $effect->settlementDirection->value,
@@ -128,24 +135,31 @@ class TransactionGenerator
     }
 
     /**
-     * If the parent amount changes, the generated child amount changes with it.
-     * Generated children can never be edited directly.
+     * Update an entry with double-entry recalculation for amount, funding source, and notes.
      */
-    public function updateAmount(ShopLedgerTransaction $transaction, float $newAmount, ?int $updatedBy = null): ShopLedgerTransaction
+    public function updateEntry(ShopLedgerTransaction $transaction, float $newAmount, ?string $newFundingSource = null, ?string $notes = null, ?int $updatedBy = null): ShopLedgerTransaction
     {
         if ($transaction->generated_by_rule) {
             throw new RuntimeException('Generated entries cannot be edited directly; edit the parent transaction instead.');
         }
 
-        return DB::transaction(function () use ($transaction, $newAmount, $updatedBy) {
+        return DB::transaction(function () use ($transaction, $newAmount, $newFundingSource, $notes, $updatedBy) {
             $newAmount  = round($newAmount, 2);
             $setting    = $this->ruleResolver->resolve($transaction->shop_id, $transaction->entry_type_id, $transaction->business_date->toDateString());
-            $source     = FundingSource::from($transaction->funding_source);
-            $direction  = LedgerDirection::from($transaction->direction);
+
+            $sourceStr  = $newFundingSource && $newFundingSource !== 'none'
+                ? $newFundingSource
+                : ($transaction->funding_source ?: ($setting->default_funding_source ?: 'none'));
+
+            $source     = FundingSource::tryFrom((string) $sourceStr) ?? FundingSource::None;
+            $this->assertFundingSourceAllowed($source, $setting);
+
+            $direction  = LedgerDirection::tryFrom((string) $transaction->direction) ?? LedgerDirection::from($transaction->entryType?->category ?? 'expense');
             $effect     = $this->effectResolver->resolve($direction, $source, $newAmount, $setting);
 
-            $transaction->update([
+            $updatePayload = [
                 'amount'                    => $newAmount,
+                'funding_source'            => $source->value,
                 'pl_delta'                  => $effect->plDelta,
                 'settlement_delta'          => $effect->settlementDelta,
                 'settlement_direction'      => $effect->settlementDirection->value,
@@ -153,7 +167,13 @@ class TransactionGenerator
                 'petty_direction'           => $effect->pettyDirection->value,
                 'company_pending_delta'     => $effect->companyPendingDelta,
                 'company_pending_direction' => $effect->companyPendingDirection->value,
-            ]);
+            ];
+
+            if ($notes !== null) {
+                $updatePayload['notes'] = $notes ?: null;
+            }
+
+            $transaction->update($updatePayload);
 
             foreach ($transaction->children as $child) {
                 $childSetting = $this->ruleResolver->resolve($child->shop_id, $child->entry_type_id, $child->business_date->toDateString());
@@ -166,6 +186,14 @@ class TransactionGenerator
 
             return $transaction->fresh('children');
         });
+    }
+
+    /**
+     * Backwards-compatible wrapper for updating transaction amount.
+     */
+    public function updateAmount(ShopLedgerTransaction $transaction, float $newAmount, ?int $updatedBy = null): ShopLedgerTransaction
+    {
+        return $this->updateEntry($transaction, $newAmount, null, null, $updatedBy);
     }
 
     /**
@@ -192,8 +220,15 @@ class TransactionGenerator
 
     private function assertFundingSourceAllowed(FundingSource $source, ShopLedgerEntrySetting $setting): void
     {
+        if ($source === FundingSource::None) {
+            return;
+        }
+
         $allowed = $setting->allowed_funding_sources ?? [];
         if (! empty($allowed) && ! in_array($source->value, $allowed, true)) {
+            if ($setting->default_funding_source === $source->value) {
+                return;
+            }
             throw new RuntimeException("Funding source [{$source->value}] is not allowed for this entry type on this shop.");
         }
     }

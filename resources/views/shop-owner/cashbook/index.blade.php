@@ -1306,9 +1306,15 @@
                 },
 
                 async submitEntry() {
-                    if (this.entryMode === 'normal' && !this.form.entry_type_code) {
-                        alert('No rows enabled. Contact admin.');
-                        return;
+                    if (this.entryMode === 'normal') {
+                        if (!this.form.entry_type_code) {
+                            alert('Please select an entry type. If no entry types are available, contact admin.');
+                            return;
+                        }
+                        if (!this.form.amount || parseFloat(this.form.amount) <= 0) {
+                            alert('Please enter a valid amount greater than 0.');
+                            return;
+                        }
                     }
 
                     this.submitting = true;
@@ -1318,7 +1324,12 @@
                             ? '{{ route('shop-owner.cashbook.api.update-entry') }}'
                             : '{{ route('shop-owner.cashbook.api.record-entry') }}';
                         const body = this.editingTxId
-                            ? { transaction_id: this.editingTxId, amount: this.form.amount, notes: this.form.notes }
+                            ? {
+                                transaction_id: this.editingTxId,
+                                amount: this.form.amount,
+                                funding_source: this.form.funding_source,
+                                notes: this.form.notes,
+                            }
                             : this.entryMode === 'collection'
                                 ? {
                                     business_date: this.form.business_date,
@@ -1329,27 +1340,50 @@
                                     })),
                                     notes: this.form.notes,
                                 }
-                                : this.form;
+                                : {
+                                    business_date: this.form.business_date,
+                                    entry_type_code: this.form.entry_type_code,
+                                    amount: this.form.amount,
+                                    funding_source: this.form.funding_source,
+                                    notes: this.form.notes,
+                                };
+
+                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                        const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
+
                         const response = await fetch(url, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
                             },
                             body: JSON.stringify(body),
                         });
 
-                        const payload = await response.json();
-                        if (!payload.success) {
-                            alert(payload.message || 'Unable to create entry.');
+                        let payload;
+                        try {
+                            payload = await response.json();
+                        } catch (e) {
+                            alert('Server returned an invalid response (HTTP ' + response.status + '). Please reload the page.');
+                            return;
+                        }
+
+                        if (!response.ok || !payload.success) {
+                            let errorMsg = payload.message || 'Unable to save entry.';
+                            if (payload.errors) {
+                                const errorList = Object.values(payload.errors).flat().join('\n');
+                                if (errorList && errorList !== errorMsg) errorMsg += '\n' + errorList;
+                            }
+                            alert(errorMsg);
                             return;
                         }
 
                         this.closeCreateModal();
-                        this.form.amount = '';
-                        this.form.notes = '';
                         this.selectedDate = this.form.business_date;
                         await this.loadData();
+                    } catch (err) {
+                        alert('Network or system error occurred: ' + (err.message || 'Please try again.'));
                     } finally {
                         this.submitting = false;
                     }
@@ -1364,25 +1398,43 @@
                         return;
                     }
 
-                    const response = await fetch('{{ route('shop-owner.cashbook.api.delete-entry') }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        },
-                        body: JSON.stringify({ transaction_id: this.deletingTx.id }),
-                    });
+                    this.submitting = true;
+                    try {
+                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                        const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
 
-                    const payload = await response.json();
-                    if (!payload.success) {
-                        alert(payload.message || 'Unable to delete entry.');
-                        return;
+                        const response = await fetch('{{ route('shop-owner.cashbook.api.delete-entry') }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                            body: JSON.stringify({ transaction_id: this.deletingTx.id }),
+                        });
+
+                        let payload;
+                        try {
+                            payload = await response.json();
+                        } catch (e) {
+                            alert('Server returned an invalid response (HTTP ' + response.status + '). Please reload the page.');
+                            return;
+                        }
+
+                        if (!response.ok || !payload.success) {
+                            alert(payload.message || 'Unable to delete entry.');
+                            return;
+                        }
+
+                        this.openDetailsModal = false;
+                        this.openDeleteModal = false;
+                        this.deletingTx = null;
+                        await this.loadData();
+                    } catch (err) {
+                        alert('Network error: ' + (err.message || 'Please try again.'));
+                    } finally {
+                        this.submitting = false;
                     }
-
-                    this.openDetailsModal = false;
-                    this.openDeleteModal = false;
-                    this.deletingTx = null;
-                    await this.loadData();
                 },
 
                 async submitDeleteCollection(referenceId) {
@@ -1390,24 +1442,41 @@
                         return;
                     }
 
-                    const response = await fetch('{{ route('shop-owner.cashbook.api.delete-collection') }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        },
-                        body: JSON.stringify({ reference_id: referenceId }),
-                    });
+                    this.submitting = true;
+                    try {
+                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                        const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
 
-                    const payload = await response.json();
-                    if (!payload.success) {
-                        alert(payload.message || 'Unable to delete collection.');
-                        return;
+                        const response = await fetch('{{ route('shop-owner.cashbook.api.delete-collection') }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                            body: JSON.stringify({ reference_id: referenceId }),
+                        });
+
+                        let payload;
+                        try {
+                            payload = await response.json();
+                        } catch (e) {
+                            alert('Server returned an invalid response (HTTP ' + response.status + '). Please reload the page.');
+                            return;
+                        }
+
+                        if (!response.ok || !payload.success) {
+                            alert(payload.message || 'Unable to delete collection.');
+                            return;
+                        }
+
+                        this.openCardModal = false;
+                        await this.loadData();
+                    } catch (err) {
+                        alert('Network error: ' + (err.message || 'Please try again.'));
+                    } finally {
+                        this.submitting = false;
                     }
-
-                    this.openDetailsModal = false;
-                    this.openCardModal = false;
-                    await this.loadData();
                 },
 
                 currency(value) {

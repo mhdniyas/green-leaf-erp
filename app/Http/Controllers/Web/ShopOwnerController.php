@@ -991,9 +991,9 @@ class ShopOwnerController extends Controller
         $shop = $this->ownedAccountingShop($request);
         $validated = $request->validate([
             'business_date' => ['required', 'date_format:Y-m-d'],
-            'entry_type_code' => ['required_without:collection_group_id', 'string', 'exists:ledger_entry_types,code'],
-            'amount' => ['required_without:collection_group_id', 'numeric', 'min:0.01'],
-            'funding_source' => ['nullable', 'in:sales,petty,company,bank,external,company_later,none'],
+            'entry_type_code' => ['required_without:collection_group_id', 'nullable', 'string', 'exists:ledger_entry_types,code'],
+            'amount' => ['required_without:collection_group_id', 'nullable', 'numeric', 'min:0.01'],
+            'funding_source' => ['nullable', 'string', 'in:sales,petty,company,bank,external,company_later,none'],
             'notes' => ['nullable', 'string', 'max:255'],
             'collection_group_id' => ['nullable', 'integer', 'exists:shop_ledger_collection_groups,id'],
             'collection_lines' => ['nullable', 'array'],
@@ -1043,6 +1043,12 @@ class ShopOwnerController extends Controller
                 'transaction' => $result['transaction']->load('entryType'),
                 'snapshot' => $result['snapshot'],
             ]);
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->validator->errors()->first() ?: $exception->getMessage(),
+                'errors' => $exception->validator->errors(),
+            ], 422);
         } catch (Throwable $exception) {
             return response()->json([
                 'success' => false,
@@ -1057,6 +1063,7 @@ class ShopOwnerController extends Controller
         $validated = $request->validate([
             'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
             'amount' => ['required', 'numeric', 'min:0.01'],
+            'funding_source' => ['nullable', 'string', 'in:sales,petty,company,bank,external,company_later,none'],
             'notes' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -1068,19 +1075,20 @@ class ShopOwnerController extends Controller
 
             if (! $transaction->canBeEditedByShopOwner()) {
                 throw ValidationException::withMessages([
-                    'transaction_id' => 'Approved entries can only be changed from admin cashbook.',
+                    'transaction_id' => 'Approved or auto-synced invoice entries cannot be changed from shop cashbook.',
                 ]);
             }
 
-            $result = $this->dailyLedgerService->updateEntryAmount(
+            $fundingSource = array_key_exists('funding_source', $validated) ? $validated['funding_source'] : null;
+            $notes = array_key_exists('notes', $validated) ? $validated['notes'] : null;
+
+            $result = $this->dailyLedgerService->updateEntry(
                 (int) $transaction->id,
                 (float) $validated['amount'],
+                $fundingSource,
+                $notes,
                 (int) ($request->user()?->id ?? 1)
             );
-
-            if (array_key_exists('notes', $validated)) {
-                $result['transaction']->update(['notes' => $validated['notes'] ?: null]);
-            }
 
             return response()->json([
                 'success' => true,
@@ -1088,6 +1096,12 @@ class ShopOwnerController extends Controller
                 'transaction' => $result['transaction']->load('entryType'),
                 'snapshot' => $result['snapshot'],
             ]);
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->validator->errors()->first() ?: $exception->getMessage(),
+                'errors' => $exception->validator->errors(),
+            ], 422);
         } catch (Throwable $exception) {
             return response()->json([
                 'success' => false,
@@ -1110,7 +1124,7 @@ class ShopOwnerController extends Controller
 
             if (! $transaction->canBeEditedByShopOwner()) {
                 throw ValidationException::withMessages([
-                    'transaction_id' => 'Approved entries can only be changed from admin cashbook.',
+                    'transaction_id' => 'Approved or auto-synced invoice entries cannot be changed from shop cashbook.',
                 ]);
             }
 

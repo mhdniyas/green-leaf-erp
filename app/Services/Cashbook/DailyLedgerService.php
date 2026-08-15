@@ -33,15 +33,20 @@ class DailyLedgerService
         return ['transaction' => $transaction, 'snapshot' => $snapshot];
     }
 
-    public function updateEntryAmount(int $transactionId, float $newAmount, ?int $updatedBy = null): array
+    public function updateEntry(int $transactionId, float $newAmount, ?string $fundingSource = null, ?string $notes = null, ?int $updatedBy = null): array
     {
         $transaction = ShopLedgerTransaction::findOrFail($transactionId);
         $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
 
-        $transaction = $this->generator->updateAmount($transaction, $newAmount, $updatedBy);
+        $transaction = $this->generator->updateEntry($transaction, $newAmount, $fundingSource, $notes, $updatedBy);
         $snapshot    = $this->calculator->recalculate($transaction->shop_id, $transaction->business_date->toDateString());
 
         return ['transaction' => $transaction, 'snapshot' => $snapshot];
+    }
+
+    public function updateEntryAmount(int $transactionId, float $newAmount, ?int $updatedBy = null): array
+    {
+        return $this->updateEntry($transactionId, $newAmount, null, null, $updatedBy);
     }
 
     public function voidEntry(int $transactionId, int $voidedBy, string $reason): array
