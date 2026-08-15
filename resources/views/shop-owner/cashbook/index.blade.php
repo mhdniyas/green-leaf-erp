@@ -7,7 +7,7 @@
 @php($breadcrumbs = [['label' => 'Dashboard', 'url' => route('shop-owner.dashboard')], ['label' => 'Cashbook']])
 
 @section('page_actions')
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap items-center gap-2">
         <a href="{{ route('shop-owner.cashbook.create', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
             Create Entry
         </a>
@@ -17,6 +17,12 @@
         <a href="{{ route('shop-owner.cashbook.reports', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
             Reports
         </a>
+        <button type="button" @click="reloadPage()" class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-xs transition hover:bg-slate-50 hover:text-slate-900" title="Reload Cashbook Data">
+            <svg class="h-4 w-4" :class="{ 'animate-spin': loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+            </svg>
+        </button>
     </div>
 @endsection
 
@@ -47,6 +53,17 @@
                     :class="activeTab === 'reports' ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'"
                 >
                     Reports
+                </button>
+                <button
+                    type="button"
+                    @click="reloadPage()"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 transition hover:bg-slate-800 hover:text-white"
+                    title="Reload Cashbook Data"
+                >
+                    <svg class="h-4 w-4" :class="{ 'animate-spin': loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                        <path d="M21 3v5h-5" />
+                    </svg>
                 </button>
             </div>
         </header>
@@ -134,6 +151,19 @@
                         </button>
                     </div>
                 </template>
+
+                <button
+                    type="button"
+                    @click="reloadPage()"
+                    class="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900"
+                    title="Reload Data"
+                >
+                    <svg class="h-3.5 w-3.5 text-slate-600" :class="{ 'animate-spin': loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                        <path d="M21 3v5h-5" />
+                    </svg>
+                    <span>Reload</span>
+                </button>
             </div>
         </div>
 
@@ -544,12 +574,12 @@
                     </div>
                     <div class="flex justify-between items-center border-b border-slate-100 pb-2">
                         <span class="text-[10px] font-black uppercase text-slate-400">Approval Status</span>
-                        <template x-if="selectedTx && (selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice' || selectedTx.entry_type_code === 'purchase_bill' || selectedTx?.entry_type?.code === 'purchase_bill')">
+                        <template x-if="selectedTx && (selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice')">
                             <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600">
                                 Read-Only (Auto Invoice Bill)
                             </span>
                         </template>
-                        <template x-if="!selectedTx || !(selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice' || selectedTx.entry_type_code === 'purchase_bill' || selectedTx?.entry_type?.code === 'purchase_bill')">
+                        <template x-if="!selectedTx || !(selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice')">
                             <span
                                 class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider"
                                 :class="selectedTx?.status === 'approved'
@@ -735,11 +765,12 @@
                     breakdown: []
                 },
                 submitting: false,
+                loading: false,
                 showTotalsOnly: false,
-                timeframe: 'daily',
-                activePreset: 'today',
-                startDate: '{{ $selectedDate->toDateString() }}',
-                endDate: '{{ $selectedDate->toDateString() }}',
+                timeframe: '{{ $timeframe ?? request('timeframe', 'daily') }}',
+                activePreset: '{{ ($timeframe ?? request('timeframe')) === 'weekly' ? 'weekly' : (($timeframe ?? request('timeframe')) === 'monthly' ? 'monthly' : (($timeframe ?? request('timeframe')) === 'custom' ? 'custom' : ($selectedDate->toDateString() === today()->subDay()->toDateString() ? 'yesterday' : 'today'))) }}',
+                startDate: '{{ $startDate ?? request('start_date', $selectedDate->toDateString()) }}',
+                endDate: '{{ $endDate ?? request('end_date', $selectedDate->toDateString()) }}',
                 transactions: [],
                 collectionGroups: @json($collectionGroups ?? []),
                 collectionSummaries: [],
@@ -893,9 +924,7 @@
                     if (!tx) return false;
                     if (
                         tx.reference_type === 'App\\Models\\ShopInvoice' ||
-                        tx.reference_type === 'ShopInvoice' ||
-                        tx.entry_type_code === 'purchase_bill' ||
-                        (tx.entry_type && tx.entry_type.code === 'purchase_bill')
+                        tx.reference_type === 'ShopInvoice'
                     ) {
                         return false;
                     }
@@ -1182,6 +1211,19 @@
                     this.openCardModal = true;
                 },
 
+                async reloadPage(fullPage = false) {
+                    if (fullPage) {
+                        window.location.reload();
+                        return;
+                    }
+                    this.loading = true;
+                    try {
+                        await this.loadData();
+                    } finally {
+                        setTimeout(() => { this.loading = false; }, 300);
+                    }
+                },
+
                 setPreset(preset) {
                     this.activePreset = preset;
                     const todayStr = '{{ today()->toDateString() }}';
@@ -1220,6 +1262,16 @@
                 },
 
                 async loadData() {
+                    try {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('date', this.selectedDate);
+                        url.searchParams.set('tab', this.activeTab);
+                        url.searchParams.set('timeframe', this.timeframe);
+                        if (this.startDate) url.searchParams.set('start_date', this.startDate);
+                        if (this.endDate) url.searchParams.set('end_date', this.endDate);
+                        window.history.replaceState({}, '', url);
+                    } catch (e) {}
+
                     const params = new URLSearchParams({
                         business_date: this.selectedDate,
                         timeframe: this.timeframe,

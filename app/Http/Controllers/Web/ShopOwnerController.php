@@ -733,6 +733,9 @@ class ShopOwnerController extends Controller
             'snapshot' => $snapshot,
             'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
             'openModal' => $open === 'line',
+            'timeframe' => (string) $request->input('timeframe', 'daily'),
+            'startDate' => (string) $request->input('start_date', $date),
+            'endDate' => (string) $request->input('end_date', $date),
         ]);
     }
 
@@ -754,10 +757,13 @@ class ShopOwnerController extends Controller
 
     public function cashbookReports(Request $request): RedirectResponse
     {
-        return redirect()->route('shop-owner.cashbook.show', [
+        return redirect()->route('shop-owner.cashbook.show', array_filter([
             'date' => (string) $request->input('date', today()->toDateString()),
             'tab' => 'reports',
-        ]);
+            'timeframe' => (string) $request->input('timeframe', 'daily'),
+            'start_date' => (string) $request->input('start_date', ''),
+            'end_date' => (string) $request->input('end_date', ''),
+        ]));
     }
 
     public function cashbookData(Request $request): JsonResponse

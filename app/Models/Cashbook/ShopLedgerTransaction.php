@@ -86,9 +86,7 @@ class ShopLedgerTransaction extends Model
         if (
             $this->reference_type === 'App\Models\ShopInvoice' ||
             $this->reference_type === \App\Models\ShopInvoice::class ||
-            $this->reference_type === 'ShopInvoice' ||
-            $this->entryType?->code === 'purchase_bill' ||
-            $this->entry_type_code === 'purchase_bill'
+            $this->reference_type === 'ShopInvoice'
         ) {
             return false;
         }
