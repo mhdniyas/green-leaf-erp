@@ -55,7 +55,7 @@ class AdminCashbookReportsTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.cashbook.reports.hub'))
             ->assertOk()
-            ->assertSee('Owned Shops Financial Cards')
+            ->assertSee('Own')
             ->assertSee('Downtown Superstore')
             ->assertSee('Total Gross Sales')
             ->assertSee('Total Expenses');
@@ -207,5 +207,59 @@ class AdminCashbookReportsTest extends TestCase
             ->assertSee('Mobile Outlet')
             ->assertSee('Sales (In)')
             ->assertSee('Expense (Out)');
+    }
+
+    public function test_accounts_role_user_redirects_to_mobile_cashbook_and_can_view_all_data(): void
+    {
+        Role::findOrCreate('accounts', 'web');
+
+        $accountUser = User::factory()->create(['email' => 'accounts@greenleaf.com']);
+        $accountUser->assignRole('accounts');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Mega Mart',
+            'code' => 'SHP-MEGA',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-mega',
+            'enabled' => true,
+        ]);
+
+        // 1. Dashboard redirects accounts role directly to the mobile cashbook hub
+        $this->actingAs($accountUser)
+            ->get(route('dashboard'))
+            ->assertRedirect(route('admin.cashbook.reports.hub'));
+
+        // 2. Can access Hub
+        $this->actingAs($accountUser)
+            ->get(route('admin.cashbook.reports.hub'))
+            ->assertOk()
+            ->assertSee('Own')
+            ->assertSee('Mega Mart');
+
+        // 3. Can access Charts
+        $this->actingAs($accountUser)
+            ->get(route('admin.cashbook.reports.charts'))
+            ->assertOk()
+            ->assertSee('Category Distribution');
+
+        // 4. Can access Analytics
+        $this->actingAs($accountUser)
+            ->get(route('admin.cashbook.reports.analytics'))
+            ->assertOk()
+            ->assertSee('Shop Profitability')
+            ->assertSee('Day-of-Week Profitability Matrix');
+
+        // 5. Can access Mobile Ledger
+        $this->actingAs($accountUser)
+            ->get(route('admin.cashbook.reports.mobile-ledger', 'shp-mega'))
+            ->assertOk()
+            ->assertSee('Mobile Shop Ledger');
     }
 }

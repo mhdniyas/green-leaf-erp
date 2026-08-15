@@ -78,22 +78,30 @@
         </div>
 
         <!-- Segmented iOS Timeframe Bar -->
-        <div class="flex items-center justify-between gap-2 overflow-x-auto py-1">
-            <div class="inline-flex rounded-2xl bg-slate-200/70 p-1">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div class="inline-flex items-center max-w-full overflow-x-auto rounded-2xl bg-slate-200/70 p-1 shrink-0 gap-0.5">
                 <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'today', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Today</a>
-                <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'yesterday', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'yesterday' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Yesterday</a>
                 <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'weekly', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'weekly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Week</a>
                 <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'monthly', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'monthly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Month</a>
+                <!-- Jump to Date Calendar Picker -->
+                <label class="relative flex items-center justify-center cursor-pointer rounded-xl px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all" title="Jump to Specific Date">
+                    <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                    <input
+                        type="date"
+                        class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                        onchange="window.location.href='{{ route('admin.cashbook.reports.charts', ['timeframe' => 'custom', 'shop_id' => $selectedShopId]) }}&start_date=' + this.value + '&end_date=' + this.value"
+                    >
+                </label>
             </div>
 
             <!-- Custom Filter Form -->
-            <form method="GET" action="{{ route('admin.cashbook.reports.charts') }}" class="flex items-center gap-1.5">
+            <form method="GET" action="{{ route('admin.cashbook.reports.charts') }}" class="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
                 <input type="hidden" name="timeframe" value="custom">
                 <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
-                <input type="date" name="start_date" value="{{ $startDate }}" class="h-8 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">
+                <input type="date" name="start_date" value="{{ $startDate }}" class="h-8 flex-1 min-w-[115px] rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">
                 <span class="text-xs font-bold text-slate-400">to</span>
-                <input type="date" name="end_date" value="{{ $endDate }}" class="h-8 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">
-                <button type="submit" class="h-8 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
+                <input type="date" name="end_date" value="{{ $endDate }}" class="h-8 flex-1 min-w-[115px] rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">
+                <button type="submit" class="h-8 shrink-0 rounded-xl bg-slate-900 px-3.5 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
             </form>
         </div>
 

@@ -192,19 +192,19 @@
         <!-- Mobile Bottom Navigation Bar (Screenshot Style) -->
         <div class="fixed bottom-0 left-0 right-0 z-40 block md:hidden bg-white/95 backdrop-blur-md border-t border-slate-100 shadow-[0_-8px_25px_rgba(0,0,0,0.04)] px-4 py-2.5">
             <div class="flex items-center justify-around max-w-md mx-auto">
-                <a href="{{ route('admin.cashbook.reports.hub') }}" class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
+                <a href="{{ route('admin.cashbook.reports.hub', request()->query()) }}" data-nav-hub class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
                     <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
                         <i data-lucide="layout-grid" class="w-5 h-5"></i>
                     </div>
                     <span class="mt-0.5">Finance</span>
                 </a>
-                <a href="{{ route('admin.cashbook.reports.charts') }}" class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.charts') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
+                <a href="{{ route('admin.cashbook.reports.charts', request()->query()) }}" data-nav-charts class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.charts') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
                     <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.charts') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
                         <i data-lucide="line-chart" class="w-5 h-5"></i>
                     </div>
                     <span class="mt-0.5">Analytics</span>
                 </a>
-                <a href="{{ route('admin.cashbook.reports.analytics') }}" class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
+                <a href="{{ route('admin.cashbook.reports.analytics', request()->query()) }}" data-nav-analytics class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
                     <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
                         <i data-lucide="target" class="w-5 h-5"></i>
                     </div>

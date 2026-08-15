@@ -18,6 +18,7 @@
                 startDate: '{{ $startDate }}',
                 endDate: '{{ $endDate }}',
                 searchQuery: '',
+                typeFilter: 'owned', // 'owned', 'direct', 'all' (default: 'owned')
                 loading: false,
                 totals: @json($totals),
                 shopMetrics: @json($shopMetrics->values()),
@@ -30,19 +31,41 @@
                 },
 
                 filteredShops() {
+                    let list = this.shopMetrics;
+
+                    if (this.typeFilter === 'owned') {
+                        list = list.filter(s => s.is_client_owned);
+                    } else if (this.typeFilter === 'direct') {
+                        list = list.filter(s => !s.is_client_owned);
+                    }
+
                     if (!this.searchQuery.trim()) {
-                        return this.shopMetrics;
+                        return list;
                     }
                     const q = this.searchQuery.toLowerCase();
-                    return this.shopMetrics.filter(s =>
+                    return list.filter(s =>
                         s.shop_name.toLowerCase().includes(q) ||
                         s.shop_code.toLowerCase().includes(q)
                     );
                 },
 
+                activeTotals() {
+                    const list = this.filteredShops();
+                    const sales = list.reduce((sum, s) => sum + (parseFloat(s.sales) || 0), 0);
+                    const expense = list.reduce((sum, s) => sum + (parseFloat(s.expense) || 0), 0);
+                    const gl_bills = list.reduce((sum, s) => sum + (parseFloat(s.gl_bills) || 0), 0);
+                    const net = sales - expense;
+                    return {
+                        sales: Math.round(sales * 100) / 100,
+                        expense: Math.round(expense * 100) / 100,
+                        net: Math.round(net * 100) / 100,
+                        gl_bills: Math.round(gl_bills * 100) / 100,
+                        count: list.length,
+                    };
+                },
+
                 timeframeLabel() {
                     if (this.timeframe === 'today') return 'Today';
-                    if (this.timeframe === 'yesterday') return 'Yesterday';
                     if (this.timeframe === 'weekly') return 'This Week';
                     if (this.timeframe === 'monthly') return 'This Month';
                     return this.startDate + ' to ' + this.endDate;
@@ -51,14 +74,10 @@
                 setPreset(preset) {
                     this.timeframe = preset;
                     const todayStr = '{{ today()->toDateString() }}';
-                    const yesterdayStr = '{{ today()->subDay()->toDateString() }}';
 
                     if (preset === 'today') {
                         this.startDate = todayStr;
                         this.endDate = todayStr;
-                    } else if (preset === 'yesterday') {
-                        this.startDate = yesterdayStr;
-                        this.endDate = yesterdayStr;
                     } else if (preset === 'weekly') {
                         this.startDate = '{{ today()->startOfWeek()->toDateString() }}';
                         this.endDate = '{{ today()->endOfWeek()->toDateString() }}';
@@ -72,6 +91,14 @@
                     this.loadData();
                 },
 
+                jumpToDate(selectedDate) {
+                    if (!selectedDate) return;
+                    this.timeframe = 'custom';
+                    this.startDate = selectedDate;
+                    this.endDate = selectedDate;
+                    this.loadData();
+                },
+
                 syncUrl() {
                     try {
                         const url = new URL(window.location.href);
@@ -79,6 +106,14 @@
                         url.searchParams.set('start_date', this.startDate);
                         url.searchParams.set('end_date', this.endDate);
                         window.history.replaceState({}, '', url);
+
+                        document.querySelectorAll('[data-nav-hub], [data-nav-charts], [data-nav-analytics]').forEach(el => {
+                            const navUrl = new URL(el.href);
+                            navUrl.searchParams.set('timeframe', this.timeframe);
+                            navUrl.searchParams.set('start_date', this.startDate);
+                            navUrl.searchParams.set('end_date', this.endDate);
+                            el.href = navUrl.toString();
+                        });
                     } catch (e) {}
                 },
 
@@ -122,27 +157,49 @@
     </script>
 
     <div class="mx-auto max-w-4xl space-y-4" x-data="adminReportsHub()" x-init="init()">
-        <!-- Top Fintech Header -->
-        <div class="flex items-center justify-between pt-1">
-            <div class="min-w-0 pr-2">
-                <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">Finance</h1>
-                <p class="text-xs font-bold text-slate-500 mt-0.5 truncate">Owned Shops Financial Cards <span class="text-slate-400 font-medium">— Live Outlets</span></p>
-            </div>
+        <!-- Top Fintech Header: Full Row with Title, Switcher (Own default), & Refresh Button -->
+        <div class="flex items-center justify-between gap-2 pt-1 border-b border-slate-100 pb-3">
+            <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl shrink-0">Finance</h1>
 
-            <!-- Top Right Action Controls -->
-            <div class="flex items-center gap-2 shrink-0">
-                <a href="{{ route('admin.cashbook.post-entry') }}" class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white shadow-sm transition hover:bg-slate-800" title="Add New Entry">
-                    <i data-lucide="plus" class="w-4 h-4"></i>
-                </a>
-                <button type="button" @click="loadData()" class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-xs transition hover:bg-slate-50" title="Refresh Live Data">
-                    <i data-lucide="refresh-cw" class="w-4 h-4" :class="{ 'animate-spin': loading }"></i>
+            <div class="flex items-center gap-2">
+                <!-- 3-Option Shop Type Switcher (Own, Direct, All) -->
+                <div class="inline-flex items-center gap-0.5 rounded-2xl bg-slate-200/70 p-1 shrink-0">
+                    <button
+                        type="button"
+                        @click="typeFilter = 'owned'"
+                        class="rounded-xl px-2.5 sm:px-3.5 py-1 text-[11px] sm:text-xs font-extrabold transition-all"
+                        :class="typeFilter === 'owned' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                    >
+                        Own
+                    </button>
+                    <button
+                        type="button"
+                        @click="typeFilter = 'direct'"
+                        class="rounded-xl px-2.5 sm:px-3.5 py-1 text-[11px] sm:text-xs font-extrabold transition-all"
+                        :class="typeFilter === 'direct' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                    >
+                        Direct
+                    </button>
+                    <button
+                        type="button"
+                        @click="typeFilter = 'all'"
+                        class="rounded-xl px-2.5 sm:px-3.5 py-1 text-[11px] sm:text-xs font-extrabold transition-all"
+                        :class="typeFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                    >
+                        All
+                    </button>
+                </div>
+
+                <!-- Refresh Control -->
+                <button type="button" @click="loadData()" class="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-xs transition hover:bg-slate-50 shrink-0" title="Refresh Live Data">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5 sm:w-4 sm:h-4" :class="{ 'animate-spin': loading }"></i>
                 </button>
             </div>
         </div>
 
-        <!-- Segmented iOS Timeframe Bar + Search (Responsive 2-column or stacked) -->
+        <!-- Segmented iOS Timeframe Bar (Today, Week, Month, Custom + Calendar Jump) -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div class="inline-flex max-w-full overflow-x-auto rounded-2xl bg-slate-200/70 p-1 shrink-0">
+            <div class="inline-flex items-center max-w-full overflow-x-auto rounded-2xl bg-slate-200/70 p-1 shrink-0 gap-0.5">
                 <button
                     type="button"
                     @click="setPreset('today')"
@@ -150,14 +207,6 @@
                     :class="timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
                 >
                     Today
-                </button>
-                <button
-                    type="button"
-                    @click="setPreset('yesterday')"
-                    class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all"
-                    :class="timeframe === 'yesterday' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
-                >
-                    Yesterday
                 </button>
                 <button
                     type="button"
@@ -183,6 +232,15 @@
                 >
                     Custom
                 </button>
+                <!-- Jump to Date Calendar Picker Button -->
+                <label class="relative flex items-center justify-center cursor-pointer rounded-xl px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all" title="Jump to Specific Date">
+                    <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                    <input
+                        type="date"
+                        class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                        @change="jumpToDate($event.target.value)"
+                    >
+                </label>
             </div>
 
             <!-- Search Pill -->
@@ -198,11 +256,11 @@
         </div>
 
         <!-- Custom Date Range Picker (Accordion if Custom selected) -->
-        <div x-show="timeframe === 'custom'" class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs" x-cloak>
-            <input type="date" x-model="startDate" class="h-8 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-900">
+        <div x-show="timeframe === 'custom'" class="flex flex-wrap sm:flex-nowrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs" x-cloak>
+            <input type="date" x-model="startDate" class="h-8 flex-1 min-w-[120px] rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-900">
             <span class="text-xs font-bold text-slate-400">to</span>
-            <input type="date" x-model="endDate" class="h-8 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-900">
-            <button type="button" @click="loadData()" class="h-8 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
+            <input type="date" x-model="endDate" class="h-8 flex-1 min-w-[120px] rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-900">
+            <button type="button" @click="loadData()" class="h-8 shrink-0 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
         </div>
 
         <!-- Hero Financial Spend Card (Screenshot Match) -->
@@ -210,14 +268,14 @@
             <div class="flex items-center justify-between">
                 <div>
                     <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Consolidated Outlets</span>
-                    <h2 class="mt-0.5 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight" x-text="currency(totals.sales)">{{ number_format($totals['sales'], 2) }}</h2>
+                    <h2 class="mt-0.5 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight" x-text="currency(activeTotals().sales)">{{ number_format($totals['sales'], 2) }}</h2>
                 </div>
                 <div class="text-right">
-                    <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider" :class="totals.net >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">
-                        <span class="h-1.5 w-1.5 rounded-full" :class="totals.net >= 0 ? 'bg-emerald-500' : 'bg-rose-500'"></span>
-                        <span x-text="totals.net >= 0 ? 'Net Profit' : 'Net Loss'"></span>
+                    <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider" :class="activeTotals().net >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">
+                        <span class="h-1.5 w-1.5 rounded-full" :class="activeTotals().net >= 0 ? 'bg-emerald-500' : 'bg-rose-500'"></span>
+                        <span x-text="activeTotals().net >= 0 ? 'Net Profit' : 'Net Loss'"></span>
                     </span>
-                    <p class="mt-1 text-xs font-black" :class="totals.net >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(totals.net)">{{ number_format($totals['net'], 2) }}</p>
+                    <p class="mt-1 text-xs font-black" :class="activeTotals().net >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(activeTotals().net)">{{ number_format($totals['net'], 2) }}</p>
                 </div>
             </div>
 
@@ -242,7 +300,7 @@
             </div>
         </div>
 
-        <!-- 2 Side-by-Side Inflow/Outflow Cards (Screenshot Match) -->
+        <!-- 2 Side-by-Side Inflow/Outflow Cards -->
         <div class="grid grid-cols-2 gap-2.5 sm:gap-3">
             <div class="rounded-2xl border border-slate-100 bg-white p-3.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                 <div class="flex items-center justify-between">
@@ -251,8 +309,13 @@
                         <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
                     </div>
                 </div>
-                <p class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate" x-text="currency(totals.sales)">{{ number_format($totals['sales'], 2) }}</p>
-                <span class="text-[8px] sm:text-[9px] font-bold text-emerald-600 block">Gross inflow</span>
+                <p class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate" x-text="currency(activeTotals().sales)">{{ number_format($totals['sales'], 2) }}</p>
+                <div class="mt-1 flex items-center justify-between gap-1 text-[8px] sm:text-[9px] font-bold">
+                    <span class="text-emerald-600 truncate">Gross inflow</span>
+                    <span class="text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200/60 shrink-0">
+                        <span x-text="activeTotals().count"></span> Outlets
+                    </span>
+                </div>
             </div>
 
             <div class="rounded-2xl border border-slate-100 bg-white p-3.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
@@ -262,68 +325,74 @@
                         <i data-lucide="arrow-down-right" class="w-3.5 h-3.5"></i>
                     </div>
                 </div>
-                <p class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate" x-text="currency(totals.expense)">{{ number_format($totals['expense'], 2) }}</p>
-                <span class="text-[8px] sm:text-[9px] font-bold text-rose-600 block">Total outflow</span>
+                <p class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate" x-text="currency(activeTotals().expense)">{{ number_format($totals['expense'], 2) }}</p>
+                <div class="mt-1 flex items-center justify-between gap-1 text-[8px] sm:text-[9px] font-bold">
+                    <span class="text-rose-600 truncate">Total outflow</span>
+                    <span class="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/90 shrink-0 font-black" title="GL Bill portion of total expenses">
+                        GL Bill: <span x-text="currency(activeTotals().gl_bills)">{{ number_format($totals['gl_bills'], 2) }}</span>
+                    </span>
+                </div>
             </div>
         </div>
 
-        <!-- Accounts / Shops as Tiles Section (Screenshot Match) -->
+        <!-- Accounts / Shops as Tiles Section (Showing 4 MUST Metrics: Sales, Expense, GL Bill, Net) -->
         <div class="space-y-2.5">
             <div class="flex items-center justify-between px-1">
                 <h3 class="text-sm font-black text-slate-900">Accounts &amp; Outlets</h3>
-                <span class="text-[10px] font-bold text-slate-400">{{ $shops->count() }} synced shops</span>
+                <span class="text-[10px] font-bold text-slate-400"><span x-text="filteredShops().length"></span> synced shops</span>
             </div>
 
-            <!-- Modern 2 or 3 Column Tile Grid (Matching Screenshot) -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
+            <!-- Modern Ultra-Compact 3 Column Tile Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                 <template x-for="(item, idx) in filteredShops()" :key="item.shop_id">
-                    <div class="group relative flex flex-col justify-between rounded-2xl border border-slate-150 bg-white p-3.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition-all hover:border-indigo-300 hover:shadow-md">
+                    <div
+                        @click="window.location.href = '{{ url('/admin/cashbook/mobile/ledger') }}/' + item.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                        class="group relative flex flex-col justify-between rounded-xl border border-slate-200/90 bg-white p-3 shadow-xs transition-all hover:border-indigo-400 hover:shadow-md cursor-pointer"
+                    >
                         <div>
-                            <!-- Tile Header: Logo / Avatar Box + Code -->
-                            <div class="flex items-start justify-between">
-                                <div class="flex h-9 w-9 items-center justify-center rounded-xl font-black text-white shadow-xs shrink-0"
-                                     :class="idx % 3 === 0 ? 'bg-gradient-to-tr from-indigo-600 to-indigo-400' : (idx % 3 === 1 ? 'bg-gradient-to-tr from-blue-600 to-sky-400' : 'bg-gradient-to-tr from-teal-600 to-emerald-400')">
-                                    <i data-lucide="store" class="w-4 h-4"></i>
+                            <!-- Header: Icon + Name/Code + Badge (Single Row) -->
+                            <div class="flex items-center justify-between gap-1.5">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <div class="flex h-7 w-7 items-center justify-center rounded-lg font-black text-white shadow-xs shrink-0"
+                                         :class="idx % 3 === 0 ? 'bg-gradient-to-tr from-indigo-600 to-indigo-400' : (idx % 3 === 1 ? 'bg-gradient-to-tr from-blue-600 to-sky-400' : 'bg-gradient-to-tr from-teal-600 to-emerald-400')">
+                                        <i data-lucide="store" class="w-3.5 h-3.5"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <!-- Clickable Shop Name -> Details Page -->
+                                        <span
+                                            @click.stop="window.location.href = '{{ url('/admin/cashbook/reports/shop') }}/' + item.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                                            class="text-xs font-black text-slate-900 truncate leading-tight hover:text-indigo-600 hover:underline transition block cursor-pointer"
+                                            x-text="item.shop_name"
+                                            title="View Shop Details"
+                                        ></span>
+                                        <p class="text-[8px] font-bold uppercase text-slate-400 truncate" x-text="item.shop_code"></p>
+                                    </div>
                                 </div>
-                                <span class="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider shrink-0"
+                                <span class="rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider shrink-0"
                                       :class="item.net >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'"
-                                      x-text="item.net >= 0 ? 'Profitable' : 'Loss'">
+                                      x-text="item.net >= 0 ? 'Profit' : 'Loss'">
                                 </span>
                             </div>
 
-                            <!-- Shop Info -->
-                            <div class="mt-2.5">
-                                <h4 class="text-xs font-black text-slate-900 truncate group-hover:text-indigo-600 transition" x-text="item.shop_name"></h4>
-                                <p class="text-[9px] font-bold uppercase text-slate-400 mt-0.5 truncate" x-text="item.shop_code"></p>
-                            </div>
-
-                            <!-- Balance / Sales -->
-                            <div class="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
-                                <div>
-                                    <span class="text-[8px] font-black uppercase text-slate-400 block">Sales</span>
-                                    <span class="text-xs font-black text-slate-900" x-text="currency(item.sales)"></span>
+                            <!-- 4 Key Metrics in 2 Compact Rows (Sales, Expense, GL Bill, Net P/L) -->
+                            <div class="mt-2 pt-2 border-t border-slate-100 grid grid-cols-2 gap-1.5 text-[10px]">
+                                <div class="bg-slate-50/80 rounded-lg px-2 py-1 border border-slate-100">
+                                    <span class="text-[7px] font-black uppercase text-slate-400 block tracking-tight">Total Sales</span>
+                                    <span class="text-[11px] font-black text-slate-900 truncate block" x-text="currency(item.sales)"></span>
                                 </div>
-                                <div class="text-right">
-                                    <span class="text-[8px] font-black uppercase block" :class="item.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">Net P/L</span>
-                                    <span class="text-xs font-black" :class="item.net >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(item.net)"></span>
+                                <div class="bg-slate-50/80 rounded-lg px-2 py-1 border border-slate-100">
+                                    <span class="text-[7px] font-black uppercase text-rose-500 block tracking-tight">Expenses</span>
+                                    <span class="text-[11px] font-black text-rose-600 truncate block" x-text="currency(item.expense)"></span>
+                                </div>
+                                <div class="bg-slate-50/80 rounded-lg px-2 py-1 border border-slate-100">
+                                    <span class="text-[7px] font-black uppercase text-amber-600 block tracking-tight">GL Bill</span>
+                                    <span class="text-[11px] font-black text-amber-700 truncate block" x-text="currency(item.gl_bills)"></span>
+                                </div>
+                                <div class="rounded-lg px-2 py-1 border" :class="item.net >= 0 ? 'bg-emerald-50/60 border-emerald-100' : 'bg-rose-50/60 border-rose-100'">
+                                    <span class="text-[7px] font-black uppercase block tracking-tight" :class="item.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">Net P/L</span>
+                                    <span class="text-[11px] font-black truncate block" :class="item.net >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(item.net)"></span>
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- Direct Tile Actions -->
-                        <div class="mt-3 flex items-center gap-1.5 pt-2 border-t border-slate-100">
-                            <a
-                                :href="'{{ url('/admin/cashbook/reports/shop') }}/' + item.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
-                                class="flex-1 min-w-0 rounded-xl bg-slate-900 py-1.5 text-center text-[10px] font-extrabold text-white transition hover:bg-slate-800"
-                            >
-                                Details
-                            </a>
-                            <a
-                                :href="'{{ url('/admin/cashbook/mobile/ledger') }}/' + item.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
-                                class="flex-1 min-w-0 rounded-xl border border-slate-200 bg-slate-50 py-1.5 text-center text-[10px] font-extrabold text-slate-700 transition hover:bg-slate-100"
-                            >
-                                Ledger
-                            </a>
                         </div>
                     </div>
                 </template>

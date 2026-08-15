@@ -36,6 +36,10 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
+        if ($user->hasRole('accounts') || $user->hasRole('accountant') || $user->hasRole('account')) {
+            return redirect()->route('admin.cashbook.reports.hub');
+        }
+
         if ($user->hasRole('shop')) {
             return redirect()->route('shop.dashboard');
         }

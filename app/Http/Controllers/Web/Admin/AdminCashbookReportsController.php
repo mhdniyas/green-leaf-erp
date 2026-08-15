@@ -29,7 +29,7 @@ class AdminCashbookReportsController extends Controller
      */
     public function hub(Request $request): View
     {
-        $this->ensureMainAdmin($request);
+        $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $timeframe = (string) $request->input('timeframe', 'today');
@@ -62,7 +62,7 @@ class AdminCashbookReportsController extends Controller
      */
     public function detail(Request $request, string $shopParam): View
     {
-        $this->ensureMainAdmin($request);
+        $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $shop = $this->resolveShop($shopParam);
@@ -88,7 +88,7 @@ class AdminCashbookReportsController extends Controller
      */
     public function charts(Request $request): View
     {
-        $this->ensureMainAdmin($request);
+        $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $timeframe = (string) $request->input('timeframe', 'monthly');
@@ -113,7 +113,7 @@ class AdminCashbookReportsController extends Controller
      */
     public function analytics(Request $request): View
     {
-        $this->ensureMainAdmin($request);
+        $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : ($shops->first()?->shop_id);
@@ -134,7 +134,7 @@ class AdminCashbookReportsController extends Controller
      */
     public function apiHubData(Request $request): JsonResponse
     {
-        $this->ensureMainAdmin($request);
+        $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $timeframe = (string) $request->input('timeframe', 'today');
@@ -162,12 +162,27 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
-     * Security guard for Admin Cashbook.
+     * Security guard for Admin Cashbook Reports (Accessible by Main Admin, Admins, and Accounts roles).
      */
-    private function ensureMainAdmin(Request $request): void
+    private function ensureAuthorized(Request $request): void
     {
         $user = $request->user();
-        abort_unless($user instanceof User && $user->isMainAdmin(), 403);
+        abort_unless(
+            $user instanceof User && (
+                $user->isMainAdmin()
+                || $user->hasRole('admin')
+                || $user->hasRole('accounts')
+                || $user->hasRole('accountant')
+                || $user->hasRole('account')
+                || $user->hasAnyPermission([
+                    'accounting.report.view',
+                    'accounting.dashboard.view',
+                    'accounting.ledger.view',
+                    'finance.dashboard.view',
+                ])
+            ),
+            403
+        );
     }
 
     /**
@@ -270,6 +285,8 @@ class AdminCashbookReportsController extends Controller
                 'shop_name' => $shop->name ?: 'Shop #' . $shop->shop_id,
                 'shop_code' => $shop->code ?: ('SHP-' . $shop->shop_id),
                 'shop_slug' => $shop->slug ?: (string) $shop->shop_id,
+                'client_id' => $shop->client_id,
+                'is_client_owned' => $shop->client_id !== null,
                 'sales' => round($sales, 2),
                 'expense' => round($expense, 2),
                 'net' => $net,
@@ -538,7 +555,7 @@ class AdminCashbookReportsController extends Controller
      */
     public function mobileLedger(Request $request, string $shopParam): View
     {
-        $this->ensureMainAdmin($request);
+        $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $shop = $this->resolveShop($shopParam);
