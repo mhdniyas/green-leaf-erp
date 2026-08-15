@@ -196,6 +196,43 @@
                                 <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, Auto Load All processes orders for the <em>next</em> business day instead of the current day. Useful when the trigger fires just after midnight to prepare tomorrow's orders.</span>
                             </span>
                         </label>
+
+                        {{-- Allow Manual Execution toggle --}}
+                        <label class="flex cursor-pointer items-start gap-3">
+                            <input type="hidden" name="auto_load_all_allow_manual" value="0">
+                            <input
+                                id="auto_load_all_allow_manual"
+                                type="checkbox"
+                                name="auto_load_all_allow_manual"
+                                value="1"
+                                {{ old('auto_load_all_allow_manual', $companyDetails['auto_load_all_allow_manual']) ? 'checked' : '' }}
+                                class="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                            >
+                            <span>
+                                <span class="block text-sm font-black text-slate-900">Allow Manual Load All Execution</span>
+                                <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">Enables manual trigger mode allowing admins to run Load All on demand for selected dates and shops.</span>
+                            </span>
+                        </label>
+
+                        {{-- Manual action banner --}}
+                        <div class="rounded-xl border border-violet-300 bg-white p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm">
+                            <div>
+                                <span class="flex items-center gap-1.5 text-xs font-black text-violet-950">
+                                    <svg class="h-4 w-4 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+                                    </svg>
+                                    Manual Load All Trigger
+                                </span>
+                                <span class="block text-xs font-semibold text-slate-500 mt-0.5">Select specific date and shops to process orders manually one by one.</span>
+                            </div>
+                            <a href="{{ route('admin.auto-load-all.create') }}"
+                               class="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-xs font-black text-white shadow-sm transition hover:bg-violet-500 shrink-0">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+                                </svg>
+                                Launch Manual Load All
+                            </a>
+                        </div>
                     </div>
                 </div>
 

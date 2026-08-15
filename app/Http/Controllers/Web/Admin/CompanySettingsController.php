@@ -26,6 +26,7 @@ class CompanySettingsController extends Controller
         'auto_load_all_time',
         'auto_load_all_next_business_day',
         'auto_load_all_delay_seconds',
+        'auto_load_all_allow_manual',
     ];
 
     public function edit(Request $request): View
@@ -52,6 +53,7 @@ class CompanySettingsController extends Controller
             'auto_load_all_time' => $settings->get('auto_load_all_time') ?: '00:15',
             'auto_load_all_next_business_day' => filter_var($settings->get('auto_load_all_next_business_day') ?? false, FILTER_VALIDATE_BOOLEAN),
             'auto_load_all_delay_seconds' => (int) ($settings->get('auto_load_all_delay_seconds') ?: 3),
+            'auto_load_all_allow_manual' => filter_var($settings->get('auto_load_all_allow_manual') ?? true, FILTER_VALIDATE_BOOLEAN),
         ];
 
         $purchaserUsers = User::query()
@@ -64,7 +66,14 @@ class CompanySettingsController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'code', 'warehouse_tag']);
 
-        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers', 'directSaleShops'));
+        $allActiveShops = Shop::query()
+            ->active()
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'warehouse_tag']);
+
+        $operationalDate = app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+
+        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers', 'directSaleShops', 'allActiveShops', 'operationalDate'));
     }
 
     public function update(Request $request): RedirectResponse
@@ -83,6 +92,7 @@ class CompanySettingsController extends Controller
             'auto_load_all_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
             'auto_load_all_next_business_day' => ['nullable', 'boolean'],
             'auto_load_all_delay_seconds' => ['nullable', 'integer', 'min:1', 'max:60'],
+            'auto_load_all_allow_manual' => ['nullable', 'boolean'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
