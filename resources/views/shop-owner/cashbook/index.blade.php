@@ -127,7 +127,7 @@
                         <tr>
                             <th class="px-3 py-2">Date</th>
                             <th class="px-2 py-2 text-center">Status</th>
-                            <th class="px-2 py-2">Funding</th>
+                            <th class="px-2 py-2">Entry Type</th>
                             <th class="px-3 py-2 text-right">Amount</th>
                         </tr>
                     </thead>
@@ -148,16 +148,8 @@
                                         </svg>
                                     </span>
                                 </td>
-                                <td class="px-2 py-1.5" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'">
-                                    <span class="inline-flex items-center gap-1 capitalize font-semibold">
-                                        <svg class="h-3.5 w-3.5" :class="tx.funding_source === 'sales' ? 'text-emerald-500' : (tx.funding_source === 'company' ? 'text-amber-500' : (tx.funding_source === 'bank' || tx.funding_source === 'external' ? 'text-sky-500' : 'text-slate-400'))" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path x-show="tx.funding_source === 'sales'" d="M4 14.5h12M5.5 10.5h9M7 6.5h6" />
-                                            <path x-show="tx.funding_source === 'company'" d="M4 15h12M6 15V6l4-2 4 2v9" />
-                                            <path x-show="tx.funding_source === 'bank' || tx.funding_source === 'external'" d="M3.5 8.5h13M5 8.5v6m4-6v6m4-6v6m4-6v6M3 15.5h14" />
-                                            <path x-show="!['sales','company','bank','external'].includes(tx.funding_source)" d="M5 10h10M4 7h12M4 13h12" />
-                                        </svg>
-                                        <span x-text="fundingSourceLabel(tx.funding_source)"></span>
-                                    </span>
+                                <td class="px-2 py-1.5 font-semibold" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'">
+                                    <span x-text="entryTypeName(tx)"></span>
                                 </td>
                                 <td class="px-3 py-1.5 text-right font-bold text-xs whitespace-nowrap" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(tx.amount)"></td>
                             </tr>
@@ -1016,6 +1008,22 @@
                         amount: tx.amount,
                         notes: tx.notes || '-'
                     }));
+                },
+
+                entryTypeName(tx) {
+                    if (!tx) return '-';
+                    if (tx.entry_type && tx.entry_type.name) {
+                        return tx.entry_type.name;
+                    }
+                    const code = tx.entry_type_code || (tx.entry_type ? tx.entry_type.code : null);
+                    if (code) {
+                        const found = (this.entryTypes || []).find((row) => row.code === code);
+                        if (found && found.name) {
+                            return found.name;
+                        }
+                        return code.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                    }
+                    return '-';
                 },
 
                 selectedEntryTypeName() {
