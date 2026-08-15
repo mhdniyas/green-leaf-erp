@@ -84,13 +84,16 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
-     * Category-Wise Dynamic Graph and Expense Distribution.
+     * Category-Wise Dynamic Graph and Expense Distribution (Owned Shops Only).
      */
     public function charts(Request $request): View
     {
         $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
+        $ownedShops = $shops->filter(fn ($s) => $s->client_id !== null)->values();
+        $shops = $ownedShops->isNotEmpty() ? $ownedShops : $shops;
+
         $timeframe = (string) $request->input('timeframe', 'monthly');
         $dateRange = $this->resolveDateRange($timeframe, $request);
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
@@ -109,13 +112,16 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
-     * Intelligent Analytics Engine with Weekday Profitability & Purchase Optimization.
+     * Intelligent Analytics Engine with Weekday Profitability & Purchase Optimization (Owned Shops Only).
      */
     public function analytics(Request $request): View
     {
         $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
+        $ownedShops = $shops->filter(fn ($s) => $s->client_id !== null)->values();
+        $shops = $ownedShops->isNotEmpty() ? $ownedShops : $shops;
+
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : ($shops->first()?->shop_id);
         $selectedShop = $shops->firstWhere('shop_id', $selectedShopId) ?? $shops->first();
 
@@ -394,21 +400,38 @@ class AdminCashbookReportsController extends Controller
             ->map(fn ($g) => round((float) $g->sum('amount'), 2))
             ->sortDesc();
 
-        // Daily trend data
-        $dailyTrend = $transactions
-            ->groupBy(fn ($t) => Carbon::parse($t->business_date)->format('Y-m-d'))
-            ->sortKeys()
-            ->map(function ($dayGroup, $date) {
-                $daySales = (float) $dayGroup->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))->sum('amount');
-                $dayExpense = (float) $dayGroup->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))->sum('amount');
-                return [
-                    'date' => Carbon::parse($date)->format('d M'),
-                    'sales' => round($daySales, 2),
-                    'expense' => round($dayExpense, 2),
-                    'net' => round($daySales - $dayExpense, 2),
-                ];
-            })
-            ->values();
+        // Daily trend data: continuous daily sequence capped at today for month/week range
+        $periodStart = Carbon::parse($startDate);
+        $periodEnd = Carbon::parse($endDate);
+
+        if ($periodEnd->isFuture()) {
+            $periodEnd = today();
+        }
+
+        $dailyTrend = collect();
+        $current = $periodStart->copy();
+
+        while ($current->lte($periodEnd)) {
+            $dateStr = $current->toDateString();
+            $dayTx = $transactions->filter(fn ($t) => Carbon::parse($t->business_date)->toDateString() === $dateStr);
+
+            $daySales = (float) $dayTx
+                ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
+                ->sum('amount');
+
+            $dayExpense = (float) $dayTx
+                ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
+                ->sum('amount');
+
+            $dailyTrend->push([
+                'date' => $current->format('d M'),
+                'sales' => round($daySales, 2),
+                'expense' => round($dayExpense, 2),
+                'net' => round($daySales - $dayExpense, 2),
+            ]);
+
+            $current->addDay();
+        }
 
         return [
             'expense_categories' => [
@@ -419,7 +442,7 @@ class AdminCashbookReportsController extends Controller
                 'labels' => $incomeCategories->keys()->values(),
                 'data' => $incomeCategories->values(),
             ],
-            'daily_trend' => $dailyTrend,
+            'daily_trend' => $dailyTrend->values(),
             'total_sales' => round($incomeCategories->sum(), 2),
             'total_expense' => round($expenseCategories->sum(), 2),
             'net_profit' => round($incomeCategories->sum() - $expenseCategories->sum(), 2),

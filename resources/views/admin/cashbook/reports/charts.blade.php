@@ -60,14 +60,14 @@
                 <p class="text-xs font-bold text-slate-500 mt-0.5">Category Distribution <span class="text-slate-400 font-medium">&amp; Cashflow Charts</span></p>
             </div>
 
-            <!-- Shop Dropdown Selector -->
+            <!-- Shop Dropdown Selector (Tailwind Styled) -->
             <form method="GET" action="{{ route('admin.cashbook.reports.charts') }}" class="flex items-center gap-2">
                 <input type="hidden" name="timeframe" value="{{ $timeframe }}">
                 <input type="hidden" name="start_date" value="{{ $startDate }}">
                 <input type="hidden" name="end_date" value="{{ $endDate }}">
 
-                <select name="shop_id" onchange="this.form.submit()" class="h-9 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 shadow-xs outline-none focus:border-slate-400">
-                    <option value="">All Outlets</option>
+                <select name="shop_id" onchange="this.form.submit()" class="h-9 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 text-xs font-black text-slate-800 shadow-xs outline-none focus:border-indigo-500 focus:bg-white cursor-pointer transition">
+                    <option value="">All Owned Outlets</option>
                     @foreach ($shops as $s)
                         <option value="{{ $s->shop_id }}" @selected($selectedShopId === $s->shop_id)>
                             {{ $s->name ?: ('Shop #' . $s->shop_id) }}
@@ -77,7 +77,7 @@
             </form>
         </div>
 
-        <!-- Segmented iOS Timeframe Bar -->
+        <!-- Segmented iOS Timeframe Bar (Today, Week, Month + Calendar Jump) -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div class="inline-flex items-center max-w-full overflow-x-auto rounded-2xl bg-slate-200/70 p-1 shrink-0 gap-0.5">
                 <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'today', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Today</a>
