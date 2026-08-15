@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
+use App\Http\Controllers\Web\Admin\AdminAutoLoadAllController;
 use App\Http\Controllers\Web\Admin\AdminCashbookReportsController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\CashbookController;
@@ -618,6 +619,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
+        Route::get('auto-load-all', [AdminAutoLoadAllController::class, 'create'])->name('auto-load-all.create');
         // Cashbook admin dashboard — full port of the standalone ledger-app.
         // Completely isolated from the ShopOwner accounting screens.
         // All routes are guarded at controller level by ensureMainAdmin().

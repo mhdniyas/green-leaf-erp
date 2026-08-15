@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Api\Purchasing\SupplierController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
+use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutSettingsController;
 use App\Http\Controllers\Api\Warehouse\WarehouseScopedLoadoutController;
 use Illuminate\Support\Facades\Route;
 
@@ -60,6 +61,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
         // ── Warehouse Loadout API ─────────────────────────────────────────────
         Route::prefix('warehouse/loadout')->name('warehouse.loadout.')->group(function () {
             Route::get('/', [ApiWarehouseLoadoutController::class, 'index'])->name('index');
+            Route::get('/settings', [ApiWarehouseLoadoutSettingsController::class, 'show'])->name('settings.show');
             Route::get('/{shopOrder}', [ApiWarehouseLoadoutController::class, 'show'])->name('show');
             Route::post('/{shopOrder}/initialize', [ApiWarehouseLoadoutController::class, 'initialize'])->name('initialize');
             Route::post('/{shopOrder}/save', [ApiWarehouseLoadoutController::class, 'save'])->name('save');

@@ -22,6 +22,10 @@ class CompanySettingsController extends Controller
         'allow_historical_invoice_repricing',
         'default_purchaser_user_id',
         'default_direct_sale_shop_id',
+        'auto_load_all_enabled',
+        'auto_load_all_time',
+        'auto_load_all_next_business_day',
+        'auto_load_all_delay_seconds',
     ];
 
     public function edit(Request $request): View
@@ -44,6 +48,10 @@ class CompanySettingsController extends Controller
             'default_direct_sale_shop_id' => ($settings->get('default_direct_sale_shop_id') !== null && $settings->get('default_direct_sale_shop_id') !== '')
                 ? (int) $settings->get('default_direct_sale_shop_id')
                 : null,
+            'auto_load_all_enabled' => filter_var($settings->get('auto_load_all_enabled') ?? false, FILTER_VALIDATE_BOOLEAN),
+            'auto_load_all_time' => $settings->get('auto_load_all_time') ?: '00:15',
+            'auto_load_all_next_business_day' => filter_var($settings->get('auto_load_all_next_business_day') ?? false, FILTER_VALIDATE_BOOLEAN),
+            'auto_load_all_delay_seconds' => (int) ($settings->get('auto_load_all_delay_seconds') ?: 3),
         ];
 
         $purchaserUsers = User::query()
@@ -71,6 +79,10 @@ class CompanySettingsController extends Controller
             'allow_historical_invoice_repricing' => ['nullable', 'boolean'],
             'default_purchaser_user_id' => ['nullable', 'integer', 'exists:users,id'],
             'default_direct_sale_shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'auto_load_all_enabled' => ['nullable', 'boolean'],
+            'auto_load_all_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
+            'auto_load_all_next_business_day' => ['nullable', 'boolean'],
+            'auto_load_all_delay_seconds' => ['nullable', 'integer', 'min:1', 'max:60'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
