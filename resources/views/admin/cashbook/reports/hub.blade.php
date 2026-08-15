@@ -64,6 +64,14 @@
                     };
                 },
 
+                pendingShopsCount() {
+                    return this.filteredShops().filter(s => (s.pending_days_count || 0) > 0).length;
+                },
+
+                totalPendingDays() {
+                    return this.filteredShops().reduce((sum, s) => sum + (s.pending_days_count || 0), 0);
+                },
+
                 timeframeLabel() {
                     if (this.timeframe === 'today') return 'Today';
                     if (this.timeframe === 'weekly') return 'This Week';
@@ -263,6 +271,21 @@
             <button type="button" @click="loadData()" class="h-8 shrink-0 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
         </div>
 
+        <!-- Pending Shop Entry Alert Banner -->
+        <div x-show="totalPendingDays() > 0" class="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-3 flex items-center justify-between gap-3 text-xs font-bold text-amber-900" x-cloak>
+            <div class="flex items-center gap-2">
+                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white shrink-0">
+                    <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                </span>
+                <span>
+                    <span x-text="pendingShopsCount()"></span> <span x-text="pendingShopsCount() === 1 ? 'outlet has' : 'outlets have'"></span> GL bills pending daily sales entry (<span x-text="totalPendingDays()"></span> pending <span x-text="totalPendingDays() === 1 ? 'day' : 'days'"></span>).
+                </span>
+            </div>
+            <span class="text-[10px] font-black uppercase text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0">
+                <span x-text="totalPendingDays()"></span> Pending
+            </span>
+        </div>
+
         <!-- Hero Financial Spend Card (Screenshot Match) -->
         <div class="rounded-[28px] border border-slate-100 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
             <div class="flex items-center justify-between">
@@ -369,8 +392,8 @@
                                     </div>
                                 </div>
                                 <span class="rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider shrink-0"
-                                      :class="item.net >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'"
-                                      x-text="item.net >= 0 ? 'Profit' : 'Loss'">
+                                      :class="item.status === 'pending' ? 'bg-amber-100 text-amber-800' : (item.net >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')"
+                                      x-text="item.status === 'pending' ? 'Pending Entry' : (item.net >= 0 ? 'Profit' : 'Loss')">
                                 </span>
                             </div>
 

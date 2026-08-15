@@ -330,17 +330,42 @@ class AdminCashbookReportsController extends Controller
         return $shops->map(function (ShopLedgerProfile $shop) use ($transactions) {
             $shopTx = $transactions->where('shop_id', $shop->shop_id);
 
-            $sales = (float) $shopTx
+            // Identify GL-bill-only dates for this shop (pending daily shop owner entry)
+            $txByDate = $shopTx->groupBy(
+                fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
+            );
+
+            $pendingGlOnlyDates = [];
+            $activeTx = collect();
+            $pendingGlBillTotal = 0.0;
+
+            foreach ($txByDate as $dateStr => $dayTxs) {
+                $hasNonGlBill = $dayTxs->contains(function ($t) {
+                    $code = $t->entryType?->code ?: $t->entry_type_code;
+                    return $t->reference_type !== 'App\Models\ShopInvoice'
+                        && $t->reference_type !== \App\Models\ShopInvoice::class
+                        && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
+                });
+
+                if (! $hasNonGlBill) {
+                    $pendingGlOnlyDates[] = $dateStr;
+                    $pendingGlBillTotal += (float) $dayTxs->sum('amount');
+                } else {
+                    $activeTx = $activeTx->concat($dayTxs);
+                }
+            }
+
+            $sales = (float) $activeTx
                 ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
                 ->sum('amount');
 
-            $expense = (float) $shopTx
+            $expense = (float) $activeTx
                 ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
                 ->sum('amount');
 
             $net = round($sales - $expense, 2);
 
-            $glBills = (float) $shopTx
+            $glBills = (float) $activeTx
                 ->filter(function ($t) {
                     $code = $t->entryType?->code ?: $t->entry_type_code;
                     return in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
@@ -349,7 +374,11 @@ class AdminCashbookReportsController extends Controller
                 })
                 ->sum('amount');
 
-            $marginPct = $sales > 0 ? round(($net / $sales) * 100, 1) : ($net < 0 ? -100 : 0);
+            $marginPct = $sales > 0 ? round(($net / $sales) * 100, 1) : 0;
+
+            $status = $activeTx->isEmpty() && count($pendingGlOnlyDates) > 0
+                ? 'pending'
+                : ($net >= 0 ? 'profit' : 'loss');
 
             return [
                 'shop_id' => $shop->shop_id,
@@ -362,9 +391,12 @@ class AdminCashbookReportsController extends Controller
                 'expense' => round($expense, 2),
                 'net' => $net,
                 'gl_bills' => round($glBills, 2),
+                'pending_gl_bills' => round($pendingGlBillTotal, 2),
                 'margin_pct' => $marginPct,
-                'entries_count' => $shopTx->count(),
-                'status' => $net >= 0 ? 'profit' : 'loss',
+                'entries_count' => $activeTx->count(),
+                'pending_days_count' => count($pendingGlOnlyDates),
+                'pending_dates' => $pendingGlOnlyDates,
+                'status' => $status,
             ];
         });
     }
@@ -383,26 +415,48 @@ class AdminCashbookReportsController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        $sales = (float) $transactions
+        $txByDate = $transactions->groupBy(
+            fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
+        );
+
+        $pendingGlOnlyDates = [];
+        $activeTransactions = collect();
+
+        foreach ($txByDate as $dateStr => $dayTxs) {
+            $hasNonGlBill = $dayTxs->contains(function ($t) {
+                $code = $t->entryType?->code ?: $t->entry_type_code;
+                return $t->reference_type !== 'App\Models\ShopInvoice'
+                    && $t->reference_type !== \App\Models\ShopInvoice::class
+                    && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
+            });
+
+            if (! $hasNonGlBill) {
+                $pendingGlOnlyDates[] = $dateStr;
+            } else {
+                $activeTransactions = $activeTransactions->concat($dayTxs);
+            }
+        }
+
+        $sales = (float) $activeTransactions
             ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
             ->sum('amount');
 
-        $expense = (float) $transactions
+        $expense = (float) $activeTransactions
             ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
             ->sum('amount');
 
         $net = round($sales - $expense, 2);
 
-        $glBills = (float) $transactions
+        $glBills = (float) $activeTransactions
             ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice')
             ->sum('amount');
 
-        $petty = (float) $transactions
+        $petty = (float) $activeTransactions
             ->filter(fn ($t) => $t->funding_source === 'petty')
             ->sum('amount');
 
         // Category breakdown
-        $categoryBreakdown = $transactions
+        $categoryBreakdown = $activeTransactions
             ->groupBy(fn ($t) => $t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry'))
             ->map(function ($group, $categoryName) {
                 $first = $group->first();
@@ -428,8 +482,10 @@ class AdminCashbookReportsController extends Controller
             'petty' => round($petty, 2),
             'margin_pct' => $sales > 0 ? round(($net / $sales) * 100, 1) : 0,
             'categories' => $categoryBreakdown,
-            'transactions' => $transactions,
-            'total_entries' => $transactions->count(),
+            'transactions' => $activeTransactions,
+            'total_entries' => $activeTransactions->count(),
+            'pending_days_count' => count($pendingGlOnlyDates),
+            'pending_dates' => $pendingGlOnlyDates,
         ];
     }
 

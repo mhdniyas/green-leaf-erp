@@ -314,4 +314,49 @@ class AdminCashbookReportsTest extends TestCase
             ->assertSee('INV-TEST-001')
             ->assertSee('Bills Outlet');
     }
+
+    public function test_overview_cards_excludes_gl_bill_only_days_from_shop_loss_calculations(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Pending Entry Shop',
+            'code' => 'SHP-PND',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-pnd',
+            'enabled' => true,
+        ]);
+
+        $glEntryType = LedgerEntryType::where('code', 'gl_bill')->first()
+            ?? LedgerEntryType::create(['code' => 'gl_bill', 'name' => 'GL Bill', 'category' => 'expense']);
+
+        // Create ONLY a GL Bill transaction for today (no sales recorded)
+        ShopLedgerTransaction::create([
+            'shop_id' => $shop->id,
+            'business_date' => today()->toDateString(),
+            'entry_type_id' => $glEntryType->id,
+            'entry_type_code' => 'gl_bill',
+            'direction' => 'expense',
+            'amount' => 45000.00,
+            'funding_source' => 'company',
+            'status' => 'approved',
+            'reference_type' => 'App\Models\ShopInvoice',
+            'reference_id' => 999,
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.hub', ['timeframe' => 'today']));
+
+        $response->assertOk()
+            ->assertSee('Pending Entry Shop')
+            ->assertSee('Pending Entry');
+    }
 }
