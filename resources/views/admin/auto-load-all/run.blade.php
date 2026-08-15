@@ -148,7 +148,7 @@
 
     <script>
     (() => {
-        const API_BASE = '/api/v1';
+        const API_BASE = '/admin/auto-load-all/api';
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 
         // ── UI refs ────────────────────────────────────────────────────────
@@ -227,14 +227,21 @@
         async function apiGet(path, params = {}) {
             const url = new URL(API_BASE + path, window.location.origin);
             Object.entries(params).forEach(([k, v]) => {
-                if (Array.isArray(v)) v.forEach(i => url.searchParams.append(k + '[]', i));
-                else url.searchParams.set(k, v);
+                if (v !== undefined && v !== null && v !== '') {
+                    if (Array.isArray(v)) v.forEach(i => url.searchParams.append(k + '[]', i));
+                    else url.searchParams.set(k, v);
+                }
             });
             const res = await fetch(url.toString(), {
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin',
             });
-            return res.json();
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                const msg = data?.message || `HTTP ${res.status} ${res.statusText}`;
+                return { success: false, message: msg };
+            }
+            return data;
         }
 
         async function apiPost(path, body = {}) {
@@ -249,7 +256,12 @@
                 credentials: 'same-origin',
                 body: JSON.stringify(body),
             });
-            return res.json();
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                const msg = data?.message || `HTTP ${res.status} ${res.statusText}`;
+                return { success: false, message: msg };
+            }
+            return data;
         }
 
         function delay(seconds) {
@@ -281,7 +293,7 @@
             // ── 1. Fetch manifest ──────────────────────────────────────────
             let manifest;
             try {
-                manifest = await apiGet('/warehouse/loadout', { date, shop_id: undefined });
+                manifest = await apiGet('/manifest', { date, source: 'all' });
             } catch (e) {
                 statusLabel.textContent = 'Failed to fetch orders.';
                 logFailed('Manifest', e.message ?? 'Network error', '');
@@ -342,7 +354,7 @@
                 // 2a. Fetch detail
                 let detail;
                 try {
-                    detail = await apiGet(`/warehouse/loadout/${orderNum}`);
+                    detail = await apiGet(`/orders/${orderNum}`);
                 } catch (e) {
                     failed++;
                     logFailed(displayName, 'Network error fetching details.', orderNum);
@@ -388,7 +400,7 @@
                 // 2c. Save
                 let saveResult;
                 try {
-                    saveResult = await apiPost(`/warehouse/loadout/${orderNum}/save`, {
+                    saveResult = await apiPost(`/orders/${orderNum}/save`, {
                         items,
                         item_unit_qtys: itemUnitQtys,
                     });

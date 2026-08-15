@@ -20,6 +20,7 @@ use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserAccessController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
+use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\Auth\ShopOwnerRegistrationController;
 use App\Http\Controllers\Web\BusinessDaySettingsController;
@@ -620,6 +621,11 @@ Route::middleware('auth')->group(function () {
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
         Route::get('auto-load-all', [AdminAutoLoadAllController::class, 'create'])->name('auto-load-all.create');
+        Route::prefix('auto-load-all/api')->name('auto-load-all.api.')->group(function () {
+            Route::get('/manifest', [ApiWarehouseLoadoutController::class, 'index'])->name('manifest');
+            Route::get('/orders/{shopOrder}', [ApiWarehouseLoadoutController::class, 'show'])->name('show');
+            Route::post('/orders/{shopOrder}/save', [ApiWarehouseLoadoutController::class, 'save'])->name('save');
+        });
         // Cashbook admin dashboard — full port of the standalone ledger-app.
         // Completely isolated from the ShopOwner accounting screens.
         // All routes are guarded at controller level by ensureMainAdmin().
