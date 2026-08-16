@@ -317,10 +317,13 @@
             </div>
 
             <!-- Custom Date Range Picker (shown when custom is selected) -->
-            <div x-show="timeframe === 'custom'" class="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 text-xs">
-                <input type="date" x-model="customStartDate" @change="loadData()" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-xl border border-slate-300">
+            <div x-show="timeframe === 'custom'" class="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 text-xs">
+                <input type="date" x-model="customStartDate" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-xl border border-slate-300">
                 <span class="text-slate-400 font-bold">to</span>
-                <input type="date" x-model="customEndDate" @change="loadData()" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-xl border border-slate-300">
+                <input type="date" x-model="customEndDate" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-xl border border-slate-300">
+                <button type="button" @click="applyCustomDateRange()" class="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-xs shadow-xs transition-all flex items-center gap-1 cursor-pointer">
+                    <i data-lucide="check" class="w-3.5 h-3.5"></i> Apply
+                </button>
             </div>
 
             <!-- Action Buttons -->
@@ -605,10 +608,11 @@
                     </button>
                 </div>
 
-                <div x-show="timeframe === 'custom'" class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-                    <input type="date" x-model="customStartDate" @change="loadData()" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-0.5 rounded-lg border border-slate-300">
+                <div x-show="timeframe === 'custom'" class="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                    <input type="date" x-model="customStartDate" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-0.5 rounded-lg border border-slate-300">
                     <span class="text-slate-400 font-bold">to</span>
-                    <input type="date" x-model="customEndDate" @change="loadData()" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-0.5 rounded-lg border border-slate-300">
+                    <input type="date" x-model="customEndDate" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-0.5 rounded-lg border border-slate-300">
+                    <button type="button" @click="applyCustomDateRange()" class="px-2.5 py-0.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold text-xs shadow-xs transition-all flex items-center gap-1 cursor-pointer">Apply</button>
                 </div>
                 <span class="text-xs text-slate-500 font-mono font-medium" x-text="(transactions || []).length + ' entries'"></span>
             </div>
@@ -1438,6 +1442,19 @@
 
             setTimeframe(tf) {
                 this.timeframe = tf;
+                if (tf !== 'custom') {
+                    this.loadData();
+                }
+            },
+
+            applyCustomDateRange() {
+                if (!this.customStartDate || !this.customEndDate) return;
+                if (this.customStartDate > this.customEndDate) {
+                    const temp = this.customStartDate;
+                    this.customStartDate = this.customEndDate;
+                    this.customEndDate = temp;
+                }
+                this.timeframe = 'custom';
                 this.loadData();
             },
 

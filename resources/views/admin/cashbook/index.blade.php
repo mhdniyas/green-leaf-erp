@@ -329,10 +329,15 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                         Custom
                     </button>
-                    {{-- Hidden date picker (shown on Custom) --}}
-                    <input type="date" id="all-shops-date-input" value="{{ $selectedDate }}"
-                        onchange="onCustomDateChange(this.value)"
-                        class="hidden text-xs font-mono font-bold text-slate-800 px-2.5 py-1 rounded-lg border border-brand-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
+                    {{-- Custom date range picker container with Apply button --}}
+                    <div id="custom-date-container" class="hidden flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-xl border border-slate-200 text-xs">
+                        <input type="date" id="all-shops-start-date" value="{{ $selectedDate }}" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-lg border border-slate-300">
+                        <span class="text-slate-400 font-bold">to</span>
+                        <input type="date" id="all-shops-end-date" value="{{ $selectedDate }}" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-lg border border-slate-300">
+                        <button type="button" onclick="applyCustomHubDateRange()" class="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-lg shadow-xs transition-all cursor-pointer">
+                            Apply
+                        </button>
+                    </div>
 
                     {{-- Active date label --}}
                     <span id="active-date-label" class="sm:ml-auto text-[10px] sm:text-[11px] font-mono font-bold text-slate-500 bg-slate-100 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-200">
@@ -1220,12 +1225,13 @@
             };
             const fmtLabel = d => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
+            const containerEl = document.getElementById('custom-date-container');
+
             if (filter === 'custom') {
-                pickerEl.classList.remove('hidden');
-                pickerEl.focus();
+                if (containerEl) containerEl.classList.remove('hidden');
                 return;
             } else {
-                pickerEl.classList.add('hidden');
+                if (containerEl) containerEl.classList.add('hidden');
             }
 
             let sDate, eDate, labelText;
@@ -1255,18 +1261,38 @@
 
             const sStr = fmt(sDate);
             const eStr = fmt(eDate);
-            pickerEl.value = eStr;
+            const sInput = document.getElementById('all-shops-start-date');
+            const eInput = document.getElementById('all-shops-end-date');
+            if (sInput) sInput.value = sStr;
+            if (eInput) eInput.value = eStr;
             if (labelEl) labelEl.innerText = labelText;
             syncGlobalDate(eStr, sStr, timeframe);
         }
 
-        function onCustomDateChange(val) {
-            const labelEl = document.getElementById('active-date-label');
-            if (labelEl && val) {
-                const d = new Date(val + 'T00:00:00');
-                labelEl.innerText = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        function applyCustomHubDateRange() {
+            const sInput = document.getElementById('all-shops-start-date');
+            const eInput = document.getElementById('all-shops-end-date');
+            if (!sInput || !eInput) return;
+            let sVal = sInput.value;
+            let eVal = eInput.value;
+            if (!sVal || !eVal) return;
+            if (sVal > eVal) {
+                const tmp = sVal; sVal = eVal; eVal = tmp;
+                sInput.value = sVal; eInput.value = eVal;
             }
-            syncGlobalDate(val, val, 'custom');
+            const fmtLabel = dStr => {
+                const parts = dStr.split('-');
+                if (parts.length === 3) {
+                    const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                }
+                return dStr;
+            };
+            const labelEl = document.getElementById('active-date-label');
+            if (labelEl) {
+                labelEl.innerText = (sVal === eVal) ? fmtLabel(sVal) : `${fmtLabel(sVal)} – ${fmtLabel(eVal)}`;
+            }
+            syncGlobalDate(eVal, sVal, 'custom');
         }
         // ─────────────────────────────────────────────────────────────────────
 
