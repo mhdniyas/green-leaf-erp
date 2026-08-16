@@ -200,12 +200,6 @@
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-2 lg:max-w-4xl lg:gap-3 lg:px-4 lg:py-3">
         @include('purchasing.purchaser.partials.feedback')
 
-        @if (session('success'))
-            <div class="rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-2.5 text-xs font-bold text-emerald-900 shadow-2xs">
-                {{ session('success') }}
-            </div>
-        @endif
-
         <div id="global-save-info" class="hidden rounded-xl border border-teal-200/90 bg-teal-50/90 px-4 py-2 text-xs font-bold text-teal-900 shadow-2xs"></div>
 
         {{-- Header section with Date Change Input --}}
