@@ -268,25 +268,27 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Inventory ──────────────────────────────────────────────────────────
-    Route::prefix('inventory')->name('inventory.')->middleware('can:inventory.product.view')->group(function () {
-        Route::get('dashboard', function (Request $request) {
-            return redirect()->route(
-                'inventory.deliveries.dashboard',
-                $request->filled('date') ? ['date' => $request->string('date')->toString()] : []
-            );
-        })->name('dashboard');
-
-        // Products
-        Route::patch('products/status-permissions', [ProductController::class, 'updateStatusPermissions'])->name('products.status-permissions.update');
-        Route::get('products/measures/bulk', [ProductController::class, 'bulkMeasures'])->name('products.measures.bulk');
-        Route::put('products/measures/bulk', [ProductController::class, 'updateBulkMeasures'])->name('products.measures.bulk.update');
-        Route::get('products/measures/bulk/export-json', [ProductController::class, 'exportBulkMeasures'])->name('products.measures.bulk.export-json');
-        Route::post('products/measures/bulk/import-json', [ProductController::class, 'importBulkMeasures'])->name('products.measures.bulk.import-json');
-        Route::get('products/export/csv', [ProductController::class, 'exportCsv'])->name('products.export.csv');
-        Route::get('products/export/pdf', [ProductController::class, 'exportPdf'])->name('products.export.pdf');
-        Route::get('products/export/whatsapp', [ProductController::class, 'exportWhatsApp'])->name('products.export.whatsapp');
+    Route::prefix('inventory')->name('inventory.')->group(function () {
         Route::patch('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status.update');
-        Route::get('products-trash', [ProductController::class, 'trash'])->name('products.trash');
+
+        Route::middleware('can:inventory.product.view')->group(function () {
+            Route::get('dashboard', function (Request $request) {
+                return redirect()->route(
+                    'inventory.deliveries.dashboard',
+                    $request->filled('date') ? ['date' => $request->string('date')->toString()] : []
+                );
+            })->name('dashboard');
+
+            // Products
+            Route::patch('products/status-permissions', [ProductController::class, 'updateStatusPermissions'])->name('products.status-permissions.update');
+            Route::get('products/measures/bulk', [ProductController::class, 'bulkMeasures'])->name('products.measures.bulk');
+            Route::put('products/measures/bulk', [ProductController::class, 'updateBulkMeasures'])->name('products.measures.bulk.update');
+            Route::get('products/measures/bulk/export-json', [ProductController::class, 'exportBulkMeasures'])->name('products.measures.bulk.export-json');
+            Route::post('products/measures/bulk/import-json', [ProductController::class, 'importBulkMeasures'])->name('products.measures.bulk.import-json');
+            Route::get('products/export/csv', [ProductController::class, 'exportCsv'])->name('products.export.csv');
+            Route::get('products/export/pdf', [ProductController::class, 'exportPdf'])->name('products.export.pdf');
+            Route::get('products/export/whatsapp', [ProductController::class, 'exportWhatsApp'])->name('products.export.whatsapp');
+            Route::get('products-trash', [ProductController::class, 'trash'])->name('products.trash');
         Route::patch('products-trash/{product}/restore', [ProductController::class, 'restore'])->name('products.restore');
         Route::delete('products-trash/{product}/force-delete', [ProductController::class, 'forceDelete'])->name('products.force-delete');
         Route::resource('products', ProductController::class);
@@ -341,6 +343,7 @@ Route::middleware('auth')->group(function () {
         Route::get('deliveries/dashboard', DeliveryDashboardController::class)->name('deliveries.dashboard');
         Route::post('deliveries/dashboard/{shopOrder}/lock-invoice', [DeliveryDashboardOperationController::class, 'lockInvoice'])->name('deliveries.dashboard.lock-invoice');
         Route::get('reports/fulfillment', FulfillmentReportController::class)->name('reports.fulfillment');
+        });
     });
 
     // ── Purchasing ─────────────────────────────────────────────────────────
