@@ -291,10 +291,19 @@
         ],
         [
             'label' => 'Loadout',
-            'route' => 'warehouse.loadout.index',
-            'active' => request()->routeIs('warehouse.loadout.*'),
+            'route' => 'warehouse.receiver.checklist',
+            'params' => ['tab' => 'loadout'],
+            'active' => request()->routeIs('warehouse.loadout.*') || (request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'loadout'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.75A1.125 1.125 0 012.625 17.625V4.625L13.5 4.625v14.125m.125-14.125H16.5a1.5 1.5 0 011.06.44l2.625 2.625a1.5 1.5 0 01.44 1.06V17.625a1.125 1.125 0 01-1.125 1.125H18m0 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>',
             'badge' => $wrLoadoutCount,
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Delivery',
+            'route' => 'warehouse.receiver.checklist',
+            'params' => ['tab' => 'confirmed'],
+            'active' => request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'confirmed',
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.75A1.125 1.125 0 0 1 2.625 17.625V4.625L13.5 4.625v14.125m.125-14.125H16.5a1.5 1.5 0 0 1 1.06.44l2.625 2.625a1.5 1.5 0 0 1 .44 1.06V17.625a1.125 1.125 0 0 1-1.125 1.125H18m0 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" /></svg>',
             'type' => 'link',
         ],
         [
@@ -559,11 +568,14 @@
                         <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'inventory']) }}" :active="request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'inventory'" :sub="true" :badge="$wrStockCount" badge-tone="success">
                             Inventory
                         </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'loadout']) }}" :active="request()->routeIs('warehouse.loadout.*') || (request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'loadout')" :sub="true" :badge="$wrLoadoutCount" badge-tone="success">
+                            Loadout
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'confirmed']) }}" :active="request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'confirmed'" :sub="true">
+                            Delivery
+                        </x-nav-item>
                         <x-nav-item href="{{ route('warehouse.receiver.products.index') }}" :active="request()->routeIs('warehouse.receiver.products.*')" :sub="true">
                             Products
-                        </x-nav-item>
-                        <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true" :badge="$wrLoadoutCount" badge-tone="success">
-                            Loadout
                         </x-nav-item>
                         <x-nav-item href="{{ route('warehouse.receiver.sort-sheet.index') }}" :active="request()->routeIs('warehouse.receiver.sort-sheet.*')" :sub="true">
                             Sort Sheet

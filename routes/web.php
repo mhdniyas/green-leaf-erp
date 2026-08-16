@@ -583,6 +583,11 @@ Route::middleware('auth')->group(function () {
         Route::post('/loadout/order/{order}/dispatch', [WarehouseReceiverController::class, 'dispatchOrder'])->name('loadout.order.dispatch');
         Route::post('/loadout/order/{order}/dispatch-partial', [WarehouseReceiverController::class, 'dispatchPartialOrder'])->name('loadout.order.dispatch-partial');
         Route::post('/loadout/order/{order}/ship', [WarehouseReceiverController::class, 'shipOrder'])->name('loadout.order.ship');
+        // ── Tab JSON endpoints (lazy-loaded by checklist.blade.php via fetch()) ──
+        Route::get('/tab/pending',    [WarehouseReceiverController::class, 'tabPending'])->name('tab.pending');
+        Route::get('/tab/inventory',  [WarehouseReceiverController::class, 'tabInventory'])->name('tab.inventory');
+        Route::get('/tab/loadout',    [WarehouseReceiverController::class, 'tabLoadout'])->name('tab.loadout');
+        Route::get('/tab/deliveries', [WarehouseReceiverController::class, 'tabDeliveries'])->name('tab.deliveries');
         Route::prefix('sort-sheet')->name('sort-sheet.')->middleware('can:sort.sheet.view')->group(function () {
             Route::get('/', [SortSheetController::class, 'index'])->name('index');
             Route::get('/generate', [SortSheetController::class, 'generate'])->name('generate');

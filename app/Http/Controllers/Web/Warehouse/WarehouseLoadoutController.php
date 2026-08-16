@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Warehouse;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Warehouse\LoadoutIndexRequest;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Shop;
@@ -18,6 +19,7 @@ use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Repositories\Warehouse\ShopOrderLoadoutRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,21 +35,16 @@ class WarehouseLoadoutController extends Controller
         private readonly StockLedgerService $stockLedgerService,
         private readonly PriceBoardService $priceBoardService,
         private readonly ShopInvoiceService $shopInvoiceService,
+        private readonly ShopOrderLoadoutRepository $shopOrderLoadoutRepository,
     ) {}
 
     /**
      * Loadout list — show pending_delivery and ready_for_dispatch orders.
      */
-    public function index(Request $request): View
+    public function index(LoadoutIndexRequest $request): View
     {
         $this->authorizeAccess($request);
-        $validated = $request->validate([
-            'search' => ['nullable', 'string', 'max:120'],
-            'date' => ['nullable', 'date'],
-            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
-            'source' => ['nullable', 'string', 'in:all,shop,direct'],
-            'category_id' => ['nullable', 'integer', 'exists:categories,id'],
-        ]);
+        $validated = $request->validated();
 
         $search = trim((string) ($validated['search'] ?? ''));
         $selectedDate = $validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
@@ -55,53 +52,14 @@ class WarehouseLoadoutController extends Controller
         $selectedSource = (string) ($validated['source'] ?? 'all');
         $selectedCategoryId = isset($validated['category_id']) ? (int) $validated['category_id'] : null;
 
-        $orders = ShopOrder::query()
-            ->whereIn('delivery_status', [
-                'pending_delivery',
-                'ready_for_dispatch',
-                'in_transit',
-                'delivered',
-                'pending_approval',
-                'partially_delivered',
-                'delivery_issue',
-            ])
-            ->with(['shop', 'items.product.category'])
-            ->whereHas('items')
-            ->when($selectedDate, fn ($query) => $query->whereDate('business_date', $selectedDate))
-            ->when($selectedShopId, fn ($query) => $query->where('shop_id', $selectedShopId))
-            ->when($selectedSource === 'all', fn ($query) => $query->where('order_source', '!=', 'admin_direct_purchase'))
-            ->when($selectedSource === 'shop', fn ($query) => $query->where('order_source', 'shop_owner'))
-            ->when($selectedSource === 'direct', fn ($query) => $query->whereIn('order_source', ['admin_direct_purchase', 'direct_sale']))
-            ->when($selectedCategoryId, function ($query) use ($selectedCategoryId): void {
-                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $selectedCategoryId));
-            })
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->where(function ($searchQuery) use ($search): void {
-                    $searchQuery
-                        ->where('order_number', 'like', "%{$search}%")
-                        ->orWhereHas('shop', function ($shopQuery) use ($search): void {
-                            $shopQuery
-                                ->where('name', 'like', "%{$search}%")
-                                ->orWhere('code', 'like', "%{$search}%")
-                                ->orWhere('warehouse_tag', 'like', "%{$search}%");
-                        })
-                        ->orWhereHas('items.product', function ($productQuery) use ($search): void {
-                            $productQuery
-                                ->where('name', 'like', "%{$search}%")
-                                ->orWhere('sku', 'like', "%{$search}%")
-                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
-                        });
-                });
-            })
-            ->orderBy('business_date', 'desc')
-            ->orderBy('created_at', 'asc')
-            ->get()
-            ->map(function (ShopOrder $shopOrder) {
-                $shopOrder->loaded_count = $shopOrder->items->where('sorting_status', 'loaded')->count();
-                $shopOrder->total_count = $shopOrder->items->count();
-
-                return $shopOrder;
-            });
+        $orders = $this->shopOrderLoadoutRepository->loadoutOrders(
+            $selectedDate,
+            $selectedShopId,
+            $selectedSource,
+            $request->categoryIds(),
+            null,
+            $search,
+        );
 
         $shops = Shop::query()
             ->whereHas('orders')
@@ -137,14 +95,19 @@ class WarehouseLoadoutController extends Controller
         // Group items by product — UI shows one merged row per product
         $productGroups = $shopOrder->items
             ->groupBy('product_id')
-            ->map(function ($items) {
+            ->pipe(function ($groups) {
+                $availableByProduct = $this->stockLedgerService->availableSortedStockForProducts(
+                    $groups->keys()->map(fn ($id) => (int) $id)->all()
+                );
+
+                return $groups->map(function ($items) use ($availableByProduct) {
                 $productId = $items->first()->product_id;
                 $totalApproved = $this->loadoutApprovedQuantity($items);
                 $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
                 $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
                 $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
                 $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
-                $available = round($this->stockLedgerService->availableSortedStockForProduct($productId) + $totalLoaded, 3);
+                $available = round((float) ($availableByProduct[$productId] ?? 0.0) + $totalLoaded, 3);
 
                 $firstItem = $items->first();
                 $productBaseUnit = strtolower((string) ($firstItem->product->unit ?? 'kg'));
@@ -173,6 +136,7 @@ class WarehouseLoadoutController extends Controller
                     'is_partially_loaded' => $totalLoaded > 0.0 && $totalBalance > 0.001,
                     'items' => $items,
                 ];
+                });
             })
             ->sortBy(fn (array $group) => Product::sortableSku((string) ($group['product']?->sku ?? '')))
             ->values();

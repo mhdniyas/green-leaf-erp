@@ -22,6 +22,55 @@ class StockLedgerService
         return (float) $lots->sum('available_quantity');
     }
 
+    /**
+     * Bulk version of availableSortedStockForProduct.
+     * Returns a map of [product_id => available_quantity] for all given product IDs.
+     * Uses a single aggregated query instead of one per product.
+     *
+     * @param  array<int, int>  $productIds
+     * @param  int|null  $warehouseId
+     * @return array<int, float>  Keys are product IDs, values are total available sorted stock.
+     */
+    public function availableSortedStockForProducts(array $productIds, ?int $warehouseId = null): array
+    {
+        if ($productIds === []) {
+            return [];
+        }
+
+        $rows = StockMovement::query()
+            ->join('stock_batches', 'stock_batches.id', '=', 'stock_movements.batch_id')
+            ->whereIn('stock_movements.product_id', $productIds)
+            ->whereNull('stock_batches.deleted_at')
+            ->where('stock_batches.status', BatchStatus::Sorted->value)
+            ->when($warehouseId !== null, fn ($query) => $query->where('stock_batches.warehouse_id', $warehouseId))
+            ->selectRaw(
+                'stock_movements.product_id, '.
+                'SUM(CASE '.
+                'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
+                'WHEN stock_movements.type IN (?, ?, ?, ?) THEN -stock_movements.quantity '.
+                'ELSE 0 END) as available_quantity',
+                [
+                    StockMovementType::In->value,
+                    StockMovementType::SaleReversal->value,
+                    StockMovementType::Out->value,
+                    StockMovementType::Wastage->value,
+                    StockMovementType::Sale->value,
+                    StockMovementType::Adjustment->value,
+                ]
+            )
+            ->groupBy('stock_movements.product_id')
+            ->having('available_quantity', '>', 0)
+            ->toBase()
+            ->get();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[(int) $row->product_id] = (float) $row->available_quantity;
+        }
+
+        return $result;
+    }
+
     public function availableStockForProduct(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): float
     {
         $sortedAvailable = $this->availableSortedStockForProduct($productId, $warehouseId, $grade);

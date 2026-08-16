@@ -11,6 +11,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Warehouse\ReceiveIndexRequest;
 use App\Models\Category;
 use App\Models\GoodsReceived;
 use App\Models\PurchaserCart;
@@ -20,9 +21,12 @@ use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
+use App\Repositories\Warehouse\WarehouseReceiveRepository;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -34,311 +38,334 @@ class WarehouseReceiverController extends Controller
 {
     private const BULK_RECEIVE_GRN_LIMIT = 5;
 
-    public function __construct(private readonly StockLedgerService $stockLedgerService) {}
+    public function __construct(
+        private readonly StockLedgerService $stockLedgerService,
+        private readonly WarehouseReceiveRepository $warehouseReceiveRepository,
+        private readonly StockMovementRepository $stockMovementRepository,
+    ) {}
 
     /**
-     * Show the warehouse receive checklist — pending vendor sheets (GRNs) and approved shop orders.
+     * Show the warehouse receive checklist shell.
+     *
+     * Minimal data for page frame (warehouses + categories for filters).
+     * Tab contents are lazy-loaded via web endpoints:
+     *   GET /warehouse-receiver/tab/pending
+     *   GET /warehouse-receiver/tab/inventory
+     *   GET /warehouse-receiver/tab/loadout
+     *   GET /warehouse-receiver/tab/deliveries
      */
-    public function index(Request $request): View
+    public function index(ReceiveIndexRequest $request): View
     {
         $this->authorizeReceiverAccess($request);
-        $request->validate([
-            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
-            'receive_search' => ['nullable', 'string', 'max:120'],
-            'receive_source' => ['nullable', 'string', 'in:all,vendor,direct,batch'],
-            'receive_category_id' => ['nullable', 'integer', 'exists:categories,id'],
+        $validated = $request->validated();
+
+        $date                = $validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $selectedWarehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+        $receiveSearch       = trim((string) ($validated['receive_search'] ?? ''));
+        $receiveSource       = (string) ($validated['receive_source'] ?? 'all');
+        $receiveCategoryId   = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
+
+        $warehouses          = Warehouse::active()->orderBy('name')->get(['id', 'name', 'code']);
+        $receiveCategories   = Category::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+
+        return view('warehouse-receiver.checklist', compact(
+            'date',
+            'selectedWarehouseId',
+            'receiveSearch',
+            'receiveSource',
+            'receiveCategoryId',
+            'warehouses',
+            'receiveCategories',
+        ));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Tab JSON endpoints (session authenticated for web)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function tabPending(ReceiveIndexRequest $request): JsonResponse
+    {
+        $this->authorizeReceiverAccess($request);
+        $validated = $request->validated();
+
+        $date        = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+        $source      = (string) ($validated['receive_source'] ?? 'all');
+        $categoryId  = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
+        $search      = trim((string) ($validated['receive_search'] ?? ''));
+
+        $pendingGrns = $this->warehouseReceiveRepository->pendingGrns($date, $source, $categoryId, $search)
+            ->map(fn ($grn) => [
+                'id'            => $grn->id,
+                'grn_number'    => $grn->grn_number,
+                'status'        => $grn->status,
+                'received_at'   => $grn->received_at?->toDateTimeString(),
+                'supplier_name' => $grn->purchaseOrder?->supplier?->name,
+                'purchaser_name'=> $grn->purchaseOrder?->purchaserCart?->user?->name,
+                'items_count'   => $grn->items->count(),
+                'items'         => $grn->items->map(fn ($item) => [
+                    'product_name'  => $item->product?->name,
+                    'product_sku'   => $item->product?->sku,
+                    'category_name' => $item->product?->category?->name,
+                    'received_qty'  => (float) $item->received_qty,
+                    'unit'          => $item->product?->unit,
+                ]),
+            ]);
+
+        $pendingBatches = $this->warehouseReceiveRepository->pendingBatches($date, $source, $categoryId, $search)
+            ->map(fn ($batch) => [
+                'id'            => $batch->id,
+                'reference'     => $batch->reference,
+                'total_kg'      => (float) $batch->total_kg,
+                'received_at'   => $batch->received_at?->toDateTimeString(),
+                'product_name'  => $batch->product?->name,
+                'product_sku'   => $batch->product?->sku,
+                'category_name' => $batch->product?->category?->name,
+                'unit'          => $batch->product?->unit,
+            ]);
+
+        $directPurchaseGrns = $this->warehouseReceiveRepository->directPurchaseGrns($date);
+        $directProductIds = $directPurchaseGrns
+            ->flatMap(fn ($grn) => $grn->items->pluck('product_id'))
+            ->unique()->values();
+
+        $pendingDirectOrders = $this->warehouseReceiveRepository->pendingDirectPurchaseOrders($date, $source, $categoryId, $search)
+            ->filter(fn (ShopOrder $order) => $order->items->pluck('product_id')->intersect($directProductIds)->isEmpty())
+            ->values()
+            ->map(fn (ShopOrder $order) => [
+                'id'             => $order->id,
+                'order_number'   => $order->order_number,
+                'delivery_status'=> $order->delivery_status,
+                'items'          => $order->items->map(fn ($item) => [
+                    'id'            => $item->id,
+                    'product_name'  => $item->product?->name,
+                    'product_sku'   => $item->product?->sku,
+                    'category_name' => $item->product?->category?->name,
+                    'approved_qty'  => (float) ($item->approved_qty ?: $item->requested_qty),
+                    'unit'          => $item->unit,
+                ]),
+            ]);
+
+        return response()->json([
+            'success'              => true,
+            'date'                 => $date,
+            'pending_grns'         => $pendingGrns->values(),
+            'pending_batches'      => $pendingBatches->values(),
+            'pending_direct_orders'=> $pendingDirectOrders->values(),
+        ]);
+    }
+
+    public function tabInventory(ReceiveIndexRequest $request): JsonResponse
+    {
+        $this->authorizeReceiverAccess($request);
+        $validated = $request->validated();
+
+        $date        = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+        $warehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $inMovements = StockMovement::query()
+            ->whereIn('type', [StockMovementType::In, StockMovementType::SaleReversal])
+            ->when($warehouseId, fn (Builder $q) => $q->where('warehouse_id', $warehouseId))
+            ->with(['product:id,name,unit,category_id', 'product.category:id,name', 'batch:id,reference'])
+            ->orderBy('created_at', 'desc')
+            ->take(20)
+            ->get();
+
+        $outMovements = StockMovement::query()
+            ->whereIn('type', [StockMovementType::Out, StockMovementType::Wastage, StockMovementType::Sale])
+            ->when($warehouseId, fn (Builder $q) => $q->where('warehouse_id', $warehouseId))
+            ->with(['product:id,name,unit,category_id', 'product.category:id,name'])
+            ->orderBy('created_at', 'desc')
+            ->take(20)
+            ->get();
+
+        $stockLevels  = $this->stockMovementRepository->currentStockByProductAndGrade(null, $warehouseId);
+        $latestActivity = $this->warehouseReceiveRepository->latestActivityByStockLevel($stockLevels, $warehouseId);
+
+        $inflows = $inMovements->map(fn ($mov) => [
+            'product_name'  => $mov->product?->name,
+            'category_name' => $mov->product?->category?->name ?? 'Other',
+            'reference'     => $mov->batch?->reference,
+            'quantity'      => (float) $mov->quantity,
+            'unit'          => $mov->product?->unit,
+            'time_formatted'=> $mov->created_at->format('H:i'),
         ]);
 
-        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
-        $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
-        $receiveSearch = trim($request->string('receive_search')->toString());
-        $receiveSource = $request->string('receive_source')->toString() ?: 'all';
-        $receiveCategoryId = $request->integer('receive_category_id') ?: null;
+        $outflows = $outMovements->map(fn ($mov) => [
+            'product_name'  => $mov->product?->name,
+            'category_name' => $mov->product?->category?->name ?? 'Other',
+            'type_label'    => $mov->type instanceof StockMovementType ? $mov->type->label() : (string) $mov->type,
+            'quantity'      => (float) $mov->quantity,
+            'unit'          => $mov->product?->unit,
+            'time_formatted'=> $mov->created_at->format('H:i'),
+        ]);
 
-        // All pending vendor sheets (GRNs) awaiting warehouse receipt confirmation
-        $pendingGrns = GoodsReceived::where('status', 'pending_approval')
-            ->whereDate('received_at', $date)
-            ->with(['purchaseOrder.supplier', 'purchaseOrder.purchaserCart.user', 'items.product.category'])
-            ->when($receiveSource !== 'all' && $receiveSource !== 'vendor', fn ($query) => $query->whereRaw('1 = 0'))
-            ->when($receiveCategoryId, function ($query) use ($receiveCategoryId): void {
-                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $receiveCategoryId));
+        $stockRows = $stockLevels
+            ->sortByDesc(function ($item) use ($latestActivity) {
+                $gradeStr = ($item->grade instanceof \BackedEnum) ? $item->grade->value : (string) $item->grade;
+                $key      = ((int) $item->product_id).'|'.$gradeStr;
+                $rawTs    = $latestActivity[$key] ?? null;
+                return $rawTs ? Carbon::parse($rawTs)->timestamp : 0;
             })
-            ->when($receiveSearch !== '', function ($query) use ($receiveSearch): void {
-                $query->where(function ($searchQuery) use ($receiveSearch): void {
-                    $searchQuery
-                        ->where('grn_number', 'like', "%{$receiveSearch}%")
-                        ->orWhereHas('purchaseOrder.supplier', fn ($supplierQuery) => $supplierQuery->where('name', 'like', "%{$receiveSearch}%"))
-                        ->orWhereHas('purchaseOrder.purchaserCart.user', fn ($userQuery) => $userQuery->where('name', 'like', "%{$receiveSearch}%"))
-                        ->orWhereHas('items.product', function ($productQuery) use ($receiveSearch): void {
-                            $productQuery
-                                ->where('name', 'like', "%{$receiveSearch}%")
-                                ->orWhere('sku', 'like', "%{$receiveSearch}%")
-                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$receiveSearch}%"));
-                        });
-                });
-            })
-            ->orderBy('created_at', 'asc')
-            ->get();
+            ->values()
+            ->map(function ($level) use ($latestActivity) {
+                $gradeStr = ($level->grade instanceof \BackedEnum) ? $level->grade->value : (string) $level->grade;
+                $key      = ((int) $level->product_id).'|'.$gradeStr;
+                $rawTs    = $latestActivity[$key] ?? null;
+                return [
+                    'product_name'  => $level->product_name ?? '',
+                    'product_sku'   => $level->product_sku ?? '',
+                    'category_name' => $level->category_name ?? 'Other',
+                    'current_stock' => round((float) $level->current_stock, 2),
+                    'unit'          => 'kg',
+                    'latest_activity'=> $rawTs ? Carbon::parse($rawTs)->format('Y-m-d H:i') : null,
+                ];
+            });
 
-        // Fetch pending batches for test compatibility
-        $pendingBatches = StockBatch::where('warehouse_receive_pending', true)
-            ->whereDate('received_at', $date)
-            ->with(['product.category'])
-            ->when($receiveSource !== 'all' && $receiveSource !== 'batch', fn ($query) => $query->whereRaw('1 = 0'))
-            ->when($receiveCategoryId, function ($query) use ($receiveCategoryId): void {
-                $query->whereHas('product', fn ($productQuery) => $productQuery->where('category_id', $receiveCategoryId));
-            })
-            ->when($receiveSearch !== '', function ($query) use ($receiveSearch): void {
-                $query->where(function ($searchQuery) use ($receiveSearch): void {
-                    $searchQuery
-                        ->where('reference', 'like', "%{$receiveSearch}%")
-                        ->orWhereHas('product', function ($productQuery) use ($receiveSearch): void {
-                            $productQuery
-                                ->where('name', 'like', "%{$receiveSearch}%")
-                                ->orWhere('sku', 'like', "%{$receiveSearch}%")
-                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$receiveSearch}%"));
-                        });
-                });
-            })
-            ->orderBy('created_at', 'asc')
-            ->get();
+        return response()->json([
+            'success'      => true,
+            'inflows'      => $inflows->values(),
+            'outflows'     => $outflows->values(),
+            'stock_levels' => $stockRows,
+        ]);
+    }
 
-        // Also fetch recently confirmed batches (today) for context
-        $confirmedBatches = StockBatch::where('warehouse_receive_pending', false)
-            ->whereDate('received_at', $date)
-            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
-            ->with(['product.category', 'warehouseConfirmedBy', 'warehouse'])
-            ->orderBy('warehouse_confirmed_at', 'desc')
-            ->get();
+    public function tabLoadout(ReceiveIndexRequest $request): JsonResponse
+    {
+        $this->authorizeReceiverAccess($request);
+        $validated = $request->validated();
 
-        // Fetch recent "In" movements
-        $inMovements = StockMovement::whereIn('type', [
-            StockMovementType::In,
-            StockMovementType::SaleReversal,
-        ])
-            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
-            ->with(['product.category', 'batch'])
-            ->orderBy('created_at', 'desc')
-            ->take(15)
-            ->get();
+        $date = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
 
-        // Map confirmed batches as part of inflows
-        $inflows = collect();
+        $orders = ShopOrder::whereDate('business_date', $date)
+            ->where('state', 'approved')
+            ->with(['shop:id,name,code,warehouse_tag,contact_phone,contact_name'])
+            ->withCount([
+                'items as total_items_count',
+                'items as loaded_items_count' => fn ($q) => $q->where('sorting_status', 'loaded'),
+            ])
+            ->orderBy('created_at')
+            ->get(['id', 'shop_id', 'order_number', 'business_date', 'delivery_status', 'state', 'created_at'])
+            ->map(function (ShopOrder $order) {
+                $total  = (int) $order->total_items_count;
+                $loaded = (int) $order->loaded_items_count;
 
-        foreach ($inMovements as $mov) {
-            $inflows->push((object) [
-                'product_name' => $mov->product->name,
-                'category_name' => $mov->product->category->name ?? 'Other',
-                'grade_label' => $mov->grade instanceof ProductGrade ? $mov->grade->label() : ($mov->grade ? (ProductGrade::tryFrom($mov->grade)?->label() ?? $mov->grade) : 'Unsorted'),
-                'reference' => $mov->batch?->reference,
-                'quantity' => (float) $mov->quantity,
-                'unit' => $mov->product->unit,
-                'timestamp' => $mov->created_at,
-                'time_formatted' => $mov->created_at->format('H:i'),
-                'source' => 'movement',
-            ]);
-        }
+                return [
+                    'id'                => $order->id,
+                    'order_number'      => $order->order_number,
+                    'delivery_status'   => $order->delivery_status,
+                    'display_name'      => $order->loadoutDisplayName(),
+                    'loading_status'    => match (true) {
+                        $total === 0       => 'Pending',
+                        $loaded === $total => 'Loaded',
+                        $loaded > 0        => 'Partially Loaded',
+                        default            => 'Pending',
+                    },
+                    'total_items_count'  => $total,
+                    'loaded_items_count' => $loaded,
+                    'shop' => $order->shop ? [
+                        'warehouse_tag' => $order->shop->warehouse_tag,
+                        'code'          => $order->shop->code,
+                        'contact_phone' => $order->shop->contact_phone,
+                        'contact_name'  => $order->shop->contact_name,
+                    ] : null,
+                    'loadout_url' => route('warehouse.receiver.loadout.show', $order->id),
+                ];
+            });
 
-        foreach ($confirmedBatches as $batch) {
-            $inflows->push((object) [
-                'product_name' => $batch->product->name,
-                'category_name' => $batch->product->category->name ?? 'Other',
-                'grade_label' => 'Unsorted',
-                'reference' => $batch->reference,
-                'quantity' => (float) $batch->total_kg,
-                'unit' => $batch->product->unit,
-                'timestamp' => $batch->warehouse_confirmed_at ?? $batch->created_at,
-                'time_formatted' => ($batch->warehouse_confirmed_at ?? $batch->created_at)->format('H:i'),
-                'source' => 'batch',
-            ]);
-        }
+        return response()->json([
+            'success' => true,
+            'date'    => $date,
+            'orders'  => $orders,
+        ]);
+    }
 
-        $inflows = $inflows->sortByDesc('timestamp')->take(15);
+    public function tabDeliveries(ReceiveIndexRequest $request): JsonResponse
+    {
+        $this->authorizeReceiverAccess($request);
+        $validated = $request->validated();
 
-        // Fetch recent "Out" movements
-        $outMovements = StockMovement::whereIn('type', [
-            StockMovementType::Out,
-            StockMovementType::Wastage,
-            StockMovementType::Sale,
-        ])
-            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
-            ->with(['product.category'])
-            ->orderBy('created_at', 'desc')
-            ->take(15)
-            ->get();
+        $date        = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+        $warehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
 
-        // Fetch active stock levels
-        $stockLevels = app(StockMovementRepository::class)->currentStockByProductAndGrade(null, $selectedWarehouseId);
-
-        // Calculate latest activity timestamp for each stock level
-        foreach ($stockLevels as $item) {
-            if ($item->grade === 'Unsorted') {
-                $latestBatch = StockBatch::where('product_id', $item->product_id)
-                    ->where('status', BatchStatus::Pending)
-                    ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-                $item->latest_activity = $latestBatch ? $latestBatch->created_at : null;
-            } else {
-                $latestMovement = StockMovement::where('product_id', $item->product_id)
-                    ->where('grade', $item->grade)
-                    ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-                $item->latest_activity = $latestMovement ? $latestMovement->created_at : null;
-            }
-        }
-
-        // Sort stock levels by latest_activity descending (latest updates on top)
-        $stockLevels = $stockLevels->sortByDesc(function ($item) {
-            if (! $item->latest_activity) {
-                return 0;
-            }
-
-            return $item->latest_activity instanceof \Carbon\Carbon
-                ? $item->latest_activity->timestamp
-                : Carbon::parse($item->latest_activity)->timestamp;
-        });
-
-        // Build stock map for fulfillment calculations (summed by product_id across all grades)
-        $stockMap = [];
+        $stockLevels = $this->stockMovementRepository->currentStockByProductAndGrade(null, $warehouseId);
+        $stockMap    = [];
         foreach ($stockLevels as $level) {
             $stockMap[$level->product_id] = ($stockMap[$level->product_id] ?? 0.0) + (float) $level->current_stock;
         }
 
-        $directPurchaseGrnProductIds = GoodsReceived::query()
-            ->whereDate('received_at', $date)
-            ->whereIn('status', ['pending_approval', 'approved'])
-            ->whereIn('purchaser_cart_id', PurchaserCart::query()
-                ->where('purchase_source', 'green_leaf_direct_purchase')
-                ->select('id'))
-            ->with('items:id,goods_received_id,product_id')
-            ->get()
-            ->flatMap(fn (GoodsReceived $goodsReceived) => $goodsReceived->items->pluck('product_id'))
-            ->unique()
-            ->values();
+        $orders = ShopOrder::whereDate('business_date', $date)
+            ->with([
+                'shop:id,name,code,warehouse_tag',
+                'items:id,shop_order_id,product_id,approved_qty,requested_qty,loaded_qty,sorting_status,product_grade,unit,loadout_discrepancy_type,loadout_discrepancy_note',
+                'items.product:id,name,unit',
+            ])
+            ->withCount([
+                'items as total_items_count',
+                'items as loaded_items_count' => fn ($q) => $q->where('sorting_status', 'loaded'),
+            ])
+            ->orderBy('created_at')
+            ->get(['id', 'shop_id', 'order_number', 'business_date', 'delivery_status', 'state', 'created_at'])
+            ->map(function (ShopOrder $order) use ($stockMap) {
+                $total  = (int) $order->total_items_count;
+                $loaded = (int) $order->loaded_items_count;
 
-        $pendingDirectPurchaseOrders = ShopOrder::query()
-            ->whereDate('business_date', $date)
-            ->where('order_source', 'admin_direct_purchase')
-            ->where('state', 'approved')
-            ->where('delivery_status', 'pending_delivery')
-            ->where('is_allocation_completed', false)
-            ->with(['items.product.category'])
-            ->whereHas('items')
-            ->when($receiveSource !== 'all' && $receiveSource !== 'direct', fn ($query) => $query->whereRaw('1 = 0'))
-            ->when($receiveCategoryId, function ($query) use ($receiveCategoryId): void {
-                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $receiveCategoryId));
-            })
-            ->when($receiveSearch !== '', function ($query) use ($receiveSearch): void {
-                $query->where(function ($searchQuery) use ($receiveSearch): void {
-                    $searchQuery
-                        ->where('order_number', 'like', "%{$receiveSearch}%")
-                        ->orWhereHas('items.product', function ($productQuery) use ($receiveSearch): void {
-                            $productQuery
-                                ->where('name', 'like', "%{$receiveSearch}%")
-                                ->orWhere('sku', 'like', "%{$receiveSearch}%")
-                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$receiveSearch}%"));
-                        });
-                });
-            })
-            ->get()
-            ->filter(function (ShopOrder $order) use ($directPurchaseGrnProductIds): bool {
-                return $order->items
-                    ->pluck('product_id')
-                    ->intersect($directPurchaseGrnProductIds)
-                    ->isEmpty();
-            })
-            ->values();
+                $totalReq  = 0.0;
+                $totalAvail = 0.0;
+                foreach ($order->items as $item) {
+                    $qty         = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
+                    $stock       = $stockMap[$item->product_id] ?? 0.0;
+                    $totalReq   += $qty;
+                    $totalAvail += min($qty, max(0.0, $stock));
+                }
+                $fulfillmentPct = $totalReq > 0 ? (int) round(($totalAvail / $totalReq) * 100) : 100;
 
-        // Fetch approved daily shop orders for Loadout
-        $approvedOrders = ShopOrder::whereDate('business_date', $date)
-            ->where('state', 'approved')
-            ->with(['shop', 'items.product'])
-            ->get();
+                return [
+                    'id'                  => $order->id,
+                    'order_number'        => $order->order_number,
+                    'delivery_status'     => $order->delivery_status,
+                    'display_name'        => $order->loadoutDisplayName(),
+                    'loading_status'      => match (true) {
+                        $total === 0       => 'Pending',
+                        $loaded === $total => 'Loaded',
+                        $loaded > 0        => 'Partially Loaded',
+                        default            => 'Pending',
+                    },
+                    'total_items_count'   => $total,
+                    'loaded_items_count'  => $loaded,
+                    'fulfillment_percentage' => $fulfillmentPct,
+                    'shop' => $order->shop ? [
+                        'warehouse_tag' => $order->shop->warehouse_tag,
+                        'code'          => $order->shop->code,
+                        'name'          => $order->shop->name,
+                    ] : null,
+                    'dispatch_url'         => route('warehouse.receiver.loadout.order.dispatch', $order->id),
+                    'dispatch_partial_url' => route('warehouse.receiver.loadout.order.dispatch-partial', $order->id),
+                    'ship_url'             => route('warehouse.receiver.loadout.order.ship', $order->id),
+                    'loaded_items' => $order->items
+                        ->where('sorting_status', 'loaded')
+                        ->map(fn ($item) => [
+                            'product_name'     => $item->product?->name,
+                            'product_grade'    => $item->product_grade ?? 'A',
+                            'loaded_qty'       => (float) $item->loaded_qty,
+                            'unit'             => $item->unit,
+                            'discrepancy_type' => $item->loadout_discrepancy_type,
+                            'discrepancy_note' => $item->loadout_discrepancy_note,
+                        ])->values(),
+                    'all_items' => $order->items->map(fn ($item) => [
+                        'product_name'  => $item->product?->name,
+                        'approved_qty'  => (float) ($item->approved_qty ?: $item->requested_qty),
+                        'loaded_qty'    => (float) $item->loaded_qty,
+                        'unit'          => $item->unit,
+                        'sorting_status'=> $item->sorting_status,
+                    ])->values(),
+                ];
+            });
 
-        foreach ($approvedOrders as $order) {
-            $totalItemsCount = $order->items->count();
-            $loadedItemsCount = $order->items->where('sorting_status', 'loaded')->count();
-
-            $order->loaded_items_count = $loadedItemsCount;
-            $order->total_items_count = $totalItemsCount;
-
-            if ($totalItemsCount === 0) {
-                $order->loading_status = 'Pending';
-            } elseif ($loadedItemsCount === $totalItemsCount) {
-                $order->loading_status = 'Loaded';
-            } elseif ($loadedItemsCount > 0) {
-                $order->loading_status = 'Partially Loaded';
-            } else {
-                $order->loading_status = 'Pending';
-            }
-        }
-
-        // Fetch all daily shop orders (for Received outflows tab)
-        $shopOrders = ShopOrder::whereDate('business_date', $date)
-            ->with(['shop', 'items.product'])
-            ->get();
-
-        foreach ($shopOrders as $order) {
-            $totalItemsCount = $order->items->count();
-            $loadedItemsCount = $order->items->where('sorting_status', 'loaded')->count();
-
-            $order->loaded_items_count = $loadedItemsCount;
-            $order->total_items_count = $totalItemsCount;
-
-            if ($totalItemsCount === 0) {
-                $order->loading_status = 'Pending';
-            } elseif ($loadedItemsCount === $totalItemsCount) {
-                $order->loading_status = 'Loaded';
-            } elseif ($loadedItemsCount > 0) {
-                $order->loading_status = 'Partially Loaded';
-            } else {
-                $order->loading_status = 'Pending';
-            }
-
-            // Compute fulfillment stats based on active stock levels
-            $totalRequested = 0;
-            $totalAvailableStock = 0;
-
-            foreach ($order->items as $item) {
-                $qty = $item->approved_qty > 0 ? (float) $item->approved_qty : (float) $item->requested_qty;
-                $stock = $stockMap[$item->product_id] ?? 0.0;
-
-                $totalRequested += $qty;
-                $totalAvailableStock += min($qty, max(0.0, $stock));
-            }
-
-            $order->fulfillment_percentage = $totalRequested > 0
-                ? (int) round(($totalAvailableStock / $totalRequested) * 100)
-                : 100;
-        }
-
-        $warehouses = Warehouse::active()->orderBy('name')->get();
-        $receiveCategories = Category::query()
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name']);
-
-        return view('warehouse-receiver.checklist', compact(
-            'date',
-            'pendingBatches',
-            'pendingGrns',
-            'confirmedBatches',
-            'inflows',
-            'inMovements',
-            'outMovements',
-            'stockLevels',
-            'pendingDirectPurchaseOrders',
-            'approvedOrders',
-            'shopOrders',
-            'selectedWarehouseId',
-            'warehouses',
-            'receiveSearch',
-            'receiveSource',
-            'receiveCategoryId',
-            'receiveCategories',
-        ));
+        return response()->json([
+            'success' => true,
+            'date'    => $date,
+            'orders'  => $orders,
+        ]);
     }
 
     public function receiveDirectPurchase(ShopOrder $order, Request $request): RedirectResponse

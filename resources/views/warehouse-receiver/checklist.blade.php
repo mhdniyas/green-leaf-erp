@@ -1,6 +1,6 @@
 <x-layouts.app title="Warehouse Receive Checklist">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
-        
+
         {{-- Hero Header Section --}}
         <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)] lg:rounded-[2rem] lg:shadow-[0_20px_48px_rgba(15,23,42,0.22)]">
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.25),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#312e81_100%)] px-4 py-4 sm:px-5 lg:px-6 lg:py-6">
@@ -15,19 +15,23 @@
                         <input id="business-date" type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/10 px-3 text-sm font-bold text-white outline-none ring-0 md:w-48 lg:rounded-2xl lg:px-4 cursor-pointer">
                     </form>
                 </div>
-
-                {{-- Stats Grid for context --}}
             </div>
         </section>
 
+        {{-- Tab Navigation --}}
+        <div class="flex gap-1.5 overflow-x-auto pb-1">
+            <button id="nav-pending"   type="button" onclick="switchTab('pending')"   class="wr-nav-btn shrink-0 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white shadow-sm active">Receive</button>
+            <button id="nav-inventory" type="button" onclick="switchTab('inventory')" class="wr-nav-btn shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">Inventory</button>
+            <button id="nav-loadout"   type="button" onclick="switchTab('loadout')"   class="wr-nav-btn shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">Loadout</button>
+            <button id="nav-confirmed" type="button" onclick="switchTab('confirmed')" class="wr-nav-btn shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">Delivery</button>
+        </div>
+
         {{-- Tab Panels --}}
         <div class="mt-2">
-            
+
             {{-- TAB: Receive (Pending) --}}
-            <div id="tab-pending" class="wr-tab active space-y-4">
-                @php
-                    $receiveFiltersActive = filled($receiveSearch) || ($receiveSource ?? 'all') !== 'all' || filled($receiveCategoryId);
-                @endphp
+            <div id="tab-pending" class="wr-tab space-y-4">
+                {{-- Filters (server-rendered, form still posts to normal route) --}}
                 <form action="{{ route('warehouse.receiver.checklist') }}" method="GET" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
                     <input type="hidden" name="date" value="{{ $date }}">
                     <input type="hidden" name="tab" value="pending">
@@ -45,9 +49,7 @@
                                 <option value="batch" @selected(($receiveSource ?? 'all') === 'batch')>Pending Batches</option>
                             </select>
                             <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
-                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                             </div>
                         </div>
                         <div class="relative">
@@ -59,215 +61,17 @@
                                 @endforeach
                             </select>
                             <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
-                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                             </div>
                         </div>
-                        <div class="flex gap-2">
-                            @if($receiveFiltersActive)
-                                <a href="{{ route('warehouse.receiver.checklist', ['date' => $date, 'tab' => 'pending']) }}" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50">Clear</a>
-                            @endif
-                            <button type="submit" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-indigo-600 px-4 text-xs font-black text-white transition-colors hover:bg-indigo-700 md:flex-none">Search</button>
-                        </div>
+                        <button type="submit" class="rounded-xl bg-slate-900 px-4 py-3 text-xs font-black text-white transition-colors hover:bg-slate-700 border-none cursor-pointer">Filter</button>
                     </div>
                 </form>
 
-                @if($pendingGrns->isEmpty() && $pendingBatches->isEmpty() && $pendingDirectPurchaseOrders->isEmpty())
-                    <div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm lg:rounded-[2rem]">
-                        <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100">
-                            <svg class="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                        </div>
-                        <h3 class="text-sm font-bold text-slate-900">{{ $receiveFiltersActive ? 'No matching deliveries' : 'All Clear!' }}</h3>
-                        <p class="mt-1 text-xs text-slate-500">
-                            @if($receiveFiltersActive)
-                                No pending warehouse deliveries match these filters for {{ $date }}.
-                            @else
-                                No pending sheets or batches for {{ $date }}.<br>All stock is in inventory.
-                            @endif
-                        </p>
-                    </div>
-                @else
-                    {{-- Pending GRNs / Vendor Sheets --}}
-                    @if(!$pendingGrns->isEmpty())
-                        <div class="space-y-3">
-                            <div class="flex flex-col gap-3 pl-1 sm:flex-row sm:items-center sm:justify-between">
-                                <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Pending Vendor Sheets</h3>
-                                @php
-                                    $bulkReceiveCount = min($pendingGrns->count(), 5);
-                                @endphp
-                                <form action="{{ route('warehouse.receiver.process-receive-grns.all') }}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
-                                      data-confirm-title="Receive next vendor sheet batch"
-                                      data-confirm-message="Receive the next {{ $bulkReceiveCount }} pending vendor sheet(s) for {{ $date }} using current received quantities and default warehouses?"
-                                      data-confirm-button="Receive next batch">
-                                    @csrf
-                                    <input type="hidden" name="date" value="{{ $date }}">
-                                    <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto">
-                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                                        </svg>
-                                        Receive Next {{ $bulkReceiveCount }}
-                                    </button>
-                                </form>
-                            </div>
-                            <div class="grid gap-3 sm:grid-cols-2">
-                                @foreach($pendingGrns as $grn)
-                                    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex items-center justify-between gap-3 transition hover:border-slate-300">
-                                        <div class="min-w-0 flex-1">
-                                            <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-indigo-700">
-                                                {{ $grn->purchaseOrder?->supplier?->name ?? 'Vendor' }}
-                                            </span>
-                                            <h4 class="text-sm font-black text-slate-900 mt-1.5">{{ $grn->grn_number }}</h4>
-                                            <p class="text-[10px] text-slate-400 font-medium">Purchased by: {{ $grn->purchaseOrder?->purchaserCart?->user?->name ?? 'Purchaser' }}</p>
-                                            <p class="text-[10px] text-slate-500 font-bold mt-1">
-                                                Items: {{ $grn->items->count() }} · {{ number_format((float) $grn->items->sum('received_qty'), 2) }} kg
-                                            </p>
-                                        </div>
-                                        <a href="{{ route('warehouse.receiver.receive-grn', $grn) }}" class="shrink-0 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-3.5 py-2.5 text-xs font-black shadow-sm transition-colors text-decoration-none border-none">
-                                            <span>Open Sheet</span>
-                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                                            </svg>
-                                        </a>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-
-                    @if(!$pendingDirectPurchaseOrders->isEmpty())
-                        <div class="space-y-3 mt-4">
-                            <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500 pl-1">Pending Direct Purchases</h3>
-                            <div class="grid gap-3 sm:grid-cols-2">
-                                @foreach($pendingDirectPurchaseOrders as $order)
-                                    <div class="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
-                                        <div class="flex items-start justify-between gap-3">
-                                            <div class="min-w-0">
-                                                <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">
-                                                    Direct Purchase
-                                                </span>
-                                                <h4 class="mt-1.5 truncate text-sm font-black text-slate-900">{{ $order->order_number }}</h4>
-                                                <p class="mt-1 text-[10px] font-bold text-slate-500">
-                                                    {{ $order->items->count() }} item(s) · {{ number_format((float) $order->items->sum(fn ($item) => $item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty), 2) }} kg
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <form action="{{ route('warehouse.receiver.direct-purchase.receive', $order) }}" method="POST" class="warehouse-confirm-form mt-3 space-y-3 border-t border-dashed border-slate-100 pt-3"
-                                              data-confirm-title="Receive direct purchase"
-                                              data-confirm-message="Receive {{ $order->order_number }} directly into warehouse inventory?"
-                                              data-confirm-button="Receive">
-                                            @csrf
-                                        <div class="space-y-2 rounded-xl bg-slate-50 p-3">
-                                            @foreach($order->items as $item)
-                                                <div class="grid gap-2 rounded-xl bg-white p-2 shadow-sm sm:grid-cols-[1fr_180px] sm:items-center">
-                                                    <div class="min-w-0 text-[11px] font-bold">
-                                                        <div class="flex items-center justify-between gap-3 text-slate-600">
-                                                            <span class="truncate">{{ $item->product?->name ?? 'Product #'.$item->product_id }}</span>
-                                                            <span class="shrink-0 text-slate-900">{{ number_format((float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty), 2) }} {{ $item->unit }}</span>
-                                                        </div>
-                                                        @if ($item->requestedMeasureBreakdownLabel())
-                                                            <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
-                                                        @endif
-                                                    </div>
-                                                    <div class="relative min-w-0">
-                                                        <select name="items[{{ $item->id }}][warehouse_id]" required class="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-xs font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50/50 focus:border-indigo-500 focus:outline-none cursor-pointer">
-                                                            @foreach($warehouses as $wh)
-                                                                <option value="{{ $wh->id }}" @selected(old("items.{$item->id}.warehouse_id", $item->product?->default_warehouse_id) == $wh->id)>
-                                                                    {{ $wh->name }} ({{ $wh->code }})
-                                                                </option>
-                                                            @endforeach
-                                                        </select>
-                                                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
-                                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                                            </svg>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            @endforeach
-                                        </div>
-
-                                            <button type="submit" class="w-full rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 border-none cursor-pointer">
-                                                Receive
-                                            </button>
-                                        </form>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-
-                    {{-- Simple Pending Batches --}}
-                    @if(!$pendingBatches->isEmpty())
-                        <div class="space-y-3 mt-4">
-                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pl-1">
-                                <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Pending Batches</h3>
-                                
-                                {{-- Confirm All Form --}}
-                                <form action="{{ route('warehouse.receiver.confirm-all') }}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
-                                    data-confirm-title="Confirm all batches"
-                                    data-confirm-message="Confirm ALL {{ $pendingBatches->count() }} batch(es) as received? This will move them into active inventory."
-                                    data-confirm-button="Confirm all">
-                                    @csrf
-                                    <input type="hidden" name="date" value="{{ $date }}">
-                                    <button type="submit" class="w-full inline-flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl px-4 py-2.5 text-xs font-black shadow-md transition-all active:scale-98 border-none cursor-pointer">
-                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                                        </svg>
-                                        Confirm All {{ $pendingBatches->count() }} into Inventory
-                                    </button>
-                                </form>
-                            </div>
-
-                            <div class="grid gap-3 sm:grid-cols-2">
-                                @foreach($pendingBatches as $batch)
-                                    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col gap-3">
-                                        <div class="flex items-center gap-3 min-w-0">
-                                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 border border-amber-100">
-                                                <svg class="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                                                </svg>
-                                            </div>
-                                            <div class="min-w-0 flex-1">
-                                                <h4 class="truncate text-sm font-black text-slate-950">{{ $batch->product->name }}</h4>
-                                                <div class="flex items-center gap-2 mt-0.5">
-                                                    <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">
-                                                        {{ number_format((float) $batch->total_kg, 2) }} {{ $batch->product->unit }}
-                                                    </span>
-                                                    <span class="text-[10px] text-slate-400 font-mono">{{ $batch->reference }}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        <form action="{{ route('warehouse.receiver.confirm', $batch) }}" method="POST" class="flex items-center gap-2 pt-3 border-t border-dashed border-slate-100">
-                                            @csrf
-                                                                          <div class="flex-1 min-w-0 relative">
-                                                <select name="warehouse_id" required class="w-full appearance-none rounded-xl border border-slate-200 bg-white pl-3 pr-9 py-2.5 text-xs font-semibold text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none cursor-pointer transition-all hover:bg-slate-50/50">
-                                                    @foreach($warehouses as $wh)
-                                                        <option value="{{ $wh->id }}" @selected(old('warehouse_id', $batch->product->default_warehouse_id) == $wh->id)>
-                                                            {{ $wh->name }} ({{ $wh->code }})
-                                                        </option>
-                                                    @endforeach
-                                                </select>
-                                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
-                                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                                    </svg>
-                                                </div>
-                                            </div>
-                                            <button type="submit" class="shrink-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 text-xs font-black shadow-sm transition-colors border-none cursor-pointer">
-                                                ✓ Received
-                                            </button>
-                                        </form>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-                @endif
+                {{-- Async content area --}}
+                <div id="tab-pending-content">
+                    @include('warehouse-receiver.partials.tab-skeleton', ['lines' => 5])
+                </div>
             </div>
 
             {{-- TAB: Inventory --}}
@@ -281,26 +85,20 @@
                             <select id="inventory-warehouse-filter" name="warehouse_id" onchange="this.form.submit()" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-9 py-2.5 text-xs font-semibold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none cursor-pointer shadow-sm hover:bg-slate-100/50 transition-colors">
                                 <option value="">All Warehouses</option>
                                 @foreach($warehouses as $warehouse)
-                                    <option value="{{ $warehouse->id }}" @selected($selectedWarehouseId === $warehouse->id)>
-                                        {{ $warehouse->name }} ({{ $warehouse->code }})
-                                    </option>
+                                    <option value="{{ $warehouse->id }}" @selected($selectedWarehouseId === $warehouse->id)>{{ $warehouse->name }}</option>
                                 @endforeach
                             </select>
                             <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
-                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                             </div>
                         </div>
                         @if($selectedWarehouseId)
-                            <a href="{{ route('warehouse.receiver.checklist', ['date' => $date, 'tab' => 'inventory']) }}" class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50">
-                                Clear Filter
-                            </a>
+                            <a href="{{ route('warehouse.receiver.checklist', ['date' => $date, 'tab' => 'inventory']) }}" class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50">Clear Filter</a>
                         @endif
                     </div>
                 </form>
-                
-                {{-- Search & Category Filter --}}
+
+                {{-- Client-side search (filters rendered rows) --}}
                 <div class="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center">
                     <div class="relative flex-1">
                         <input type="search" id="inventory-search" oninput="filterInventory()" placeholder="Search product..." class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none">
@@ -310,537 +108,454 @@
                             <option value="">All Categories</option>
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
-                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                         </div>
                     </div>
                 </div>
 
                 {{-- Sub-tab Switcher --}}
                 <div class="flex rounded-2xl bg-slate-200/60 p-1 max-w-sm">
-                    <button type="button" onclick="switchInvSubTab('in')" id="subtab-in" class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all bg-slate-950 text-white shadow-sm border-none cursor-pointer">IN (+)</button>
-                    <button type="button" onclick="switchInvSubTab('out')" id="subtab-out" class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all text-slate-500 hover:text-slate-900 border-none cursor-pointer">OUT (-)</button>
+                    <button type="button" onclick="switchInvSubTab('in')"    id="subtab-in"    class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all bg-slate-950 text-white shadow-sm border-none cursor-pointer">IN (+)</button>
+                    <button type="button" onclick="switchInvSubTab('out')"   id="subtab-out"   class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all text-slate-500 hover:text-slate-900 border-none cursor-pointer">OUT (-)</button>
                     <button type="button" onclick="switchInvSubTab('stock')" id="subtab-stock" class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all text-slate-500 hover:text-slate-900 border-none cursor-pointer">STOCK</button>
                 </div>
 
-                {{-- IN Sub-tab Panel --}}
-                <div id="inv-subtab-in" class="inv-subtab-panel space-y-3">
-                    @if($inflows->isEmpty())
-                        <div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-                            <p class="text-xs text-slate-500">No recent inflows logged.</p>
-                        </div>
-                    @else
-                        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                            <table class="w-full border-collapse text-left text-xs table-fixed">
-                                <thead>
-                                    <tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                        <th class="py-3 px-4 w-2/3">Product</th>
-                                        <th class="py-3 px-4 text-right w-1/3">Quantity</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
-                                    @foreach($inflows as $mov)
-                                        <tr class="inv-inflow-row hover:bg-slate-50/80 transition-colors"
-                                            data-product-name="{{ strtolower($mov->product_name) }}"
-                                            data-category="{{ strtolower($mov->category_name ?? 'Other') }}"
-                                            data-category-display="{{ $mov->category_name ?? 'Other' }}">
-                                            <td class="py-3 px-4">
-                                                <div class="font-bold text-slate-900 truncate">{{ $mov->product_name }}</div>
-                                                @if($mov->reference)
-                                                    <div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">Ref: {{ $mov->reference }}</div>
-                                                @endif
-                                            </td>
-                                            <td class="py-3 px-4 text-right whitespace-nowrap">
-                                                <div class="inline-flex items-center gap-1.5 justify-end">
-                                                    <span class="font-black text-emerald-600 text-sm">
-                                                        +{{ number_format((float) $mov->quantity, 2) }} <span class="text-[10px] text-slate-400 font-medium">{{ $mov->unit }}</span>
-                                                    </span>
-                                                    <svg class="h-4 w-4 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" title="Time: {{ $mov->time_formatted }}">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    @endif
-                </div>
-
-                {{-- OUT Sub-tab Panel --}}
-                <div id="inv-subtab-out" class="inv-subtab-panel hidden space-y-3">
-                    @if($outMovements->isEmpty())
-                        <div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-                            <p class="text-xs text-slate-500">No recent outflows logged.</p>
-                        </div>
-                    @else
-                        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                            <table class="w-full border-collapse text-left text-xs table-fixed">
-                                <thead>
-                                    <tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                        <th class="py-3 px-4 w-2/3">Product</th>
-                                        <th class="py-3 px-4 text-right w-1/3">Quantity</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
-                                    @foreach($outMovements as $mov)
-                                        <tr class="inv-outflow-row hover:bg-slate-50/80 transition-colors"
-                                            data-product-name="{{ strtolower($mov->product->name) }}"
-                                            data-category="{{ strtolower($mov->product->category->name ?? 'Other') }}"
-                                            data-category-display="{{ $mov->product->category->name ?? 'Other' }}">
-                                            <td class="py-3 px-4">
-                                                <div class="font-bold text-slate-900 truncate">{{ $mov->product->name }}</div>
-                                                <div class="text-[10px] text-rose-600/80 font-bold uppercase tracking-wider mt-0.5 truncate">{{ $mov->type->label() }}</div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right whitespace-nowrap">
-                                                <div class="inline-flex items-center gap-1.5 justify-end">
-                                                    <span class="font-black text-rose-600 text-sm">
-                                                        -{{ number_format((float) $mov->quantity, 2) }} <span class="text-[10px] text-slate-400 font-medium">{{ $mov->product->unit }}</span>
-                                                    </span>
-                                                    <svg class="h-4 w-4 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" title="Time: {{ $mov->created_at->format('H:i') }}">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    @endif
-                </div>
-
-                {{-- STOCK Sub-tab Panel --}}
-                <div id="inv-subtab-stock" class="inv-subtab-panel hidden space-y-3">
-                    @if($stockLevels->isEmpty())
-                        <div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-                            <p class="text-xs text-slate-500">No stock currently in inventory.</p>
-                        </div>
-                    @else
-                        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                            <table class="w-full border-collapse text-left text-xs table-fixed">
-                                <thead>
-                                    <tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                        <th class="py-3 px-4 w-12 shrink-0"></th>
-                                        <th class="py-3 px-4 w-2/3">Product</th>
-                                        <th class="py-3 px-4 text-right w-1/3">Current Stock</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
-                                    @foreach($stockLevels as $level)
-                                        <tr class="inv-stock-row hover:bg-slate-50/80 transition-colors"
-                                            data-product-name="{{ strtolower($level->product_name) }}"
-                                            data-category="{{ strtolower($level->category_name ?? 'Other') }}"
-                                            data-category-display="{{ $level->category_name ?? 'Other' }}">
-                                            <td class="py-3 px-4 w-12">
-                                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 border border-indigo-100 overflow-hidden">
-                                                    @if(!empty($level->product_image))
-                                                        <img src="{{ $level->product_image }}" class="h-full w-full object-cover" alt="{{ $level->product_name }}">
-                                                    @else
-                                                        <svg class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                                                        </svg>
-                                                    @endif
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4">
-                                                <div class="font-bold text-slate-900 truncate">{{ $level->product_name }}</div>
-                                                @if(!empty($level->product_sku))
-                                                    <div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">Code: {{ $level->product_sku }}</div>
-                                                @endif
-                                            </td>
-                                            <td class="py-3 px-4 text-right whitespace-nowrap">
-                                                <div class="inline-flex items-center gap-1.5 justify-end">
-                                                    <span class="font-black text-slate-900 text-sm">
-                                                        {{ number_format((float) $level->current_stock, 2) }} <span class="text-[10px] text-slate-400 font-medium">kg</span>
-                                                    </span>
-                                                    @if($level->latest_activity)
-                                                        <svg class="h-4 w-4 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" title="Latest Update: {{ \Carbon\Carbon::parse($level->latest_activity)->format('Y-m-d H:i') }}">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                        </svg>
-                                                    @endif
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    @endif
+                {{-- Async content area --}}
+                <div id="tab-inventory-content">
+                    {{-- Content injected by fetchTabContent('inventory') --}}
                 </div>
             </div>
 
             {{-- TAB: Loadout --}}
             <div id="tab-loadout" class="wr-tab hidden space-y-4">
-                @if($approvedOrders->isEmpty())
-                    <div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-                        <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-50 border border-slate-200">
-                            <svg class="h-7 w-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 011 1v9M17 16h2a1 1 0 001-1v-4a1 1 0 00-.3-.7l-3-3a1 1 0 00-.7-.3h-2m4 9H9m0-9h8" />
-                            </svg>
-                        </div>
-                        <h3 class="text-sm font-bold text-slate-900">No Approved Orders</h3>
-                        <p class="mt-1 text-xs text-slate-500">There are no approved orders to loadout for {{ $date }}.</p>
-                    </div>
-                @else
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        @foreach($approvedOrders as $order)
-                            @php
-                                $color = match($order->loading_status) {
-                                    'Loaded' => 'emerald',
-                                    'Partially Loaded' => 'amber',
-                                    default => 'slate',
-                                };
-                            @endphp
-                            <a href="{{ route('warehouse.loadout.show', $order) }}" class="block text-decoration-none">
-                                <div class="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3 shadow-sm hover:border-indigo-200 transition-colors">
-                                    <div class="min-w-0">
-                                        <div class="flex items-center gap-1.5 flex-wrap mb-1">
-                                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500">
-                                                {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
-                                            </span>
-                                            @if($order->shop?->code)
-                                                <span class="text-[10px] font-mono font-bold text-slate-500">({{ $order->shop->code }})</span>
-                                            @endif
-                                        </div>
-                                        <h4 class="truncate text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
-                                        @if($order->shop?->contact_phone)
-                                            <p class="text-[11px] font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
-                                                <svg class="h-3 w-3 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-2.828-1.41-5.183-3.765-6.593-6.593l1.293-.97c.362-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
-                                                </svg>
-                                                <span>{{ $order->shop->contact_phone }}</span>
-                                                @if($order->shop->contact_name)
-                                                    <span class="text-slate-400 font-normal">({{ $order->shop->contact_name }})</span>
-                                                @endif
-                                            </p>
-                                        @endif
-                                        <p class="text-[10px] text-slate-400 font-medium mt-0.5">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
-                                        <p class="text-[10px] text-slate-500 font-bold mt-1">
-                                            Progress: {{ $order->loaded_items_count }} / {{ $order->total_items_count }} items loaded
-                                        </p>
-                                    </div>
-                                    <div class="text-right shrink-0 flex flex-col items-end gap-2">
-                                        <span class="rounded-full bg-{{ $color }}-50 border border-{{ $color }}-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-{{ $color }}-700">
-                                            {{ $order->loading_status }}
-                                        </span>
-                                        <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                        </svg>
-                                    </div>
-                                </div>
-                            </a>
-                        @endforeach
-                    </div>
-                @endif
+                <div id="tab-loadout-content">
+                    {{-- Content injected by fetchTabContent('loadout') --}}
+                </div>
             </div>
 
             {{-- TAB: Delivery (Confirmed) --}}
             <div id="tab-confirmed" class="wr-tab hidden space-y-4">
                 {{-- Sub-tab Switcher --}}
                 <div class="flex rounded-2xl bg-slate-200/60 p-1 max-w-xs">
-                    <button type="button" onclick="switchDeliverySubTab('orders')" id="del-subtab-btn-orders" class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all bg-slate-950 text-white shadow-sm border-none cursor-pointer">
-                        Orders
-                    </button>
-                    <button type="button" onclick="switchDeliverySubTab('items')" id="del-subtab-btn-items" class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all text-slate-500 hover:text-slate-900 border-none cursor-pointer">
-                        Items List
-                    </button>
+                    <button type="button" onclick="switchDeliverySubTab('orders')" id="del-subtab-btn-orders" class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all bg-slate-950 text-white shadow-sm border-none cursor-pointer">Orders</button>
+                    <button type="button" onclick="switchDeliverySubTab('items')"  id="del-subtab-btn-items"  class="flex-1 rounded-xl py-2 text-center text-xs font-black transition-all text-slate-500 hover:text-slate-900 border-none cursor-pointer">Items List</button>
                 </div>
 
-                {{-- Sub-tab: Orders --}}
+                {{-- Orders sub-tab --}}
                 <div id="del-subtab-orders" class="del-subtab-panel space-y-3">
-                    @if($shopOrders->isEmpty())
-                        <div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-                            <p class="text-xs text-slate-500">No shop orders for {{ $date }}.</p>
-                        </div>
-                    @else
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            @foreach($shopOrders as $order)
-                                @php
-                                    $fulfillmentColor = 'rose';
-                                    $fulfillmentIcon = '✗';
-                                    if ($order->fulfillment_percentage === 100) {
-                                        $fulfillmentColor = 'emerald';
-                                        $fulfillmentIcon = '✓';
-                                    } elseif ($order->fulfillment_percentage > 0) {
-                                        $fulfillmentColor = 'amber';
-                                        $fulfillmentIcon = '⚠';
-                                    }
-
-                                    $loadingColor = match($order->loading_status) {
-                                        'Loaded' => 'emerald',
-                                        'Partially Loaded' => 'amber',
-                                        default => 'slate',
-                                    };
-                                @endphp
-                                
-                                {{-- Hidden template container for this order's items (used by JS to copy into items list) --}}
-                                <div id="order-items-template-{{ $order->id }}" class="hidden">
-                                    <div class="mb-4 rounded-2xl bg-slate-50 border border-slate-200 p-4">
-                                        <div class="flex items-center justify-between gap-3">
-                                            <div>
-                                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">
-                                                    {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
-                                                </span>
-                                                <h4 class="text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
-                                                <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
-                                            </div>
-                                            <div class="text-right">
-                                                <span class="inline-flex items-center gap-1 rounded-full bg-{{ $fulfillmentColor }}-50 border border-{{ $fulfillmentColor }}-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-{{ $fulfillmentColor }}-700">
-                                                    {{ $fulfillmentIcon }} {{ $order->fulfillment_percentage }}% Stock Available
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="space-y-2 mb-6">
-                                        @foreach($order->items as $item)
-                                            @php
-                                                $isLoaded = $item->sorting_status === 'loaded';
-                                                $appQty = $item->approved_qty > 0 ? (float)$item->approved_qty : (float)$item->requested_qty;
-                                                $lodQty = (float)$item->loaded_qty;
-                                            @endphp
-                                            <div class="rounded-xl border border-slate-200 bg-white p-3 flex items-center justify-between gap-3 shadow-xs">
-                                                <div class="min-w-0">
-                                                    <h5 class="truncate text-xs font-black text-slate-900">{{ $item->product->name }}</h5>
-                                                    @if ($item->requestedMeasureBreakdownLabel())
-                                                        <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
-                                                    @endif
-                                                    <p class="text-[10px] font-bold text-slate-500 mt-0.5">
-                                                        Required: <span class="text-indigo-600 font-black">{{ number_format($appQty, 2) }}</span> {{ $item->unit }}
-                                                        @if($isLoaded)
-                                                            · Loaded: <span class="text-emerald-600 font-black">{{ number_format($lodQty, 2) }}</span> {{ $item->unit }}
-                                                        @endif
-                                                    </p>
-                                                </div>
-                                                <div class="shrink-0">
-                                                    @if($isLoaded)
-                                                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">
-                                                            Loaded ✓
-                                                        </span>
-                                                    @else
-                                                        <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700">
-                                                            Pending
-                                                        </span>
-                                                    @endif
-                                                </div>
-                                            </div>
-                                        @endforeach
-                                    </div>
-
-                                    {{-- Deliver Button form --}}
-                                    @if($order->delivery_status === 'pending_delivery' || $order->delivery_status === 'in_transit')
-                                        @if($order->loaded_items_count === $order->total_items_count)
-                                            <form action="{{ route('warehouse.receiver.loadout.order.dispatch', $order) }}" method="POST">
-                                                @csrf
-                                                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-xs font-black uppercase tracking-wider shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 border-none cursor-pointer">
-                                                    Move to Delivery
-                                                </button>
-                                            </form>
-                                        @else
-                                            <button type="button" onclick="confirmPartialDispatch({{ $order->id }}, '{{ $order->order_number }}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-xs font-black uppercase tracking-wider shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 border-none cursor-pointer">
-                                                Move to Delivery (Partial)
-                                            </button>
-                                            <form id="partial-dispatch-form-{{ $order->id }}" action="{{ route('warehouse.receiver.loadout.order.dispatch-partial', $order) }}" method="POST" class="hidden">
-                                                @csrf
-                                            </form>
-                                        @endif
-                                    @else
-                                        <div class="text-center py-3 bg-slate-100 rounded-xl">
-                                            <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-indigo-700">
-                                                Status: Moved to Delivery
-                                            </span>
-                                        </div>
-                                    @endif
-                                </div>
-
-                                {{-- Clickable order card --}}
-                                <div class="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-3 shadow-sm hover:border-indigo-200 transition-colors cursor-pointer"
-                                     onclick="selectOrder({{ $order->id }})">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">
-                                                {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
-                                            </span>
-                                            <h4 class="truncate text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
-                                            <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
-                                        </div>
-                                        <div class="text-right shrink-0 flex flex-col items-end gap-1.5">
-                                            <span class="rounded-full bg-{{ $loadingColor }}-50 border border-{{ $loadingColor }}-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-{{ $loadingColor }}-700">
-                                                {{ $order->loading_status }}
-                                            </span>
-                                            @if($order->delivery_status === 'in_transit')
-                                                <span class="rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-indigo-700">
-                                                    In Transit
-                                                </span>
-                                            @endif
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="flex items-center justify-between pt-2.5 border-t border-dashed border-slate-100">
-                                        <span class="text-[10px] font-bold text-slate-500">
-                                            Items: {{ $order->loaded_items_count }} / {{ $order->total_items_count }} loaded
-                                        </span>
-                                        <span class="inline-flex items-center gap-1 rounded-full bg-{{ $fulfillmentColor }}-50 border border-{{ $fulfillmentColor }}-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-{{ $fulfillmentColor }}-700">
-                                            {{ $fulfillmentIcon }} {{ $order->fulfillment_percentage }}% Stock
-                                        </span>
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
+                    <div id="tab-confirmed-content">
+                        {{-- Content injected by fetchTabContent('confirmed') --}}
+                    </div>
                 </div>
 
-                {{-- Sub-tab: Items --}}
+                {{-- Items sub-tab (JS-populated from order template) --}}
                 <div id="del-subtab-items" class="del-subtab-panel hidden space-y-3">
-                    @if($shopOrders->isEmpty())
+                    <div id="selected-order-items-container">
                         <div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-                            <p class="text-xs text-slate-500">No shop orders for {{ $date }}.</p>
+                            <p class="text-xs text-slate-500">Click an order card to see its item details.</p>
                         </div>
-                    @else
-                        @foreach($shopOrders as $order)
-                            @php
-                                $loadingColor = match($order->loading_status) {
-                                    'Loaded' => 'emerald',
-                                    'Partially Loaded' => 'amber',
-                                    default => 'slate',
-                                };
-                            @endphp
-                            <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
-                                <!-- Collapsible Header -->
-                                <button type="button" 
-                                        onclick="toggleShopCollapse({{ $order->id }})" 
-                                        class="w-full flex items-center justify-between gap-3 bg-slate-50 px-4 py-3.5 text-left border-none cursor-pointer hover:bg-slate-100 transition-colors">
-                                    <div class="min-w-0">
-                                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">
-                                            {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
-                                        </span>
-                                        <h4 class="truncate text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
-                                        <p class="text-[10px] text-slate-400 font-medium font-mono">Order: {{ $order->order_number }}</p>
-                                    </div>
-                                    <div class="flex items-center gap-3 shrink-0">
-                                        <span class="rounded-full bg-{{ $loadingColor }}-50 border border-{{ $loadingColor }}-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-{{ $loadingColor }}-700">
-                                            {{ $order->loading_status }} ({{ $order->loaded_items_count }} / {{ $order->total_items_count }})
-                                        </span>
-                                        <svg id="collapse-chevron-{{ $order->id }}" class="h-4 w-4 text-slate-400 transform transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </div>
-                                </button>
-
-                                <!-- Collapsible Content -->
-                                <div id="collapse-content-{{ $order->id }}" class="hidden border-t border-slate-100 p-4 space-y-4">
-                                    <!-- Table similar to loadout manifest -->
-                                    <div class="overflow-x-auto rounded-xl border border-slate-200">
-                                        <table class="w-full min-w-[500px] border-collapse text-left text-[11px]">
-                                            <thead>
-                                                <tr class="border-b border-slate-200 bg-slate-50 text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                                    <th class="py-2.5 px-3">Product</th>
-                                                    <th class="py-2.5 px-3 text-center">Grade</th>
-                                                    <th class="py-2.5 px-3 text-right">Qty</th>
-                                                    <th class="py-2.5 px-3 text-right">Discrepancy</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y divide-slate-100 font-bold text-slate-700">
-                                                @php $hasLoadedItems = false; @endphp
-                                                @foreach($order->items as $item)
-                                                    @if($item->sorting_status === 'loaded')
-                                                        @php $hasLoadedItems = true; @endphp
-                                                        <tr>
-                                                            <td class="py-2.5 px-3 text-slate-900 font-black">{{ $item->product->name }}</td>
-                                                            <td class="py-2.5 px-3 text-center">
-                                                                <span class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[9px] font-black text-slate-500">
-                                                                    {{ $item->product_grade ?? 'A' }}
-                                                                </span>
-                                                            </td>
-                                                            <td class="py-2.5 px-3 text-right text-slate-900 font-black">
-                                                                {{ number_format((float)$item->loaded_qty, 2) }} <span class="text-[9px] text-slate-400 font-medium">{{ $item->unit }}</span>
-                                                            </td>
-                                                            <td class="py-2.5 px-3 text-right">
-                                                                @if($item->loadout_discrepancy_type && $item->loadout_discrepancy_type !== 'none')
-                                                                    <span class="text-rose-600 font-black">{{ $item->loadout_discrepancy_note }}</span>
-                                                                @else
-                                                                    <span class="text-slate-400 font-medium">-</span>
-                                                                @endif
-                                                            </td>
-                                                        </tr>
-                                                    @endif
-                                                @endforeach
-                                                @if(!$hasLoadedItems)
-                                                    <tr>
-                                                        <td colspan="4" class="py-4 text-center text-slate-400 font-medium">No items have been loaded for this order yet.</td>
-                                                    </tr>
-                                                @endif
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    <!-- Action Button / Status -->
-                                    <div class="flex justify-end pt-2">
-                                        @if($order->delivery_status === 'ready_for_dispatch')
-                                            <form action="{{ route('warehouse.receiver.loadout.order.ship', $order) }}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
-                                                  data-confirm-title="Mark Out for Delivery"
-                                                  data-confirm-message="Are you sure you want to mark this order as OUT FOR DELIVERY? It will become visible on the driver dashboard."
-                                                  data-confirm-button="Mark Out">
-                                                @csrf
-                                                <button type="submit" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-wider shadow-sm transition-all active:scale-98 border-none cursor-pointer">
-                                                    Mark Out for Delivery
-                                                </button>
-                                            </form>
-                                        @elseif($order->delivery_status === 'in_transit')
-                                            <div class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-indigo-700">
-                                                <span class="h-1.5 w-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
-                                                Status: Out for Delivery (In Transit)
-                                            </div>
-                                        @elseif($order->delivery_status === 'delivered')
-                                            <div class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                                                Status: Delivered
-                                            </div>
-                                        @else
-                                            <div class="inline-flex items-center gap-1.5 rounded-full bg-slate-50 border border-slate-200 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                                Status: {{ ucfirst(str_replace('_', ' ', $order->delivery_status)) }}
-                                            </div>
-                                        @endif
-                                    </div>
-                                </div>
-                            </div>
-                        @endforeach
-                    @endif
+                    </div>
                 </div>
             </div>
 
         </div>
-
     </div>
 
     @push('scripts')
     <script>
-        document.querySelectorAll('.warehouse-confirm-form').forEach((form) => {
-            form.addEventListener('submit', (event) => {
-                if (form.dataset.appConfirmBypass === 'true') {
-                    form.dataset.appConfirmBypass = 'false';
-                    return;
+        // ──────────────────────────────────────────────────────────────────────
+        // Tab API fetch — lazy loading
+        // ──────────────────────────────────────────────────────────────────────
+        const tabLoaded  = {};
+        const tabApiMap  = {
+            pending:   '{{ route('warehouse.receiver.tab.pending') }}',
+            inventory: '{{ route('warehouse.receiver.tab.inventory') }}',
+            loadout:   '{{ route('warehouse.receiver.tab.loadout') }}',
+            confirmed: '{{ route('warehouse.receiver.tab.deliveries') }}',
+        };
+        const tabContentEl = {
+            pending:   document.getElementById('tab-pending-content'),
+            inventory: document.getElementById('tab-inventory-content'),
+            loadout:   document.getElementById('tab-loadout-content'),
+            confirmed: document.getElementById('tab-confirmed-content'),
+        };
+
+        function getTabParams() {
+            const params = new URLSearchParams(window.location.search);
+            // remove tab itself from forwarded params (API handles data, not tabs)
+            params.delete('tab');
+            return params;
+        }
+
+        function showTabSkeleton(tabName) {
+            const el = tabContentEl[tabName];
+            if (!el) return;
+            el.innerHTML = `<div class="space-y-3 animate-pulse">
+                ${Array.from({length: 4}, () => `
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div class="h-3 w-2/3 rounded-full bg-slate-200 mb-2"></div>
+                        <div class="h-2.5 w-1/2 rounded-full bg-slate-100"></div>
+                    </div>`).join('')}
+            </div>`;
+        }
+
+        function showTabError(tabName) {
+            const el = tabContentEl[tabName];
+            if (!el) return;
+            el.innerHTML = `<div class="rounded-3xl border border-rose-200 bg-rose-50 p-8 text-center shadow-sm">
+                <p class="text-xs font-bold text-rose-600">Failed to load data. <button onclick="reloadTab('${tabName}')" class="underline cursor-pointer border-none bg-transparent text-rose-600">Try again</button></p>
+            </div>`;
+        }
+
+        function reloadTab(tabName) {
+            tabLoaded[tabName] = false;
+            fetchTabContent(tabName);
+        }
+
+        async function fetchTabContent(tabName) {
+            if (tabLoaded[tabName]) return;
+            tabLoaded[tabName] = true;
+
+            showTabSkeleton(tabName);
+
+            try {
+                const url = tabApiMap[tabName] + '?' + getTabParams().toString();
+                const res = await fetch(url, {
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                });
+
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                renderTab(tabName, data);
+            } catch (e) {
+                tabLoaded[tabName] = false;
+                showTabError(tabName);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Renderers — one per tab
+        // ──────────────────────────────────────────────────────────────────────
+
+        function renderTab(tabName, data) {
+            switch (tabName) {
+                case 'pending':   return renderPending(data);
+                case 'inventory': return renderInventory(data);
+                case 'loadout':   return renderLoadout(data);
+                case 'confirmed': return renderConfirmed(data);
+            }
+        }
+
+        // ── Pending ───────────────────────────────────────────────────────────
+        function renderPending(data) {
+            const el = tabContentEl.pending;
+            const grns    = data.pending_grns || [];
+            const batches = data.pending_batches || [];
+            const direct  = data.pending_direct_orders || [];
+            const total   = grns.length + batches.length + direct.length;
+
+            if (total === 0) {
+                el.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+                    <p class="text-sm font-bold text-slate-900">All Clear</p>
+                    <p class="mt-1 text-xs text-slate-500">No pending deliveries for ${data.date}.</p>
+                </div>`;
+                return;
+            }
+
+            let html = '';
+
+            // GRNs
+            grns.forEach(grn => {
+                html += `<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-blue-700 border border-blue-100 mb-1">Vendor Sheet</span>
+                            <h4 class="text-sm font-black text-slate-900 truncate">${escHtml(grn.grn_number)}</h4>
+                            ${grn.supplier_name ? `<p class="text-xs text-slate-500 mt-0.5">${escHtml(grn.supplier_name)}</p>` : ''}
+                            ${grn.purchaser_name ? `<p class="text-[10px] text-slate-400">${escHtml(grn.purchaser_name)}</p>` : ''}
+                        </div>
+                        <span class="shrink-0 rounded-full bg-amber-50 border border-amber-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700">${grn.items_count} items</span>
+                    </div>
+                </div>`;
+            });
+
+            // Batches
+            batches.forEach(batch => {
+                html += `<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <span class="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-violet-700 border border-violet-100 mb-1">Batch</span>
+                            <h4 class="text-sm font-black text-slate-900 truncate">${escHtml(batch.reference || '-')}</h4>
+                            ${batch.product_name ? `<p class="text-xs text-slate-500 mt-0.5">${escHtml(batch.product_name)}</p>` : ''}
+                        </div>
+                        <span class="shrink-0 text-xs font-black text-slate-700">${batch.total_kg ? batch.total_kg.toFixed(2) + ' kg' : ''}</span>
+                    </div>
+                </div>`;
+            });
+
+            // Direct purchase orders
+            direct.forEach(order => {
+                html += `<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700 border border-emerald-100 mb-1">Direct Purchase</span>
+                            <h4 class="text-sm font-black text-slate-900 truncate">${escHtml(order.order_number)}</h4>
+                            <p class="text-xs text-slate-500 mt-0.5">${order.items.length} item(s)</p>
+                        </div>
+                    </div>
+                </div>`;
+            });
+
+            el.innerHTML = `<div class="space-y-3">${html}</div>`;
+        }
+
+        // ── Inventory ─────────────────────────────────────────────────────────
+        function renderInventory(data) {
+            const el = tabContentEl.inventory;
+
+            const inflowRows = (data.inflows || []).map(m => `
+                <tr class="inv-inflow-row hover:bg-slate-50/80 transition-colors"
+                    data-product-name="${escAttr((m.product_name||'').toLowerCase())}"
+                    data-category="${escAttr((m.category_name||'other').toLowerCase())}"
+                    data-category-display="${escAttr(m.category_name||'Other')}">
+                    <td class="py-3 px-4">
+                        <div class="font-bold text-slate-900 truncate">${escHtml(m.product_name||'-')}</div>
+                        ${m.reference ? `<div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">Ref: ${escHtml(m.reference)}</div>` : ''}
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                        <span class="font-black text-emerald-600 text-sm">+${m.quantity.toFixed(2)} <span class="text-[10px] text-slate-400 font-medium">${escHtml(m.unit||'')}</span></span>
+                        <span class="ml-1 text-[10px] text-slate-400">${escHtml(m.time_formatted||'')}</span>
+                    </td>
+                </tr>`).join('');
+
+            const outflowRows = (data.outflows || []).map(m => `
+                <tr class="inv-outflow-row hover:bg-slate-50/80 transition-colors"
+                    data-product-name="${escAttr((m.product_name||'').toLowerCase())}"
+                    data-category="${escAttr((m.category_name||'other').toLowerCase())}"
+                    data-category-display="${escAttr(m.category_name||'Other')}">
+                    <td class="py-3 px-4">
+                        <div class="font-bold text-slate-900 truncate">${escHtml(m.product_name||'-')}</div>
+                        <div class="text-[10px] text-rose-600/80 font-bold uppercase tracking-wider mt-0.5">${escHtml(m.type_label||'')}</div>
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                        <span class="font-black text-rose-600 text-sm">-${m.quantity.toFixed(2)} <span class="text-[10px] text-slate-400 font-medium">${escHtml(m.unit||'')}</span></span>
+                        <span class="ml-1 text-[10px] text-slate-400">${escHtml(m.time_formatted||'')}</span>
+                    </td>
+                </tr>`).join('');
+
+            const stockRows = (data.stock_levels || []).map(l => `
+                <tr class="inv-stock-row hover:bg-slate-50/80 transition-colors"
+                    data-product-name="${escAttr((l.product_name||'').toLowerCase())}"
+                    data-category="${escAttr((l.category_name||'other').toLowerCase())}"
+                    data-category-display="${escAttr(l.category_name||'Other')}">
+                    <td class="py-3 px-4 w-12">
+                        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 border border-indigo-100">
+                            <svg class="h-4 w-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                        </div>
+                    </td>
+                    <td class="py-3 px-4">
+                        <div class="font-bold text-slate-900 truncate">${escHtml(l.product_name||'-')}</div>
+                        ${l.product_sku ? `<div class="text-[10px] text-slate-400 font-mono mt-0.5">Code: ${escHtml(l.product_sku)}</div>` : ''}
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                        <span class="font-black text-slate-900 text-sm">${l.current_stock.toFixed(2)} <span class="text-[10px] text-slate-400 font-medium">kg</span></span>
+                        ${l.latest_activity ? `<div class="text-[9px] text-slate-400 mt-0.5">${escHtml(l.latest_activity)}</div>` : ''}
+                    </td>
+                </tr>`).join('');
+
+            const table = (rows, emptyMsg) => rows
+                ? `<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <table class="w-full border-collapse text-left text-xs table-fixed">
+                        <thead><tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="py-3 px-4 w-12"></th><th class="py-3 px-4 w-2/3">Product</th><th class="py-3 px-4 text-right w-1/3">Stock</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">${rows}</tbody>
+                    </table></div>`
+                : `<div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><p class="text-xs text-slate-500">${emptyMsg}</p></div>`;
+
+            const inflowTable = inflowRows
+                ? `<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <table class="w-full border-collapse text-left text-xs table-fixed">
+                        <thead><tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="py-3 px-4 w-2/3">Product</th><th class="py-3 px-4 text-right w-1/3">Quantity</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">${inflowRows}</tbody>
+                    </table></div>`
+                : `<div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><p class="text-xs text-slate-500">No recent inflows logged.</p></div>`;
+
+            const outflowTable = outflowRows
+                ? `<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <table class="w-full border-collapse text-left text-xs table-fixed">
+                        <thead><tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="py-3 px-4 w-2/3">Product</th><th class="py-3 px-4 text-right w-1/3">Quantity</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">${outflowRows}</tbody>
+                    </table></div>`
+                : `<div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><p class="text-xs text-slate-500">No recent outflows logged.</p></div>`;
+
+            const stockTable = stockRows
+                ? `<div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <table class="w-full border-collapse text-left text-xs table-fixed">
+                        <thead><tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="py-3 px-4 w-12"></th><th class="py-3 px-4 w-2/3">Product</th><th class="py-3 px-4 text-right w-1/3">Current Stock</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">${stockRows}</tbody>
+                    </table></div>`
+                : `<div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"><p class="text-xs text-slate-500">No stock currently in inventory.</p></div>`;
+
+            el.innerHTML = `
+                <div id="inv-subtab-in"    class="inv-subtab-panel space-y-3">${inflowTable}</div>
+                <div id="inv-subtab-out"   class="inv-subtab-panel hidden space-y-3">${outflowTable}</div>
+                <div id="inv-subtab-stock" class="inv-subtab-panel hidden space-y-3">${stockTable}</div>`;
+
+            populateInventoryCategories();
+            filterInventory();
+        }
+
+        // ── Loadout ───────────────────────────────────────────────────────────
+        function renderLoadout(data) {
+            const el = tabContentEl.loadout;
+            const orders = data.orders || [];
+
+            if (orders.length === 0) {
+                el.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+                    <h3 class="text-sm font-bold text-slate-900">No Approved Orders</h3>
+                    <p class="mt-1 text-xs text-slate-500">There are no approved orders to loadout for ${data.date}.</p>
+                </div>`;
+                return;
+            }
+
+            const colorMap = { 'Loaded': 'emerald', 'Partially Loaded': 'amber' };
+            const cards = orders.map(order => {
+                const color = colorMap[order.loading_status] || 'slate';
+                const tag   = order.shop?.warehouse_tag || 'NO TAG';
+                const code  = order.shop?.code || '';
+                const phone = order.shop?.contact_phone || '';
+                const contact = order.shop?.contact_name || '';
+                return `<a href="${escAttr(order.loadout_url)}" class="block text-decoration-none">
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3 shadow-sm hover:border-indigo-200 transition-colors">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 flex-wrap mb-1">
+                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500">${escHtml(tag)}</span>
+                                ${code ? `<span class="text-[10px] font-mono font-bold text-slate-500">(${escHtml(code)})</span>` : ''}
+                            </div>
+                            <h4 class="truncate text-sm font-black text-slate-900">${escHtml(order.display_name)}</h4>
+                            ${phone ? `<p class="text-[11px] font-bold text-emerald-700 mt-0.5">${escHtml(phone)}${contact ? ' ('+escHtml(contact)+')' : ''}</p>` : ''}
+                            <p class="text-[10px] text-slate-400 font-medium mt-0.5">Order: <span class="font-mono">${escHtml(order.order_number)}</span></p>
+                            <p class="text-[10px] text-slate-500 font-bold mt-1">Progress: ${order.loaded_items_count} / ${order.total_items_count} items loaded</p>
+                        </div>
+                        <div class="text-right shrink-0 flex flex-col items-end gap-2">
+                            <span class="rounded-full bg-${color}-50 border border-${color}-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-${color}-700">${escHtml(order.loading_status)}</span>
+                            <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                        </div>
+                    </div>
+                </a>`;
+            }).join('');
+
+            el.innerHTML = `<div class="grid gap-3 sm:grid-cols-2">${cards}</div>`;
+        }
+
+        // ── Deliveries ────────────────────────────────────────────────────────
+        function renderConfirmed(data) {
+            const el = tabContentEl.confirmed;
+            const orders = data.orders || [];
+
+            if (orders.length === 0) {
+                el.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+                    <p class="text-xs text-slate-500">No shop orders for ${data.date}.</p>
+                </div>`;
+                return;
+            }
+
+            const loadColorMap = { 'Loaded': 'emerald', 'Partially Loaded': 'amber' };
+            const fulfillColorMap = pct => pct === 100 ? 'emerald' : pct > 0 ? 'amber' : 'rose';
+            const fulfillIcon     = pct => pct === 100 ? '✓' : pct > 0 ? '⚠' : '✗';
+
+            // Build hidden item templates + order cards
+            let templates = '';
+            let cards = '';
+
+            orders.forEach(order => {
+                const lColor = loadColorMap[order.loading_status] || 'slate';
+                const fColor = fulfillColorMap(order.fulfillment_percentage);
+                const fIcon  = fulfillIcon(order.fulfillment_percentage);
+                const tag    = order.shop?.warehouse_tag || 'NO TAG';
+
+                // Hidden template for "Items List" sub-tab
+                const itemRows = (order.all_items || []).map(item => {
+                    const isLoaded = item.sorting_status === 'loaded';
+                    return `<div class="rounded-xl border border-slate-200 bg-white p-3 flex items-center justify-between gap-3 shadow-xs">
+                        <div class="min-w-0">
+                            <h5 class="truncate text-xs font-black text-slate-900">${escHtml(item.product_name||'-')}</h5>
+                            <p class="text-[10px] font-bold text-slate-500 mt-0.5">Required: <span class="text-indigo-600 font-black">${item.approved_qty.toFixed(2)}</span> ${escHtml(item.unit||'')}${isLoaded ? ' · Loaded: <span class="text-emerald-600 font-black">'+item.loaded_qty.toFixed(2)+'</span> '+escHtml(item.unit||'') : ''}</p>
+                        </div>
+                        <div class="shrink-0"><span class="rounded-full ${isLoaded ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} px-2 py-0.5 text-[8px] font-black uppercase tracking-wider">${isLoaded ? 'Loaded ✓' : 'Pending'}</span></div>
+                    </div>`;
+                }).join('');
+
+                // Action button
+                let actionBtn = '';
+                if (order.delivery_status === 'pending_delivery' || order.delivery_status === 'in_transit') {
+                    if (order.loaded_items_count === order.total_items_count) {
+                        actionBtn = `<form action="${escAttr(order.dispatch_url)}" method="POST">
+                            <input type="hidden" name="_token" value="${csrfToken}">
+                            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-xs font-black uppercase tracking-wider shadow-md transition-all border-none cursor-pointer">Move to Delivery</button>
+                        </form>`;
+                    } else {
+                        actionBtn = `<button type="button" onclick="partialDispatch(${order.id},'${escAttr(order.order_number)}')" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-xs font-black uppercase tracking-wider shadow-md transition-all border-none cursor-pointer">Move to Delivery (Partial)</button>
+                        <form id="partial-dispatch-form-${order.id}" action="${escAttr(order.dispatch_partial_url)}" method="POST" class="hidden"><input type="hidden" name="_token" value="${csrfToken}"></form>`;
+                    }
+                } else {
+                    actionBtn = `<div class="text-center py-3 bg-slate-100 rounded-xl"><span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-indigo-700">Status: Moved to Delivery</span></div>`;
                 }
 
-                event.preventDefault();
+                templates += `<div id="order-items-template-${order.id}" class="hidden">
+                    <div class="mb-4 rounded-2xl bg-slate-50 border border-slate-200 p-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">${escHtml(tag)}</span>
+                                <h4 class="text-sm font-black text-slate-900">${escHtml(order.display_name)}</h4>
+                                <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">${escHtml(order.order_number)}</span></p>
+                            </div>
+                            <div class="text-right">
+                                <span class="inline-flex items-center gap-1 rounded-full bg-${fColor}-50 border border-${fColor}-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-${fColor}-700">${fIcon} ${order.fulfillment_percentage}% Stock Available</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="space-y-2 mb-6">${itemRows}</div>
+                    ${actionBtn}
+                </div>`;
 
-                window.showAppConfirm({
-                    title: form.dataset.confirmTitle || 'Confirm action',
-                    message: form.dataset.confirmMessage || 'Are you sure you want to continue?',
-                    confirmLabel: form.dataset.confirmButton || 'Confirm',
-                    cancelLabel: 'Cancel',
-                    tone: 'danger',
-                    onConfirm: () => {
-                        form.dataset.appConfirmBypass = 'true';
-                        HTMLFormElement.prototype.submit.call(form);
-                    },
-                });
+                // Clickable order card
+                cards += `<div class="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-3 shadow-sm hover:border-indigo-200 transition-colors cursor-pointer" onclick="selectOrder(${order.id})">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">${escHtml(tag)}</span>
+                            <h4 class="truncate text-sm font-black text-slate-900">${escHtml(order.display_name)}</h4>
+                            <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">${escHtml(order.order_number)}</span></p>
+                        </div>
+                        <div class="text-right shrink-0 flex flex-col items-end gap-1.5">
+                            <span class="rounded-full bg-${lColor}-50 border border-${lColor}-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-${lColor}-700">${escHtml(order.loading_status)}</span>
+                            ${order.delivery_status === 'in_transit' ? '<span class="rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-indigo-700">In Transit</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between pt-2.5 border-t border-dashed border-slate-100">
+                        <span class="text-[10px] font-bold text-slate-500">Items: ${order.loaded_items_count} / ${order.total_items_count} loaded</span>
+                        <span class="inline-flex items-center gap-1 rounded-full bg-${fColor}-50 border border-${fColor}-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-${fColor}-700">${fIcon} ${order.fulfillment_percentage}% Stock</span>
+                    </div>
+                </div>`;
             });
-        });
 
+            el.innerHTML = `<div class="grid gap-3 sm:grid-cols-2">${cards}</div>${templates}`;
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Tab & sub-tab switch
+        // ──────────────────────────────────────────────────────────────────────
         function switchTab(name) {
             document.querySelectorAll('.wr-tab').forEach(t => t.classList.add('hidden'));
             document.querySelectorAll('.wr-nav-btn').forEach(b => {
@@ -854,17 +569,12 @@
                 activeBtn.classList.remove('bg-white', 'hover:bg-slate-50', 'text-slate-600', 'border', 'border-slate-200');
             }
 
-            // Update heading dynamically
-            const headings = {
-                'pending': 'Receive Checklist',
-                'inventory': 'Inventory Status',
-                'loadout': 'Loadout Checklist',
-                'confirmed': 'Delivery Status'
-            };
-            const headingElement = document.getElementById('wr-page-heading');
-            if (headingElement && headings[name]) {
-                headingElement.textContent = headings[name];
-            }
+            const headings = { pending: 'Receive Checklist', inventory: 'Inventory Status', loadout: 'Loadout Checklist', confirmed: 'Delivery Status' };
+            const headingEl = document.getElementById('wr-page-heading');
+            if (headingEl && headings[name]) headingEl.textContent = headings[name];
+
+            // Lazy-load tab data
+            fetchTabContent(name);
         }
 
         function switchInvSubTab(subName) {
@@ -875,10 +585,7 @@
             });
             document.getElementById('inv-subtab-' + subName)?.classList.remove('hidden');
             const activeBtn = document.getElementById('subtab-' + subName);
-            if (activeBtn) {
-                activeBtn.classList.remove('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
-                activeBtn.classList.add('bg-slate-950', 'text-white', 'shadow-sm');
-            }
+            if (activeBtn) { activeBtn.classList.remove('bg-slate-100','text-slate-600','hover:bg-slate-200'); activeBtn.classList.add('bg-slate-950','text-white','shadow-sm'); }
         }
 
         function switchDeliverySubTab(subName) {
@@ -889,100 +596,77 @@
             });
             document.getElementById('del-subtab-' + subName)?.classList.remove('hidden');
             const activeBtn = document.getElementById('del-subtab-btn-' + subName);
-            if (activeBtn) {
-                activeBtn.classList.remove('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
-                activeBtn.classList.add('bg-slate-950', 'text-white', 'shadow-sm');
-            }
+            if (activeBtn) { activeBtn.classList.remove('bg-slate-100','text-slate-600','hover:bg-slate-200'); activeBtn.classList.add('bg-slate-950','text-white','shadow-sm'); }
         }
 
-        function toggleShopCollapse(orderId) {
-            const content = document.getElementById('collapse-content-' + orderId);
-            const chevron = document.getElementById('collapse-chevron-' + orderId);
-            if (content.classList.contains('hidden')) {
-                content.classList.remove('hidden');
-                chevron.classList.add('rotate-180');
-            } else {
-                content.classList.add('hidden');
-                chevron.classList.remove('rotate-180');
-            }
-        }
-
+        // ──────────────────────────────────────────────────────────────────────
+        // Interaction helpers
+        // ──────────────────────────────────────────────────────────────────────
         function selectOrder(orderId) {
             const template = document.getElementById('order-items-template-' + orderId);
-            const activeContainer = document.getElementById('selected-order-items-container');
-            if (template && activeContainer) {
-                activeContainer.innerHTML = template.innerHTML;
-            }
+            const container = document.getElementById('selected-order-items-container');
+            if (template && container) container.innerHTML = template.innerHTML;
             switchDeliverySubTab('items');
         }
 
-        function confirmPartialDispatch(orderId, orderNum) {
+        function partialDispatch(orderId, orderNum) {
             window.showAppConfirm({
                 title: 'Partial Delivery Confirmation',
-                message: 'Are you sure you want to dispatch Order ' + orderNum + ' as a partial delivery? All remaining items will be marked as not loaded.',
-                confirmLabel: 'Yes, Dispatch Partial',
-                cancelLabel: 'Cancel',
-                tone: 'danger',
-                onConfirm: () => {
-                    const form = document.getElementById('partial-dispatch-form-' + orderId);
-                    if (form) {
-                        form.submit();
-                    }
-                }
+                message: 'Are you sure you want to dispatch Order ' + orderNum + ' as a partial delivery?',
+                confirmLabel: 'Yes, Dispatch Partial', cancelLabel: 'Cancel', tone: 'danger',
+                onConfirm: () => { const f = document.getElementById('partial-dispatch-form-' + orderId); if (f) f.submit(); }
             });
         }
 
         function populateInventoryCategories() {
             const categories = new Set();
             document.querySelectorAll('[data-category-display]').forEach(card => {
-                const catName = card.getAttribute('data-category-display');
-                if (catName) {
-                    categories.add(catName);
-                }
+                const c = card.getAttribute('data-category-display'); if (c) categories.add(c);
             });
-
-            const filterSelect = document.getElementById('inventory-category-filter');
-            if (filterSelect) {
-                filterSelect.innerHTML = '<option value="">All Categories</option>';
+            const sel = document.getElementById('inventory-category-filter');
+            if (sel) {
+                sel.innerHTML = '<option value="">All Categories</option>';
                 Array.from(categories).sort().forEach(cat => {
-                    const option = document.createElement('option');
-                    option.value = cat.toLowerCase();
-                    option.textContent = cat;
-                    filterSelect.appendChild(option);
+                    const opt = document.createElement('option'); opt.value = cat.toLowerCase(); opt.textContent = cat; sel.appendChild(opt);
                 });
             }
         }
 
         function filterInventory() {
-            const searchQuery = document.getElementById('inventory-search')?.value.toLowerCase().trim() || '';
-            const selectedCategory = document.getElementById('inventory-category-filter')?.value || '';
-
-            const selectors = ['.inv-inflow-row', '.inv-outflow-row', '.inv-stock-row'];
-            selectors.forEach(selector => {
-                document.querySelectorAll(selector).forEach(card => {
-                    const name = card.getAttribute('data-product-name') || '';
-                    const category = card.getAttribute('data-category') || '';
-                    const matchesSearch = searchQuery === '' || name.includes(searchQuery);
-                    const matchesCategory = selectedCategory === '' || category === selectedCategory;
-
-                    if (matchesSearch && matchesCategory) {
-                        card.classList.remove('hidden');
-                    } else {
-                        card.classList.add('hidden');
-                    }
+            const q   = document.getElementById('inventory-search')?.value.toLowerCase().trim() || '';
+            const cat = document.getElementById('inventory-category-filter')?.value || '';
+            ['.inv-inflow-row', '.inv-outflow-row', '.inv-stock-row'].forEach(sel => {
+                document.querySelectorAll(sel).forEach(row => {
+                    const name     = row.getAttribute('data-product-name') || '';
+                    const category = row.getAttribute('data-category') || '';
+                    const show = (q === '' || name.includes(q)) && (cat === '' || category === cat);
+                    row.classList.toggle('hidden', !show);
                 });
             });
         }
 
-        // Switch tab on load if present in query parameter
+        // ──────────────────────────────────────────────────────────────────────
+        // HTML escape helpers
+        // ──────────────────────────────────────────────────────────────────────
+        function escHtml(str) {
+            return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
+        function escAttr(str) { return escHtml(str); }
+
+        // CSRF token from meta tag
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Init
+        // ──────────────────────────────────────────────────────────────────────
         const urlParams = new URLSearchParams(window.location.search);
         const activeTab = urlParams.get('tab');
         if (activeTab && ['pending', 'inventory', 'loadout', 'confirmed'].includes(activeTab)) {
             switchTab(activeTab);
+        } else {
+            // Default: load pending tab
+            fetchTabContent('pending');
         }
-
-        // Populate categories on load
-        populateInventoryCategories();
     </script>
     @endpush
 </x-layouts.app>
