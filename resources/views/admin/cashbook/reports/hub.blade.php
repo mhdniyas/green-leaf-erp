@@ -62,12 +62,20 @@
                     const sales = list.reduce((sum, s) => sum + (parseFloat(s.sales) || 0), 0);
                     const expense = list.reduce((sum, s) => sum + (parseFloat(s.expense) || 0), 0);
                     const gl_bills = list.reduce((sum, s) => sum + (parseFloat(s.gl_bills) || 0), 0);
+                    const gl_bills_count = list.reduce((sum, s) => sum + (parseInt(s.gl_bills_count || 0) || 0), 0);
                     const net = sales - expense;
+                    const sales_less_gl = sales - gl_bills;
+                    const sales_less_gl_pct = sales > 0 ? (sales_less_gl / sales) * 100 : 0;
+                    const gl_bills_pct = sales > 0 ? (gl_bills / sales) * 100 : 0;
                     return {
                         sales: Math.round(sales * 100) / 100,
                         expense: Math.round(expense * 100) / 100,
                         net: Math.round(net * 100) / 100,
                         gl_bills: Math.round(gl_bills * 100) / 100,
+                        gl_bills_count: gl_bills_count,
+                        sales_less_gl: Math.round(sales_less_gl * 100) / 100,
+                        sales_less_gl_pct: (sales_less_gl_pct % 1 === 0 ? sales_less_gl_pct.toFixed(0) : sales_less_gl_pct.toFixed(1)) + '%',
+                        gl_bills_pct: (gl_bills_pct % 1 === 0 ? gl_bills_pct.toFixed(0) : gl_bills_pct.toFixed(1)) + '%',
                         count: list.length,
                     };
                 },
@@ -266,6 +274,14 @@
                     const pct = sales > 0 ? (diff / sales) * 100 : 0;
                     const pctFormatted = (pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
                     return this.currency(diff) + ' (' + pctFormatted + ')';
+                },
+
+                formatGlPctOfSales(item) {
+                    if (!item) return '0%';
+                    const sales = parseFloat(item.sales || 0);
+                    const gl = parseFloat(item.gl_bills || 0);
+                    const pct = sales > 0 ? (gl / sales) * 100 : 0;
+                    return (pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
                 },
             };
         };
@@ -599,7 +615,7 @@
                     <span class="text-rose-600 truncate">Total outflow</span>
                     <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate" class="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/90 shrink-0 font-black hover:bg-amber-100 transition inline-flex items-center gap-0.5" title="View Synced GL Invoices & Bills">
                         GL Bill: <span x-text="currency(activeTotals().gl_bills)">{{ number_format($totals['gl_bills'], 2) }}</span>
-                        <span class="text-[9px] font-bold text-amber-700/90 ml-0.5">(<span x-text="activeTotals().gl_bills_count || 0"></span> bills • Info)</span>
+                        <span class="text-[9px] font-bold text-amber-700/90 ml-0.5">(<span x-text="activeTotals().gl_bills_pct"></span> of sales)</span>
                         <i data-lucide="arrow-right" class="w-2.5 h-2.5 ml-0.5"></i>
                     </a>
                 </div>
@@ -666,10 +682,10 @@
                                 <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?shop_id=' + item.shop_id + '&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate" @click.stop class="bg-slate-50/80 hover:bg-amber-50 rounded-lg px-2 py-1 border border-slate-100 block transition cursor-pointer">
                                     <div class="flex items-center justify-between">
                                         <span class="text-[7px] font-black uppercase text-amber-600 tracking-tight hover:underline">GL Bill</span>
-                                        <span class="text-[6.5px] font-black uppercase bg-amber-100 text-amber-800 px-1 rounded">Info</span>
+                                        <span class="text-[6.5px] font-black uppercase bg-amber-100 text-amber-800 px-1 rounded" x-text="formatGlPctOfSales(item)"></span>
                                     </div>
                                     <span class="text-[11px] font-black text-amber-700 truncate block" x-text="currency(item.gl_bills)"></span>
-                                    <span class="text-[7.5px] font-bold text-amber-800/80 block"><span x-text="item.gl_bills_count || 0"></span> <span x-text="(item.gl_bills_count === 1 ? 'bill' : 'bills')"></span></span>
+                                    <span class="text-[7.5px] font-bold text-amber-800/80 block"><span x-text="item.gl_bills_count || 0"></span> <span x-text="(item.gl_bills_count === 1 ? 'bill' : 'bills')"></span> • <span x-text="formatGlPctOfSales(item)"></span> sales</span>
                                 </a>
                                 <div class="rounded-lg px-2 py-1 border" :class="item.net >= 0 ? 'bg-emerald-50/60 border-emerald-100' : 'bg-rose-50/60 border-rose-100'">
                                     <span class="text-[7px] font-black uppercase block tracking-tight" :class="item.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">Net P/L</span>
