@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Cashbook\LedgerClient;
 use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Client;
@@ -628,4 +629,83 @@ class AdminCashbookAccessTest extends TestCase
         $this->assertCount(1, $summary['mismatches']);
         $this->assertSame(999.00, (float) ShopLedgerTransaction::query()->firstOrFail()->amount);
     }
+
+    public function test_shop_setting_payable_direction_update_and_calculation(): void
+    {
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $shop = ShopLedgerProfile::query()->first();
+        if (! $shop) {
+            $shopModel = Shop::factory()->create();
+            $shop = ShopLedgerProfile::query()->create([
+                'shop_id' => $shopModel->id,
+                'name' => 'Test Shop',
+                'code' => 'TEST-01',
+                'mode' => 'regular',
+                'enabled' => true,
+            ]);
+        }
+
+        $entryType = LedgerEntryType::query()->where('category', 'transfer')->first();
+        if (! $entryType) {
+            $entryType = LedgerEntryType::query()->create([
+                'code' => 'custom_transfer',
+                'name' => 'Custom Transfer',
+                'category' => 'transfer',
+                'system_type' => 'manual',
+                'active' => true,
+            ]);
+        }
+
+        $setting = ShopLedgerEntrySetting::query()->updateOrCreate(
+            ['shop_id' => $shop->shop_id, 'entry_type_id' => $entryType->id],
+            [
+                'version' => 1,
+                'effective_from' => '2026-01-01',
+                'enabled' => true,
+                'default_funding_source' => 'none',
+                'include_in_sales' => false,
+                'include_in_income' => false,
+                'include_in_expense' => false,
+                'include_in_pl' => false,
+                'include_in_payable' => true,
+                'payable_direction' => 'minus',
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+            ]
+        );
+
+        $response = $this->actingAs($mainAdmin)
+            ->postJson('/admin/cashbook/api/shop-settings/update', [
+                'setting_id' => $setting->id,
+                'enabled' => true,
+                'default_funding_source' => 'none',
+                'include_in_sales' => false,
+                'include_in_income' => false,
+                'include_in_expense' => false,
+                'include_in_pl' => false,
+                'include_in_payable' => true,
+                'payable_direction' => 'minus',
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+                'generates_secondary_entry' => false,
+                'secondary_amount_mode' => 'same_amount',
+            ]);
+
+        $response->assertOk()->assertJson(['success' => true]);
+        $this->assertDatabaseHas('shop_ledger_entry_settings', [
+            'id' => $setting->id,
+            'include_in_payable' => 1,
+            'payable_direction' => 'minus',
+        ]);
+
+        $this->actingAs($mainAdmin)
+            ->get(route('admin.cashbook.settings.shop', $shop->shop_id))
+            ->assertOk()
+            ->assertSee('Settings');
+    }
 }
+

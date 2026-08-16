@@ -39,35 +39,20 @@
             </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-start xl:justify-end">
-            <!-- Header Date Picker & Timeframe Selector -->
-            <div class="flex flex-wrap items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
-                <div class="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 shadow-xs">
-                    <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>
-                    <input type="date" x-model="headerDate" @change="changeDate(headerDate)" class="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer">
+        <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 bg-slate-100 p-2 rounded-2xl border border-slate-200 shadow-2xs">
+                <span class="text-xs font-black uppercase tracking-wider text-slate-600 pl-2 flex items-center gap-1.5">
+                    <i data-lucide="filter" class="w-3.5 h-3.5 text-emerald-600"></i> Date Filter:
+                </span>
+                <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300 shadow-xs">
+                    <i data-lucide="calendar" class="w-4 h-4 text-emerald-600"></i>
+                    <input
+                        type="date"
+                        x-model="headerDate"
+                        @change="changeDate(headerDate)"
+                        class="bg-transparent text-xs font-mono font-black text-slate-900 focus:outline-none cursor-pointer"
+                    >
                 </div>
-
-                <div class="flex items-center gap-1">
-                    <button @click="setTimeframe('daily')" :class="timeframe === 'daily' ? 'bg-slate-900 text-white shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900 font-semibold'" class="px-2.5 py-1 text-xs rounded-lg transition-all">
-                        Day
-                    </button>
-                    <button @click="setTimeframe('weekly')" :class="timeframe === 'weekly' ? 'bg-slate-900 text-white shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900 font-semibold'" class="px-2.5 py-1 text-xs rounded-lg transition-all">
-                        Week
-                    </button>
-                    <button @click="setTimeframe('monthly')" :class="timeframe === 'monthly' ? 'bg-slate-900 text-white shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900 font-semibold'" class="px-2.5 py-1 text-xs rounded-lg transition-all">
-                        Month
-                    </button>
-                    <button @click="setTimeframe('custom')" :class="timeframe === 'custom' ? 'bg-slate-900 text-white shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900 font-semibold'" class="px-2.5 py-1 text-xs rounded-lg transition-all">
-                        Custom
-                    </button>
-                </div>
-            </div>
-
-            <!-- Custom Date Range Picker -->
-            <div x-show="timeframe === 'custom'" class="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 text-xs">
-                <input type="date" x-model="customStartDate" @change="loadData()" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-xl border border-slate-300">
-                <span class="text-slate-400 font-bold">to</span>
-                <input type="date" x-model="customEndDate" @change="loadData()" class="bg-white text-xs font-mono font-bold text-slate-800 px-2 py-1 rounded-xl border border-slate-300">
             </div>
         </div>
     </div>
@@ -128,7 +113,7 @@
                 <h3 class="text-sm font-extrabold text-slate-900 flex items-center gap-2">
                     <i data-lucide="layers" class="w-4 h-4 text-amber-600"></i> Configured Payment Categories Received from {{ $currentShop->name }}
                 </h3>
-                <p class="text-xs text-slate-500">Live received status and remaining balance per configured payment category for (<span class="capitalize font-bold text-slate-800" x-text="timeframe"></span>).</p>
+                <p class="text-xs text-slate-500">Live received status and remaining balance per configured payment category for date (<span class="font-mono font-bold text-slate-800" x-text="headerDate"></span>).</p>
             </div>
             <div class="flex flex-wrap items-center gap-3">
                 <div class="flex items-center gap-1.5 text-xs">
@@ -537,7 +522,9 @@
             },
 
             prefillConfiguredPayable() {
-                const amt = this.payableBalance > 0 ? this.payableBalance.toFixed(2) : (this.payableTotal > 0 ? this.payableTotal.toFixed(2) : '0.00');
+                const pendingAmt = parseFloat(this.snapshot?.closing_company_pending || 0);
+                const amtVal = this.payableBalance > 0 ? this.payableBalance : (pendingAmt > 0 ? pendingAmt : (this.payableTotal > 0 ? this.payableTotal : 0));
+                const amt = amtVal > 0 ? amtVal.toFixed(2) : '0.00';
                 const totalInput = document.getElementById('set-form-total-amount');
                 const settleInput = document.getElementById('set-form-settle-amount');
                 if (totalInput) totalInput.value = amt;

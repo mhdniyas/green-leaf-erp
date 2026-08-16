@@ -55,7 +55,7 @@
     </div>
 
     @foreach($sections as $category => $section)
-        @php($rows = $settingsByCategory->get($category, collect()))
+        @php $rows = $settingsByCategory->get($category, collect()); @endphp
         <section id="{{ $category }}" class="rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div class="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between">
                 <div class="flex items-center gap-3">
@@ -92,10 +92,10 @@
                             <th class="w-[9%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Settlement</th>
                             <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Petty</th>
                             <th class="w-[9%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Company</th>
-                            <th class="w-[5%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Payable</th>
-                            <th class="w-[5%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Auto Child</th>
-                            <th class="w-[12%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Row</th>
-                            <th class="w-[7%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Amount</th>
+                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Payable</th>
+                            <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Auto Child</th>
+                            <th class="w-[11%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Row</th>
+                            <th class="w-[6%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Amount</th>
                             <th class="w-[4%] px-2 py-2 text-right text-[10px] font-black uppercase tracking-wider text-slate-400">Save</th>
                         </tr>
                     </thead>
@@ -120,24 +120,63 @@
                                 @foreach(['include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl'] as $field)
                                     <td class="px-2 py-2">
                                         <input form="setting-{{ $setting->id }}" type="hidden" name="{{ $field }}" value="0">
-                                        <input form="setting-{{ $setting->id }}" type="checkbox" name="{{ $field }}" value="1" @checked($setting->{$field}) class="rounded border-slate-300 text-slate-900">
+                                        <input form="setting-{{ $setting->id }}" type="checkbox" name="{{ $field }}" value="1" {{ $setting->{$field} ? 'checked' : '' }} class="rounded border-slate-300 text-slate-900">
                                     </td>
                                 @endforeach
                                 @foreach(['settlement_behavior', 'petty_behavior', 'company_pending_behavior'] as $field)
                                     <td class="px-2 py-2">
                                         <select form="setting-{{ $setting->id }}" name="{{ $field }}" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
                                             @foreach($effects as $value => $label)
-                                                <option value="{{ $value }}" @selected(($setting->{$field} ?: 'none') === $value)>{{ $label }}</option>
+                                                <option value="{{ $value }}" {{ (($setting->{$field} ?: 'none') === $value) ? 'selected' : '' }}>{{ $label }}</option>
                                             @endforeach
                                         </select>
                                     </td>
                                 @endforeach
                                 <td class="px-2 py-2">
-                                    <input form="setting-{{ $setting->id }}" type="hidden" name="include_in_payable" value="0">
-                                    <label class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                                        <input form="setting-{{ $setting->id }}" type="checkbox" name="include_in_payable" value="1" @checked($setting->include_in_payable) class="rounded border-slate-300 text-emerald-600">
-                                        Add
-                                    </label>
+                                    @if($category === 'income')
+                                        <input form="setting-{{ $setting->id }}" type="hidden" name="include_in_payable" value="0">
+                                        <input form="setting-{{ $setting->id }}" type="hidden" name="payable_direction" value="add">
+                                        <label class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 cursor-pointer">
+                                            <input form="setting-{{ $setting->id }}" type="checkbox" name="include_in_payable" value="1" {{ $setting->include_in_payable ? 'checked' : '' }} class="rounded border-slate-300 text-emerald-600">
+                                            Add
+                                        </label>
+                                    @elseif($category === 'expense')
+                                        <input form="setting-{{ $setting->id }}" type="hidden" name="include_in_payable" value="0">
+                                        <input form="setting-{{ $setting->id }}" type="hidden" name="payable_direction" value="minus">
+                                        <label class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 cursor-pointer">
+                                            <input form="setting-{{ $setting->id }}" type="checkbox" name="include_in_payable" value="1" {{ $setting->include_in_payable ? 'checked' : '' }} class="rounded border-slate-300 text-rose-600">
+                                            Minus
+                                        </label>
+                                    @else
+                                        @php
+                                            $currentDirection = $setting->payable_direction ?: (($setting->entryType && in_array($setting->entryType->code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'])) ? 'minus' : 'add');
+                                        @endphp
+                                        <input form="setting-{{ $setting->id }}" type="hidden" id="inc-pay-{{ $setting->id }}" name="include_in_payable" value="{{ $setting->include_in_payable ? 1 : 0 }}">
+                                        <input form="setting-{{ $setting->id }}" type="hidden" id="pay-dir-{{ $setting->id }}" name="payable_direction" value="{{ $currentDirection }}">
+                                        <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+                                            <label class="inline-flex items-center gap-1 font-bold text-emerald-700 cursor-pointer" title="Add to Payable">
+                                                <input type="radio" name="pay_choice_{{ $setting->id }}" value="add"
+                                                       {{ ($setting->include_in_payable && $currentDirection === 'add') ? 'checked' : '' }}
+                                                       onchange="setPayableChoice({{ $setting->id }}, 'add')"
+                                                       class="h-3 w-3 text-emerald-600 focus:ring-emerald-500">
+                                                Add
+                                            </label>
+                                            <label class="inline-flex items-center gap-1 font-bold text-rose-700 cursor-pointer" title="Minus from Payable">
+                                                <input type="radio" name="pay_choice_{{ $setting->id }}" value="minus"
+                                                       {{ ($setting->include_in_payable && $currentDirection === 'minus') ? 'checked' : '' }}
+                                                       onchange="setPayableChoice({{ $setting->id }}, 'minus')"
+                                                       class="h-3 w-3 text-rose-600 focus:ring-rose-500">
+                                                Minus
+                                            </label>
+                                            <label class="inline-flex items-center gap-1 font-bold text-slate-400 cursor-pointer" title="Not in Payable">
+                                                <input type="radio" name="pay_choice_{{ $setting->id }}" value="none"
+                                                       {{ !$setting->include_in_payable ? 'checked' : '' }}
+                                                       onchange="setPayableChoice({{ $setting->id }}, 'none')"
+                                                       class="h-3 w-3 text-slate-400 focus:ring-slate-400">
+                                                Off
+                                            </label>
+                                        </div>
+                                    @endif
                                 </td>
                                 <td class="px-2 py-2">
                                     <input form="setting-{{ $setting->id }}" type="hidden" name="generates_secondary_entry" value="0">
@@ -253,6 +292,18 @@
 
 @push('scripts')
 <script>
+function setPayableChoice(settingId, choice) {
+    const incField = document.getElementById('inc-pay-' + settingId);
+    const dirField = document.getElementById('pay-dir-' + settingId);
+    if (!incField || !dirField) return;
+    if (choice === 'none') {
+        incField.value = '0';
+    } else {
+        incField.value = '1';
+        dirField.value = choice;
+    }
+}
+
 async function saveShopSetting(event, settingId) {
     event.preventDefault();
     const form = event.target;

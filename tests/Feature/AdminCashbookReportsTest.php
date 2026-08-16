@@ -419,4 +419,83 @@ class AdminCashbookReportsTest extends TestCase
             ->assertSee('getSparklineAreaPath()')
             ->assertSee('selectedShopForGraph');
     }
+
+    public function test_company_payables_and_vehicle_expenses_ledger_data(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Casio Shop',
+            'code' => 'SHP-CASIO',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        $profile = ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-casio',
+            'enabled' => true,
+        ]);
+
+        $vehicleType = LedgerEntryType::where('code', 'vehicle')->first() ?? LedgerEntryType::create([
+            'name' => 'Vehicle Expense',
+            'code' => 'vehicle',
+            'category' => 'expense',
+            'is_system' => true,
+        ]);
+
+        // Out (Expense) 1: 38885
+        ShopLedgerTransaction::create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-10',
+            'entry_type_id' => $vehicleType->id,
+            'entry_type_code' => 'vehicle',
+            'direction' => 'expense',
+            'amount' => 38885.00,
+            'funding_source' => 'company',
+            'company_pending_delta' => 38885.00,
+            'status' => 'approved',
+        ]);
+
+        // Out (Expense) 2: 40603
+        ShopLedgerTransaction::create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-11',
+            'entry_type_id' => $vehicleType->id,
+            'entry_type_code' => 'vehicle',
+            'direction' => 'expense',
+            'amount' => 40603.00,
+            'funding_source' => 'company',
+            'company_pending_delta' => 40603.00,
+            'status' => 'approved',
+        ]);
+
+        // In (Payment / Reimbursement): 50000
+        ShopLedgerTransaction::create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-12',
+            'entry_type_id' => $vehicleType->id,
+            'entry_type_code' => 'company_paid_shop',
+            'direction' => 'income',
+            'amount' => 50000.00,
+            'funding_source' => 'company',
+            'company_pending_delta' => -50000.00,
+            'status' => 'approved',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->getJson("/admin/cashbook/api/shop-data?shop_id={$shop->id}&business_date=2026-08-16&timeframe=daily");
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $entries = $response->json('company_pending_entries');
+        $this->assertCount(3, $entries);
+        $this->assertEquals(38885.00, (float) $entries[0]['amount']);
+        $this->assertEquals(40603.00, (float) $entries[1]['amount']);
+        $this->assertEquals(50000.00, (float) $entries[2]['amount']);
+    }
 }

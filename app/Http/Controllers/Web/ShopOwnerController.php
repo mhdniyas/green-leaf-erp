@@ -1014,11 +1014,13 @@ class ShopOwnerController extends Controller
             return in_array($transaction->entryType?->code, $payableRowCodes->all(), true)
                 || $transaction->reference_type === 'collection_group';
         });
-        $payableTotal = round((float) $payableTransactions->sum(function ($tx) {
+        $payableTotal = round((float) $payableTransactions->sum(function ($tx) use ($settings) {
             $code = (string) ($tx->entryType?->code ?: $tx->entry_type_code);
             $direction = (string) ($tx->direction ?: ($tx->entryType?->category ?: 'income'));
             $category = (string) ($tx->entryType?->category ?: $direction);
-            $isDeduction = $direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true);
+            $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+            $payableDir = $setting?->payable_direction;
+            $isDeduction = $payableDir ? ($payableDir === 'minus') : ($direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true));
             return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
         }), 2);
 

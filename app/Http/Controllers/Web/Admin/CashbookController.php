@@ -607,8 +607,21 @@ final class CashbookController extends Controller
 
         $companyPendingEntries = ShopLedgerTransaction::with('entryType')
             ->where('shop_id', $shopId)
-            ->where(fn ($q) => $q->where('company_pending_delta', '!=', 0)->orWhere('funding_source', 'company'))
-            ->orderBy('id', 'desc')
+            ->where(function ($q) {
+                $q->where('company_pending_delta', '!=', 0)
+                    ->orWhere('funding_source', 'company')
+                    ->orWhereHas('entryType', function ($eq) {
+                        $eq->whereIn('code', [
+                            'vehicle',
+                            'company_paid_shop',
+                            'company_paid_vendor',
+                            'company_to_petty',
+                            'company_reimbursement',
+                        ]);
+                    });
+            })
+            ->orderBy('business_date', 'asc')
+            ->orderBy('id', 'asc')
             ->get();
 
         $settings = ShopLedgerEntrySetting::with('entryType')
@@ -637,11 +650,13 @@ final class CashbookController extends Controller
             ->map(function ($group, $name) use ($settlementTransactions) {
                 $first = $group->first();
                 $code = (string) ($first->entryType?->code ?: $first->entry_type_code);
-                $recordedAmount = round((float) $group->sum(function ($tx) {
+                $recordedAmount = round((float) $group->sum(function ($tx) use ($settings) {
                     $code = (string) ($tx->entryType?->code ?: $tx->entry_type_code);
                     $direction = (string) ($tx->direction ?: ($tx->entryType?->category ?: 'income'));
                     $category = (string) ($tx->entryType?->category ?: $direction);
-                    $isDeduction = $direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true);
+                    $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+                    $payableDir = $setting?->payable_direction;
+                    $isDeduction = $payableDir ? ($payableDir === 'minus') : ($direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true));
                     return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
                 }), 2);
 
@@ -696,11 +711,13 @@ final class CashbookController extends Controller
             });
         }
 
-        $payableTotal = round((float) $payableRows->sum(function ($tx) {
+        $payableTotal = round((float) $payableRows->sum(function ($tx) use ($settings) {
             $code = (string) ($tx->entryType?->code ?: $tx->entry_type_code);
             $direction = (string) ($tx->direction ?: ($tx->entryType?->category ?: 'income'));
             $category = (string) ($tx->entryType?->category ?: $direction);
-            $isDeduction = $direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true);
+            $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+            $payableDir = $setting?->payable_direction;
+            $isDeduction = $payableDir ? ($payableDir === 'minus') : ($direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true));
             return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
         }), 2);
         $totalReceivedAllocated = (float) $payableByCategory->sum('received_amount');
@@ -1193,6 +1210,7 @@ final class CashbookController extends Controller
             'include_in_expense' => ['required', 'boolean'],
             'include_in_pl' => ['required', 'boolean'],
             'include_in_payable' => ['required', 'boolean'],
+            'payable_direction' => ['nullable', 'string', 'in:add,minus'],
             'settlement_behavior' => ['nullable', 'string', 'in:none,increase,decrease'],
             'petty_behavior' => ['nullable', 'string', 'in:none,increase,decrease'],
             'company_pending_behavior' => ['nullable', 'string', 'in:none,increase,decrease'],
@@ -1213,6 +1231,7 @@ final class CashbookController extends Controller
                 'include_in_expense' => (bool) $validated['include_in_expense'],
                 'include_in_pl' => (bool) $validated['include_in_pl'],
                 'include_in_payable' => (bool) $validated['include_in_payable'],
+                'payable_direction' => $validated['payable_direction'] ?? null,
                 'settlement_behavior' => $validated['settlement_behavior'] ?: 'none',
                 'petty_behavior' => $validated['petty_behavior'] ?: 'none',
                 'company_pending_behavior' => $validated['company_pending_behavior'] ?: 'none',

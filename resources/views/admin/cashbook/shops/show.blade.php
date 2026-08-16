@@ -796,53 +796,248 @@
     <!-- TAB 3: COMPANY PAYABLES & VEHICLE EXPENSES BREAKDOWN -->
     <!-- ========================================================================= -->
     <div x-show="activeTab === 'company_payables'" class="white-card rounded-3xl p-6 space-y-6 shadow-xl">
-        <div class="flex items-center justify-between border-b border-slate-200 pb-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
             <div>
                 <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
                     <i data-lucide="truck" class="w-5 h-5 text-purple-600"></i> Company Payables & Vehicle Expense Reimbursements
                 </h3>
                 <p class="text-xs text-slate-500 mt-0.5">Track company-funded invoices, vehicle expenses, and reimbursements owed by the company for {{ $currentShop->name }}.</p>
             </div>
+            
+            <!-- Quick Controls & Accept Payment -->
+            <div class="flex flex-wrap items-center gap-2">
+                <a
+                    :href="'/admin/cashbook/shops/{{ $currentShop->slug ?: $currentShop->shop_id }}/accept-payment?date=' + currentDate"
+                    class="px-3.5 py-1.5 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                    <i data-lucide="wallet" class="w-3.5 h-3.5"></i>
+                    <span>Accept Payment</span>
+                </a>
+                <button
+                    type="button"
+                    @click="expandAllPayableDates()"
+                    class="px-3 py-1.5 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                >
+                    <i data-lucide="chevrons-down-up" class="w-3.5 h-3.5 text-slate-500"></i>
+                    <span>Expand All</span>
+                </button>
+                <button
+                    type="button"
+                    @click="collapseAllPayableDates()"
+                    class="px-3 py-1.5 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                >
+                    <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-slate-500"></i>
+                    <span>Collapse All</span>
+                </button>
+            </div>
         </div>
 
-        <div class="overflow-x-auto custom-scrollbar">
-            <table class="w-full text-left text-xs">
+        <!-- 3 Summary Metric Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-4 bg-purple-50/70 border border-purple-100 rounded-2xl">
+                <span class="text-[10px] font-extrabold uppercase tracking-wider text-purple-600 block">Total Out (Expenses Incurred)</span>
+                <p class="text-xl font-mono font-black text-purple-950 mt-1" x-text="'₹' + companyPayablesTotalOut.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></p>
+                <span class="text-[10px] text-purple-700/80 font-semibold mt-0.5 block">Owed by company to shop</span>
+            </div>
+
+            <div class="p-4 bg-emerald-50/70 border border-emerald-100 rounded-2xl">
+                <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 block">Total In (Payments / Reimbursed)</span>
+                <p class="text-xl font-mono font-black text-emerald-950 mt-1" x-text="'₹' + companyPayablesTotalIn.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></p>
+                <span class="text-[10px] text-emerald-700/80 font-semibold mt-0.5 block">Reimbursements paid to shop</span>
+            </div>
+
+            <div class="p-4 bg-slate-900 text-white border border-slate-800 rounded-2xl flex flex-col justify-between">
+                <div>
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider text-purple-300 block">Net Balance Owed by Company</span>
+                    <p class="text-xl font-mono font-black text-white mt-1" x-text="'₹' + companyPayablesFinalBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></p>
+                </div>
+                <div class="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between">
+                    <span class="text-[10px] text-slate-400 font-semibold">Remaining balance</span>
+                    <a
+                        :href="'/admin/cashbook/shops/{{ $currentShop->slug ?: $currentShop->shop_id }}/accept-payment?date=' + currentDate"
+                        class="text-[10px] font-black uppercase text-emerald-400 hover:text-emerald-300 underline flex items-center gap-1"
+                    >
+                        Accept Payment &rarr;
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ledger Table (Date-wise sort, Out, In, Running Balance, Click Date to show Split, Total on the last) -->
+        <div class="overflow-x-auto custom-scrollbar rounded-2xl border border-slate-200">
+            <table class="w-full text-left text-xs border-collapse">
                 <thead>
-                    <tr class="text-slate-600 bg-slate-100/80 border-b border-slate-200 uppercase tracking-wider font-bold">
-                        <th class="py-3 px-3">Date & ID</th>
-                        <th class="py-3 px-3">Expense / Entry Type</th>
-                        <th class="py-3 px-3">Funding Type</th>
-                        <th class="py-3 px-3 text-right">Incurred Amount</th>
-                        <th class="py-3 px-3 text-right">Pending Delta</th>
-                        <th class="py-3 px-3 text-center">Action</th>
+                    <tr class="text-slate-700 bg-slate-100/90 border-b border-slate-200 uppercase tracking-wider font-extrabold">
+                        <th class="py-3 px-4 w-40">Date</th>
+                        <th class="py-3 px-4 text-right">Out (Expense)</th>
+                        <th class="py-3 px-4 text-right">In (Payment)</th>
+                        <th class="py-3 px-4 text-right">Running Balance</th>
+                        <th class="py-3 px-4 text-center w-52">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 font-mono text-slate-800">
-                    <template x-for="t in companyPendingEntries" :key="t.id">
-                        <tr class="hover:bg-purple-50/40 transition-all">
-                            <td class="py-3 px-3 font-mono text-slate-500">
-                                <span class="font-bold text-slate-900" x-text="t.business_date"></span>
-                                <span class="block text-[10px] text-slate-400" x-text="'#' + t.id"></span>
+                <template x-for="row in companyPayablesLedger" :key="row.date">
+                    <tbody class="font-mono text-slate-800 border-b border-slate-200">
+                        <!-- Main Date Summary Row -->
+                        <tr
+                            @click="togglePayableDateSplit(row.date)"
+                            class="hover:bg-purple-50/50 transition-colors cursor-pointer select-none group"
+                            :class="isPayableDateExpanded(row.date) ? 'bg-purple-50/30' : ''"
+                        >
+                            <td class="py-3.5 px-4 font-sans">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-5 h-5 rounded-md bg-slate-100 group-hover:bg-purple-100 flex items-center justify-center transition-colors">
+                                        <svg
+                                            class="w-3.5 h-3.5 text-slate-500 group-hover:text-purple-700 transition-transform duration-200"
+                                            :class="{ 'rotate-90': isPayableDateExpanded(row.date) }"
+                                            fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"
+                                        >
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5-7.5" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <span class="font-black text-slate-900 block text-xs" x-text="row.date"></span>
+                                        <span class="text-[10px] font-semibold text-purple-600 block" x-text="row.count + (row.count === 1 ? ' item' : ' items')"></span>
+                                    </div>
+                                </div>
                             </td>
-                            <td class="py-3 px-3 font-sans font-semibold text-slate-900" x-text="t.entry_type ? t.entry_type.name : t.entry_type_id"></td>
-                            <td class="py-3 px-3 uppercase text-slate-700 font-sans font-bold" x-text="t.funding_source || 'company'"></td>
-                            <td class="py-3 px-3 text-right font-bold text-slate-900" x-text="'₹' + parseFloat(t.amount).toFixed(2)"></td>
-                            <td class="py-3 px-3 text-right font-extrabold text-purple-600" x-text="'₹' + parseFloat(t.company_pending_delta).toFixed(2)"></td>
-                            <td class="py-3 px-3 text-center">
-                                <button @click="openModal(t)" class="px-2.5 py-1 text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow-sm">
-                                    Show Details
-                                </button>
+
+                            <!-- Out (Expense) -->
+                            <td class="py-3.5 px-4 text-right font-bold text-slate-900 font-mono">
+                                <span x-show="row.out_amount > 0" class="text-purple-950 font-black" x-text="'₹' + row.out_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                <span x-show="row.out_amount <= 0" class="text-slate-300 font-normal">—</span>
+                            </td>
+
+                            <!-- In (Payment) -->
+                            <td class="py-3.5 px-4 text-right font-bold font-mono">
+                                <span x-show="row.in_amount > 0" class="text-emerald-700 font-black" x-text="'₹' + row.in_amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></span>
+                                <span x-show="row.in_amount <= 0" class="text-slate-300 font-normal">—</span>
+                            </td>
+
+                            <!-- Running Balance -->
+                            <td class="py-3.5 px-4 text-right font-black font-mono text-sm">
+                                <span
+                                    :class="row.running_balance > 0 ? 'text-purple-700' : (row.running_balance === 0 ? 'text-slate-400' : 'text-emerald-700')"
+                                    x-text="'₹' + row.running_balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"
+                                ></span>
+                            </td>
+
+                            <!-- Click Date Actions: Show Split & Accept Payment -->
+                            <td class="py-3.5 px-4 text-center font-sans">
+                                <div class="flex items-center justify-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        @click.stop="togglePayableDateSplit(row.date)"
+                                        class="px-2 py-1 text-[10px] font-bold rounded-lg transition-all border inline-flex items-center gap-0.5 cursor-pointer"
+                                        :class="isPayableDateExpanded(row.date) ? 'bg-purple-100 text-purple-900 border-purple-200' : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'"
+                                    >
+                                        <span x-text="isPayableDateExpanded(row.date) ? 'Hide Split' : 'Show Split'"></span>
+                                    </button>
+
+                                    <a
+                                        :href="'/admin/cashbook/shops/{{ $currentShop->slug ?: $currentShop->shop_id }}/accept-payment?date=' + row.date"
+                                        @click.stop
+                                        class="px-2 py-1 text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-all inline-flex items-center gap-1 shadow-2xs cursor-pointer"
+                                        title="Accept payment / check reimbursement for this date"
+                                    >
+                                        <i data-lucide="wallet" class="w-3 h-3"></i>
+                                        <span>Accept Payment</span>
+                                    </a>
+                                </div>
                             </td>
                         </tr>
-                    </template>
-                    <tr x-show="!companyPendingEntries || companyPendingEntries.length === 0">
-                        <td colspan="6" class="py-8 text-center text-slate-400 font-sans">No company-funded expenses recorded.</td>
+
+                        <!-- Nested Split Breakdown Row -->
+                        <tr x-show="isPayableDateExpanded(row.date)" class="bg-slate-50/70">
+                            <td colspan="5" class="p-3 pl-8 sm:pl-10">
+                                <div class="rounded-xl bg-white border border-slate-200/80 p-3 shadow-xs space-y-2">
+                                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                                        <p class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                                            <i data-lucide="list-tree" class="w-3.5 h-3.5 text-purple-600"></i>
+                                            Split Breakdown for <span class="text-slate-900 font-bold" x-text="row.date"></span>
+                                        </p>
+                                        <span class="text-[10px] font-bold text-slate-400" x-text="row.count + ' transactions'"></span>
+                                    </div>
+
+                                    <table class="w-full text-left text-[11px]">
+                                        <thead>
+                                            <tr class="text-slate-400 uppercase tracking-wider font-bold text-[9px] border-b border-slate-100">
+                                                <th class="py-1.5 px-2">ID</th>
+                                                <th class="py-1.5 px-2">Expense / Entry Type</th>
+                                                <th class="py-1.5 px-2">Funding & Notes</th>
+                                                <th class="py-1.5 px-2 text-center">Type</th>
+                                                <th class="py-1.5 px-2 text-right">Amount</th>
+                                                <th class="py-1.5 px-2 text-center">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-50 font-mono">
+                                            <template x-for="item in row.items" :key="item.id">
+                                                <tr class="hover:bg-slate-50">
+                                                    <td class="py-2 px-2 text-slate-400 font-bold" x-text="'#' + item.id"></td>
+                                                    <td class="py-2 px-2 font-sans font-bold text-slate-900" x-text="item.type_name"></td>
+                                                    <td class="py-2 px-2 font-sans text-slate-600">
+                                                        <span class="inline-block uppercase font-bold text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700" x-text="item.funding_source || 'company'"></span>
+                                                        <span class="text-slate-500 text-[10px] ml-1" x-text="item.notes || ''"></span>
+                                                    </td>
+                                                    <td class="py-2 px-2 text-center">
+                                                        <span
+                                                            class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tight"
+                                                            :class="item.is_out ? 'bg-purple-100 text-purple-900 border border-purple-200' : 'bg-emerald-100 text-emerald-900 border border-emerald-200'"
+                                                            x-text="item.is_out ? 'OUT (Expense)' : 'IN (Payment)'"
+                                                        ></span>
+                                                    </td>
+                                                    <td class="py-2 px-2 text-right font-black font-mono">
+                                                        <span
+                                                            :class="item.is_out ? 'text-purple-950' : 'text-emerald-700'"
+                                                            x-text="'₹' + parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"
+                                                        ></span>
+                                                    </td>
+                                                    <td class="py-2 px-2 text-center">
+                                                        <button
+                                                            type="button"
+                                                            @click="openModal(item)"
+                                                            class="px-2 py-1 text-[10px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition cursor-pointer"
+                                                        >
+                                                            Show Details
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </template>
+
+                <!-- Empty State -->
+                <tbody x-show="!companyPayablesLedger || companyPayablesLedger.length === 0">
+                    <tr>
+                        <td colspan="5" class="py-12 text-center text-slate-400 font-sans">
+                            <i data-lucide="receipt" class="w-8 h-8 text-slate-300 mx-auto mb-2"></i>
+                            <p class="font-bold text-slate-600 text-sm">No company-funded expenses or reimbursements recorded.</p>
+                            <p class="text-xs text-slate-400 mt-0.5">Expenses with company funding or vehicle entry types will appear here with running balance.</p>
+                        </td>
                     </tr>
                 </tbody>
+
+                <!-- TOTAL ROW ON THE LAST (Matching User's Request) -->
+                <tfoot class="bg-slate-900 text-white border-t-2 border-slate-900 font-mono">
+                    <tr class="text-xs font-black">
+                        <td class="py-4 px-4 font-sans uppercase tracking-wider text-purple-300 font-black">
+                            TOTAL
+                        </td>
+                        <td class="py-4 px-4 text-right text-purple-300 font-black text-sm" x-text="'₹' + companyPayablesTotalOut.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></td>
+                        <td class="py-4 px-4 text-right text-emerald-300 font-black text-sm" x-text="'₹' + companyPayablesTotalIn.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></td>
+                        <td class="py-4 px-4 text-right text-white font-black text-base" x-text="'₹' + companyPayablesFinalBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })"></td>
+                        <td class="py-4 px-4 text-center text-[10px] font-sans text-slate-400">
+                            Final Net Owed
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     </div>
-
 
     <!-- ========================================================================= -->
     <!-- TAB 4: COLLECTIONS & PAYMENT METHOD BREAKDOWN -->
@@ -880,7 +1075,7 @@
 
     function shopDetailApp() {
         return {
-            activeTab: 'daily_entries',
+            activeTab: @json(request('tab', 'company_payables')),
             timeframe: 'daily',
             headerDate: currentDate,
             customStartDate: currentDate,
@@ -920,6 +1115,7 @@
             monthTransactions: [],
             pettyEntries: [],
             companyPendingEntries: [],
+            expandedPayableDates: {},
             payableRows: [],
             collectionSummaries: [],
             collectionBreakdownRows: [],
@@ -928,6 +1124,118 @@
             entryTypes: shopEntryTypes,
             snapshot: {},
             showTotalsOnly: false,
+
+            togglePayableDateSplit(date) {
+                this.expandedPayableDates[date] = !this.expandedPayableDates[date];
+            },
+
+            isPayableDateExpanded(date) {
+                return !!this.expandedPayableDates[date];
+            },
+
+            expandAllPayableDates() {
+                const all = {};
+                this.companyPayablesLedger.forEach(row => {
+                    all[row.date] = true;
+                });
+                this.expandedPayableDates = all;
+            },
+
+            collapseAllPayableDates() {
+                this.expandedPayableDates = {};
+            },
+
+            get companyPayablesLedger() {
+                if (!this.companyPendingEntries || !Array.isArray(this.companyPendingEntries) || this.companyPendingEntries.length === 0) {
+                    return [];
+                }
+
+                // 1. Group by business_date
+                const dateGroups = {};
+
+                this.companyPendingEntries.forEach(tx => {
+                    const d = tx.business_date || 'Unknown';
+                    if (!dateGroups[d]) {
+                        dateGroups[d] = {
+                            date: d,
+                            items: [],
+                            out_amount: 0,
+                            in_amount: 0,
+                        };
+                    }
+
+                    const amt = parseFloat(tx.amount || 0);
+                    const delta = parseFloat(tx.company_pending_delta || 0);
+                    const code = tx.entry_type ? (tx.entry_type.code || '') : (tx.entry_type_code || '');
+                    const category = tx.entry_type ? (tx.entry_type.category || '') : '';
+                    const direction = tx.direction || category || 'expense';
+
+                    let isOut = false;
+                    let isIn = false;
+
+                    if (delta > 0) {
+                        isOut = true;
+                    } else if (delta < 0) {
+                        isIn = true;
+                    } else if (direction === 'expense' || category === 'expense' || tx.funding_source === 'company' || code === 'vehicle') {
+                        isOut = true;
+                    } else if (direction === 'income' || category === 'settlement' || code.includes('paid_shop') || code.includes('reimburse')) {
+                        isIn = true;
+                    } else {
+                        isOut = true;
+                    }
+
+                    const itemOut = isOut ? amt : 0;
+                    const itemIn = isIn ? amt : 0;
+
+                    dateGroups[d].items.push({
+                        ...tx,
+                        item_out: itemOut,
+                        item_in: itemIn,
+                        is_out: isOut,
+                        is_in: isIn,
+                        type_name: tx.entry_type ? tx.entry_type.name : (tx.entry_type_code || 'Expense'),
+                    });
+
+                    dateGroups[d].out_amount += itemOut;
+                    dateGroups[d].in_amount += itemIn;
+                });
+
+                // 2. Sort dates ascending
+                const sortedDates = Object.keys(dateGroups).sort((a, b) => a.localeCompare(b));
+
+                let runningBalance = 0;
+                const ledgerRows = [];
+
+                sortedDates.forEach(dateStr => {
+                    const g = dateGroups[dateStr];
+                    runningBalance = runningBalance + g.out_amount - g.in_amount;
+
+                    ledgerRows.push({
+                        date: dateStr,
+                        items: g.items,
+                        count: g.items.length,
+                        out_amount: g.out_amount,
+                        in_amount: g.in_amount,
+                        net_change: g.out_amount - g.in_amount,
+                        running_balance: runningBalance,
+                    });
+                });
+
+                return ledgerRows;
+            },
+
+            get companyPayablesTotalOut() {
+                return this.companyPayablesLedger.reduce((sum, r) => sum + r.out_amount, 0);
+            },
+
+            get companyPayablesTotalIn() {
+                return this.companyPayablesLedger.reduce((sum, r) => sum + r.in_amount, 0);
+            },
+
+            get companyPayablesFinalBalance() {
+                return this.companyPayablesTotalOut - this.companyPayablesTotalIn;
+            },
 
             openBreakdownModal(type) {
                 this.breakdownType = type;
