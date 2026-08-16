@@ -2274,16 +2274,16 @@ final class CashbookController extends Controller
         $reqStart = $validated['start_date'] ?? null;
         $reqEnd = $validated['end_date'] ?? null;
 
+        if ($reqStart && $reqEnd && ($reqStart !== $reqEnd || $timeframe === 'custom')) {
+            $timeframe = 'custom';
+        }
+
         [$startDate, $endDate] = $this->cashbookRange(
             $selectedDate,
             $timeframe,
             $reqStart,
             $reqEnd
         );
-
-        if ($reqStart && $reqEnd && ($reqStart !== $reqEnd || $timeframe === 'custom')) {
-            $timeframe = 'custom';
-        }
 
         return [
             'selected_date' => $selectedDate,
@@ -2541,11 +2541,11 @@ final class CashbookController extends Controller
      */
     private function cashbookRange(string $businessDate, string $timeframe, ?string $startDate = null, ?string $endDate = null): array
     {
-        $selectedDate = Carbon::parse($businessDate);
+        $selectedDate = Carbon::parse($businessDate)->min(today());
 
         if ($timeframe === 'custom') {
             $parsedStart = Carbon::parse($startDate ?: $businessDate);
-            $parsedEnd = Carbon::parse($endDate ?: $businessDate);
+            $parsedEnd = Carbon::parse($endDate ?: $businessDate)->min(today());
             if ($parsedStart->greaterThan($parsedEnd)) {
                 $temp = $parsedStart->copy();
                 $parsedStart = $parsedEnd->copy();
@@ -2556,8 +2556,8 @@ final class CashbookController extends Controller
         }
 
         [$rangeStart, $rangeEnd] = match ($timeframe) {
-            'weekly' => [$selectedDate->copy()->startOfWeek(), $selectedDate->copy()->endOfWeek()],
-            'monthly' => [$selectedDate->copy()->startOfMonth(), $selectedDate->copy()->endOfMonth()],
+            'weekly' => [$selectedDate->copy()->startOfWeek(), $selectedDate->copy()],
+            'monthly' => [$selectedDate->copy()->startOfMonth(), $selectedDate->copy()],
             default => [$selectedDate->copy(), $selectedDate->copy()],
         };
 
