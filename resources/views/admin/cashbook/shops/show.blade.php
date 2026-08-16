@@ -1170,10 +1170,17 @@
                     const category = tx.entry_type ? (tx.entry_type.category || '') : '';
                     const direction = tx.direction || category || 'expense';
 
+                    const setting = (this.settings || []).find(s => s.entry_type_id === tx.entry_type_id || (s.entry_type && s.entry_type.code === code));
+                    const payableDir = setting ? setting.payable_direction : null;
+
                     let isOut = false;
                     let isIn = false;
 
-                    if (delta > 0) {
+                    if (payableDir === 'add') {
+                        isOut = true;
+                    } else if (payableDir === 'minus') {
+                        isIn = true;
+                    } else if (delta > 0) {
                         isOut = true;
                     } else if (delta < 0) {
                         isIn = true;
@@ -1698,8 +1705,11 @@
                         this.snapshot = data.snapshot || {};
 
                         renderSnapshot(data.snapshot, data.payable_total);
+                    } else {
+                        showToast(data.message || 'Failed to load shop details', 'error');
                     }
                 } catch (err) {
+                    console.error('Failed to load shop details:', err);
                     showToast('Failed to load shop details', 'error');
                 }
             }

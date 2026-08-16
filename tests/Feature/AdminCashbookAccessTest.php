@@ -706,6 +706,14 @@ class AdminCashbookAccessTest extends TestCase
             ->get(route('admin.cashbook.settings.shop', $shop->shop_id))
             ->assertOk()
             ->assertSee('Settings');
+
+        $this->actingAs($mainAdmin)
+            ->getJson(route('admin.cashbook.api.shop-data', [
+                'shop_id' => $shop->slug ?: $shop->shop_id,
+                'business_date' => '2026-08-01',
+            ]))
+            ->assertOk()
+            ->assertJson(['success' => true]);
     }
 }
 

@@ -525,7 +525,7 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $validated = $request->validate([
-            'shop_id' => ['nullable', 'integer'],
+            'shop_id' => ['nullable'],
             'business_date' => ['nullable', 'date_format:Y-m-d'],
             'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
             'start_date' => ['nullable', 'date_format:Y-m-d'],
@@ -534,7 +534,9 @@ final class CashbookController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $shopId = (int) ($validated['shop_id'] ?? 1);
+        $rawShopParam = $validated['shop_id'] ?? $request->input('shop_id') ?? 1;
+        $resolvedProfile = $this->resolveShop($rawShopParam);
+        $shopId = (int) $resolvedProfile->shop_id;
         $date = $validated['business_date'] ?? today()->toDateString();
         $timeframe = $validated['timeframe'] ?? 'daily';
         $perPage = (int) ($validated['per_page'] ?? 50);
@@ -605,11 +607,21 @@ final class CashbookController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
+        $settings = ShopLedgerEntrySetting::with('entryType')
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->get();
+
+        $payableEntryTypeIds = $settings
+            ->where('include_in_payable', true)
+            ->pluck('entry_type_id');
+
         $companyPendingEntries = ShopLedgerTransaction::with('entryType')
             ->where('shop_id', $shopId)
-            ->where(function ($q) {
+            ->where(function ($q) use ($payableEntryTypeIds) {
                 $q->where('company_pending_delta', '!=', 0)
                     ->orWhere('funding_source', 'company')
+                    ->when($payableEntryTypeIds->isNotEmpty(), fn ($sub) => $sub->orWhereIn('entry_type_id', $payableEntryTypeIds->all()))
                     ->orWhereHas('entryType', function ($eq) {
                         $eq->whereIn('code', [
                             'vehicle',
@@ -624,14 +636,6 @@ final class CashbookController extends Controller
             ->orderBy('id', 'asc')
             ->get();
 
-        $settings = ShopLedgerEntrySetting::with('entryType')
-            ->where('shop_id', $shopId)
-            ->where('enabled', true)
-            ->get();
-
-        $payableEntryTypeIds = $settings
-            ->where('include_in_payable', true)
-            ->pluck('entry_type_id');
         $payableRows = $rangeTransactions
             ->filter(function ($tx) use ($payableEntryTypeIds) {
                 return $payableEntryTypeIds->contains($tx->entry_type_id)
