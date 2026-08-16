@@ -304,7 +304,14 @@ class ProductController extends Controller
 
     public function updateStatus(Request $request, Product $product): RedirectResponse
     {
-        abort_unless($request->user()?->hasRole('admin') || $request->user()?->can('inventory.product.status.update'), 403);
+        $user = $request->user();
+        abort_unless(
+            $user?->hasRole('admin') ||
+            $user?->hasRole('purchaser') ||
+            $user?->hasRole('purchase') ||
+            $user?->can('inventory.product.status.update'),
+            403
+        );
 
         if ($request->has('show_in_purchaser_order')) {
             $validated = $request->validate([
@@ -319,6 +326,8 @@ class ProductController extends Controller
                 ->back()
                 ->with('success', "{$product->name} purchase visibility updated.");
         }
+
+        abort_unless($user?->hasRole('admin') || $user?->can('inventory.product.status.update'), 403);
 
         $validated = $request->validate([
             'is_active' => ['required', 'boolean'],
