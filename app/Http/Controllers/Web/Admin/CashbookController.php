@@ -651,7 +651,7 @@ final class CashbookController extends Controller
 
         $payableByCategory = $payableRows
             ->groupBy(fn ($tx) => $tx->entryType?->name ?: $tx->entry_type_code)
-            ->map(function ($group, $name) use ($settlementTransactions) {
+            ->map(function ($group, $name) use ($settlementTransactions, $settings) {
                 $first = $group->first();
                 $code = (string) ($first->entryType?->code ?: $first->entry_type_code);
                 $recordedAmount = round((float) $group->sum(function ($tx) use ($settings) {
