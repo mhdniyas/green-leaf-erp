@@ -137,7 +137,7 @@
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">SKU</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Category</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Unit</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Show in PO</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Last Status Change</th>
                         <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                     </tr>
@@ -199,18 +199,18 @@
                                 <form method="POST" action="{{ route('inventory.products.status.update', $product) }}">
                                     @csrf
                                     @method('PATCH')
-                                    <input type="hidden" name="is_active" value="{{ $product->is_active ? '0' : '1' }}">
-                                    <button type="submit" class="group inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-black transition-colors {{ $product->is_active ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200' }}" title="Toggle product status">
-                                        <span class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {{ $product->is_active ? 'bg-emerald-500' : 'bg-slate-300' }}">
-                                            <span class="inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform {{ $product->is_active ? 'translate-x-4' : 'translate-x-0.5' }}"></span>
+                                    <input type="hidden" name="show_in_purchaser_order" value="{{ $product->show_in_purchaser_order ? '0' : '1' }}">
+                                    <button type="submit" class="group inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-black transition-colors {{ $product->show_in_purchaser_order ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200' }}" title="Toggle show in purchaser order">
+                                        <span class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {{ $product->show_in_purchaser_order ? 'bg-emerald-500' : 'bg-slate-300' }}">
+                                            <span class="inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform {{ $product->show_in_purchaser_order ? 'translate-x-4' : 'translate-x-0.5' }}"></span>
                                         </span>
-                                        <span>{{ $product->is_active ? 'Active' : 'Inactive' }}</span>
+                                        <span>{{ $product->show_in_purchaser_order ? 'Show' : 'Hide' }}</span>
                                     </button>
                                 </form>
                             @else
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {{ $product->is_active ? 'border border-green-200 bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500' }}">
-                                    <span class="h-1.5 w-1.5 rounded-full {{ $product->is_active ? 'bg-green-500' : 'bg-gray-400' }}"></span>
-                                    {{ $product->is_active ? 'Active' : 'Inactive' }}
+                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {{ $product->show_in_purchaser_order ? 'border border-green-200 bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500' }}">
+                                    <span class="h-1.5 w-1.5 rounded-full {{ $product->show_in_purchaser_order ? 'bg-green-500' : 'bg-gray-400' }}"></span>
+                                    {{ $product->show_in_purchaser_order ? 'Show' : 'Hide' }}
                                 </span>
                             @endif
                         </td>

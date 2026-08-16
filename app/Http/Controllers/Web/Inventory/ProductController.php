@@ -306,6 +306,20 @@ class ProductController extends Controller
     {
         abort_unless($request->user()?->hasRole('admin') || $request->user()?->can('inventory.product.status.update'), 403);
 
+        if ($request->has('show_in_purchaser_order')) {
+            $validated = $request->validate([
+                'show_in_purchaser_order' => ['required', 'boolean'],
+            ]);
+
+            $product->update([
+                'show_in_purchaser_order' => (bool) $validated['show_in_purchaser_order'],
+            ]);
+
+            return redirect()
+                ->back()
+                ->with('success', "{$product->name} purchase visibility updated.");
+        }
+
         $validated = $request->validate([
             'is_active' => ['required', 'boolean'],
         ]);
