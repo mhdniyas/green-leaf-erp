@@ -257,6 +257,16 @@
                         maximumFractionDigits: 2,
                     });
                 },
+
+                formatSaleLessGl(item) {
+                    if (!item) return '';
+                    const sales = parseFloat(item.sales || 0);
+                    const gl = parseFloat(item.gl_bills || 0);
+                    const diff = sales - gl;
+                    const pct = sales > 0 ? (diff / sales) * 100 : 0;
+                    const pctFormatted = (pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
+                    return this.currency(diff) + ' (' + pctFormatted + ')';
+                },
             };
         }
     </script>
@@ -615,7 +625,13 @@
                                             <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-700 border border-emerald-100">Own</span>
                                         </template>
                                     </div>
-                                    <h4 class="mt-1 text-xs font-black text-slate-900 group-hover:text-emerald-700 transition truncate" x-text="item.shop_name"></h4>
+                                    <div class="mt-1 flex items-center gap-1.5 flex-wrap min-w-0">
+                                        <h4 class="text-xs font-black text-slate-900 group-hover:text-emerald-700 transition truncate" x-text="item.shop_name"></h4>
+                                        <span class="text-[8px] font-extrabold text-slate-600 bg-slate-100/90 border border-slate-200/80 rounded-md px-1.5 py-0.2 shrink-0 shadow-2xs inline-flex items-center gap-1" title="Sales minus GL Bill (Percentage of Total Sales)">
+                                            <span class="text-[7.5px] font-bold text-slate-400 uppercase tracking-tighter">Sales-GL:</span>
+                                            <span x-text="formatSaleLessGl(item)"></span>
+                                        </span>
+                                    </div>
                                 </div>
 
                                 <!-- Action Quick Icon -->

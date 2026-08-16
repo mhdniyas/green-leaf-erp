@@ -136,7 +136,7 @@
         if ($currentUser?->isMainAdmin()) {
             $adminItems[] = [
                 'label' => 'Cashbook',
-                'href' => route('admin.cashbook.index', ['date' => $navDate]),
+                'href' => route('admin.cashbook.reports.hub', ['timeframe' => 'today', 'start_date' => $navDate, 'end_date' => $navDate]),
                 'active' => request()->routeIs('admin.cashbook.*'),
                 'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 5.25A2.25 2.25 0 0 1 6.75 3h10.5a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 17.25 21H6.75a2.25 2.25 0 0 1-2.25-2.25V5.25Zm3 3h9m-9 3h9m-9 3h5.25" /></svg>',
             ];
