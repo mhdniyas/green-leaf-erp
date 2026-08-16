@@ -333,6 +333,25 @@
                                     </span>
                                 @endif
                             </div>
+                            <div class="mt-1 flex items-center gap-1.5">
+                                @if(auth()->user()?->hasRole('admin') || auth()->user()?->hasRole('purchaser'))
+                                    <form method="POST" action="{{ route('inventory.products.status.update', $product['id']) }}">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="show_in_purchaser_order" value="{{ $product['show_in_purchaser_order'] ? '0' : '1' }}">
+                                        <button type="submit" class="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-black transition-colors {{ $product['show_in_purchaser_order'] ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200' }}" title="Toggle Show/Hide status for Purchaser Order">
+                                            <span class="relative inline-flex h-3 w-6 items-center rounded-full transition-colors {{ $product['show_in_purchaser_order'] ? 'bg-emerald-500' : 'bg-slate-300' }}">
+                                                <span class="inline-block h-2.5 w-2.5 rounded-full bg-white shadow-xs transition-transform {{ $product['show_in_purchaser_order'] ? 'translate-x-3' : 'translate-x-0.5' }}"></span>
+                                            </span>
+                                            <span>{{ $product['show_in_purchaser_order'] ? 'Show in PO' : 'Hidden in PO' }}</span>
+                                        </button>
+                                    </form>
+                                @else
+                                    <span class="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-black {{ $product['show_in_purchaser_order'] ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-500' }}">
+                                        {{ $product['show_in_purchaser_order'] ? 'Show in PO' : 'Hidden in PO' }}
+                                    </span>
+                                @endif
+                            </div>
                             <div id="row-cost-avg-{{ $product['id'] }}" class="product-cost-info">
                                 @if (($product['purchaser_avg_price'] ?? null) !== null)
                                     Cost Avg: ₹{{ formatPriceCompactPHP($product['purchaser_avg_price']) }}
@@ -340,7 +359,7 @@
                             </div>
                             <div id="row-selling-a-{{ $product['id'] }}" class="updater-info">
                                 @if (($product['selling_price_a'] ?? null) !== null)
-                                    Selling A: ₹{{ formatPriceCompactPHP($product['selling_price_a']) }}
+                                    Selling A: ₹{{ formatPriceCompactPHP($product['selling_price_a']) }} <span class="text-[9px] font-semibold text-slate-400 bg-slate-100 border border-slate-200/50 rounded-sm px-1 py-0.25 ml-1">Updates Shop Order</span>
                                 @endif
                             </div>
                             @if (!empty($doubleCheck))

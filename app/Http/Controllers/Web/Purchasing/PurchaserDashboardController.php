@@ -4397,7 +4397,7 @@ class PurchaserDashboardController extends Controller
         $assignedCategoryIds = $user?->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null;
 
         $categoriesQuery = Category::query()
-            ->whereHas('products', fn ($q) => $q->active()->where('show_in_purchaser_order', true))
+            ->whereHas('products', fn ($q) => $q->active())
             ->orderBy('name');
 
         if ($assignedCategoryIds !== null) {
@@ -4408,7 +4408,6 @@ class PurchaserDashboardController extends Controller
 
         $productsQuery = Product::query()
             ->active()
-            ->where('show_in_purchaser_order', true)
             ->with(['category'])
             ->ordered();
 
@@ -4523,6 +4522,7 @@ class PurchaserDashboardController extends Controller
                 'id' => $product->id,
                 'name' => $product->name,
                 'sku' => $product->sku,
+                'show_in_purchaser_order' => (bool) $product->show_in_purchaser_order,
                 'unit' => strtoupper((string) ($product->unit ?: 'KG')),
                 'unit_info_price' => $todayPrice ?? $previousPrice,
                 'purchaser_avg_price' => $purchaserAveragePrices->get((int) $product->id),
