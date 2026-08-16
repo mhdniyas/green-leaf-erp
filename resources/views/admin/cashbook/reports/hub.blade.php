@@ -25,6 +25,11 @@
                 selectedShopForGraph: null,
                 activeGraphPoint: null,
                 chartType: 'column',
+                showPendingDetails: false,
+
+                pendingShopsList() {
+                    return this.filteredShops().filter(s => (s.pending_days_count || 0) > 0);
+                },
 
                 init() {
                     this.syncUrl();
@@ -85,10 +90,17 @@
                 setPreset(preset) {
                     this.timeframe = preset;
                     const todayStr = '{{ today()->toDateString() }}';
+                    const yesterdayStr = '{{ today()->subDay()->toDateString() }}';
 
                     if (preset === 'today') {
                         this.startDate = todayStr;
                         this.endDate = todayStr;
+                    } else if (preset === 'upto_yesterday') {
+                        if (this.startDate > yesterdayStr || this.startDate === todayStr) {
+                            this.startDate = '{{ today()->startOfMonth()->toDateString() }}';
+                        }
+                        this.endDate = yesterdayStr;
+                        this.timeframe = 'custom';
                     } else if (preset === 'weekly') {
                         this.startDate = '{{ today()->startOfWeek()->toDateString() }}';
                         this.endDate = '{{ today()->endOfWeek()->toDateString() }}';
@@ -305,6 +317,15 @@
                 </button>
                 <button
                     type="button"
+                    @click="setPreset('upto_yesterday')"
+                    class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all"
+                    :class="(timeframe === 'upto_yesterday' || (endDate === '{{ today()->subDay()->toDateString() }}' && timeframe !== 'today')) ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                    title="Show data up to yesterday"
+                >
+                    Upto Y'day
+                </button>
+                <button
+                    type="button"
                     @click="setPreset('weekly')"
                     class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all"
                     :class="timeframe === 'weekly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
@@ -323,7 +344,7 @@
                     type="button"
                     @click="setPreset('custom')"
                     class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all"
-                    :class="timeframe === 'custom' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                    :class="timeframe === 'custom' && endDate !== '{{ today()->subDay()->toDateString() }}' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
                 >
                     Custom
                 </button>
@@ -358,19 +379,71 @@
             <button type="button" @click="loadData()" class="h-8 shrink-0 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
         </div>
 
-        <!-- Pending Shop Entry Alert Banner -->
-        <div x-show="totalPendingDays() > 0" class="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-3 flex items-center justify-between gap-3 text-xs font-bold text-amber-900" x-cloak>
-            <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white shrink-0">
-                    <i data-lucide="clock" class="w-3.5 h-3.5"></i>
-                </span>
-                <span>
-                    <span x-text="pendingShopsCount()"></span> <span x-text="pendingShopsCount() === 1 ? 'outlet has' : 'outlets have'"></span> GL bills pending daily sales entry (<span x-text="totalPendingDays()"></span> pending <span x-text="totalPendingDays() === 1 ? 'day' : 'days'"></span>).
-                </span>
+        <!-- Pending Shop Entry Alert Banner (Clickable to Expand Outlets Breakdown) -->
+        <div x-show="totalPendingDays() > 0" class="rounded-2xl bg-amber-500/10 border border-amber-500/20 overflow-hidden transition-all shadow-2xs" x-cloak>
+            <!-- Banner Header (Clickable) -->
+            <div
+                @click="showPendingDetails = !showPendingDetails; if (window.lucide) { $nextTick(() => lucide.createIcons()); }"
+                class="p-3 flex items-center justify-between gap-2 text-xs font-bold text-amber-900 cursor-pointer select-none hover:bg-amber-500/15 transition"
+                title="Click to view pending outlets details"
+            >
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white shrink-0 shadow-xs">
+                        <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                    </span>
+                    <span class="truncate">
+                        <span x-text="pendingShopsCount()"></span> <span x-text="pendingShopsCount() === 1 ? 'outlet has' : 'outlets have'"></span> GL bills pending daily sales entry (<span x-text="totalPendingDays()"></span> pending <span x-text="totalPendingDays() === 1 ? 'day' : 'days'"></span>).
+                    </span>
+                </div>
+
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <span class="text-[10px] font-black uppercase text-amber-900 bg-amber-200/80 hover:bg-amber-300 transition px-2.5 py-1 rounded-full inline-flex items-center gap-1">
+                        <span>Show Outlets</span>
+                        <i data-lucide="chevron-down" class="w-3 h-3 transition-transform duration-200" :class="{ 'rotate-180': showPendingDetails }"></i>
+                    </span>
+                </div>
             </div>
-            <span class="text-[10px] font-black uppercase text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0">
-                <span x-text="totalPendingDays()"></span> Pending
-            </span>
+
+            <!-- Itemized Pending Outlets List (Shown when clicked) -->
+            <div
+                x-show="showPendingDetails"
+                x-transition
+                class="border-t border-amber-500/20 bg-amber-50/60 p-3 space-y-2"
+            >
+                <div class="flex items-center justify-between text-[10px] font-black uppercase text-amber-900 tracking-wider">
+                    <span>Pending Outlets Breakdown</span>
+                    <span><span x-text="pendingShopsList().length"></span> outlets • <span x-text="totalPendingDays()"></span> total pending days</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
+                    <template x-for="shop in pendingShopsList()" :key="shop.shop_id">
+                        <div
+                            @click="window.location.href = '{{ url('/admin/cashbook/mobile/ledger') }}/' + shop.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                            class="rounded-xl border border-amber-200/90 bg-white p-2.5 shadow-2xs hover:border-amber-400 hover:shadow-xs transition cursor-pointer flex flex-col justify-between gap-1.5"
+                            title="Open shop mobile ledger"
+                        >
+                            <div class="flex items-center justify-between gap-1.5">
+                                <div class="flex items-center gap-1.5 min-w-0">
+                                    <span class="rounded bg-amber-100 px-1.5 py-0.2 text-[8px] font-black uppercase text-amber-900 shrink-0" x-text="shop.shop_code"></span>
+                                    <span class="text-xs font-black text-slate-900 truncate" x-text="shop.shop_name"></span>
+                                </div>
+                                <span class="rounded-lg bg-amber-500 text-white px-2 py-0.5 text-[9px] font-black shrink-0 shadow-2xs">
+                                    <span x-text="shop.pending_days_count"></span> <span x-text="shop.pending_days_count === 1 ? 'day' : 'days'"></span>
+                                </span>
+                            </div>
+
+                            <template x-if="shop.pending_dates && shop.pending_dates.length > 0">
+                                <div class="flex items-center justify-between border-t border-slate-100 pt-1 text-[9px] font-bold text-amber-800/90">
+                                    <span class="truncate">
+                                        Dates: <span class="font-extrabold text-amber-950" x-text="shop.pending_dates.slice(0, 2).join(', ') + (shop.pending_dates.length > 2 ? ' +' + (shop.pending_dates.length - 2) + ' more' : '')"></span>
+                                    </span>
+                                    <i data-lucide="arrow-right" class="w-3 h-3 text-amber-700 shrink-0"></i>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
         </div>
 
         <!-- Hero Financial Spend Card (Dynamic Fintech Dashboard) -->
@@ -508,7 +581,8 @@
                     <span class="text-rose-600 truncate">Total outflow</span>
                     <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate" class="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/90 shrink-0 font-black hover:bg-amber-100 transition inline-flex items-center gap-0.5" title="View Synced GL Invoices & Bills">
                         GL Bill: <span x-text="currency(activeTotals().gl_bills)">{{ number_format($totals['gl_bills'], 2) }}</span>
-                        <i data-lucide="arrow-right" class="w-2.5 h-2.5"></i>
+                        <span class="text-[9px] font-bold text-amber-700/90 ml-0.5">(<span x-text="activeTotals().gl_bills_count || 0"></span> bills • Info)</span>
+                        <i data-lucide="arrow-right" class="w-2.5 h-2.5 ml-0.5"></i>
                     </a>
                 </div>
             </div>
@@ -518,39 +592,41 @@
         <div class="space-y-2.5">
             <div class="flex items-center justify-between px-1">
                 <h3 class="text-sm font-black text-slate-900">Accounts &amp; Outlets</h3>
-                <span class="text-[10px] font-bold text-slate-400"><span x-text="filteredShops().length"></span> synced shops</span>
+                <p class="text-xs font-bold text-slate-500"><span x-text="filteredShops().length"></span> outlets active</p>
             </div>
 
-            <!-- Modern Ultra-Compact 3 Column Tile Grid -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                <template x-for="(item, idx) in filteredShops()" :key="item.shop_id">
+            <!-- Grid of Shop Performance Cards -->
+            <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                <template x-for="item in filteredShops()" :key="item.shop_id">
                     <div
                         @click="window.location.href = '{{ url('/admin/cashbook/mobile/ledger') }}/' + item.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
-                        class="group relative flex flex-col justify-between rounded-xl border border-slate-200/90 bg-white p-3 shadow-xs transition-all hover:border-indigo-400 hover:shadow-md cursor-pointer"
+                        class="group relative rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs transition hover:border-slate-400 hover:shadow-md cursor-pointer flex flex-col justify-between"
                     >
                         <div>
-                            <!-- Header: Icon + Name/Code + Badge (Single Row) -->
-                            <div class="flex items-center justify-between gap-1.5">
-                                <div class="flex items-center gap-2 min-w-0">
-                                    <div class="flex h-7 w-7 items-center justify-center rounded-lg font-black text-white shadow-xs shrink-0"
-                                         :class="idx % 3 === 0 ? 'bg-gradient-to-tr from-indigo-600 to-indigo-400' : (idx % 3 === 1 ? 'bg-gradient-to-tr from-blue-600 to-sky-400' : 'bg-gradient-to-tr from-teal-600 to-emerald-400')">
-                                        <i data-lucide="store" class="w-3.5 h-3.5"></i>
+                            <!-- Header Row: Code + Name + Status -->
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-700 border border-slate-200" x-text="item.shop_code"></span>
+                                        <template x-if="item.is_client_owned">
+                                            <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase text-amber-700 border border-amber-100">Client</span>
+                                        </template>
+                                        <template x-if="!item.is_client_owned">
+                                            <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-700 border border-emerald-100">Own</span>
+                                        </template>
                                     </div>
-                                    <div class="min-w-0">
-                                        <!-- Clickable Shop Name -> Details Page -->
-                                        <span
-                                            @click.stop="window.location.href = '{{ url('/admin/cashbook/reports/shop') }}/' + item.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
-                                            class="text-xs font-black text-slate-900 truncate leading-tight hover:text-indigo-600 hover:underline transition block cursor-pointer"
-                                            x-text="item.shop_name"
-                                            title="View Shop Details"
-                                        ></span>
-                                        <p class="text-[8px] font-bold uppercase text-slate-400 truncate" x-text="item.shop_code"></p>
-                                    </div>
+                                    <h4 class="mt-1 text-xs font-black text-slate-900 group-hover:text-emerald-700 transition truncate" x-text="item.shop_name"></h4>
                                 </div>
-                                <span class="rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider shrink-0"
-                                      :class="item.status === 'pending' ? 'bg-amber-100 text-amber-800' : (item.net >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')"
-                                      x-text="item.status === 'pending' ? 'Pending Entry' : (item.net >= 0 ? 'Profit' : 'Loss')">
-                                </span>
+
+                                <!-- Action Quick Icon -->
+                                <button
+                                    type="button"
+                                    @click.stop="window.location.href = '{{ url('/admin/cashbook/reports/shop') }}/' + item.shop_slug + '?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                                    class="h-7 w-7 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-500 hover:bg-slate-900 hover:text-white transition shrink-0"
+                                    title="View Full Ledger Detail"
+                                >
+                                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                                </button>
                             </div>
 
                             <!-- 4 Key Metrics in 2 Compact Rows (Sales, Expense, GL Bill, Net P/L) -->
@@ -564,8 +640,12 @@
                                     <span class="text-[11px] font-black text-rose-600 truncate block" x-text="currency(item.expense)"></span>
                                 </div>
                                 <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?shop_id=' + item.shop_id + '&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate" @click.stop class="bg-slate-50/80 hover:bg-amber-50 rounded-lg px-2 py-1 border border-slate-100 block transition cursor-pointer">
-                                    <span class="text-[7px] font-black uppercase text-amber-600 block tracking-tight hover:underline">GL Bill</span>
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[7px] font-black uppercase text-amber-600 tracking-tight hover:underline">GL Bill</span>
+                                        <span class="text-[6.5px] font-black uppercase bg-amber-100 text-amber-800 px-1 rounded">Info</span>
+                                    </div>
                                     <span class="text-[11px] font-black text-amber-700 truncate block" x-text="currency(item.gl_bills)"></span>
+                                    <span class="text-[7.5px] font-bold text-amber-800/80 block"><span x-text="item.gl_bills_count || 0"></span> <span x-text="(item.gl_bills_count === 1 ? 'bill' : 'bills')"></span></span>
                                 </a>
                                 <div class="rounded-lg px-2 py-1 border" :class="item.net >= 0 ? 'bg-emerald-50/60 border-emerald-100' : 'bg-rose-50/60 border-rose-100'">
                                     <span class="text-[7px] font-black uppercase block tracking-tight" :class="item.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">Net P/L</span>

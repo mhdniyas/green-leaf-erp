@@ -45,6 +45,7 @@ class AdminCashbookReportsController extends Controller
             'expense' => round((float) $shopMetrics->sum('expense'), 2),
             'net' => round((float) $shopMetrics->sum('net'), 2),
             'gl_bills' => round((float) $shopMetrics->sum('gl_bills'), 2),
+            'gl_bills_count' => (int) $shopMetrics->sum('gl_bills_count'),
         ];
 
         return view('admin.cashbook.reports.hub', [
@@ -290,6 +291,10 @@ class AdminCashbookReportsController extends Controller
                 'start' => $today->copy()->subDay()->toDateString(),
                 'end' => $today->copy()->subDay()->toDateString(),
             ],
+            'upto_yesterday' => [
+                'start' => $today->copy()->startOfMonth()->toDateString(),
+                'end' => $today->copy()->subDay()->toDateString(),
+            ],
             'weekly' => [
                 'start' => $today->copy()->startOfWeek()->toDateString(),
                 'end' => $today->copy()->endOfWeek()->toDateString(),
@@ -365,14 +370,17 @@ class AdminCashbookReportsController extends Controller
 
             $net = round($sales - $expense, 2);
 
-            $glBills = (float) $activeTx
+            $glBillTxs = $activeTx
                 ->filter(function ($t) {
                     $code = $t->entryType?->code ?: $t->entry_type_code;
                     return in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
                         || str_contains(strtolower((string) $t->notes), 'invoice')
-                        || $t->reference_type === 'App\Models\ShopInvoice';
-                })
-                ->sum('amount');
+                        || $t->reference_type === 'App\Models\ShopInvoice'
+                        || $t->reference_type === \App\Models\ShopInvoice::class;
+                });
+
+            $glBills = (float) $glBillTxs->sum('amount');
+            $glBillsCount = (int) $glBillTxs->count();
 
             $marginPct = $sales > 0 ? round(($net / $sales) * 100, 1) : 0;
 
@@ -391,6 +399,7 @@ class AdminCashbookReportsController extends Controller
                 'expense' => round($expense, 2),
                 'net' => $net,
                 'gl_bills' => round($glBills, 2),
+                'gl_bills_count' => $glBillsCount,
                 'pending_gl_bills' => round($pendingGlBillTotal, 2),
                 'margin_pct' => $marginPct,
                 'entries_count' => $activeTx->count(),
@@ -448,9 +457,11 @@ class AdminCashbookReportsController extends Controller
         $net = round($sales - $expense, 2);
 
         // Total GL bills for the period (including invoices on days pending sales submission)
-        $glBills = (float) $transactions
-            ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice' || $t->reference_type === \App\Models\ShopInvoice::class)
-            ->sum('amount');
+        $glBillTxs = $transactions
+            ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice' || $t->reference_type === \App\Models\ShopInvoice::class);
+
+        $glBills = (float) $glBillTxs->sum('amount');
+        $glBillsCount = (int) $glBillTxs->count();
 
         $petty = (float) $activeTransactions
             ->filter(fn ($t) => $t->funding_source === 'petty')
@@ -502,6 +513,7 @@ class AdminCashbookReportsController extends Controller
             'expense' => round($expense, 2),
             'net' => $net,
             'gl_bills' => round($glBills, 2),
+            'gl_bills_count' => $glBillsCount,
             'petty' => round($petty, 2),
             'margin_pct' => $sales > 0 ? round(($net / $sales) * 100, 1) : 0,
             'categories' => $categoryBreakdown,

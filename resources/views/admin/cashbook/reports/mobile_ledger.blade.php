@@ -28,14 +28,15 @@
 
             <!-- Date Range Controls -->
             <div class="mt-3">
-                <div class="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
-                    <button type="button" @click="setPreset('today')" class="flex-1 rounded-lg py-1 text-center text-[10px] font-black transition" :class="timeframe === 'today' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Today</button>
-                    <button type="button" @click="setPreset('weekly')" class="flex-1 rounded-lg py-1 text-center text-[10px] font-black transition" :class="timeframe === 'weekly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Week</button>
-                    <button type="button" @click="setPreset('monthly')" class="flex-1 rounded-lg py-1 text-center text-[10px] font-black transition" :class="timeframe === 'monthly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Month</button>
-                    <button type="button" @click="setPreset('custom')" class="flex-1 rounded-lg py-1 text-center text-[10px] font-black transition" :class="timeframe === 'custom' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Custom</button>
+                <div class="flex items-center gap-0.5 sm:gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    <button type="button" @click="setPreset('today')" class="flex-1 rounded-lg py-1 text-center text-[9px] sm:text-[10px] font-black transition px-1" :class="timeframe === 'today' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Today</button>
+                    <button type="button" @click="setPreset('upto_yesterday')" class="flex-1 rounded-lg py-1 text-center text-[9px] sm:text-[10px] font-black transition px-1" :class="(timeframe === 'upto_yesterday' || (endDate === '{{ today()->subDay()->toDateString() }}' && timeframe !== 'today')) ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'" title="Show data up to yesterday">Upto Y'day</button>
+                    <button type="button" @click="setPreset('weekly')" class="flex-1 rounded-lg py-1 text-center text-[9px] sm:text-[10px] font-black transition px-1" :class="timeframe === 'weekly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Week</button>
+                    <button type="button" @click="setPreset('monthly')" class="flex-1 rounded-lg py-1 text-center text-[9px] sm:text-[10px] font-black transition px-1" :class="timeframe === 'monthly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Month</button>
+                    <button type="button" @click="setPreset('custom')" class="flex-1 rounded-lg py-1 text-center text-[9px] sm:text-[10px] font-black transition px-1" :class="timeframe === 'custom' && endDate !== '{{ today()->subDay()->toDateString() }}' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'">Custom</button>
                     
                     <!-- Calendar Jump to Date Picker -->
-                    <label class="relative flex h-6 w-8 items-center justify-center cursor-pointer rounded-lg text-slate-600 hover:bg-slate-200 transition-all shrink-0" title="Jump to Specific Date">
+                    <label class="relative flex h-6 w-7 sm:w-8 items-center justify-center cursor-pointer rounded-lg text-slate-600 hover:bg-slate-200 transition-all shrink-0" title="Jump to Specific Date">
                         <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
                         <input
                             type="date"
@@ -53,6 +54,30 @@
                 </div>
             </div>
         </section>
+
+        <!-- Individual Outlet Pending Days Notice (if any) -->
+        <template x-if="metrics.pending_days_count > 0">
+            <div class="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-3 text-xs font-bold text-amber-900 flex items-center justify-between gap-2 shadow-2xs" x-cloak>
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white shrink-0 shadow-xs">
+                        <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                    </span>
+                    <div class="min-w-0">
+                        <p class="font-black text-amber-950 truncate">
+                            <span x-text="metrics.pending_days_count"></span> pending <span x-text="metrics.pending_days_count === 1 ? 'day' : 'days'"></span> with GL bills waiting for daily sales entry.
+                        </p>
+                        <template x-if="metrics.pending_dates && metrics.pending_dates.length > 0">
+                            <p class="text-[9px] font-semibold text-amber-800/90 mt-0.5 truncate">
+                                Dates: <span class="font-extrabold text-amber-950" x-text="metrics.pending_dates.join(', ')"></span>
+                            </p>
+                        </template>
+                    </div>
+                </div>
+                <span class="rounded-full bg-amber-200/80 px-2 py-0.5 text-[9px] font-black uppercase text-amber-900 shrink-0">
+                    Pending
+                </span>
+            </div>
+        </template>
 
         <!-- 4 Summary Cards in 2x2 Grid (Sales, Expense, GL Bill, Net P/L) -->
         <section class="grid grid-cols-2 gap-2">
@@ -83,20 +108,28 @@
             <!-- 3. GL Bill Card with Direct Link -->
             <div class="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50/60 to-orange-50/40 p-3 shadow-xs">
                 <div class="flex items-center justify-between">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-amber-800">GL Bill</span>
-                    <div class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-800">
+                    <div class="flex items-center gap-1 min-w-0">
+                        <span class="text-[9px] font-black uppercase tracking-wider text-amber-800">GL Bill</span>
+                        <span class="rounded bg-amber-200/80 px-1 py-0.2 text-[8px] font-black uppercase text-amber-900 shrink-0">Info</span>
+                    </div>
+                    <div class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-800 shrink-0">
                         <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
                     </div>
                 </div>
                 <p class="mt-1 text-sm sm:text-base font-black text-amber-900 truncate" x-text="currency(metrics.gl_bills)">₹{{ number_format($metrics['gl_bills'], 2) }}</p>
-                <a
-                    :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?shop_id={{ $currentShop->shop_id }}&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
-                    class="mt-1 inline-flex items-center gap-1 text-[9px] font-black text-amber-800 hover:text-amber-950 hover:underline transition"
-                    title="View itemized GL invoices"
-                >
-                    <span>View Bills</span>
-                    <i data-lucide="arrow-right" class="w-3 h-3"></i>
-                </a>
+                <div class="mt-1 flex items-center justify-between">
+                    <span class="text-[8px] font-bold text-amber-800/90">
+                        <span class="font-black text-amber-900" x-text="metrics.gl_bills_count || 0"></span> <span x-text="(metrics.gl_bills_count === 1 ? 'bill' : 'bills')"></span>
+                    </span>
+                    <a
+                        :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?shop_id={{ $currentShop->shop_id }}&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                        class="inline-flex items-center gap-0.5 text-[9px] font-black text-amber-800 hover:text-amber-950 hover:underline transition"
+                        title="View itemized GL invoices"
+                    >
+                        <span>View Bills</span>
+                        <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                    </a>
+                </div>
             </div>
 
             <!-- 4. Net P/L Card -->
@@ -175,11 +208,12 @@
                                     <span
                                         class="rounded-md px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider shrink-0"
                                         :class="cat.is_gl_bill ? 'bg-amber-100 text-amber-800' : (cat.direction === 'income' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')"
-                                        x-text="cat.direction"
+                                        x-text="cat.is_gl_bill ? 'gl info' : cat.direction"
                                     ></span>
                                 </div>
                                 <p class="text-[9px] font-bold text-slate-400 mt-0.5">
                                     <span x-text="cat.count"></span> <span x-text="cat.count === 1 ? 'entry' : 'entries'"></span>
+                                    <template x-if="cat.is_gl_bill"><span class="text-amber-700 font-extrabold ml-1">• Info only</span></template>
                                 </p>
                             </div>
                         </div>
@@ -389,16 +423,25 @@
                  setPreset(preset) {
                     this.timeframe = preset;
                     const todayStr = '{{ today()->toDateString() }}';
+                    const yesterdayStr = '{{ today()->subDay()->toDateString() }}';
 
                     if (preset === 'today') {
                         this.startDate = todayStr;
                         this.endDate = todayStr;
+                    } else if (preset === 'upto_yesterday') {
+                        if (this.startDate > yesterdayStr || this.startDate === todayStr) {
+                            this.startDate = '{{ today()->startOfMonth()->toDateString() }}';
+                        }
+                        this.endDate = yesterdayStr;
+                        this.timeframe = 'custom';
                     } else if (preset === 'weekly') {
                         this.startDate = '{{ today()->startOfWeek()->toDateString() }}';
                         this.endDate = '{{ today()->endOfWeek()->toDateString() }}';
                     } else if (preset === 'monthly') {
                         this.startDate = '{{ today()->startOfMonth()->toDateString() }}';
                         this.endDate = '{{ today()->endOfMonth()->toDateString() }}';
+                    } else if (preset === 'custom') {
+                        return;
                     } else {
                         return;
                     }
