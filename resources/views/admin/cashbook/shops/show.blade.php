@@ -1682,7 +1682,10 @@
 
             async loadData() {
                 try {
-                    const url = `/admin/cashbook/api/shop-data?shop_id=${currentShopId}&business_date=${currentDate}&timeframe=${this.timeframe}&start_date=${this.customStartDate}&end_date=${this.customEndDate}`;
+                    let url = `/admin/cashbook/api/shop-data?shop_id=${currentShopId}&business_date=${currentDate}&timeframe=${this.timeframe}`;
+                    if (this.timeframe === 'custom') {
+                        url += `&start_date=${this.customStartDate}&end_date=${this.customEndDate}`;
+                    }
                     const res = await fetch(url);
                     const data = await res.json();
 
@@ -1747,40 +1750,49 @@
     function renderSnapshot(snapshot, payableTotal = 0) {
         if (!snapshot) return;
 
-        document.getElementById('stat-sales').innerText = `₹${parseFloat(snapshot.total_sales).toFixed(2)}`;
-        document.getElementById('stat-expense').innerText = `₹${parseFloat(snapshot.total_expense).toFixed(2)}`;
+        const salesEl = document.getElementById('stat-sales');
+        if (salesEl) salesEl.innerText = `₹${parseFloat(snapshot.total_sales || 0).toFixed(2)}`;
 
-        const netPl = parseFloat(snapshot.net_pl);
+        const expEl = document.getElementById('stat-expense');
+        if (expEl) expEl.innerText = `₹${parseFloat(snapshot.total_expense || 0).toFixed(2)}`;
+
+        const netPl = parseFloat(snapshot.net_pl || 0);
         const netPlEl = document.getElementById('stat-net-pl');
-        netPlEl.innerText = `₹${netPl.toFixed(2)}`;
-        netPlEl.className = `text-xl font-bold font-mono ${netPl < 0 ? 'text-rose-600' : 'text-emerald-600'}`;
+        if (netPlEl) {
+            netPlEl.innerText = `₹${netPl.toFixed(2)}`;
+            netPlEl.className = `text-xl font-bold font-mono ${netPl < 0 ? 'text-rose-600' : 'text-emerald-600'}`;
+        }
 
         const closingPetty = parseFloat(snapshot.closing_petty ?? 0);
         const pettyEl = document.getElementById('stat-petty');
         const pettySub = document.getElementById('stat-petty-sub');
         const pettyCard = document.getElementById('card-petty');
-        pettyEl.innerText = `₹${closingPetty.toFixed(2)}`;
+        if (pettyEl) pettyEl.innerText = `₹${closingPetty.toFixed(2)}`;
         if (closingPetty < 0) {
-            pettyEl.className = 'text-xl font-bold font-mono text-rose-600';
+            if (pettyEl) pettyEl.className = 'text-xl font-bold font-mono text-rose-600';
             if (pettySub) { pettySub.innerHTML = '⚠ Deficit — top-up from company cash <i data-lucide="chevron-right" class="w-3 h-3"></i>'; pettySub.className = 'text-[10px] text-rose-600 font-semibold block flex items-center gap-1'; }
             if (pettyCard) pettyCard.className = 'white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-rose-400 hover:shadow-md transition-all border-rose-200 bg-rose-50/30';
         } else {
-            pettyEl.className = 'text-xl font-bold font-mono text-slate-900';
+            if (pettyEl) pettyEl.className = 'text-xl font-bold font-mono text-slate-900';
             if (pettySub) { pettySub.innerHTML = 'Running Balance <i data-lucide="chevron-right" class="w-3 h-3"></i>'; pettySub.className = 'text-[10px] text-sky-600 font-semibold block flex items-center gap-1'; }
             if (pettyCard) pettyCard.className = 'white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-sky-400 hover:shadow-md transition-all';
         }
         const pettyTabFloat = document.getElementById('petty-tab-float');
         if (pettyTabFloat) pettyTabFloat.innerText = `₹${closingPetty.toFixed(2)}`;
 
-        document.getElementById('stat-settlement').innerText = `₹${parseFloat(payableTotal || 0).toFixed(2)}`;
-        document.getElementById('stat-company-pending').innerText = `₹${parseFloat(snapshot.closing_company_pending).toFixed(2)}`;
+        const settlEl = document.getElementById('stat-settlement');
+        if (settlEl) settlEl.innerText = `₹${parseFloat(payableTotal || 0).toFixed(2)}`;
+
+        const compPendEl = document.getElementById('stat-company-pending');
+        if (compPendEl) compPendEl.innerText = `₹${parseFloat(snapshot.closing_company_pending || 0).toFixed(2)}`;
+
         const collectionBalance = (parseFloat(snapshot.total_sales) || 0) - (parseFloat(snapshot.total_expense) || 0);
         const collectionBalanceEl = document.getElementById('stat-collection-balance');
         if (collectionBalanceEl) {
             collectionBalanceEl.innerText = `₹${collectionBalance.toFixed(2)}`;
         }
 
-        const isClosed = snapshot.closed_at !== null;
+        const isClosed = snapshot.closed_at !== null && snapshot.closed_at !== undefined;
         const statusBadge = document.getElementById('dashboard-day-status');
         const toggleBtn = document.getElementById('toggle-day-btn');
 
@@ -1803,7 +1815,9 @@
                 toggleBtn.className = 'px-4 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm';
             }
         }
-        lucide.createIcons();
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+        }
     }
 
     async function handleToggleDay() {

@@ -2541,27 +2541,23 @@ final class CashbookController extends Controller
      */
     private function cashbookRange(string $businessDate, string $timeframe, ?string $startDate = null, ?string $endDate = null): array
     {
-        $selectedDate = Carbon::parse($businessDate)->min(today());
+        $selectedDate = Carbon::parse($businessDate);
 
-        if ($startDate && $endDate) {
-            $parsedStart = Carbon::parse($startDate);
-            $parsedEnd = Carbon::parse($endDate)->min(today());
-            if ($timeframe === 'custom' || $parsedStart->toDateString() !== $parsedEnd->toDateString()) {
-                if ($parsedStart->greaterThan($parsedEnd)) {
-                    $parsedStart = $parsedEnd->copy();
-                }
-
-                return [$parsedStart->toDateString(), $parsedEnd->toDateString()];
+        if ($timeframe === 'custom') {
+            $parsedStart = Carbon::parse($startDate ?: $businessDate);
+            $parsedEnd = Carbon::parse($endDate ?: $businessDate);
+            if ($parsedStart->greaterThan($parsedEnd)) {
+                $temp = $parsedStart->copy();
+                $parsedStart = $parsedEnd->copy();
+                $parsedEnd = $temp;
             }
+
+            return [$parsedStart->toDateString(), $parsedEnd->toDateString()];
         }
 
         [$rangeStart, $rangeEnd] = match ($timeframe) {
-            'weekly' => [$selectedDate->copy()->startOfWeek(), $selectedDate->copy()],
-            'monthly' => [$selectedDate->copy()->startOfMonth(), $selectedDate->copy()],
-            'custom' => [
-                Carbon::parse($startDate ?? $businessDate),
-                Carbon::parse($endDate ?? $businessDate)->min(today()),
-            ],
+            'weekly' => [$selectedDate->copy()->startOfWeek(), $selectedDate->copy()->endOfWeek()],
+            'monthly' => [$selectedDate->copy()->startOfMonth(), $selectedDate->copy()->endOfMonth()],
             default => [$selectedDate->copy(), $selectedDate->copy()],
         };
 
