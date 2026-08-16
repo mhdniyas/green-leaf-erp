@@ -736,6 +736,7 @@ class AdminCashbookReportsController extends Controller
             'net' => $net,
             'gl_bills' => round($glBills, 2),
             'gl_bills_count' => $glBillsCount,
+            'gl_bills_pct' => $sales > 0 ? round(($glBills / $sales) * 100, 1) : 0,
             'petty' => round($petty, 2),
             'margin_pct' => $sales > 0 ? round(($net / $sales) * 100, 1) : 0,
             'categories' => $categoryBreakdown,
@@ -743,6 +744,7 @@ class AdminCashbookReportsController extends Controller
             'total_entries' => $transactions->count(),
             'pending_days_count' => count($pendingGlOnlyDates),
             'pending_dates' => $pendingGlOnlyDates,
+            'skip_gl_only_days' => $skipGlOnlyDays,
         ];
     }
 

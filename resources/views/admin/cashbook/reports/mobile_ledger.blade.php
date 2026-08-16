@@ -131,7 +131,10 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-1 min-w-0">
                         <span class="text-[9px] font-black uppercase tracking-wider text-amber-800">GL Bill</span>
-                        <span class="rounded bg-amber-200/80 px-1 py-0.2 text-[8px] font-black uppercase text-amber-900 shrink-0">Info</span>
+                        <span class="rounded bg-amber-200/80 px-1 py-0.2 text-[8px] font-black uppercase text-amber-900 shrink-0"
+                            x-text="(metrics.sales > 0 ? ((metrics.gl_bills / metrics.sales) * 100).toFixed(1) : (metrics.gl_bills_pct || 0)) + '% sales'">
+                            {{ $metrics['gl_bills_pct'] ?? 0 }}% sales
+                        </span>
                     </div>
                     <div class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-800 shrink-0">
                         <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
@@ -141,6 +144,7 @@
                 <div class="mt-1 flex items-center justify-between">
                     <span class="text-[8px] font-bold text-amber-800/90">
                         <span class="font-black text-amber-900" x-text="metrics.gl_bills_count || 0"></span> <span x-text="(metrics.gl_bills_count === 1 ? 'bill' : 'bills')"></span>
+                        • <span class="font-extrabold text-amber-900" x-text="(metrics.sales > 0 ? ((metrics.gl_bills / metrics.sales) * 100).toFixed(1) : (metrics.gl_bills_pct || 0)) + '% sales'"></span>
                     </span>
                     <a
                         :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?shop_id={{ $currentShop->shop_id }}&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
