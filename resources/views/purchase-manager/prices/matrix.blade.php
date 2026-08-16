@@ -118,11 +118,25 @@
                                 form="matrix-remove-future-form"
                                 data-submit-label="Remove Future Prices"
                                 onclick="return confirm('Remove all visible product prices after {{ $purchaseDate }}?')"
-                                class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-rose-200 bg-white px-3 text-xs font-black text-rose-700 hover:bg-rose-50 active:scale-95 transition shadow-2xs touch-manipulation"
+                                class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-rose-200 bg-rose-50 px-2 text-[10px] font-bold text-rose-700 hover:bg-rose-100 active:scale-95 transition shadow-2xs touch-manipulation"
                             >
-                                Remove Future Prices
+                                Clear Future
                             </button>
                         @endif
+
+                        <form method="POST" action="{{ route('purchasing.prices.toggle-publish') }}" class="inline-flex items-center">
+                            @csrf
+                            <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                            <input type="hidden" name="is_published" value="{{ $isPublished ? '0' : '1' }}">
+                            <button
+                                type="submit"
+                                class="h-9 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-xs font-black uppercase tracking-wider transition shadow-2xs {{ $isPublished ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-500 text-white hover:bg-amber-600' }}"
+                                title="{{ $isPublished ? 'Click to unpublish prices' : 'Click to publish daily prices to shop owners' }}"
+                            >
+                                <span class="h-2 w-2 rounded-full {{ $isPublished ? 'bg-white animate-pulse' : 'bg-amber-200' }}"></span>
+                                <span>{{ $isPublished ? 'Published' : 'Publish Prices' }}</span>
+                            </button>
+                        </form>
                         <a href="{{ route('purchasing.prices.index', ['date' => $purchaseDate]) }}" class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50 transition active:scale-95 shadow-2xs touch-manipulation">
                             Proposal Board
                         </a>

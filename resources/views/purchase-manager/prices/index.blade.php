@@ -17,6 +17,19 @@
                     </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
+                    <form method="POST" action="{{ route('purchasing.prices.toggle-publish') }}" class="inline-flex items-center">
+                        @csrf
+                        <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                        <input type="hidden" name="is_published" value="{{ $isPublished ? '0' : '1' }}">
+                        <button
+                            type="submit"
+                            class="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-wider transition shadow-sm {{ $isPublished ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-500 text-white hover:bg-amber-600' }}"
+                            title="{{ $isPublished ? 'Click to unpublish prices (set to draft)' : 'Click to publish daily prices to shop owners' }}"
+                        >
+                            <span class="h-2 w-2 rounded-full {{ $isPublished ? 'bg-white animate-pulse' : 'bg-amber-200' }}"></span>
+                            <span>{{ $isPublished ? 'Prices Published (Live)' : 'Publish Today\'s Prices' }}</span>
+                        </button>
+                    </form>
                     <a href="{{ route('purchasing.prices.matrix.index', ['date' => $purchaseDate]) }}" class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white hover:bg-slate-800">
                         Open Selling Matrix
                     </a>

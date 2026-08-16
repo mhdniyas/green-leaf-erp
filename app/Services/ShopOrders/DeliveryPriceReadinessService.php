@@ -30,6 +30,10 @@ class DeliveryPriceReadinessService
     {
         $order->loadMissing(['items.product', 'shop.priceGroup']);
 
+        $isDatePublished = $order->business_date
+            ? \App\Models\DailyPricePublication::isPublishedForDate($order->business_date)
+            : false;
+
         $published = [];
         $unpublished = [];
 
@@ -40,7 +44,7 @@ class DeliveryPriceReadinessService
 
             $row = $this->rowForItem($order, $item);
 
-            if ($row['published']) {
+            if ($row['published'] && $isDatePublished) {
                 $published[] = $row;
 
                 continue;
@@ -54,12 +58,17 @@ class DeliveryPriceReadinessService
             $published,
         )), 2);
 
+        $ready = $unpublished === [] && $published !== [] && $isDatePublished;
+
         return [
-            'ready' => $unpublished === [] && $published !== [],
+            'ready' => $ready,
+            'is_date_published' => $isDatePublished,
             'published' => $published,
             'unpublished' => $unpublished,
             'published_total' => $publishedTotal,
-            'message' => $this->messageFor($published, $unpublished),
+            'message' => $isDatePublished
+                ? $this->messageFor($published, $unpublished)
+                : 'Daily prices for this date are currently being updated by purchasing and will be published shortly.',
         ];
     }
 

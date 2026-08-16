@@ -35,16 +35,18 @@ class PurchaserRoleScopingTest extends TestCase
             'is_active' => true,
         ]);
 
+        $opDate = app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+
         // Create a cart for supplierA with purchaser
         PurchaserCart::create([
             'cart_number' => 'CART-TEST-001',
             'user_id' => $purchaser->id,
             'supplier_id' => $supplierA->id,
-            'business_date' => '2026-08-03',
+            'business_date' => $opDate,
             'status' => 'draft',
         ]);
 
-        $response = $this->actingAs($purchaser)->get(route('purchaser.vendors', ['date' => '2026-08-03']));
+        $response = $this->actingAs($purchaser)->get(route('purchaser.vendors', ['date' => $opDate]));
 
         $response->assertStatus(200);
         $response->assertSee('Supplier Alpha');

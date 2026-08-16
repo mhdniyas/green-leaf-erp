@@ -229,6 +229,7 @@ Route::middleware('auth')->group(function () {
 
     Route::prefix('shop-owner')->name('shop-owner.')->middleware('can:sales.order.create')->group(function () {
         Route::get('/dashboard', fn () => redirect()->route('shop.dashboard'))->name('dashboard');
+        Route::get('/products', [ShopOwnerController::class, 'productsIndex'])->name('products.index');
         Route::get('/orders', [ShopOwnerController::class, 'ordersIndex'])->name('orders.index');
         Route::get('/orders/create', [ShopOwnerController::class, 'ordersCreate'])->name('orders.create');
         Route::delete('/orders/create/clear', [ShopOwnerController::class, 'clearTomorrowOrder'])->name('orders.clear');
@@ -358,6 +359,7 @@ Route::middleware('auth')->group(function () {
         Route::post('suppliers/{supplier}/credit-request', [SupplierController::class, 'requestCreditApproval'])->name('suppliers.credit-request');
         Route::post('suppliers/{supplier}/credit-approve', [SupplierController::class, 'approveCreditApproval'])->name('suppliers.credit-approve');
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
+        Route::post('prices/toggle-publish', [DailyPriceBoardController::class, 'togglePublish'])->name('prices.toggle-publish');
         Route::get('prices/matrix', [DailyPriceMatrixController::class, 'index'])->name('prices.matrix.index');
         Route::get('prices/matrix/export/excel', [DailyPriceMatrixController::class, 'exportExcel'])->name('prices.matrix.export.excel');
         Route::get('prices/matrix/export/pdf', [DailyPriceMatrixController::class, 'exportPdf'])->name('prices.matrix.export.pdf');

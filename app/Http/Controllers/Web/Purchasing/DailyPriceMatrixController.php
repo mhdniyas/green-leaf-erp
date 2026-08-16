@@ -258,6 +258,7 @@ class DailyPriceMatrixController extends Controller
             'previousWeekStartDate' => $weekStart->copy()->subWeek()->toDateString(),
             'nextWeekStartDate' => $weekStart->copy()->addWeek()->toDateString(),
             'previousDate' => $previousDate,
+            'isPublished' => \App\Models\DailyPricePublication::isPublishedForDate($targetBusinessDate),
         ];
     }
 

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Purchasing;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
+use App\Models\DailyPricePublication;
 use App\Models\Product;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\Request;
@@ -108,6 +109,8 @@ class DailyPriceBoardController extends Controller
             })->values()
         );
 
+        $isPublished = DailyPricePublication::isPublishedForDate($targetBusinessDate);
+
         return view('purchase-manager.prices.index', [
             'products' => $products,
             'search' => $search,
@@ -117,7 +120,40 @@ class DailyPriceBoardController extends Controller
             'targetBusinessDate' => $targetBusinessDate,
             'previousDate' => Carbon::parse($purchaseDate)->subDay()->toDateString(),
             'perPage' => $perPage,
+            'isPublished' => $isPublished,
         ]);
+    }
+
+    public function togglePublish(Request $request)
+    {
+        $this->authorizeBoardAccess();
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'is_published' => ['required', 'boolean'],
+        ]);
+
+        $date = Carbon::parse($validated['date'])->toDateString();
+        $isPublished = (bool) $validated['is_published'];
+
+        $publication = \App\Models\DailyPricePublication::setPublishStatus($date, $isPublished, $request->user());
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'is_published' => $publication->is_published,
+                'message' => $isPublished
+                    ? "Daily prices for {$date} published successfully."
+                    : "Daily prices for {$date} unpublished (set to draft).",
+            ]);
+        }
+
+        $formattedDate = Carbon::parse($date)->format('d M Y');
+        $message = $isPublished
+            ? "Daily prices for {$formattedDate} are now published and visible to shop owners."
+            : "Daily prices for {$formattedDate} are set to draft (hidden from shop owners).";
+
+        return redirect()->back()->with('success', $message);
     }
 
     private function authorizeBoardAccess(): void
