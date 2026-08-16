@@ -107,6 +107,10 @@
                     <i data-lucide="layers" class="w-4 h-4"></i>
                     <span>Shop Cards Hub</span>
                 </a>
+                <a href="{{ route('admin.cashbook.reports.products') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.reports.products') || request()->routeIs('admin.cashbook.products') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="store" class="w-4 h-4"></i>
+                    <span>Products Marketplace</span>
+                </a>
                 <a href="{{ route('admin.cashbook.reports.charts') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.reports.charts') ? 'active-sidebar' : '' }}">
                     <i data-lucide="pie-chart" class="w-4 h-4"></i>
                     <span>Category Charts</span>

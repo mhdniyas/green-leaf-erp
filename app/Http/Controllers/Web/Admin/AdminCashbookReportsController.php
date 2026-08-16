@@ -14,6 +14,12 @@ use App\Models\ShopInvoice;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Reports\ShopProfitIntelligenceService;
+use App\Models\Category;
+use App\Models\DailyPriceApproval;
+use App\Models\DailyPricePublication;
+use App\Models\Product;
+use App\Models\ShopDailyProductPrice;
+use App\Services\Pricing\PriceBoardService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +31,7 @@ class AdminCashbookReportsController extends Controller
     public function __construct(
         private readonly CashbookShopSyncService $shopSyncService,
         private readonly ShopProfitIntelligenceService $profitIntelligence,
+        private readonly PriceBoardService $priceBoardService,
     ) {}
 
     /**
@@ -198,6 +205,194 @@ class AdminCashbookReportsController extends Controller
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
             'activeTab' => 'gl-bills',
+        ]);
+    }
+
+    /**
+     * Products Marketplace & Daily Price Catalog.
+     */
+    public function products(Request $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+
+        $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
+        $currentShopProfile = null;
+        if ($selectedShopId) {
+            $currentShopProfile = $shops->firstWhere('shop_id', $selectedShopId);
+        }
+        if (! $currentShopProfile) {
+            $currentShopProfile = $shops->first();
+        }
+
+        $activeShop = $currentShopProfile ? Shop::find($currentShopProfile->shop_id) : null;
+
+        $selectedDate = $request->input('date', today()->toDateString());
+        $targetBusinessDate = Carbon::parse($selectedDate)->toDateString();
+        $search = trim((string) $request->input('search', ''));
+        $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
+
+        $isPublished = DailyPricePublication::isPublishedForDate($targetBusinessDate);
+
+        $groupName = 'A';
+        if ($activeShop) {
+            $shopGroup = $this->priceBoardService->groupForShop($activeShop);
+            $groupName = strtoupper(trim((string) ($shopGroup?->name ?? 'A')));
+            if (! in_array($groupName, ['A', 'B', 'C'], true)) {
+                $groupName = 'A';
+            }
+        }
+
+        $sort = (string) $request->input('sort', 'code_asc');
+        if (! in_array($sort, ['code_asc', 'price_desc', 'price_asc'], true)) {
+            $sort = 'code_asc';
+        }
+
+        $productQuery = Product::query()
+            ->active()
+            ->with(['category']);
+
+        if ($sort === 'price_desc') {
+            $productQuery->orderBy('base_price', 'desc')->orderBy('name', 'asc');
+        } elseif ($sort === 'price_asc') {
+            $productQuery->orderBy('base_price', 'asc')->orderBy('name', 'asc');
+        } else {
+            $productQuery->ordered();
+        }
+
+        if ($categoryId) {
+            $productQuery->where('category_id', $categoryId);
+        }
+
+        if ($search !== '') {
+            $productQuery->where(function ($query) use ($search): void {
+                $query->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('sku', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $products = $productQuery->paginate(24)->withQueryString();
+        $pageProductIds = $products->getCollection()->pluck('id')->map(fn ($id): int => (int) $id)->all();
+
+        $currentApprovals = DailyPriceApproval::query()
+            ->whereDate('business_date', $targetBusinessDate)
+            ->whereIn('product_id', $pageProductIds)
+            ->get()
+            ->keyBy('product_id');
+
+        $previousApprovals = DailyPriceApproval::query()
+            ->whereDate('business_date', '<', $targetBusinessDate)
+            ->whereIn('product_id', $pageProductIds)
+            ->where('status', 'approved')
+            ->orderByDesc('business_date')
+            ->get()
+            ->groupBy('product_id')
+            ->map(fn ($rows) => $rows->first());
+
+        $shopDailyPrices = collect();
+        if ($activeShop) {
+            $shopDailyPrices = ShopDailyProductPrice::query()
+                ->where('shop_id', $activeShop->id)
+                ->whereDate('business_date', $targetBusinessDate)
+                ->whereIn('product_id', $pageProductIds)
+                ->get()
+                ->keyBy('product_id');
+        }
+
+        $products->setCollection(
+            $products->getCollection()->map(function (Product $product) use ($currentApprovals, $previousApprovals, $shopDailyPrices, $groupName, $activeShop, $targetBusinessDate): array {
+                $shopCustomPrice = $shopDailyPrices->get($product->id);
+                $priceKey = 'price_' . strtolower($groupName);
+
+                $candidatePrices = [];
+                $priceUnit = $product->unit ?: 'kg';
+
+                if ($shopCustomPrice && (float) $shopCustomPrice->selling_price > 0) {
+                    $candidatePrices[] = (float) $shopCustomPrice->selling_price;
+                    if ($shopCustomPrice->price_unit) {
+                        $priceUnit = $shopCustomPrice->price_unit;
+                    }
+                }
+
+                if ($currentApproval = $currentApprovals->get($product->id)) {
+                    if ((float) ($currentApproval->$priceKey ?? 0) > 0) {
+                        $candidatePrices[] = (float) $currentApproval->$priceKey;
+                        if ($currentApproval->price_unit) {
+                            $priceUnit = $currentApproval->price_unit;
+                        }
+                    }
+                }
+
+                if ($previousApproval = $previousApprovals->get($product->id)) {
+                    if ((float) ($previousApproval->$priceKey ?? 0) > 0) {
+                        $candidatePrices[] = (float) $previousApproval->$priceKey;
+                        if ($previousApproval->price_unit) {
+                            $priceUnit = $previousApproval->price_unit;
+                        }
+                    }
+                }
+
+                if ($activeShop) {
+                    $boardPrice = $this->priceBoardService->sellingPriceFor($product, $activeShop);
+                    if ((float) ($boardPrice['price'] ?? 0) > 0) {
+                        $candidatePrices[] = (float) $boardPrice['price'];
+                    }
+                }
+
+                if ((float) ($product->base_price ?? 0) > 0) {
+                    $candidatePrices[] = (float) $product->base_price;
+                }
+
+                $sellingPrice = $candidatePrices !== [] ? max($candidatePrices) : 0.0;
+
+                $priceDate = null;
+                if ($shopCustomPrice && (float) $shopCustomPrice->selling_price > 0 && $shopCustomPrice->business_date) {
+                    $priceDate = Carbon::parse($shopCustomPrice->business_date)->format('d M');
+                } elseif (($curr = $currentApprovals->get($product->id)) && (float) ($curr->$priceKey ?? 0) > 0 && $curr->business_date) {
+                    $priceDate = Carbon::parse($curr->business_date)->format('d M');
+                } elseif (($prev = $previousApprovals->get($product->id)) && (float) ($prev->$priceKey ?? 0) > 0 && $prev->business_date) {
+                    $priceDate = Carbon::parse($prev->business_date)->format('d M');
+                }
+
+                if (! $priceDate) {
+                    $priceDate = Carbon::parse($targetBusinessDate)->format('d M');
+                }
+
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'sku' => $product->sku,
+                    'category_name' => $product->category?->name ?? 'General',
+                    'unit' => $priceUnit,
+                    'image' => $product->image,
+                    'selling_price' => $sellingPrice,
+                    'price_date' => $priceDate,
+                    'group_name' => $groupName,
+                    'has_custom_price' => $shopCustomPrice !== null,
+                ];
+            })
+        );
+
+        if ($sort === 'price_desc') {
+            $products->setCollection($products->getCollection()->sortByDesc('selling_price')->values());
+        } elseif ($sort === 'price_asc') {
+            $products->setCollection($products->getCollection()->sortBy('selling_price')->values());
+        }
+
+        return view('admin.cashbook.reports.products', [
+            'shops' => $shops,
+            'currentShop' => $currentShopProfile,
+            'activeShop' => $activeShop,
+            'products' => $products,
+            'selectedDate' => $targetBusinessDate,
+            'isPublished' => $isPublished,
+            'search' => $search,
+            'categoryId' => $categoryId,
+            'sort' => $sort,
+            'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
+            'shopGroup' => $groupName,
+            'activeTab' => 'products',
         ]);
     }
 

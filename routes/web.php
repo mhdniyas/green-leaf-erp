@@ -649,6 +649,8 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/charts', [AdminCashbookReportsController::class, 'charts'])->name('reports.charts');
             Route::get('reports/analytics', [AdminCashbookReportsController::class, 'analytics'])->name('reports.analytics');
             Route::get('reports/gl-bills', [AdminCashbookReportsController::class, 'glBills'])->name('reports.gl-bills');
+            Route::get('reports/products', [AdminCashbookReportsController::class, 'products'])->name('reports.products');
+            Route::get('products', [AdminCashbookReportsController::class, 'products'])->name('products');
             Route::get('reports/api/hub', [AdminCashbookReportsController::class, 'apiHubData'])->name('reports.api.hub');
             Route::get('mobile/ledger/{shop}', [AdminCashbookReportsController::class, 'mobileLedger'])->name('reports.mobile-ledger');
             Route::get('reports/export/csv', [CashbookController::class, 'exportReportsCsv'])->name('reports.export.csv');

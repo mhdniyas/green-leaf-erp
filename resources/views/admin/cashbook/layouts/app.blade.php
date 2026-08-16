@@ -224,6 +224,13 @@
                     @endif
                 </a>
 
+                <a href="{{ route('admin.cashbook.reports.products', request()->query()) }}" data-nav-products class="flex items-center gap-1.5 transition-all duration-200 {{ request()->routeIs('admin.cashbook.reports.products') || request()->routeIs('admin.cashbook.products') ? 'bg-slate-900 text-white rounded-full px-3.5 py-1.5 text-xs font-black shadow-xs' : 'text-slate-400 hover:text-slate-700 p-2 text-xs font-bold' }}">
+                    <i data-lucide="store" class="w-4 h-4"></i>
+                    @if(request()->routeIs('admin.cashbook.reports.products') || request()->routeIs('admin.cashbook.products'))
+                        <span>Products</span>
+                    @endif
+                </a>
+
                 <a href="{{ route('admin.cashbook.reports.charts', request()->query()) }}" data-nav-charts class="flex items-center gap-1.5 transition-all duration-200 {{ request()->routeIs('admin.cashbook.reports.charts') ? 'bg-slate-900 text-white rounded-full px-3.5 py-1.5 text-xs font-black shadow-xs' : 'text-slate-400 hover:text-slate-700 p-2 text-xs font-bold' }}">
                     <i data-lucide="line-chart" class="w-4 h-4"></i>
                     @if(request()->routeIs('admin.cashbook.reports.charts'))
