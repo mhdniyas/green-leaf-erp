@@ -199,6 +199,23 @@ class Product extends Model implements AuditableContract
         return parent::getRouteKey();
     }
 
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        $field ??= $this->getRouteKeyName();
+
+        $query = $this->newQuery()->where($field, $value);
+
+        if (is_numeric($value)) {
+            $query->orWhere($this->getKeyName(), (int) $value);
+        }
+
+        if ($field !== 'sku') {
+            $query->orWhere('sku', $value);
+        }
+
+        return $query->first();
+    }
+
     public function conversionToBaseForUnit(?string $unit): ?float
     {
         $normalizedUnit = strtolower(trim((string) ($unit ?: $this->unit)));

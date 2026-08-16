@@ -335,7 +335,7 @@
                             </div>
                             <div class="mt-1 flex items-center gap-1.5">
                                 @if(auth()->user()?->hasRole('admin') || auth()->user()?->hasRole('purchaser'))
-                                    <form method="POST" action="{{ route('inventory.products.status.update', $product['id']) }}">
+                                    <form method="POST" action="{{ route('inventory.products.status.update', $product['public_uuid'] ?? $product['id']) }}">
                                         @csrf
                                         @method('PATCH')
                                         <input type="hidden" name="show_in_purchaser_order" value="{{ $product['show_in_purchaser_order'] ? '0' : '1' }}">

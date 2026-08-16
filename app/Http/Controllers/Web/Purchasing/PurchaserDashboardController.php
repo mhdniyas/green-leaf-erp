@@ -4520,6 +4520,7 @@ class PurchaserDashboardController extends Controller
 
             return [
                 'id' => $product->id,
+                'public_uuid' => $product->public_uuid,
                 'name' => $product->name,
                 'sku' => $product->sku,
                 'show_in_purchaser_order' => (bool) $product->show_in_purchaser_order,
