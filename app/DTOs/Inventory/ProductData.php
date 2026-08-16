@@ -18,6 +18,7 @@ final readonly class ProductData
         public float $bufferQty,
         public bool $carryoverEnabled,
         public bool $isActive,
+        public bool $showInPurchaserOrder,
         public ?string $imageData = null,
         public bool $removeImage = false,
         public array $units = [],
@@ -35,6 +36,7 @@ final readonly class ProductData
             bufferQty: round((float) $request->input('buffer_qty', 0), 2),
             carryoverEnabled: $request->boolean('carryover_enabled'),
             isActive: $request->boolean('is_active', true),
+            showInPurchaserOrder: $request->boolean('show_in_purchaser_order', true),
             imageData: $request->input('image_data') ?: null,
             removeImage: $request->boolean('remove_image'),
             units: self::unitsFromRequest($request),
@@ -53,6 +55,7 @@ final readonly class ProductData
             'buffer_qty' => $this->bufferQty,
             'carryover_enabled' => $this->carryoverEnabled,
             'is_active' => $this->isActive,
+            'show_in_purchaser_order' => $this->showInPurchaserOrder,
         ];
     }
 

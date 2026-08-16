@@ -1668,7 +1668,7 @@ class ShopOwnerController extends Controller
         $tomorrowDate = Carbon::tomorrow();
 
         $productsByCategory = Category::with(['products' => function ($query): void {
-            $query->where('is_active', true)->with(['orderUnits' => fn ($q) => $q->where('is_orderable', true)])->ordered();
+            $query->where('is_active', true)->where('show_in_purchaser_order', true)->with(['orderUnits' => fn ($q) => $q->where('is_orderable', true)])->ordered();
         }])
             ->where('is_active', true)
             ->get()
@@ -1801,7 +1801,7 @@ class ShopOwnerController extends Controller
         }
 
         return collect($productStats)
-            ->filter(fn (array $product): bool => (bool) ($product['product']->is_active ?? false))
+            ->filter(fn (array $product): bool => (bool) ($product['product']->is_active ?? false) && (bool) ($product['product']->show_in_purchaser_order ?? true))
             ->sortByDesc(fn (array $product): array => [$product['order_count'], $product['total_quantity']])
             ->take(12)
             ->values();

@@ -303,6 +303,14 @@ $unitRows = old('units', $existingUnitRows);
                               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 resize-none">{{ old('description', $product->description ?? '') }}</textarea>
                 </div>
 
+                <div class="flex items-center gap-3">
+                    <input type="hidden" name="show_in_purchaser_order" value="0">
+                    <input id="show_in_purchaser_order" name="show_in_purchaser_order" type="checkbox" value="1"
+                           @checked(old('show_in_purchaser_order', $product->show_in_purchaser_order ?? true))
+                           class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500/30 cursor-pointer">
+                    <label for="show_in_purchaser_order" class="text-sm text-gray-700 cursor-pointer">Show in Purchase Order / Shop Owner Order Screen</label>
+                </div>
+
                 @isset($product)
                 {{-- Active toggle (edit only) --}}
                 <div class="flex items-center gap-3">

@@ -143,6 +143,7 @@ class PurchaserDashboardController extends Controller
             ->get(['id', 'name']);
 
         $products = Product::query()
+            ->where('show_in_purchaser_order', true)
             ->with(['category:id,name', 'orderUnits'])
             ->when($assignedCategoryIds !== null, fn ($query) => $query->whereIn('category_id', $assignedCategoryIds))
             ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
@@ -384,6 +385,7 @@ class PurchaserDashboardController extends Controller
         $purchaseGrade = ($validated['purchase_grade'] ?? 'A') === 'B' ? 'B' : 'A';
         $availableProductIds = Product::query()
             ->active()
+            ->where('show_in_purchaser_order', true)
             ->when(
                 $user->hasAssignedCategoryFilter(),
                 fn ($query) => $query->whereIn('category_id', $user->assignedCategoryIds())
@@ -436,6 +438,7 @@ class PurchaserDashboardController extends Controller
     {
         return Product::query()
             ->active()
+            ->where('show_in_purchaser_order', true)
             ->with('category:id,name')
             ->when(
                 $user->hasAssignedCategoryFilter(),
@@ -576,6 +579,7 @@ class PurchaserDashboardController extends Controller
             ->select(['id', 'category_id', 'name', 'sku', 'unit', 'is_active'])
             ->with('category:id,name')
             ->active()
+            ->where('show_in_purchaser_order', true)
             ->ordered()
             ->when(
                 $purchaseGrade === 'B',
@@ -991,6 +995,7 @@ class PurchaserDashboardController extends Controller
         $productCatalog = Product::query()
             ->with('category')
             ->active()
+            ->where('show_in_purchaser_order', true)
             ->ordered()
             ->get();
         $probe?->checkpoint('product_catalog');
@@ -2925,6 +2930,7 @@ class PurchaserDashboardController extends Controller
         $dateString = $date->toDateString();
         $products = Product::query()
             ->active()
+            ->where('show_in_purchaser_order', true)
             ->with('category:id,name')
             ->ordered()
             ->get(['id', 'name', 'sku', 'unit', 'category_id']);
@@ -3159,6 +3165,9 @@ class PurchaserDashboardController extends Controller
                 $query->where('user_id', $userId)
                     ->whereDate('business_date', '>=', now()->subDays(14)->toDateString());
             })
+            ->whereHas('product', function ($query): void {
+                $query->active()->where('show_in_purchaser_order', true);
+            })
             ->groupBy('product_id')
             ->orderByDesc('usage_count')
             ->limit(12)
@@ -3171,6 +3180,8 @@ class PurchaserDashboardController extends Controller
         }
 
         return Product::query()
+            ->active()
+            ->where('show_in_purchaser_order', true)
             ->whereHas('category', function ($query): void {
                 $query->whereIn('name', ['Supply', 'VEG']);
             })
@@ -4386,7 +4397,7 @@ class PurchaserDashboardController extends Controller
         $assignedCategoryIds = $user?->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null;
 
         $categoriesQuery = Category::query()
-            ->whereHas('products', fn ($q) => $q->active())
+            ->whereHas('products', fn ($q) => $q->active()->where('show_in_purchaser_order', true))
             ->orderBy('name');
 
         if ($assignedCategoryIds !== null) {
@@ -4397,6 +4408,7 @@ class PurchaserDashboardController extends Controller
 
         $productsQuery = Product::query()
             ->active()
+            ->where('show_in_purchaser_order', true)
             ->with(['category'])
             ->ordered();
 

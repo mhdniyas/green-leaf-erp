@@ -36,6 +36,7 @@ class UpdateProductRequest extends FormRequest
             'buffer_qty' => ['nullable', 'numeric', 'min:0'],
             'carryover_enabled' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
+            'show_in_purchaser_order' => ['sometimes', 'boolean'],
             'image_data' => ['nullable', 'string'],
             'remove_image' => ['sometimes', 'boolean'],
         ];

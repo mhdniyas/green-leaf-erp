@@ -32,6 +32,7 @@ class StoreProductRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:1000'],
             'buffer_qty' => ['nullable', 'numeric', 'min:0'],
             'carryover_enabled' => ['sometimes', 'boolean'],
+            'show_in_purchaser_order' => ['sometimes', 'boolean'],
             'image_data' => ['nullable', 'string'],
         ];
     }

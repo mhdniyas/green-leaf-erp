@@ -40,6 +40,7 @@ class Product extends Model implements AuditableContract
         'is_active',
         'status_changed_by',
         'status_changed_at',
+        'show_in_purchaser_order',
     ];
 
     private static ?bool $hasPublicUuidColumn = null;
@@ -51,6 +52,7 @@ class Product extends Model implements AuditableContract
         'carryover_enabled' => 'boolean',
         'vendor_price' => 'decimal:4',
         'is_active' => 'boolean',
+        'show_in_purchaser_order' => 'boolean',
         'status_changed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
