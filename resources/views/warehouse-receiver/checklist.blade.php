@@ -253,64 +253,175 @@
         // ── Pending ───────────────────────────────────────────────────────────
         function renderPending(data) {
             const el = tabContentEl.pending;
-            const grns    = data.pending_grns || [];
-            const batches = data.pending_batches || [];
-            const direct  = data.pending_direct_orders || [];
-            const total   = grns.length + batches.length + direct.length;
+            const grns       = data.pending_grns || [];
+            const batches    = data.pending_batches || [];
+            const direct     = data.pending_direct_orders || [];
+            const warehouses = data.warehouses || [];
+            const total      = grns.length + batches.length + direct.length;
 
             if (total === 0) {
                 el.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-                    <p class="text-sm font-bold text-slate-900">All Clear</p>
-                    <p class="mt-1 text-xs text-slate-500">No pending deliveries for ${data.date}.</p>
+                    <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100">
+                        <svg class="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <p class="text-sm font-bold text-slate-900">All Clear!</p>
+                    <p class="mt-1 text-xs text-slate-500">No pending vendor sheets or batches for ${data.date}.<br>All stock is in inventory.</p>
                 </div>`;
                 return;
             }
 
             let html = '';
 
-            // GRNs
-            grns.forEach(grn => {
-                html += `<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-blue-700 border border-blue-100 mb-1">Vendor Sheet</span>
-                            <h4 class="text-sm font-black text-slate-900 truncate">${escHtml(grn.grn_number)}</h4>
-                            ${grn.supplier_name ? `<p class="text-xs text-slate-500 mt-0.5">${escHtml(grn.supplier_name)}</p>` : ''}
-                            ${grn.purchaser_name ? `<p class="text-[10px] text-slate-400">${escHtml(grn.purchaser_name)}</p>` : ''}
-                        </div>
-                        <span class="shrink-0 rounded-full bg-amber-50 border border-amber-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700">${grn.items_count} items</span>
+            // 1. Pending GRNs (Vendor Sheets)
+            if (grns.length > 0) {
+                const bulkCount = grns.length;
+                html += `
+                <div class="space-y-3">
+                    <div class="flex flex-col gap-3 pl-1 sm:flex-row sm:items-center sm:justify-between">
+                        <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Pending Vendor Sheets (${grns.length})</h3>
+                        <form action="${escAttr(data.receive_all_grns_url)}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
+                              data-confirm-title="Receive all vendor sheets"
+                              data-confirm-message="Receive all ${bulkCount} pending vendor sheet(s) for ${data.date} using current received quantities and default warehouses?"
+                              data-confirm-button="Receive all">
+                            <input type="hidden" name="_token" value="${csrfToken}">
+                            <input type="hidden" name="date" value="${data.date}">
+                            <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto border-none cursor-pointer">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                                Receive All (${bulkCount})
+                            </button>
+                        </form>
+                    </div>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        ${grns.map(grn => `
+                            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex items-center justify-between gap-3 transition hover:border-slate-300">
+                                <div class="min-w-0 flex-1">
+                                    <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-indigo-700">
+                                        ${escHtml(grn.supplier_name)}
+                                    </span>
+                                    <h4 class="text-sm font-black text-slate-900 mt-1.5">${escHtml(grn.grn_number)}</h4>
+                                    <p class="text-[10px] text-slate-400 font-medium">Purchased by: ${escHtml(grn.purchaser_name)}</p>
+                                    <p class="text-[10px] text-slate-500 font-bold mt-1">
+                                        Items: ${grn.items_count} · ${(grn.total_kg || 0).toFixed(2)} kg
+                                    </p>
+                                </div>
+                                <a href="${escAttr(grn.receive_url)}" class="shrink-0 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-3.5 py-2.5 text-xs font-black shadow-sm transition-colors text-decoration-none border-none cursor-pointer">
+                                    <span>Open Sheet</span>
+                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                    </svg>
+                                </a>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>`;
-            });
+            }
 
-            // Batches
-            batches.forEach(batch => {
-                html += `<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <span class="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-violet-700 border border-violet-100 mb-1">Batch</span>
-                            <h4 class="text-sm font-black text-slate-900 truncate">${escHtml(batch.reference || '-')}</h4>
-                            ${batch.product_name ? `<p class="text-xs text-slate-500 mt-0.5">${escHtml(batch.product_name)}</p>` : ''}
-                        </div>
-                        <span class="shrink-0 text-xs font-black text-slate-700">${batch.total_kg ? batch.total_kg.toFixed(2) + ' kg' : ''}</span>
+            // 2. Pending Direct Purchases
+            if (direct.length > 0) {
+                html += `
+                <div class="space-y-3 mt-4">
+                    <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500 pl-1">Pending Direct Purchases (${direct.length})</h3>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        ${direct.map(order => `
+                            <div class="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                                <form action="${escAttr(order.receive_url)}" method="POST" class="space-y-3">
+                                    <input type="hidden" name="_token" value="${csrfToken}">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div>
+                                            <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">Direct Purchase</span>
+                                            <h4 class="text-sm font-black text-slate-900 mt-1 font-mono">${escHtml(order.order_number)}</h4>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-2 pt-2 border-t border-slate-100">
+                                        ${(order.items || []).map(item => `
+                                            <div class="rounded-xl border border-slate-200 bg-slate-50 p-2.5 flex items-center justify-between gap-2">
+                                                <div class="min-w-0">
+                                                    <p class="text-xs font-bold text-slate-900 truncate">${escHtml(item.product_name || '-')}</p>
+                                                    <p class="text-[10px] text-slate-500 font-semibold">${item.approved_qty.toFixed(2)} ${escHtml(item.unit || '')}</p>
+                                                </div>
+                                                <div class="w-36 shrink-0">
+                                                    <select name="items[${item.id}][warehouse_id]" required class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none cursor-pointer">
+                                                        ${warehouses.map(wh => `<option value="${wh.id}" ${wh.id == item.default_warehouse_id ? 'selected' : ''}>${escHtml(wh.name)}</option>`).join('')}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                    <button type="submit" class="w-full rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 border-none cursor-pointer">
+                                        Receive Direct Purchase
+                                    </button>
+                                </form>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>`;
-            });
+            }
 
-            // Direct purchase orders
-            direct.forEach(order => {
-                html += `<div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700 border border-emerald-100 mb-1">Direct Purchase</span>
-                            <h4 class="text-sm font-black text-slate-900 truncate">${escHtml(order.order_number)}</h4>
-                            <p class="text-xs text-slate-500 mt-0.5">${order.items.length} item(s)</p>
-                        </div>
+            // 3. Pending Batches
+            if (batches.length > 0) {
+                html += `
+                <div class="space-y-3 mt-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pl-1">
+                        <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Pending Batches (${batches.length})</h3>
+                        <form action="${escAttr(data.confirm_all_batches_url)}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
+                              data-confirm-title="Confirm all batches"
+                              data-confirm-message="Confirm ALL ${batches.length} batch(es) as received? This will move them into active inventory."
+                              data-confirm-button="Confirm all">
+                            <input type="hidden" name="_token" value="${csrfToken}">
+                            <input type="hidden" name="date" value="${data.date}">
+                            <button type="submit" class="w-full inline-flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl px-4 py-2.5 text-xs font-black shadow-md transition-all active:scale-98 border-none cursor-pointer">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138z" />
+                                </svg>
+                                Confirm All ${batches.length} into Inventory
+                            </button>
+                        </form>
+                    </div>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        ${batches.map(batch => `
+                            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 border border-amber-100">
+                                        <svg class="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                        </svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <h4 class="truncate text-sm font-black text-slate-950">${escHtml(batch.product_name || '-')}</h4>
+                                        <div class="flex items-center gap-2 mt-0.5">
+                                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                                                ${batch.total_kg.toFixed(2)} ${escHtml(batch.unit || 'kg')}
+                                            </span>
+                                            <span class="text-[10px] text-slate-400 font-mono">${escHtml(batch.reference || '')}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <form action="${escAttr(batch.confirm_url)}" method="POST" class="flex items-center gap-2 pt-3 border-t border-dashed border-slate-100">
+                                    <input type="hidden" name="_token" value="${csrfToken}">
+                                    <div class="flex-1 min-w-0 relative">
+                                        <select name="warehouse_id" required class="w-full appearance-none rounded-xl border border-slate-200 bg-white pl-3 pr-9 py-2.5 text-xs font-semibold text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none cursor-pointer transition-all hover:bg-slate-50/50">
+                                            ${warehouses.map(wh => `<option value="${wh.id}" ${wh.id == batch.default_warehouse_id ? 'selected' : ''}>${escHtml(wh.name)} (${escHtml(wh.code||'')})</option>`).join('')}
+                                        </select>
+                                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="shrink-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 text-xs font-black shadow-sm transition-colors border-none cursor-pointer">
+                                        ✓ Received
+                                    </button>
+                                </form>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>`;
-            });
+            }
 
-            el.innerHTML = `<div class="space-y-3">${html}</div>`;
+            el.innerHTML = `<div class="space-y-4">${html}</div>`;
+            bindConfirmForms(el);
         }
 
         // ── Inventory ─────────────────────────────────────────────────────────
@@ -652,6 +763,37 @@
             return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
         }
         function escAttr(str) { return escHtml(str); }
+        function bindConfirmForms(container) {
+            (container || document).querySelectorAll('.warehouse-confirm-form').forEach((form) => {
+                if (form.dataset.bound === 'true') return;
+                form.dataset.bound = 'true';
+                form.addEventListener('submit', (event) => {
+                    if (form.dataset.appConfirmBypass === 'true') {
+                        form.dataset.appConfirmBypass = 'false';
+                        return;
+                    }
+
+                    event.preventDefault();
+
+                    if (typeof window.showAppConfirm === 'function') {
+                        window.showAppConfirm({
+                            title: form.dataset.confirmTitle || 'Confirm action',
+                            message: form.dataset.confirmMessage || 'Are you sure you want to continue?',
+                            confirmLabel: form.dataset.confirmButton || 'Confirm',
+                            cancelLabel: 'Cancel',
+                            tone: 'danger',
+                            onConfirm: () => {
+                                form.dataset.appConfirmBypass = 'true';
+                                HTMLFormElement.prototype.submit.call(form);
+                            },
+                        });
+                    } else {
+                        form.dataset.appConfirmBypass = 'true';
+                        HTMLFormElement.prototype.submit.call(form);
+                    }
+                });
+            });
+        }
 
         // CSRF token from meta tag
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';

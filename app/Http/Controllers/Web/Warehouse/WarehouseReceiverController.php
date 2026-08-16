@@ -36,7 +36,7 @@ use Illuminate\View\View;
 
 class WarehouseReceiverController extends Controller
 {
-    private const BULK_RECEIVE_GRN_LIMIT = 5;
+    private const BULK_RECEIVE_GRN_LIMIT = 100;
 
     public function __construct(
         private readonly StockLedgerService $stockLedgerService,
@@ -93,15 +93,19 @@ class WarehouseReceiverController extends Controller
         $categoryId  = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
         $search      = trim((string) ($validated['receive_search'] ?? ''));
 
+        $warehouses = Warehouse::active()->orderBy('name')->get(['id', 'name', 'code']);
+
         $pendingGrns = $this->warehouseReceiveRepository->pendingGrns($date, $source, $categoryId, $search)
             ->map(fn ($grn) => [
                 'id'            => $grn->id,
                 'grn_number'    => $grn->grn_number,
                 'status'        => $grn->status,
                 'received_at'   => $grn->received_at?->toDateTimeString(),
-                'supplier_name' => $grn->purchaseOrder?->supplier?->name,
-                'purchaser_name'=> $grn->purchaseOrder?->purchaserCart?->user?->name,
+                'supplier_name' => $grn->purchaseOrder?->supplier?->name ?? 'Vendor',
+                'purchaser_name'=> $grn->purchaseOrder?->purchaserCart?->user?->name ?? 'Purchaser',
                 'items_count'   => $grn->items->count(),
+                'total_kg'      => (float) $grn->items->sum('received_qty'),
+                'receive_url'   => route('warehouse.receiver.receive-grn', $grn->id),
                 'items'         => $grn->items->map(fn ($item) => [
                     'product_name'  => $item->product?->name,
                     'product_sku'   => $item->product?->sku,
@@ -113,14 +117,16 @@ class WarehouseReceiverController extends Controller
 
         $pendingBatches = $this->warehouseReceiveRepository->pendingBatches($date, $source, $categoryId, $search)
             ->map(fn ($batch) => [
-                'id'            => $batch->id,
-                'reference'     => $batch->reference,
-                'total_kg'      => (float) $batch->total_kg,
-                'received_at'   => $batch->received_at?->toDateTimeString(),
-                'product_name'  => $batch->product?->name,
-                'product_sku'   => $batch->product?->sku,
-                'category_name' => $batch->product?->category?->name,
-                'unit'          => $batch->product?->unit,
+                'id'                   => $batch->id,
+                'reference'            => $batch->reference,
+                'total_kg'             => (float) $batch->total_kg,
+                'received_at'          => $batch->received_at?->toDateTimeString(),
+                'product_name'         => $batch->product?->name,
+                'product_sku'          => $batch->product?->sku,
+                'category_name'        => $batch->product?->category?->name,
+                'unit'                 => $batch->product?->unit,
+                'default_warehouse_id' => $batch->product?->default_warehouse_id ?? $warehouses->first()?->id,
+                'confirm_url'          => route('warehouse.receiver.confirm', $batch->id),
             ]);
 
         $directPurchaseGrns = $this->warehouseReceiveRepository->directPurchaseGrns($date);
@@ -135,22 +141,27 @@ class WarehouseReceiverController extends Controller
                 'id'             => $order->id,
                 'order_number'   => $order->order_number,
                 'delivery_status'=> $order->delivery_status,
+                'receive_url'    => route('warehouse.receiver.direct-purchase.receive', $order->id),
                 'items'          => $order->items->map(fn ($item) => [
-                    'id'            => $item->id,
-                    'product_name'  => $item->product?->name,
-                    'product_sku'   => $item->product?->sku,
-                    'category_name' => $item->product?->category?->name,
-                    'approved_qty'  => (float) ($item->approved_qty ?: $item->requested_qty),
-                    'unit'          => $item->unit,
+                    'id'                  => $item->id,
+                    'product_name'        => $item->product?->name,
+                    'product_sku'         => $item->product?->sku,
+                    'category_name'       => $item->product?->category?->name,
+                    'approved_qty'        => (float) ($item->approved_qty ?: $item->requested_qty),
+                    'unit'                => $item->unit,
+                    'default_warehouse_id'=> $item->product?->default_warehouse_id ?? $warehouses->first()?->id,
                 ]),
             ]);
 
         return response()->json([
-            'success'              => true,
-            'date'                 => $date,
-            'pending_grns'         => $pendingGrns->values(),
-            'pending_batches'      => $pendingBatches->values(),
-            'pending_direct_orders'=> $pendingDirectOrders->values(),
+            'success'                => true,
+            'date'                   => $date,
+            'warehouses'             => $warehouses,
+            'receive_all_grns_url'   => route('warehouse.receiver.process-receive-grns.all'),
+            'confirm_all_batches_url'=> route('warehouse.receiver.confirm-all'),
+            'pending_grns'           => $pendingGrns->values(),
+            'pending_batches'        => $pendingBatches->values(),
+            'pending_direct_orders'  => $pendingDirectOrders->values(),
         ]);
     }
 
