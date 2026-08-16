@@ -467,48 +467,43 @@
             </div>
         </div>
 
-        <!-- 2 Side-by-Side Inflow/Outflow Cards -->
-        <div class="grid grid-cols-2 gap-2.5 sm:gap-3">
-            <div class="rounded-2xl border border-slate-100 bg-white p-3.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                <div class="flex items-center justify-between">
-                    <span class="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Total Gross
-                        Sales</span>
-                    <div
-                        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-                        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
+        <!-- 2 Side-by-Side Inflow/Outflow Cards (Formatted as 1 Single Horizontal Row each) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+            <!-- 1. Total Gross Sales Card -->
+            <div class="rounded-2xl border border-slate-100 bg-white p-3 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                        <i data-lucide="arrow-up-right" class="w-4 h-4"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <span class="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 block truncate">Total Gross Sales</span>
+                        <p class="text-sm sm:text-base font-black text-slate-900 truncate" x-text="currency(activeTotals().sales)">{{ number_format($totals['sales'], 2) }}</p>
                     </div>
                 </div>
-                <p class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate"
-                    x-text="currency(activeTotals().sales)">{{ number_format($totals['sales'], 2) }}</p>
-                <div class="mt-1 flex items-center justify-between gap-1 text-[8px] sm:text-[9px] font-bold">
-                    <span class="text-emerald-600 truncate">Gross inflow</span>
-                    <span class="text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200/60 shrink-0">
-                        <span x-text="activeTotals().count"></span> Outlets
-                    </span>
-                </div>
+                <span class="text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200/60 shrink-0 text-[9px] font-bold">
+                    <span x-text="activeTotals().count"></span> Outlets
+                </span>
             </div>
 
-            <div class="rounded-2xl border border-slate-100 bg-white p-3.5 sm:p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                <div class="flex items-center justify-between">
-                    <span class="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">Total
-                        Expenses</span>
-                    <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600">
-                        <i data-lucide="arrow-down-right" class="w-3.5 h-3.5"></i>
+            <!-- 2. Total Expenses Card -->
+            <div class="rounded-2xl border border-slate-100 bg-white p-3 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+                        <i data-lucide="arrow-down-right" class="w-4 h-4"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <span class="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 block truncate">Total Expenses</span>
+                        <div class="text-sm sm:text-base font-black text-slate-900 truncate" x-text="currency(activeTotals().expense)">{{ number_format($totals['expense'], 2) }}</div>
                     </div>
                 </div>
-                <div class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate"
-                    x-text="currency(activeTotals().expense)">{{ number_format($totals['expense'], 2) }}</div>
-                <div class="mt-1 flex items-center justify-between gap-1 text-[7.5px] sm:text-[8.5px] font-bold whitespace-nowrap overflow-hidden">
-                    <span class="text-rose-600 truncate shrink-0">Total outflow</span>
-                    <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
-                        class="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/90 shrink-0 font-extrabold hover:bg-amber-100 transition inline-flex items-center gap-0.5 text-[7.5px] sm:text-[8px] whitespace-nowrap"
-                        title="View Synced GL Invoices & Bills">
-                        <span>GL:</span>
-                        <span x-text="currency(activeTotals().gl_bills)">{{ number_format($totals['gl_bills'], 2) }}</span>
-                        <span class="font-bold text-amber-700/90">(<span x-text="activeTotals().gl_bills_pct"></span>)</span>
-                        <i data-lucide="arrow-right" class="w-2 h-2 ml-0.5 shrink-0"></i>
-                    </a>
-                </div>
+                <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                    class="text-amber-800 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200/90 shrink-0 font-extrabold hover:bg-amber-100 transition inline-flex items-center gap-1 text-[9px] sm:text-[10px] whitespace-nowrap"
+                    title="View Synced GL Invoices & Bills">
+                    <span>GL:</span>
+                    <span x-text="currency(activeTotals().gl_bills)">{{ number_format($totals['gl_bills'], 2) }}</span>
+                    <span class="font-bold text-amber-700/90">(<span x-text="activeTotals().gl_bills_pct"></span>)</span>
+                    <i data-lucide="arrow-right" class="w-3 h-3 ml-0.5 shrink-0"></i>
+                </a>
             </div>
         </div>
 

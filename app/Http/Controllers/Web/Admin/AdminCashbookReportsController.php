@@ -136,16 +136,41 @@ class AdminCashbookReportsController extends Controller
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : ($shops->first()?->shop_id);
         $selectedShop = $shops->firstWhere('shop_id', $selectedShopId) ?? $shops->first();
 
-        // Use new isolated ShopProfitIntelligenceService — uses affects_income/pl_delta columns.
-        // Hub, Detail, Charts pages are untouched.
-        $intelligence = $selectedShop?->shop_id
-            ? $this->profitIntelligence->analyse($selectedShop->shop_id)
-            : $this->profitIntelligence->analyse(0); // returns emptyResult()
+        $mode = (string) $request->input('mode', '30day'); // '30day' or 'weekly'
+        $weekOffset = (int) $request->input('week_offset', 0);
+
+        if ($mode === 'weekly') {
+            $weekStartObj = today()->startOfWeek()->addWeeks($weekOffset);
+            $weekEndObj   = $weekStartObj->copy()->endOfWeek();
+
+            $weekLabel = match (true) {
+                $weekOffset === 0  => 'This Week',
+                $weekOffset === -1 => 'Last Week',
+                default            => abs($weekOffset) . ' Weeks Ago',
+            };
+
+            $intelligence = $selectedShop?->shop_id
+                ? $this->profitIntelligence->analyse($selectedShop->shop_id, $weekStartObj->toDateString(), $weekEndObj->toDateString(), 1)
+                : $this->profitIntelligence->analyse(0);
+        } else {
+            $weekStartObj = today()->startOfWeek();
+            $weekEndObj   = today()->endOfWeek();
+            $weekLabel = 'This Week';
+
+            $intelligence = $selectedShop?->shop_id
+                ? $this->profitIntelligence->analyse($selectedShop->shop_id)
+                : $this->profitIntelligence->analyse(0);
+        }
 
         return view('admin.cashbook.reports.analytics', [
             'shops'        => $shops,
             'selectedShop' => $selectedShop,
             'intelligence' => $intelligence,
+            'mode'         => $mode,
+            'weekOffset'   => $weekOffset,
+            'weekStart'    => $weekStartObj->toDateString(),
+            'weekEnd'      => $weekEndObj->toDateString(),
+            'weekLabel'    => $weekLabel,
             'activeTab'    => 'analytics',
         ]);
     }

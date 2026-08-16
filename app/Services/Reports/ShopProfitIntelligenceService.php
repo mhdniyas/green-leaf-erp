@@ -60,10 +60,10 @@ final class ShopProfitIntelligenceService
      *     has_data: bool,
      * }
      */
-    public function analyse(int $shopId): array
+    public function analyse(int $shopId, ?string $startDate = null, ?string $endDate = null, int $minSampleDays = self::MIN_SAMPLE_DAYS): array
     {
-        $historicalStart = today()->subDays(30)->toDateString();
-        $historicalEnd   = today()->toDateString();
+        $historicalStart = $startDate ?? today()->subDays(30)->toDateString();
+        $historicalEnd   = $endDate ?? today()->toDateString();
 
         $transactions = ShopLedgerTransaction::query()
             ->where('shop_id', $shopId)
@@ -119,9 +119,9 @@ final class ShopProfitIntelligenceService
 
         [$healthBadge, $healthTone] = $this->healthBadge($capturedPct);
 
-        // --- Labelled days (≥ MIN_SAMPLE_DAYS gate) ---
+        // --- Labelled days (≥ minSampleDays gate) ---
         $eligible = collect($weekdayAnalysis)->filter(
-            fn ($row) => $row['sample_days'] >= self::MIN_SAMPLE_DAYS
+            fn ($row) => $row['sample_days'] >= $minSampleDays
         );
 
         $bestProfitDay = $eligible->sortByDesc('avg_net')->first();

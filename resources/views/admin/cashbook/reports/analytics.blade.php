@@ -37,10 +37,13 @@
     <div class="mx-auto max-w-lg space-y-5" style="background:#ffffff;">
 
         {{-- ── HEADER ROW: title + shop picker ── --}}
+        {{-- ── HEADER ROW: title + shop picker ── --}}
         <div class="flex items-center justify-between pt-1">
             <div>
                 <div class="flex items-center gap-2">
-                    <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400">30-Day Overview</p>
+                    <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                        {{ $mode === 'weekly' ? ('Weekly Overview • ' . $weekLabel) : '30-Day Overview' }}
+                    </p>
                     @if (($intel['pending_days_count'] ?? 0) > 0)
                         <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-800">
                             <i data-lucide="clock" class="w-3 h-3 text-amber-600"></i>
@@ -67,7 +70,7 @@
                      x-transition:leave="transition ease-in duration-75" x-transition:leave-start="transform opacity-100 scale-100" x-transition:leave-end="transform opacity-0 scale-95"
                      class="absolute right-0 mt-2 w-60 origin-top-right rounded-2xl bg-white p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.12)] ring-1 ring-black/5 z-50 max-h-72 overflow-y-auto">
                     @foreach ($shops as $s)
-                        <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $s->shop_id]) }}"
+                        <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $s->shop_id, 'mode' => $mode, 'week_offset' => $weekOffset]) }}"
                            class="flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition-all {{ $shop?->shop_id === $s->shop_id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50' }}">
                             <span class="truncate">{{ $s->name ?: ('Shop #' . $s->shop_id) }}</span>
                             <span class="ml-2 rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase {{ $shop?->shop_id === $s->shop_id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400' }}">
@@ -77,6 +80,55 @@
                     @endforeach
                 </div>
             </div>
+        </div>
+
+        {{-- ── MODE SWITCHER & WEEK NAVIGATOR ── --}}
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-1.5 space-y-2">
+            <div class="flex items-center gap-1">
+                <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $shop?->shop_id, 'mode' => '30day']) }}"
+                    class="flex-1 rounded-xl py-1.5 px-3 text-center text-xs font-black transition-all cursor-pointer {{ $mode === '30day' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                    30-Day Avg
+                </a>
+                <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $shop?->shop_id, 'mode' => 'weekly', 'week_offset' => 0]) }}"
+                    class="flex-1 rounded-xl py-1.5 px-3 text-center text-xs font-black transition-all cursor-pointer {{ $mode === 'weekly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                    Weekly Analysis
+                </a>
+            </div>
+
+            @if ($mode === 'weekly')
+                <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/80 px-1">
+                    <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $shop?->shop_id, 'mode' => 'weekly', 'week_offset' => $weekOffset - 1]) }}"
+                        class="flex h-8 px-3 items-center gap-1 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-black hover:bg-slate-100 transition shrink-0"
+                        title="Previous Week">
+                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                        <span>Prev Week</span>
+                    </a>
+
+                    <div class="text-center min-w-0">
+                        <p class="text-xs font-black text-slate-900 truncate">
+                            {{ $weekLabel }}
+                        </p>
+                        <p class="text-[10px] font-bold text-slate-500 truncate">
+                            {{ \Carbon\Carbon::parse($weekStart)->format('d M') }} – {{ \Carbon\Carbon::parse($weekEnd)->format('d M Y') }}
+                        </p>
+                    </div>
+
+                    @if ($weekOffset < 0)
+                        <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $shop?->shop_id, 'mode' => 'weekly', 'week_offset' => $weekOffset + 1]) }}"
+                            class="flex h-8 px-3 items-center gap-1 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-black hover:bg-slate-100 transition shrink-0"
+                            title="Next Week">
+                            <span>Next Week</span>
+                            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                        </a>
+                    @else
+                        <button type="button" disabled
+                            class="flex h-8 px-3 items-center gap-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-400 text-xs font-black opacity-50 cursor-not-allowed shrink-0">
+                            <span>Next Week</span>
+                            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                        </button>
+                    @endif
+                </div>
+            @endif
         </div>
 
         {{-- Pending Days Alert Banner (when shop owner has not entered sales for delivered GL bills) --}}
@@ -279,7 +331,9 @@
             <div>
                 <div class="flex items-center justify-between mb-2.5 px-0.5">
                     <p class="text-sm font-black text-slate-900">Weekly Action Plan</p>
-                    <span class="text-[10px] font-semibold text-slate-400">30-day avg · min 4 data pts</span>
+                    <span class="text-[10px] font-semibold text-slate-400">
+                        {{ $mode === 'weekly' ? ('Week of ' . \Carbon\Carbon::parse($weekStart)->format('d M')) : '30-day avg · min 4 data pts' }}
+                    </span>
                 </div>
 
                 <div class="grid grid-cols-3 gap-2">
@@ -301,7 +355,7 @@
                                 <p class="text-[8px] text-white/60 font-medium">{{ $intel['best_profit_day']['margin_pct'] }}% margin</p>
                             </div>
                         @else
-                            <p class="text-[9px] font-medium text-white/60 mt-2 leading-snug">Need ≥ 4 data pts</p>
+                            <p class="text-[9px] font-medium text-white/60 mt-2 leading-snug">Need ≥ 1 data pt</p>
                         @endif
                     </div>
 
@@ -344,7 +398,7 @@
                                 <p class="text-[8px] text-white/60 font-medium">stock up this day</p>
                             </div>
                         @else
-                            <p class="text-[9px] font-medium text-white/60 mt-2 leading-snug">Need ≥ 4 data pts</p>
+                            <p class="text-[9px] font-medium text-white/60 mt-2 leading-snug">Need ≥ 1 data pt</p>
                         @endif
                     </div>
                 </div>
@@ -357,7 +411,9 @@
                 <div>
                     <div class="flex items-center justify-between mb-2.5 px-0.5">
                         <p class="text-sm font-black text-slate-900">All 7 Days</p>
-                        <span class="text-[10px] font-semibold text-slate-400">Avg per day · 30-day window</span>
+                        <span class="text-[10px] font-semibold text-slate-400">
+                            {{ $mode === 'weekly' ? ('Totals (' . \Carbon\Carbon::parse($weekStart)->format('d M') . ' – ' . \Carbon\Carbon::parse($weekEnd)->format('d M') . ')') : 'Avg per day · 30-day window' }}
+                        </span>
                     </div>
 
                     <div class="rounded-[24px] bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] overflow-hidden">
