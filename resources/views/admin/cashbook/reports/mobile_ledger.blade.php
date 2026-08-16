@@ -52,6 +52,27 @@
                     <input type="date" x-model="endDate" class="h-8 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-bold text-slate-900">
                     <button type="button" @click="applyCustomDates()" class="h-8 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-500">Apply</button>
                 </div>
+
+                <!-- Extra Filter: Skip GL-Only Days Toggle Pill -->
+                <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                    <button
+                        type="button"
+                        @click="toggleSkipGlOnlyDays()"
+                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black transition-all border cursor-pointer select-none"
+                        :class="skipGlOnlyDays ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'"
+                        title="Skip days that only contain GL Bills with no daily sales entry"
+                    >
+                        <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+                        <span>Skip GL-Only Days</span>
+                        <span x-show="skipGlOnlyDays" class="ml-0.5 rounded-full bg-white/30 px-1.5 py-0.2 text-[8px] font-black uppercase" x-cloak>Active</span>
+                    </button>
+
+                    <template x-if="skipGlOnlyDays">
+                        <span class="text-[9px] font-extrabold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/80">
+                            Skipping GL-only days
+                        </span>
+                    </template>
+                </div>
             </div>
         </section>
 
@@ -356,6 +377,7 @@
                 timeframe: '{{ $timeframe }}',
                 startDate: '{{ $startDate }}',
                 endDate: '{{ $endDate }}',
+                skipGlOnlyDays: {{ $skipGlOnlyDays ? 'true' : 'false' }},
                 searchQuery: '',
                 metrics: @json($metrics),
                 categories: @json($metrics['categories'] ?? []),
@@ -374,6 +396,11 @@
                     this.$nextTick(() => {
                         if (window.lucide) window.lucide.createIcons();
                     });
+                },
+
+                toggleSkipGlOnlyDays() {
+                    this.skipGlOnlyDays = !this.skipGlOnlyDays;
+                    this.loadData();
                 },
 
                 toggleCategory(catName) {
@@ -466,6 +493,11 @@
                     url.searchParams.set('timeframe', this.timeframe);
                     url.searchParams.set('start_date', this.startDate);
                     url.searchParams.set('end_date', this.endDate);
+                    if (this.skipGlOnlyDays) {
+                        url.searchParams.set('skip_gl_only_days', '1');
+                    } else {
+                        url.searchParams.delete('skip_gl_only_days');
+                    }
                     window.location.href = url.toString();
                 },
 

@@ -608,9 +608,9 @@ class AdminCashbookReportsController extends Controller
     /**
      * Calculate itemized single shop metrics for drill-down.
      */
-    private function calculateSingleShopDetail(int $shopId, string $startDate, string $endDate): array
+    private function calculateSingleShopDetail(int $shopId, string $startDate, string $endDate, bool $skipGlOnlyDays = false): array
     {
-        $transactions = ShopLedgerTransaction::query()
+        $allTransactions = ShopLedgerTransaction::query()
             ->where('shop_id', $shopId)
             ->whereBetween('business_date', [$startDate, $endDate])
             ->where('status', '!=', 'void')
@@ -619,7 +619,7 @@ class AdminCashbookReportsController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        $txByDate = $transactions->groupBy(
+        $txByDate = $allTransactions->groupBy(
             fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
         );
 
@@ -640,6 +640,8 @@ class AdminCashbookReportsController extends Controller
                 $activeTransactions = $activeTransactions->concat($dayTxs);
             }
         }
+
+        $transactions = $skipGlOnlyDays ? $activeTransactions : $allTransactions;
 
         $sales = (float) $activeTransactions
             ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
@@ -983,8 +985,9 @@ class AdminCashbookReportsController extends Controller
 
         $timeframe = (string) $request->input('timeframe', 'today');
         $dateRange = $this->resolveDateRange($timeframe, $request);
+        $skipGlOnlyDays = $request->boolean('skip_gl_only_days');
 
-        $metrics = $this->calculateSingleShopDetail($shop->shop_id, $dateRange['start'], $dateRange['end']);
+        $metrics = $this->calculateSingleShopDetail($shop->shop_id, $dateRange['start'], $dateRange['end'], $skipGlOnlyDays);
 
         return view('admin.cashbook.reports.mobile_ledger', [
             'shops' => $shops,
@@ -993,6 +996,7 @@ class AdminCashbookReportsController extends Controller
             'timeframe' => $timeframe,
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
+            'skipGlOnlyDays' => $skipGlOnlyDays,
             'activeTab' => 'mobile-ledger',
         ]);
     }
