@@ -328,6 +328,9 @@
 
             <!-- Action Buttons -->
             <div class="flex items-center gap-2">
+                <button type="button" @click="openCopyYesterday()" :disabled="copyLoading" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs shadow-xs flex items-center gap-1.5 transition-all disabled:opacity-50" title="Quick fill from yesterday's transactions">
+                    <i data-lucide="copy" class="w-4 h-4 text-emerald-600"></i> Copy Yesterday
+                </button>
                 <button type="button" @click="openExportModal = true" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all">
                     <i data-lucide="download" class="w-4 h-4"></i> Export Cashbook
                 </button>
@@ -337,6 +340,89 @@
                 <a href="{{ route('admin.cashbook.shop.post-entry', $currentShop->slug ?: $currentShop->shop_id) }}" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5">
                     <i data-lucide="plus-circle" class="w-4 h-4"></i> Post Entry For Shop
                 </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inline Quick Entry: Copy from Yesterday -->
+    <div x-show="showCopyYesterday" x-cloak class="rounded-3xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5 space-y-4 shadow-xl">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                    <i data-lucide="copy" class="w-4 h-4"></i>
+                </span>
+                <div>
+                    <h3 class="text-xs font-black uppercase tracking-wider text-slate-800">
+                        Quick Fill from <span x-text="yesterdayDateLabel">Yesterday</span>
+                    </h3>
+                    <p class="text-[10px] font-semibold text-slate-500">Review amounts for today (<span x-text="currentDate"></span>) and click Save All.</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" @click="clearCopyRows()" class="text-xs font-bold text-rose-600 hover:text-rose-800 transition" title="Clear all input amounts">
+                    Clear All
+                </button>
+                <span class="text-slate-300">|</span>
+                <button type="button" @click="showCopyYesterday = false" class="text-xs font-bold text-slate-400 hover:text-slate-600">
+                    ✕ Cancel
+                </button>
+            </div>
+        </div>
+
+        <div x-show="copyError" class="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs font-bold text-rose-700" x-text="copyError"></div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-100/70 text-[9px] font-black uppercase text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="px-4 py-2.5">Entry Type</th>
+                        <th class="px-4 py-2.5 text-right">Amount (₹)</th>
+                        <th class="px-3 py-2.5 text-center w-10"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <template x-for="(row, index) in copyRows" :key="index">
+                        <tr class="hover:bg-slate-50/50">
+                            <td class="px-4 py-2.5">
+                                <div class="font-bold" :class="row.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="row.name"></div>
+                                <div class="text-[9px] text-slate-400 font-medium" x-text="row.funding_source && row.funding_source !== 'none' ? row.funding_source : 'default'"></div>
+                            </td>
+                            <td class="px-4 py-2.5 text-right">
+                                <div class="relative inline-block w-36 sm:w-48">
+                                    <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">₹</span>
+                                    <input type="number" step="0.01" min="0.01" x-model="row.amount"
+                                        class="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-1.5 pl-6 pr-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                        placeholder="0" />
+                                </div>
+                            </td>
+                            <td class="px-3 py-2.5 text-center">
+                                <button type="button" @click="copyRows.splice(index, 1)" class="text-slate-300 hover:text-rose-600 transition" title="Remove row">
+                                    <i data-lucide="x" class="w-4 h-4"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="copyRows.length === 0">
+                        <td colspan="3" class="px-4 py-6 text-center text-xs font-semibold text-slate-400">No eligible entries found to copy from yesterday.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="flex items-center justify-between pt-1" x-show="copyRows.length > 0">
+            <span class="text-xs font-bold text-slate-500">
+                <span x-text="copyRows.length"></span> entries ready for <strong class="text-slate-800" x-text="currentDate"></strong>
+            </span>
+            <div class="flex items-center gap-2">
+                <button type="button" @click="clearCopyRows()" class="rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-2xs">
+                    Clear All
+                </button>
+                <button type="button" @click="showCopyYesterday = false" class="rounded-xl px-3.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200/60 transition">
+                    Cancel
+                </button>
+                <button type="button" @click="saveCopyRows()" :disabled="copySaving" class="rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 transition disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <span x-text="copySaving ? 'Saving...' : 'Save All (' + copyRows.length + ')'"></span>
+                </button>
             </div>
         </div>
     </div>
@@ -1084,6 +1170,12 @@
             headerDate: currentDate,
             customStartDate: currentDate,
             customEndDate: currentDate,
+            showCopyYesterday: false,
+            copyRows: [],
+            copyLoading: false,
+            copySaving: false,
+            copyError: '',
+            yesterdayDateLabel: '',
             approvalQueueOpen: false,
             showModal: false,
             showEditModal: false,
@@ -1128,6 +1220,140 @@
             entryTypes: shopEntryTypes,
             snapshot: {},
             showTotalsOnly: false,
+
+            clearCopyRows() {
+                (this.copyRows || []).forEach((row) => {
+                    row.amount = '';
+                });
+            },
+
+            async openCopyYesterday() {
+                this.copyError = '';
+                this.copyLoading = true;
+                try {
+                    const curDate = new Date(currentDate);
+                    curDate.setDate(curDate.getDate() - 1);
+                    const yDate = curDate.toISOString().split('T')[0];
+                    this.yesterdayDateLabel = yDate;
+
+                    const params = new URLSearchParams({
+                        shop_id: currentShopId,
+                        business_date: yDate,
+                        timeframe: 'daily',
+                    });
+
+                    const response = await fetch(`/admin/cashbook/api/shop-data?${params.toString()}`);
+                    const payload = await response.json();
+
+                    if (!payload.success) {
+                        this.copyError = payload.message || 'Unable to fetch yesterday\'s entries.';
+                        this.showCopyYesterday = true;
+                        this.copyRows = [];
+                        return;
+                    }
+
+                    const rawTxs = payload.transactions || [];
+                    const filtered = rawTxs.filter((tx) => {
+                        if (tx.reference_type === 'App\\Models\\ShopInvoice' || tx.reference_type === 'ShopInvoice') {
+                            return false;
+                        }
+                        const code = tx.entry_type_code || tx.entry_type?.code;
+                        if (['gl_bill', 'purchase_bill'].includes(code)) {
+                            return false;
+                        }
+                        return true;
+                    });
+
+                    if (filtered.length === 0) {
+                        this.copyError = `No eligible entries found from yesterday (${yDate}).`;
+                        this.showCopyYesterday = true;
+                        this.copyRows = [];
+                        return;
+                    }
+
+                    this.copyRows = filtered.map((tx) => {
+                        const val = parseFloat(tx.amount || 0);
+                        return {
+                            entry_type_code: tx.entry_type_code || tx.entry_type?.code || '',
+                            name: tx.entry_type ? tx.entry_type.name : (tx.entry_type_code || 'Expense'),
+                            amount: val > 0 ? (val % 1 === 0 ? val.toFixed(0) : val.toString()) : '',
+                            funding_source: tx.funding_source || 'none',
+                            direction: tx.direction || tx.entry_type?.category || 'expense',
+                            notes: '',
+                        };
+                    });
+
+                    this.showCopyYesterday = true;
+                } catch (err) {
+                    this.copyError = 'Failed to load yesterday\'s data: ' + (err.message || 'Please try again.');
+                    this.showCopyYesterday = true;
+                } finally {
+                    this.copyLoading = false;
+                }
+            },
+
+            async saveCopyRows() {
+                if (!this.copyRows.length) {
+                    this.copyError = 'No entries to save.';
+                    return;
+                }
+
+                const invalid = this.copyRows.some((r) => !r.amount || parseFloat(r.amount) <= 0);
+                if (invalid) {
+                    this.copyError = 'All entries must have a valid amount greater than 0.';
+                    return;
+                }
+
+                this.copySaving = true;
+                this.copyError = '';
+
+                try {
+                    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                    const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
+
+                    const body = {
+                        shop_id: currentShopId,
+                        business_date: currentDate,
+                        entries: this.copyRows.map((r) => ({
+                            entry_type_code: r.entry_type_code,
+                            amount: parseFloat(r.amount),
+                            funding_source: r.funding_source || 'none',
+                            notes: r.notes || null,
+                        })),
+                    };
+
+                    const response = await fetch('/admin/cashbook/api/bulk-record-entries', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                        },
+                        body: JSON.stringify(body),
+                    });
+
+                    let payload;
+                    try {
+                        payload = await response.json();
+                    } catch (e) {
+                        this.copyError = 'Server returned an invalid response (HTTP ' + response.status + ').';
+                        return;
+                    }
+
+                    if (!response.ok || !payload.success) {
+                        this.copyError = payload.message || 'Unable to save entries.';
+                        return;
+                    }
+
+                    this.showCopyYesterday = false;
+                    this.copyRows = [];
+                    window.location.reload();
+                } catch (err) {
+                    this.copyError = 'Network error: ' + (err.message || 'Please try again.');
+                } finally {
+                    this.copySaving = false;
+                }
+            },
 
             togglePayableDateSplit(date) {
                 this.expandedPayableDates[date] = !this.expandedPayableDates[date];

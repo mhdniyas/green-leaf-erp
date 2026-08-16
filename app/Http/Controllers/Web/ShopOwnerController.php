@@ -1114,6 +1114,28 @@ class ShopOwnerController extends Controller
         $effectiveReceived = max($payableReceivedTotal, $totalReceivedAllocated);
         $payableBalance = max(0, round($payableTotal - $effectiveReceived, 2));
 
+        $companyPendingEntries = ShopLedgerTransaction::with('entryType')
+            ->where('shop_id', (int) $shop->id)
+            ->where(function ($q) use ($payableRowCodes) {
+                $q->where('company_pending_delta', '!=', 0)
+                    ->orWhere('funding_source', 'company')
+                    ->when($payableRowCodes->isNotEmpty(), function ($sub) use ($payableRowCodes) {
+                        $sub->orWhereHas('entryType', fn ($eq) => $eq->whereIn('code', $payableRowCodes->all()));
+                    })
+                    ->orWhereHas('entryType', function ($eq) {
+                        $eq->whereIn('code', [
+                            'vehicle',
+                            'company_paid_shop',
+                            'company_paid_vendor',
+                            'company_to_petty',
+                            'company_reimbursement',
+                        ]);
+                    });
+            })
+            ->orderBy('business_date', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
         return response()->json([
             'success' => true,
             'snapshot' => $snapshot,
@@ -1122,6 +1144,7 @@ class ShopOwnerController extends Controller
             'settings' => $settings,
             'collection_groups' => $collectionGroups,
             'collection_summaries' => $collectionSummaries,
+            'company_pending_entries' => $companyPendingEntries,
             'payable_rows' => $payableTransactions->map(fn (ShopLedgerTransaction $transaction): array => [
                 'date' => $transaction->business_date->toDateString(),
                 'entry_type_code' => $transaction->entryType?->code,

@@ -93,12 +93,7 @@
             @include('admin.cashbook.layouts.partials.header')
 
             @php
-                $isMobileSection = request()->routeIs('admin.cashbook.reports.hub') ||
-                                   request()->routeIs('admin.cashbook.reports.shop') ||
-                                   request()->routeIs('admin.cashbook.reports.charts') ||
-                                   request()->routeIs('admin.cashbook.reports.analytics') ||
-                                   request()->routeIs('admin.cashbook.reports.gl-bills') ||
-                                   request()->routeIs('admin.cashbook.reports.mobile-ledger');
+                $isMobileSection = request()->routeIs('admin.cashbook.*');
             @endphp
 
             <main class="flex-1 p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-6 {{ $isMobileSection ? 'pb-28 md:pb-8' : '' }}">

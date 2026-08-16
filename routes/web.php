@@ -685,6 +685,7 @@ Route::middleware('auth')->group(function () {
                 Route::get('presets', [CashbookController::class, 'getPresets'])->name('presets');
 
                 Route::post('record-entry', [CashbookController::class, 'recordEntry'])->name('record-entry');
+                Route::post('bulk-record-entries', [CashbookController::class, 'bulkRecordEntries'])->name('bulk-record-entries');
                 Route::post('update-entry', [CashbookController::class, 'updateEntry'])->name('update-entry');
                 Route::post('delete-entry', [CashbookController::class, 'deleteEntry'])->name('delete-entry');
                 Route::post('void-entry', [CashbookController::class, 'voidEntry'])->name('void-entry');

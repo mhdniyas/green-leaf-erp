@@ -976,11 +976,11 @@ final class CashbookController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ];
 
-            if (! empty($validated['funding_source'])) {
+            if (! empty($validated['funding_source']) && $validated['funding_source'] !== 'none') {
                 $input['funding_source'] = $validated['funding_source'];
             }
 
-            $result = $this->ledgerService->recordEntry($input);
+            $result = $this->dailyLedgerService->recordEntry($input);
             $transaction = $result['transaction']->load('entryType');
 
             return response()->json([
@@ -992,6 +992,59 @@ final class CashbookController extends Controller
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
+    }
+
+    public function bulkRecordEntries(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'entries' => ['required', 'array', 'min:1'],
+            'entries.*.entry_type_code' => ['required', 'string', 'exists:ledger_entry_types,code'],
+            'entries.*.amount' => ['required', 'numeric', 'min:0.01'],
+            'entries.*.funding_source' => ['nullable', 'string', 'in:sales,petty,company,bank,external,company_later,none'],
+            'entries.*.notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $created = [];
+        $userId = (int) ($request->user()?->id ?? 1);
+        $shopId = (int) $validated['shop_id'];
+
+        foreach ($validated['entries'] as $item) {
+            $code = (string) $item['entry_type_code'];
+            if (in_array($code, ['gl_bill', 'purchase_bill'], true)) {
+                continue;
+            }
+
+            $payload = [
+                'shop_id' => $shopId,
+                'business_date' => $validated['business_date'],
+                'entry_type_code' => $code,
+                'amount' => (float) $item['amount'],
+                'entered_by' => $userId,
+                'notes' => $item['notes'] ?? null,
+            ];
+
+            if (!empty($item['funding_source']) && $item['funding_source'] !== 'none') {
+                $payload['funding_source'] = $item['funding_source'];
+            }
+
+            $result = $this->dailyLedgerService->recordEntry($payload);
+            if (!empty($result['transaction'])) {
+                $created[] = $result['transaction'];
+            }
+        }
+
+        $snapshot = $this->dailyLedgerService->dailySummary($shopId, $validated['business_date']);
+
+        return response()->json([
+            'success' => true,
+            'message' => count($created) . ' entries created successfully.',
+            'count' => count($created),
+            'snapshot' => $snapshot,
+        ]);
     }
 
     /**

@@ -12,7 +12,7 @@
 
 @section('content')
     <script>
-        function adminReportsHub() {
+        window.adminReportsHub = function adminReportsHub() {
             return {
                 timeframe: '{{ $timeframe }}',
                 startDate: '{{ $startDate }}',
@@ -268,6 +268,14 @@
                     return this.currency(diff) + ' (' + pctFormatted + ')';
                 },
             };
+        };
+
+        if (window.Alpine) {
+            window.Alpine.data('adminReportsHub', window.adminReportsHub);
+        } else {
+            document.addEventListener('alpine:init', () => {
+                window.Alpine.data('adminReportsHub', window.adminReportsHub);
+            });
         }
     </script>
 

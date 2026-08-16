@@ -265,9 +265,15 @@
                             <p class="text-[10px] font-semibold text-slate-500">Review amounts for today (<span x-text="selectedDate"></span>) and click Save All.</p>
                         </div>
                     </div>
-                    <button type="button" @click="showCopyYesterday = false" class="text-xs font-bold text-slate-400 hover:text-slate-600">
-                        ✕ Cancel
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="clearCopyRows()" class="text-xs font-bold text-rose-600 hover:text-rose-800 transition" title="Clear all input amounts">
+                            Clear All
+                        </button>
+                        <span class="text-slate-300">|</span>
+                        <button type="button" @click="showCopyYesterday = false" class="text-xs font-bold text-slate-400 hover:text-slate-600">
+                            ✕ Cancel
+                        </button>
+                    </div>
                 </div>
 
                 <div x-show="copyError" class="rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-xs font-bold text-rose-700" x-text="copyError"></div>
@@ -293,7 +299,7 @@
                                             <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">₹</span>
                                             <input type="number" step="0.01" min="0.01" x-model="row.amount"
                                                 class="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-1 pl-6 pr-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                                placeholder="0.00" />
+                                                placeholder="0" />
                                         </div>
                                     </td>
                                     <td class="px-2 py-2 text-center">
@@ -317,6 +323,9 @@
                         <span x-text="copyRows.length"></span> entries ready for <strong class="text-slate-800" x-text="selectedDate"></strong>
                     </span>
                     <div class="flex items-center gap-2">
+                        <button type="button" @click="clearCopyRows()" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-2xs">
+                            Clear All
+                        </button>
                         <button type="button" @click="showCopyYesterday = false" class="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200/60 transition">
                             Cancel
                         </button>
@@ -868,6 +877,7 @@
                 startDate: '{{ $startDate ?? request('start_date', $selectedDate->toDateString()) }}',
                 endDate: '{{ $endDate ?? request('end_date', $selectedDate->toDateString()) }}',
                 transactions: [],
+                companyPendingEntries: [],
                 collectionGroups: @json($collectionGroups ?? []),
                 collectionSummaries: [],
                 snapshot: @json($snapshot),
@@ -960,6 +970,101 @@
                             : (dir === 'expense' || ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'].includes(code));
                         return sum + (isDeduction ? -parseFloat(tx.amount || 0) : parseFloat(tx.amount || 0));
                     }, 0);
+                },
+
+                companyPayablesLedger() {
+                    if (!this.companyPendingEntries || !Array.isArray(this.companyPendingEntries) || this.companyPendingEntries.length === 0) {
+                        return [];
+                    }
+
+                    const dateGroups = {};
+                    this.companyPendingEntries.forEach(tx => {
+                        const d = tx.business_date || 'Unknown';
+                        if (!dateGroups[d]) {
+                            dateGroups[d] = {
+                                date: d,
+                                items: [],
+                                out_amount: 0,
+                                in_amount: 0,
+                            };
+                        }
+
+                        const amt = parseFloat(tx.amount || 0);
+                        const delta = parseFloat(tx.company_pending_delta || 0);
+                        const code = tx.entry_type ? (tx.entry_type.code || '') : (tx.entry_type_code || '');
+                        const category = tx.entry_type ? (tx.entry_type.category || '') : '';
+                        const direction = tx.direction || category || 'expense';
+
+                        const setting = (this.settings || []).find(s => s.entry_type_id === tx.entry_type_id || (s.entry_type && s.entry_type.code === code));
+                        const payableDir = setting ? setting.payable_direction : null;
+
+                        let isOut = false;
+                        let isIn = false;
+
+                        if (payableDir === 'add') {
+                            isOut = true;
+                        } else if (payableDir === 'minus') {
+                            isIn = true;
+                        } else if (delta > 0) {
+                            isOut = true;
+                        } else if (delta < 0) {
+                            isIn = true;
+                        } else if (direction === 'expense' || category === 'expense' || tx.funding_source === 'company' || code === 'vehicle') {
+                            isOut = true;
+                        } else if (direction === 'income' || category === 'settlement' || code.includes('paid_shop') || code.includes('reimburse')) {
+                            isIn = true;
+                        } else {
+                            isOut = true;
+                        }
+
+                        const itemOut = isOut ? amt : 0;
+                        const itemIn = isIn ? amt : 0;
+
+                        dateGroups[d].items.push({
+                            ...tx,
+                            item_out: itemOut,
+                            item_in: itemIn,
+                            is_out: isOut,
+                            is_in: isIn,
+                            type_name: tx.entry_type ? tx.entry_type.name : (tx.entry_type_code || 'Expense'),
+                        });
+
+                        dateGroups[d].out_amount += itemOut;
+                        dateGroups[d].in_amount += itemIn;
+                    });
+
+                    const sortedDates = Object.keys(dateGroups).sort((a, b) => a.localeCompare(b));
+                    let runningBalance = 0;
+                    const ledgerRows = [];
+
+                    sortedDates.forEach(dateStr => {
+                        const g = dateGroups[dateStr];
+                        runningBalance = runningBalance + g.out_amount - g.in_amount;
+
+                        ledgerRows.push({
+                            date: dateStr,
+                            items: g.items,
+                            count: g.items.length,
+                            out_amount: g.out_amount,
+                            in_amount: g.in_amount,
+                            net_change: g.out_amount - g.in_amount,
+                            running_balance: runningBalance,
+                        });
+                    });
+
+                    return ledgerRows;
+                },
+
+                companyPayablesTotalOut() {
+                    return this.companyPayablesLedger().reduce((sum, r) => sum + r.out_amount, 0);
+                },
+
+                companyPayablesTotalIn() {
+                    return this.companyPayablesLedger().reduce((sum, r) => sum + r.in_amount, 0);
+                },
+
+                companyPayablesFinalBalance() {
+                    return this.companyPayablesTotalOut() - this.companyPayablesTotalIn();
                 },
 
                 toneClass(tone) {
@@ -1133,13 +1238,34 @@
                             breakdown: rows
                         };
                     } else if (cardType === 'company_pending') {
+                        const ledger = this.companyPayablesLedger();
+                        const finalBalance = this.companyPayablesFinalBalance();
+                        const totalOut = this.companyPayablesTotalOut();
+                        const totalIn = this.companyPayablesTotalIn();
+                        const val = (finalBalance !== 0 || ledger.length > 0) ? finalBalance : (parseFloat(this.snapshot?.closing_company_pending || 0));
+
+                        const breakdownItems = [];
+                        ledger.forEach(group => {
+                            group.items.forEach(item => {
+                                breakdownItems.push({
+                                    date: item.business_date,
+                                    entry_type_name: item.type_name,
+                                    amount: item.amount,
+                                    is_out: item.is_out,
+                                    status: item.company_payable_status ? item.company_payable_status.replace('_', ' ') : null,
+                                    notes: item.notes || (item.is_out ? 'Expense Owed by Company' : 'Reimbursement Paid'),
+                                });
+                            });
+                        });
+
                         this.cardModalData = {
                             title: 'Company Pending Reimbursements',
-                            subtitle: 'Pending reimbursements and claims submitted to company.',
-                            value: this.currency(this.snapshot?.closing_company_pending || 0),
-                            tone: 'emerald',
-                            description: `Pending claims to be reimbursed by company.`,
-                            breakdown: []
+                            subtitle: 'Vehicle expenses, company-funded claims, and reimbursements.',
+                            value: this.currency(val),
+                            tone: val >= 0 ? 'emerald' : 'rose',
+                            description: `Total Out: ${this.currency(totalOut)} | Total In: ${this.currency(totalIn)}`,
+                            rawBreakdown: breakdownItems,
+                            breakdown: breakdownItems
                         };
                     } else if (cardType === 'month_sales') {
                         this.cardModalData = {
@@ -1412,6 +1538,7 @@
                     }
 
                     this.transactions = payload.transactions || [];
+                    this.companyPendingEntries = payload.company_pending_entries || [];
                     this.entryTypes = (payload.settings || [])
                         .map((setting) => setting.entry_type)
                         .filter(Boolean);
@@ -1651,14 +1778,17 @@
                             return;
                         }
 
-                        this.copyRows = filtered.map((tx) => ({
-                            entry_type_code: tx.entry_type_code || tx.entry_type?.code || '',
-                            name: this.entryTypeName(tx),
-                            amount: parseFloat(tx.amount || 0).toFixed(2),
-                            funding_source: tx.funding_source || 'none',
-                            direction: tx.direction || tx.entry_type?.category || 'expense',
-                            notes: '',
-                        }));
+                        this.copyRows = filtered.map((tx) => {
+                            const val = parseFloat(tx.amount || 0);
+                            return {
+                                entry_type_code: tx.entry_type_code || tx.entry_type?.code || '',
+                                name: this.entryTypeName(tx),
+                                amount: val > 0 ? (val % 1 === 0 ? val.toFixed(0) : val.toString()) : '',
+                                funding_source: tx.funding_source || 'none',
+                                direction: tx.direction || tx.entry_type?.category || 'expense',
+                                notes: '',
+                            };
+                        });
 
                         this.showCopyYesterday = true;
                     } catch (err) {
@@ -1667,6 +1797,12 @@
                     } finally {
                         this.copyLoading = false;
                     }
+                },
+
+                clearCopyRows() {
+                    (this.copyRows || []).forEach((row) => {
+                        row.amount = '';
+                    });
                 },
 
                 async saveCopyRows() {
@@ -1732,7 +1868,9 @@
                 },
 
                 currency(value) {
-                    return `Rs. ${Number(value || 0).toFixed(2)}`;
+                    const num = Number(value || 0);
+                    const formatted = num % 1 === 0 ? num.toFixed(0) : num.toFixed(2);
+                    return `Rs. ${formatted}`;
                 },
             };
         }
