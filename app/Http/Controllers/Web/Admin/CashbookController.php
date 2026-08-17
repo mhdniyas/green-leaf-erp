@@ -112,12 +112,14 @@ final class CashbookController extends Controller
 
         $filters = $this->reportFilters($request);
         $includeDetails = $request->boolean('include_details', true);
+        $scope = (string) $request->input('scope', 'all');
         $rows = $this->cashbookReportExportRows(
             $filters['selected_date'],
             $filters['timeframe'],
             $filters['start_date'],
             $filters['end_date'],
-            $includeDetails
+            $includeDetails,
+            $scope
         );
 
         return response()->streamDownload(function () use ($rows): void {
@@ -143,6 +145,7 @@ final class CashbookController extends Controller
 
         $filters = $this->reportFilters($request);
         $includeDetails = $request->boolean('include_details', true);
+        $scope = (string) $request->input('scope', 'all');
 
         return Excel::download(
             new PurchaserReportArrayExport(
@@ -151,7 +154,8 @@ final class CashbookController extends Controller
                     $filters['timeframe'],
                     $filters['start_date'],
                     $filters['end_date'],
-                    $includeDetails
+                    $includeDetails,
+                    $scope
                 ),
                 'Cashbook Report'
             ),
@@ -165,12 +169,14 @@ final class CashbookController extends Controller
 
         $filters = $this->reportFilters($request);
         $includeDetails = $request->boolean('include_details', true);
+        $scope = (string) $request->input('scope', 'all');
         $rows = $this->cashbookReportExportRows(
             $filters['selected_date'],
             $filters['timeframe'],
             $filters['start_date'],
             $filters['end_date'],
-            $includeDetails
+            $includeDetails,
+            $scope
         );
 
         return view('admin.cashbook.reports.pdf', [
@@ -243,8 +249,9 @@ final class CashbookController extends Controller
         $format = (string) $request->input('format', 'csv');
         $timeframe = (string) $request->input('timeframe', 'daily');
         $date = (string) $request->input('date', today()->toDateString());
-        $startDate = (string) $request->input('start_date', $date);
-        $endDate = (string) $request->input('end_date', $date);
+        $reqStart = $request->input('start_date');
+        $reqEnd = $request->input('end_date');
+        $includeDetails = $request->boolean('include_details', true);
 
         $carbon = Carbon::parse($date);
 
@@ -252,80 +259,161 @@ final class CashbookController extends Controller
             'daily' => [$date, $date],
             'weekly' => [$carbon->copy()->startOfWeek()->toDateString(), $carbon->copy()->endOfWeek()->toDateString()],
             'monthly' => [$carbon->copy()->startOfMonth()->toDateString(), $carbon->copy()->endOfMonth()->toDateString()],
-            'custom' => [$startDate, $endDate],
-            default => [$date, $date],
+            'custom' => [$reqStart ?: $date, $reqEnd ?: $date],
+            default => [$reqStart ?: $date, $reqEnd ?: $date],
         };
 
-        $transactions = ShopLedgerTransaction::query()
-            ->with('entryType')
+        // 1. Sales per date for this shop
+        $salesPerDate = ShopLedgerTransaction::query()
             ->where('shop_id', (int) $resolvedShop->id)
-            ->whereBetween('business_date', [$finalStart, $finalEnd])
-            ->orderBy('business_date', 'desc')
-            ->orderBy('id', 'desc')
-            ->get();
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'income')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+            })
+            ->whereDate('business_date', '>=', $finalStart)
+            ->whereDate('business_date', '<=', $finalEnd)
+            ->selectRaw('DATE(business_date) as b_date, SUM(amount) as total_sales')
+            ->groupBy('b_date')
+            ->pluck('total_sales', 'b_date');
 
-        $totalSales = (float) $transactions
-            ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
-            ->sum('amount');
+        // 2. Expense per date for this shop
+        $expensePerDate = ShopLedgerTransaction::query()
+            ->where('shop_id', (int) $resolvedShop->id)
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'expense')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+            })
+            ->whereDate('business_date', '>=', $finalStart)
+            ->whereDate('business_date', '<=', $finalEnd)
+            ->selectRaw('DATE(business_date) as b_date, SUM(amount) as total_expense')
+            ->groupBy('b_date')
+            ->pluck('total_expense', 'b_date');
 
-        $totalExpense = (float) $transactions
-            ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
-            ->sum('amount');
+        // 3. GL Bills per date for this specific shop
+        $glBillsPerDate = ShopInvoice::query()
+            ->where('shop_id', (int) $resolvedShop->id)
+            ->where('status', '!=', 'cancelled')
+            ->where('final_total', '>', 0)
+            ->whereDate('business_date', '>=', $finalStart)
+            ->whereDate('business_date', '<=', $finalEnd)
+            ->selectRaw('DATE(business_date) as b_date, SUM(final_total) as total_gl')
+            ->groupBy('b_date')
+            ->pluck('total_gl', 'b_date');
 
-        $netPosition = $totalSales - $totalExpense;
+        $allDates = collect()
+            ->merge($salesPerDate->keys())
+            ->merge($expensePerDate->keys())
+            ->merge($glBillsPerDate->keys())
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($allDates->isEmpty()) {
+            $allDates = collect([$finalStart]);
+        }
+
+        $rows = [];
+
+        // Table 1: Summary Table
+        $rows[] = ['Date', 'Sales Total', 'Total Expense', 'Net Balance', 'GL Bill'];
+
+        foreach ($allDates as $dStr) {
+            $sVal = round((float) ($salesPerDate[$dStr] ?? 0), 2);
+            $eVal = round((float) ($expensePerDate[$dStr] ?? 0), 2);
+            $nVal = round($sVal - $eVal, 2);
+            $gVal = round((float) ($glBillsPerDate[$dStr] ?? 0), 2);
+
+            $rows[] = [$dStr, $sVal, $eVal, $nVal, $gVal];
+        }
+
+        if ($includeDetails) {
+            $rows[] = [];
+
+            // Table 2: Total Sales Details (with Day header)
+            $rows[] = ['Total Sales Details'];
+            $rows[] = ['Date', 'Day', 'Income'];
+
+            $incomeTransactions = ShopLedgerTransaction::query()
+                ->with('entryType')
+                ->where('shop_id', (int) $resolvedShop->id)
+                ->where('status', '!=', 'voided')
+                ->where(function ($q) {
+                    $q->where('direction', 'income')
+                      ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+                })
+                ->whereDate('business_date', '>=', $finalStart)
+                ->whereDate('business_date', '<=', $finalEnd)
+                ->orderBy('business_date')
+                ->orderBy('id')
+                ->get();
+
+            foreach ($incomeTransactions as $tx) {
+                $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+                $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
+                $dayName = $carbonDate ? $carbonDate->format('l') : '';
+
+                $rows[] = [$bDate, $dayName, round((float) $tx->amount, 2)];
+            }
+
+            $rows[] = [];
+
+            // Table 3: Total Expense Details (with Day header)
+            $rows[] = ['Total Expense Details'];
+            $rows[] = ['Date', 'Day', 'Expense'];
+
+            $expenseTransactions = ShopLedgerTransaction::query()
+                ->with('entryType')
+                ->where('shop_id', (int) $resolvedShop->id)
+                ->where('status', '!=', 'voided')
+                ->where(function ($q) {
+                    $q->where('direction', 'expense')
+                      ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+                })
+                ->whereDate('business_date', '>=', $finalStart)
+                ->whereDate('business_date', '<=', $finalEnd)
+                ->orderBy('business_date')
+                ->orderBy('id')
+                ->get();
+
+            foreach ($expenseTransactions as $tx) {
+                $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+                $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
+                $dayName = $carbonDate ? $carbonDate->format('l') : '';
+
+                $rows[] = [$bDate, $dayName, round((float) $tx->amount, 2)];
+            }
+        }
 
         if ($format === 'pdf') {
-            return view('admin.cashbook.shops.export-pdf', [
-                'shop' => $resolvedShop,
+            return view('admin.cashbook.reports.pdf', [
+                'selectedDate' => $date,
                 'timeframe' => $timeframe,
                 'startDate' => $finalStart,
                 'endDate' => $finalEnd,
-                'transactions' => $transactions,
-                'totalSales' => $totalSales,
-                'totalExpense' => $totalExpense,
-                'netPosition' => $netPosition,
+                'exportRows' => $rows,
             ]);
         }
 
-        $delimiter = $format === 'excel' ? "\t" : ',';
-        $ext = $format === 'excel' ? 'xls' : 'csv';
-        $contentType = $format === 'excel' ? 'application/vnd.ms-excel; charset=UTF-8' : 'text/csv; charset=UTF-8';
-        $filename = "cashbook_{$resolvedShop->slug}_{$timeframe}_{$finalStart}_to_{$finalEnd}.{$ext}";
+        if ($format === 'excel') {
+            return Excel::download(
+                new PurchaserReportArrayExport($rows, $resolvedShop->name . ' Report'),
+                "cashbook_{$resolvedShop->slug}_{$finalStart}_to_{$finalEnd}.xlsx"
+            );
+        }
 
-        $headers = [
-            'Content-Type' => $contentType,
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-        ];
-
-        return response()->stream(function () use ($transactions, $resolvedShop, $finalStart, $finalEnd, $totalSales, $totalExpense, $netPosition, $delimiter) {
-            $handle = fopen('php://output', 'w');
-            fwrite($handle, "\xEF\xBB\xBF");
-
-            fputcsv($handle, ['Shop Name', $resolvedShop->name], $delimiter);
-            fputcsv($handle, ['Export Period', "{$finalStart} to {$finalEnd}"], $delimiter);
-            fputcsv($handle, ['Total Sales', number_format($totalSales, 2)], $delimiter);
-            fputcsv($handle, ['Total Expense', number_format($totalExpense, 2)], $delimiter);
-            fputcsv($handle, ['Net Balance', number_format($netPosition, 2)], $delimiter);
-            fputcsv($handle, [], $delimiter);
-
-            fputcsv($handle, ['Transaction ID', 'Business Date', 'Entry Type', 'Category', 'Direction', 'Funding Source', 'Amount (Rs)', 'Notes', 'Created At'], $delimiter);
-
-            foreach ($transactions as $tx) {
-                fputcsv($handle, [
-                    '#'.$tx->id,
-                    $tx->business_date,
-                    $tx->entryType ? $tx->entryType->name : $tx->entry_type_code,
-                    $tx->entryType ? $tx->entryType->category : '-',
-                    strtoupper($tx->direction ?? ''),
-                    $tx->funding_source ?: 'default',
-                    number_format((float) $tx->amount, 2, '.', ''),
-                    $tx->notes ?: '-',
-                    $tx->created_at ? $tx->created_at->format('Y-m-d H:i:s') : '-',
-                ], $delimiter);
+        // CSV Stream Download
+        $filename = "cashbook_{$resolvedShop->slug}_{$finalStart}_to_{$finalEnd}.csv";
+        return response()->streamDownload(function () use ($rows): void {
+            $file = fopen('php://output', 'w');
+            if ($file !== false) {
+                foreach ($rows as $row) {
+                    fputcsv($file, $row);
+                }
+                fclose($file);
             }
-
-            fclose($handle);
-        }, 200, $headers);
+        }, $filename, ['Content-Type' => 'text/csv']);
     }
 
     public function shopSettlementPage(Request $request, int|string $shop): View
@@ -2376,10 +2464,33 @@ final class CashbookController extends Controller
     /**
      * @return array<int, array<int, mixed>>
      */
-    private function cashbookReportExportRows(string $selectedDate, string $timeframe, string $startDate, string $endDate, bool $includeDetails = true): array
-    {
-        // 1. Daily Summary Aggregates
-        $salesPerDate = ShopLedgerTransaction::query()
+    private function cashbookReportExportRows(
+        string $selectedDate,
+        string $timeframe,
+        string $startDate,
+        string $endDate,
+        bool $includeDetails = true,
+        string $scope = 'all'
+    ): array {
+        $allShops = $this->shopSyncService->syncAndGetProfiles();
+        $allShops->load('client');
+
+        $filteredShops = $allShops->filter(function (ShopLedgerProfile $shop) use ($scope): bool {
+            $isDirect = $shop->client_id === null && $shop->profile_template === 'direct_buyer';
+            if ($scope === 'owned') {
+                return ! $isDirect;
+            }
+            if ($scope === 'direct') {
+                return $isDirect;
+            }
+            return true;
+        })->values();
+
+        $shopIds = $filteredShops->pluck('shop_id')->map(fn ($id) => (int) $id)->all();
+
+        // 1. Sales per shop
+        $salesPerShop = ShopLedgerTransaction::query()
+            ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'income')
@@ -2387,11 +2498,13 @@ final class CashbookController extends Controller
             })
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->selectRaw('DATE(business_date) as b_date, SUM(amount) as total_sales')
-            ->groupBy('b_date')
-            ->pluck('total_sales', 'b_date');
+            ->selectRaw('shop_id, SUM(amount) as total_sales')
+            ->groupBy('shop_id')
+            ->pluck('total_sales', 'shop_id');
 
-        $expensePerDate = ShopLedgerTransaction::query()
+        // 2. Expense per shop
+        $expensePerShop = ShopLedgerTransaction::query()
+            ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'expense')
@@ -2399,44 +2512,64 @@ final class CashbookController extends Controller
             })
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->selectRaw('DATE(business_date) as b_date, SUM(amount) as total_expense')
-            ->groupBy('b_date')
-            ->pluck('total_expense', 'b_date');
+            ->selectRaw('shop_id, SUM(amount) as total_expense')
+            ->groupBy('shop_id')
+            ->pluck('total_expense', 'shop_id');
 
-        $glBillsPerDate = ShopInvoice::query()
+        // 3. GL Bills per shop
+        $glBillsPerShop = ShopInvoice::query()
+            ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'cancelled')
             ->where('final_total', '>', 0)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->selectRaw('DATE(business_date) as b_date, SUM(final_total) as total_gl')
-            ->groupBy('b_date')
-            ->pluck('total_gl', 'b_date');
-
-        $allDates = collect()
-            ->merge($salesPerDate->keys())
-            ->merge($expensePerDate->keys())
-            ->merge($glBillsPerDate->keys())
-            ->unique()
-            ->sort()
-            ->values();
-
-        if ($allDates->isEmpty()) {
-            $allDates = collect([$startDate]);
-        }
+            ->selectRaw('shop_id, SUM(final_total) as total_gl')
+            ->groupBy('shop_id')
+            ->pluck('total_gl', 'shop_id');
 
         $rows = [];
 
-        // Table 1: Summary Table
-        $rows[] = ['Date', 'Sales Total', 'Total Expense', 'Net Balance', 'GL Bill'];
+        // Table 1: Summary Table (Shop-by-Shop)
+        $rows[] = ['Shop Name', 'Scope', 'Sales Total', 'Total Expense', 'Net Balance', 'GL Bill'];
 
-        foreach ($allDates as $dStr) {
-            $sVal = round((float) ($salesPerDate[$dStr] ?? 0), 2);
-            $eVal = round((float) ($expensePerDate[$dStr] ?? 0), 2);
+        $grandSales = 0.0;
+        $grandExpense = 0.0;
+        $grandNet = 0.0;
+        $grandGl = 0.0;
+
+        foreach ($filteredShops as $shop) {
+            $isDirect = $shop->client_id === null && $shop->profile_template === 'direct_buyer';
+            $scopeLabel = $isDirect ? 'Direct' : ($shop->client?->name ?: 'Own');
+
+            $sVal = round((float) ($salesPerShop[$shop->shop_id] ?? 0), 2);
+            $eVal = round((float) ($expensePerShop[$shop->shop_id] ?? 0), 2);
             $nVal = round($sVal - $eVal, 2);
-            $gVal = round((float) ($glBillsPerDate[$dStr] ?? 0), 2);
+            $gVal = round((float) ($glBillsPerShop[$shop->shop_id] ?? 0), 2);
 
-            $rows[] = [$dStr, $sVal, $eVal, $nVal, $gVal];
+            $grandSales += $sVal;
+            $grandExpense += $eVal;
+            $grandNet += $nVal;
+            $grandGl += $gVal;
+
+            $rows[] = [
+                $shop->name ?: ('Shop #' . $shop->shop_id),
+                $scopeLabel,
+                $sVal,
+                $eVal,
+                $nVal,
+                $gVal,
+            ];
         }
+
+        // Grand Total Row
+        $rows[] = [
+            'Total',
+            '-',
+            round($grandSales, 2),
+            round($grandExpense, 2),
+            round($grandNet, 2),
+            round($grandGl, 2),
+        ];
 
         if (! $includeDetails) {
             return $rows;
@@ -2444,12 +2577,13 @@ final class CashbookController extends Controller
 
         $rows[] = [];
 
-        // Table 2: Total Sales Details (with Day header)
+        // Table 2: Total Sales Details (with Day header & Shop name)
         $rows[] = ['Total Sales Details'];
-        $rows[] = ['Date', 'Day', 'Income'];
+        $rows[] = ['Date', 'Day', 'Shop', 'Income'];
 
         $incomeTransactions = ShopLedgerTransaction::query()
-            ->with('entryType')
+            ->with(['entryType', 'shopProfile'])
+            ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'income')
@@ -2465,18 +2599,20 @@ final class CashbookController extends Controller
             $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
             $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
             $dayName = $carbonDate ? $carbonDate->format('l') : '';
+            $shopName = $tx->shopProfile?->name ?: ('Shop #' . $tx->shop_id);
 
-            $rows[] = [$bDate, $dayName, round((float) $tx->amount, 2)];
+            $rows[] = [$bDate, $dayName, $shopName, round((float) $tx->amount, 2)];
         }
 
         $rows[] = [];
 
-        // Table 3: Total Expense Details (with Day header)
+        // Table 3: Total Expense Details (with Day header & Shop name)
         $rows[] = ['Total Expense Details'];
-        $rows[] = ['Date', 'Day', 'Expense'];
+        $rows[] = ['Date', 'Day', 'Shop', 'Expense'];
 
         $expenseTransactions = ShopLedgerTransaction::query()
-            ->with('entryType')
+            ->with(['entryType', 'shopProfile'])
+            ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'expense')
@@ -2492,8 +2628,9 @@ final class CashbookController extends Controller
             $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
             $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
             $dayName = $carbonDate ? $carbonDate->format('l') : '';
+            $shopName = $tx->shopProfile?->name ?: ('Shop #' . $tx->shop_id);
 
-            $rows[] = [$bDate, $dayName, round((float) $tx->amount, 2)];
+            $rows[] = [$bDate, $dayName, $shopName, round((float) $tx->amount, 2)];
         }
 
         return $rows;

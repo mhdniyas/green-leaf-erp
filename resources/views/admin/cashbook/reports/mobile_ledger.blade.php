@@ -19,7 +19,13 @@
                     <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-slate-800 border border-slate-200">{{ $currentShop->code ?: ('SHP-' . $currentShop->shop_id) }}</span>
                     <h1 class="text-sm font-black text-slate-900 truncate mt-0.5">{{ $currentShop->name }}</h1>
                 </div>
-                <div class="flex items-center gap-1">
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <x-export-toolbar
+                        excel-url="{{ route('admin.cashbook.shop.export', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'format' => 'excel', 'timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                        pdf-url="{{ route('admin.cashbook.shop.export', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'format' => 'pdf', 'timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                        title="{{ $currentShop->name }}"
+                        align="right"
+                    />
                     <a href="{{ route('admin.cashbook.reports.hub', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}" class="rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-slate-600 transition hover:bg-slate-100" title="Back to Overview">
                         <i data-lucide="arrow-left" class="w-4 h-4"></i>
                     </a>

@@ -131,9 +131,10 @@
                 try {
                     let url = new URL(baseUrl, window.location.origin);
                     let pageParams = new URLSearchParams(window.location.search);
-                    if (pageParams.has('timeframe')) url.searchParams.set('timeframe', pageParams.get('timeframe'));
-                    if (pageParams.has('start_date')) url.searchParams.set('start_date', pageParams.get('start_date'));
-                    if (pageParams.has('end_date')) url.searchParams.set('end_date', pageParams.get('end_date'));
+                    if (pageParams.has('timeframe') && !url.searchParams.has('timeframe')) url.searchParams.set('timeframe', pageParams.get('timeframe'));
+                    if (pageParams.has('start_date') && !url.searchParams.has('start_date')) url.searchParams.set('start_date', pageParams.get('start_date'));
+                    if (pageParams.has('end_date') && !url.searchParams.has('end_date')) url.searchParams.set('end_date', pageParams.get('end_date'));
+                    if (pageParams.has('scope') && !url.searchParams.has('scope')) url.searchParams.set('scope', pageParams.get('scope'));
 
                     url.searchParams.set('include_details', includeDetails || '1');
                     return url.toString();
