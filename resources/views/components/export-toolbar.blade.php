@@ -7,6 +7,30 @@
     'align' => 'right',
 ])
 
+<script>
+    if (typeof window.buildExportUrl !== 'function') {
+        window.buildExportUrl = function(baseUrl, includeDetails) {
+            if (!baseUrl || baseUrl === '#') return '#';
+            try {
+                let url = new URL(baseUrl, window.location.origin);
+                let pageParams = new URLSearchParams(window.location.search);
+                if (pageParams.has('timeframe') && !url.searchParams.has('timeframe')) url.searchParams.set('timeframe', pageParams.get('timeframe'));
+                if (pageParams.has('start_date') && !url.searchParams.has('start_date')) url.searchParams.set('start_date', pageParams.get('start_date'));
+                if (pageParams.has('end_date') && !url.searchParams.has('end_date')) url.searchParams.set('end_date', pageParams.get('end_date'));
+
+                let activeScope = (typeof typeFilter !== 'undefined' ? typeFilter : null) || pageParams.get('scope') || 'all';
+                url.searchParams.set('scope', activeScope);
+
+                url.searchParams.set('include_details', includeDetails || '1');
+                return url.toString();
+            } catch (e) {
+                let sep = baseUrl.includes('?') ? '&' : '?';
+                return baseUrl + sep + 'include_details=' + (includeDetails || '1');
+            }
+        };
+    }
+</script>
+
 <div x-data="{ open: false, includeDetails: '1' }" class="relative inline-block text-left print:hidden">
     <!-- Compact Share / Export Trigger Button -->
     <button @click="open = !open" type="button"

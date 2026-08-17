@@ -268,6 +268,7 @@ final class CashbookController extends Controller
         $salesPerDate = ShopLedgerTransaction::query()
             ->where('shop_id', (int) $resolvedShop->id)
             ->where('status', '!=', 'voided')
+            ->whereNull('parent_transaction_id')
             ->where(function ($q) {
                 $q->where('direction', 'income')
                   ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
@@ -282,6 +283,7 @@ final class CashbookController extends Controller
         $expensePerDate = ShopLedgerTransaction::query()
             ->where('shop_id', (int) $resolvedShop->id)
             ->where('status', '!=', 'voided')
+            ->whereNull('parent_transaction_id')
             ->where(function ($q) {
                 $q->where('direction', 'expense')
                   ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
@@ -340,6 +342,7 @@ final class CashbookController extends Controller
                 ->with('entryType')
                 ->where('shop_id', (int) $resolvedShop->id)
                 ->where('status', '!=', 'voided')
+                ->whereNull('parent_transaction_id')
                 ->where(function ($q) {
                     $q->where('direction', 'income')
                       ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
@@ -368,6 +371,7 @@ final class CashbookController extends Controller
                 ->with('entryType')
                 ->where('shop_id', (int) $resolvedShop->id)
                 ->where('status', '!=', 'voided')
+                ->whereNull('parent_transaction_id')
                 ->where(function ($q) {
                     $q->where('direction', 'expense')
                       ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
@@ -2494,6 +2498,7 @@ final class CashbookController extends Controller
         $salesPerShop = ShopLedgerTransaction::query()
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
+            ->whereNull('parent_transaction_id')
             ->where(function ($q) {
                 $q->where('direction', 'income')
                   ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
@@ -2508,6 +2513,7 @@ final class CashbookController extends Controller
         $expensePerShop = ShopLedgerTransaction::query()
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
+            ->whereNull('parent_transaction_id')
             ->where(function ($q) {
                 $q->where('direction', 'expense')
                   ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
@@ -2554,8 +2560,8 @@ final class CashbookController extends Controller
             $eVal = round((float) ($expensePerShop[$shop->shop_id] ?? 0), 2);
             $nVal = round($sVal - $eVal, 2);
 
-            // Filter rule: Exclude shops that have only 1 bill (or 0 bills) and no sales/expense activity
-            if ($billCount <= 1 && $sVal == 0.0 && $eVal == 0.0) {
+            // Filter rule: Exclude shops that have 0 bills AND 0 sales/expense activity
+            if ($billCount === 0 && $sVal == 0.0 && $eVal == 0.0) {
                 continue;
             }
 
