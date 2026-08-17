@@ -15,6 +15,8 @@
             'totalBilled' => $totalBilled,
             'outstandingBalance' => $outstandingBalance,
             'paidAmount' => $paidAmount,
+            'monthlyPaidAmount' => $monthlyPaidAmount ?? $paidAmount,
+            'monthlyBalanceToPay' => $monthlyBalanceToPay ?? $payableBalance ?? $outstandingBalance,
             'shortageValue' => $shortageValue,
             'pendingPaymentAmount' => $pendingPaymentAmount,
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
@@ -49,6 +51,11 @@
             'payableTotal' => $payableTotal ?? 0,
             'payableReceivedTotal' => $payableReceivedTotal ?? 0,
             'payableBalance' => $payableBalance ?? 0,
+            'companyPayableLines' => $companyPayableLines ?? null,
+            'companyPayableTotals' => $companyPayableTotals ?? [],
+            'selectedDays' => $selectedDays ?? null,
+            'dailyPayableBalances' => $dailyPayableBalances ?? collect(),
+            'hideDeliveryBills' => true,
         ])
     </div>
 @endsection

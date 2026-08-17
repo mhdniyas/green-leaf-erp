@@ -9,15 +9,17 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\BusinessSetting;
-use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
+use App\Models\DailyPricePublication;
 use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopCredit;
+use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
@@ -82,7 +84,7 @@ class ShopOwnerController extends Controller
         $search = trim((string) $request->input('search', ''));
         $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
 
-        $isPublished = \App\Models\DailyPricePublication::isPublishedForDate($targetBusinessDate);
+        $isPublished = DailyPricePublication::isPublishedForDate($targetBusinessDate);
 
         $shopGroup = $this->priceBoardService->groupForShop($activeShop);
         $groupName = strtoupper(trim((string) ($shopGroup?->name ?? 'A')));
@@ -137,7 +139,7 @@ class ShopOwnerController extends Controller
             ->groupBy('product_id')
             ->map(fn ($rows) => $rows->first());
 
-        $shopDailyPrices = \App\Models\ShopDailyProductPrice::query()
+        $shopDailyPrices = ShopDailyProductPrice::query()
             ->where('shop_id', $activeShop->id)
             ->whereDate('business_date', $targetBusinessDate)
             ->whereIn('product_id', $pageProductIds)
@@ -150,7 +152,7 @@ class ShopOwnerController extends Controller
                 $previousApproval = $previousApprovals->get($product->id);
                 $shopCustomPrice = $shopDailyPrices->get($product->id);
 
-                $priceKey = 'price_' . strtolower($groupName);
+                $priceKey = 'price_'.strtolower($groupName);
 
                 $candidatePrices = [];
                 $priceUnit = $product->unit ?: 'kg';
@@ -598,7 +600,16 @@ class ShopOwnerController extends Controller
     {
         $activeShop = $this->currentShop($request);
         $isOwnedAccountingShop = $activeShop->isOwnedAccountingEnabled();
-        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
+        $selectedDays = $request->input('days');
+        if (filled($selectedDays) && $selectedDays !== 'all') {
+            $daysCount = (int) $selectedDays;
+            if ($daysCount > 0) {
+                $filterStartDate = now()->subDays($daysCount - 1)->startOfDay();
+                $filterEndDate = now()->endOfDay();
+            }
+        } else {
+            [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
+        }
 
         $invoiceQuery = ShopInvoice::query()
             ->where('shop_id', $activeShop->id)
@@ -659,6 +670,7 @@ class ShopOwnerController extends Controller
         $payableTotal = 0.0;
         $payableReceivedTotal = 0.0;
         $payableBalance = 0.0;
+        $dailyPayableBalances = collect();
 
         if ($isOwnedAccountingShop) {
             $settings = ShopLedgerEntrySetting::query()
@@ -697,6 +709,7 @@ class ShopOwnerController extends Controller
 
                     $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
                         $notes = strtolower((string) ($st->notes ?? ''));
+
                         return str_contains($notes, strtolower($name)) || str_contains($notes, strtolower($code));
                     })->sum('amount');
 
@@ -749,6 +762,143 @@ class ShopOwnerController extends Controller
             $totalReceivedAllocated = (float) $payableCategories->sum('received_amount');
             $effectiveReceived = max($payableReceivedTotal, $totalReceivedAllocated);
             $payableBalance = max(0, round($payableTotal - $effectiveReceived, 2));
+
+            $dailyPendingPaymentRequests = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $activeShop->id)
+                ->where('status', 'pending')
+                ->get();
+
+            $dailyPayableBalances = $allTx
+                ->groupBy(fn ($tx) => $tx->business_date?->format('Y-m-d') ?: 'Unknown')
+                ->map(function ($group, $dateStr) use ($payableEntryTypeIds, $dailyPendingPaymentRequests) {
+                    $datePayableRows = $group->filter(function ($tx) use ($payableEntryTypeIds) {
+                        return in_array($tx->entry_type_id, $payableEntryTypeIds, true)
+                            || $tx->reference_type === 'collection_group';
+                    });
+
+                    $dateSettlements = $group->filter(function ($tx) {
+                        return ($tx->entryType && $tx->entryType->category === 'settlement')
+                            || $tx->entry_type_code === 'shop_paid_company';
+                    });
+
+                    $outAmount = round((float) $datePayableRows->sum('amount'), 2);
+                    $inAmount = round((float) $dateSettlements->sum('amount'), 2);
+                    $netBalance = max(0, round($outAmount - $inAmount, 2));
+
+                    $hasPendingRequest = $dailyPendingPaymentRequests->contains(function ($pr) use ($dateStr) {
+                        return str_contains((string) $pr->shop_note, $dateStr) || str_contains((string) $pr->payment_reference, $dateStr);
+                    }) || ($dailyPendingPaymentRequests->isNotEmpty() && $netBalance > 0);
+
+                    $status = 'unpaid';
+                    if ($outAmount > 0 && $netBalance <= 0) {
+                        $status = 'fully_settled';
+                    } elseif ($inAmount > 0 && $netBalance > 0) {
+                        $status = 'partially_settled';
+                    } elseif ($hasPendingRequest) {
+                        $status = 'pending_approval';
+                    }
+
+                    $dateCarbon = $group->first()?->business_date;
+
+                    return [
+                        'date' => $dateStr,
+                        'date_label' => $dateCarbon ? $dateCarbon->format('d M Y') : $dateStr,
+                        'out_amount' => $outAmount,
+                        'in_amount' => $inAmount,
+                        'net_balance' => $netBalance,
+                        'status' => $status,
+                        'items_count' => $datePayableRows->count(),
+                        'has_pending_request' => $hasPendingRequest,
+                    ];
+                })
+                ->filter(fn ($row) => $row['out_amount'] > 0 || $row['in_amount'] > 0)
+                ->sortByDesc('date')
+                ->values();
+
+            $currentPage = LengthAwarePaginator::resolveCurrentPage('daily_payables_page');
+            $perPage = 11;
+            $currentItems = $dailyPayableBalances->slice(($currentPage - 1) * $perPage, $perPage)->values();
+            $dailyPayableBalances = new LengthAwarePaginator(
+                $currentItems,
+                $dailyPayableBalances->count(),
+                $perPage,
+                $currentPage,
+                [
+                    'path' => $request->url(),
+                    'pageName' => 'daily_payables_page',
+                ]
+            );
+            $dailyPayableBalances->withQueryString();
+        }
+
+        $companyPayableQuery = ShopAccountingEntryLine::query()
+            ->with(['entry.shop', 'category', 'settlements.paymentRequest', 'settlements.creator', 'approvedBy', 'rejectedBy'])
+            ->whereHas('entry', fn ($q) => $q->where('shop_id', $activeShop->id))
+            ->where(function ($q) {
+                $q->where('funding_source', ShopAccountingEntryLine::FundingCompany)
+                    ->orWhereNotNull('company_payable_status');
+            })
+            ->when($filterStartDate, fn ($query) => $query->whereHas('entry', fn ($q) => $q->whereDate('business_date', '>=', $filterStartDate)))
+            ->when($filterEndDate, fn ($query) => $query->whereHas('entry', fn ($q) => $q->whereDate('business_date', '<=', $filterEndDate)));
+
+        $allCompanyPayableLines = (clone $companyPayableQuery)->get();
+
+        $companyPayableTotals = [
+            'total_out' => round((float) $allCompanyPayableLines->sum(fn ($l) => (float) ($l->company_approved_amount ?? $l->company_payable_amount ?? $l->amount)), 2),
+            'total_settled' => round((float) $allCompanyPayableLines->sum(fn ($l) => (float) ($l->company_settled_amount ?? 0)), 2),
+            'remaining_balance' => round((float) $allCompanyPayableLines->sum(fn ($l) => $l->remainingCompanyPayableAmount()), 2),
+            'pending_count' => $allCompanyPayableLines->where('company_payable_status', 'pending')->count(),
+            'approved_count' => $allCompanyPayableLines->where('company_payable_status', 'approved')->count(),
+        ];
+
+        $companyPayableLines = (clone $companyPayableQuery)
+            ->latest('id')
+            ->paginate(11, ['*'], 'company_payables_page')
+            ->withQueryString();
+
+        $currentMonthStart = now()->startOfMonth();
+        $currentMonthEnd = now()->endOfMonth();
+
+        if ($isOwnedAccountingShop) {
+            $monthlySettings = ShopLedgerEntrySetting::query()
+                ->where('shop_id', (int) $activeShop->id)
+                ->where('enabled', true)
+                ->where('include_in_payable', true)
+                ->pluck('entry_type_id')
+                ->filter()
+                ->all();
+
+            $monthlyTx = ShopLedgerTransaction::query()
+                ->with('entryType')
+                ->where('shop_id', (int) $activeShop->id)
+                ->whereDate('business_date', '>=', $currentMonthStart)
+                ->whereDate('business_date', '<=', $currentMonthEnd)
+                ->get();
+
+            $monthlyPayableRows = $monthlyTx->filter(function ($tx) use ($monthlySettings) {
+                return in_array($tx->entry_type_id, $monthlySettings, true)
+                    || $tx->reference_type === 'collection_group';
+            });
+
+            $monthlySettlements = $monthlyTx->filter(function ($tx) {
+                return ($tx->entryType && $tx->entryType->category === 'settlement')
+                    || $tx->entry_type_code === 'shop_paid_company';
+            });
+
+            $monthlyPaidAmount = round((float) $monthlySettlements->sum('amount'), 2);
+            $monthlyTotalOut = round((float) $monthlyPayableRows->sum('amount'), 2);
+            $monthlyBalanceToPay = max(0, round($monthlyTotalOut - $monthlyPaidAmount, 2));
+        } else {
+            $monthlyInvoiceTotals = ShopInvoice::query()
+                ->where('shop_id', $activeShop->id)
+                ->whereDate('business_date', '>=', $currentMonthStart)
+                ->whereDate('business_date', '<=', $currentMonthEnd)
+                ->selectRaw('COALESCE(SUM(paid_amount), 0) as paid_amount')
+                ->selectRaw('COALESCE(SUM(balance_amount), 0) as balance_to_pay')
+                ->first();
+
+            $monthlyPaidAmount = (float) ($monthlyInvoiceTotals->paid_amount ?? 0);
+            $monthlyBalanceToPay = (float) ($monthlyInvoiceTotals->balance_to_pay ?? 0);
         }
 
         return [
@@ -761,6 +911,8 @@ class ShopOwnerController extends Controller
             'totalBilled' => (float) ($invoiceTotals?->total_billed ?? 0),
             'outstandingBalance' => (float) ($invoiceTotals?->outstanding_balance ?? 0),
             'paidAmount' => (float) ($invoiceTotals?->paid_amount ?? 0),
+            'monthlyPaidAmount' => $monthlyPaidAmount,
+            'monthlyBalanceToPay' => $monthlyBalanceToPay,
             'shortageValue' => (float) ($invoiceTotals?->shortage_value ?? 0),
             'pendingPaymentAmount' => $pendingInvoicePaymentAmount,
             'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
@@ -774,6 +926,10 @@ class ShopOwnerController extends Controller
             'payableTotal' => $payableTotal,
             'payableReceivedTotal' => $payableReceivedTotal,
             'payableBalance' => $payableBalance,
+            'dailyPayableBalances' => $dailyPayableBalances,
+            'companyPayableLines' => $companyPayableLines,
+            'companyPayableTotals' => $companyPayableTotals,
+            'selectedDays' => $selectedDays,
         ];
     }
 
@@ -1021,6 +1177,7 @@ class ShopOwnerController extends Controller
             $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
             $payableDir = $setting?->payable_direction;
             $isDeduction = $payableDir ? ($payableDir === 'minus') : ($direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true));
+
             return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
         }), 2);
 
@@ -1035,16 +1192,16 @@ class ShopOwnerController extends Controller
         $dailySnapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $date);
 
         $snapshot = [
-            'total_sales'            => $totalSales,
-            'total_expense'          => $totalExpense,
-            'closing_shop_position'  => $timeframe === 'daily'
+            'total_sales' => $totalSales,
+            'total_expense' => $totalExpense,
+            'closing_shop_position' => $timeframe === 'daily'
                 ? ((float) ($dailySnapshot->closing_shop_position ?? ($totalSales - $totalExpense)))
                 : ($totalSales - $totalExpense),
-            'closing_petty'          => (float) ($dailySnapshot->closing_petty ?? 0),
-            'opening_petty'          => (float) ($dailySnapshot->opening_petty ?? 0),
-            'petty_in'               => (float) ($dailySnapshot->petty_in ?? 0),
-            'petty_out'              => (float) ($dailySnapshot->petty_out ?? 0),
-            'closing_company_pending'=> (float) ($dailySnapshot->closing_company_pending ?? 0),
+            'closing_petty' => (float) ($dailySnapshot->closing_petty ?? 0),
+            'opening_petty' => (float) ($dailySnapshot->opening_petty ?? 0),
+            'petty_in' => (float) ($dailySnapshot->petty_in ?? 0),
+            'petty_out' => (float) ($dailySnapshot->petty_out ?? 0),
+            'closing_company_pending' => (float) ($dailySnapshot->closing_company_pending ?? 0),
         ];
 
         $settlementTransactions = $transactions->filter(function ($tx) {
@@ -1062,6 +1219,7 @@ class ShopOwnerController extends Controller
 
                 $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
                     $notes = strtolower((string) ($st->notes ?? ''));
+
                     return str_contains($notes, strtolower($name)) || str_contains($notes, strtolower($code));
                 })->sum('amount');
 
@@ -1207,12 +1365,12 @@ class ShopOwnerController extends Controller
                 'notes' => $item['notes'] ?? null,
             ];
 
-            if (!empty($item['funding_source']) && $item['funding_source'] !== 'none') {
+            if (! empty($item['funding_source']) && $item['funding_source'] !== 'none') {
                 $payload['funding_source'] = $item['funding_source'];
             }
 
             $result = $this->dailyLedgerService->recordEntry($payload);
-            if (!empty($result['transaction'])) {
+            if (! empty($result['transaction'])) {
                 $created[] = $result['transaction'];
             }
         }
@@ -1221,7 +1379,7 @@ class ShopOwnerController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => count($created) . ' entries created successfully.',
+            'message' => count($created).' entries created successfully.',
             'count' => count($created),
             'snapshot' => $snapshot,
         ]);
@@ -1409,7 +1567,6 @@ class ShopOwnerController extends Controller
             ], 422);
         }
     }
-
 
     /**
      * @return Collection<int, array{date: Carbon, opening_balance: float, closing_balance: float, net_difference: float}>
