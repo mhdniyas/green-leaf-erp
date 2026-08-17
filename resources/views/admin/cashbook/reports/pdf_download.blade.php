@@ -81,6 +81,50 @@
             white-space: nowrap;
         }
 
+        /* 4 Summary Cards */
+        .cards-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 6px;
+            margin-bottom: 10px;
+        }
+        .card-box {
+            width: 25%;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 6px 8px;
+            text-align: center;
+        }
+        .card-label {
+            font-size: 6.5px;
+            font-weight: bold;
+            text-transform: uppercase;
+            color: #64748b;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        .card-val {
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 1px;
+            white-space: nowrap;
+        }
+        .card-sub {
+            font-size: 6.5px;
+            font-weight: bold;
+        }
+
+        /* Color classes */
+        .text-emerald-700 { color: #047857; }
+        .text-emerald-600 { color: #059669; }
+        .text-rose-700 { color: #be123c; }
+        .text-rose-600 { color: #e11d48; }
+        .text-amber-800 { color: #92400e; }
+        .text-amber-700 { color: #b45309; }
+        .text-slate-400 { color: #94a3b8; }
+        .text-slate-900 { color: #0f172a; }
+
         /* Data Table */
         .section-title {
             font-size: 10px;
@@ -137,11 +181,27 @@
     </style>
 </head>
 <body>
+    @php
+        $sCarbon = \Carbon\Carbon::parse($startDate);
+        $eCarbon = \Carbon\Carbon::parse($endDate);
+        $daysCount = max(1, $sCarbon->diffInDays($eCarbon) + 1);
+
+        $totSales = $totals['sales'] ?? 0;
+        $totExpense = $totals['expense'] ?? 0;
+        $totNet = $totals['net'] ?? 0;
+        $totGl = $totals['gl_bills'] ?? 0;
+
+        $totDailyAvgSales = round($totSales / $daysCount, 2);
+        $expPct = $totSales > 0 ? round(($totExpense / $totSales) * 100, 1) : 0;
+        $netPct = $totSales > 0 ? round(($totNet / $totSales) * 100, 1) : 0;
+        $glPct = $totSales > 0 ? round(($totGl / $totSales) * 100, 1) : 0;
+    @endphp
+
     <!-- Dark Banner Header -->
     <table class="banner-table">
         <tr>
             <td style="width: 70%;">
-                <div class="banner-tag">Green Leaf ERP — Finance Executive Report</div>
+                <div class="banner-tag">Green Leaf ERP — Single Outlet Finance Report</div>
                 <div class="banner-title">{{ $title ?? 'Financial Summary & Ledger Details' }}</div>
                 <div class="banner-sub">
                     Period: <strong>{{ $startDate }}</strong> to <strong>{{ $endDate }}</strong>
@@ -151,6 +211,36 @@
             <td style="width: 30%;">
                 <div class="gen-label">GENERATED ON</div>
                 <div class="gen-time">{{ now()->format('d M Y, h:i A') }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- 4 Executive Summary Cards -->
+    <table class="cards-table">
+        <tr>
+            <td class="card-box">
+                <div class="card-label">TOTAL SALES</div>
+                <div class="card-val text-emerald-700">₹{{ number_format($totSales, 2) }}</div>
+                @if($daysCount > 1)
+                    <div class="card-sub text-emerald-600">Avg: ₹{{ number_format($totDailyAvgSales, 2) }}/day</div>
+                @else
+                    <div class="card-sub text-emerald-600">100% (Gross Inflow)</div>
+                @endif
+            </td>
+            <td class="card-box">
+                <div class="card-label">TOTAL EXPENSE</div>
+                <div class="card-val text-rose-700">₹{{ number_format($totExpense, 2) }}</div>
+                <div class="card-sub text-rose-600">{{ $expPct }}% of Sales</div>
+            </td>
+            <td class="card-box">
+                <div class="card-label">NET BALANCE</div>
+                <div class="card-val {{ $totNet >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">₹{{ number_format($totNet, 2) }}</div>
+                <div class="card-sub {{ $totNet >= 0 ? 'text-emerald-600' : 'text-rose-600' }}">{{ $netPct >= 0 ? '+' : '' }}{{ $netPct }}% Margin</div>
+            </td>
+            <td class="card-box">
+                <div class="card-label">TOTAL GL BILLS</div>
+                <div class="card-val text-amber-700">₹{{ number_format($totGl, 2) }}</div>
+                <div class="card-sub text-amber-700">{{ $glPct }}% of Sales</div>
             </td>
         </tr>
     </table>

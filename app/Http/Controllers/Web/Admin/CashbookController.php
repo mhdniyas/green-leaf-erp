@@ -500,12 +500,26 @@ final class CashbookController extends Controller
         }
 
         if ($format === 'pdf') {
+            $totSales = round((float) $salesPerDate->sum(), 2);
+            $totExpense = round((float) $expensePerDate->sum(), 2);
+            $totNet = round($totSales - $totExpense, 2);
+            $totGl = round((float) $glBillsPerDate->sum(), 2);
+
+            $totals = [
+                'sales' => $totSales,
+                'expense' => $totExpense,
+                'net' => $totNet,
+                'gl_bills' => $totGl,
+            ];
+
             $viewData = [
                 'title' => $resolvedShop->name.' — Cashbook Report',
+                'shop' => $resolvedShop,
                 'selectedDate' => $date,
                 'timeframe' => $timeframe,
                 'startDate' => $finalStart,
                 'endDate' => $finalEnd,
+                'totals' => $totals,
                 'exportRows' => $rows,
             ];
 
@@ -2600,38 +2614,47 @@ final class CashbookController extends Controller
             }
         }
 
-        $validated = $request->validate([
-            'date' => ['nullable', 'date_format:Y-m-d'],
-            'business_date' => ['nullable', 'date_format:Y-m-d'],
-            'timeframe' => ['nullable', 'string'],
-            'start_date' => ['nullable', 'date_format:Y-m-d'],
-            'end_date' => ['nullable', 'date_format:Y-m-d'],
-        ]);
+        $today = today();
+        $timeframe = (string) ($request->input('timeframe') ?: 'today');
+        $reqStart = (string) ($request->input('start_date') ?: '');
+        $reqEnd = (string) ($request->input('end_date') ?: '');
 
-        $selectedDate = $validated['date']
-            ?? $validated['business_date']
-            ?? $request->input('date')
+        // If explicit start_date and end_date are provided in the request, prioritize them
+        if ($reqStart !== '' && $reqEnd !== '') {
+            $startDate = $reqStart;
+            $endDate = $reqEnd;
+        } else {
+            [$startDate, $endDate] = match ($timeframe) {
+                'yesterday' => [
+                    $today->copy()->subDay()->toDateString(),
+                    $today->copy()->subDay()->toDateString(),
+                ],
+                'upto_yesterday' => [
+                    $today->copy()->startOfMonth()->toDateString(),
+                    $today->copy()->subDay()->toDateString(),
+                ],
+                'weekly' => [
+                    $today->copy()->startOfWeek()->toDateString(),
+                    $today->copy()->endOfWeek()->toDateString(),
+                ],
+                'monthly' => [
+                    $today->copy()->startOfMonth()->toDateString(),
+                    $today->copy()->endOfMonth()->toDateString(),
+                ],
+                'custom' => [
+                    (string) $request->input('start_date', $today->toDateString()),
+                    (string) $request->input('end_date', $today->toDateString()),
+                ],
+                default => [ // 'today' or 'daily'
+                    $today->toDateString(),
+                    $today->toDateString(),
+                ],
+            };
+        }
+
+        $selectedDate = $request->input('date')
             ?? $request->input('business_date')
-            ?? today()->toDateString();
-
-        $timeframe = $validated['timeframe'] ?? $request->input('timeframe') ?? 'daily';
-        if ($timeframe === 'today') {
-            $timeframe = 'daily';
-        }
-
-        $reqStart = $validated['start_date'] ?? $request->input('start_date');
-        $reqEnd = $validated['end_date'] ?? $request->input('end_date');
-
-        if ($reqStart && $reqEnd && ($reqStart !== $reqEnd || $timeframe === 'custom')) {
-            $timeframe = 'custom';
-        }
-
-        [$startDate, $endDate] = $this->cashbookRange(
-            $selectedDate,
-            $timeframe,
-            $reqStart,
-            $reqEnd
-        );
+            ?? $startDate;
 
         return [
             'selected_date' => $selectedDate,

@@ -347,6 +347,13 @@
             </div>
 
             <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <!-- Live Active Filter Date Pill (Visible next to Export) -->
+                <div class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 bg-slate-50 text-[11px] font-bold text-slate-700 shadow-2xs">
+                    <svg class="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <span x-text="startDate === endDate ? startDate : (startDate + ' → ' + endDate)" class="font-mono text-slate-900"></span>
+                    <span class="text-[9px] uppercase px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-700 font-extrabold" x-text="timeframe"></span>
+                </div>
+
                 <!-- Export Actions (Excel, PDF Share, Copy for Google Sheets) -->
                 <x-export-toolbar
                     excel-url="{{ route('admin.cashbook.reports.export.excel', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
@@ -418,13 +425,13 @@
         <div x-show="timeframe === 'custom'"
             class="flex flex-wrap sm:flex-nowrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs"
             x-cloak>
-            <input type="date" x-model="startDate"
+            <input type="date" x-model="startDate" @change="syncUrl()" @input="syncUrl()"
                 class="h-8 flex-1 min-w-[120px] rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-900">
             <span class="text-xs font-bold text-slate-400">to</span>
-            <input type="date" x-model="endDate"
+            <input type="date" x-model="endDate" @change="syncUrl()" @input="syncUrl()"
                 class="h-8 flex-1 min-w-[120px] rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-900">
             <button type="button" @click="loadData()"
-                class="h-8 shrink-0 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
+                class="h-8 shrink-0 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer">Apply</button>
         </div>
 
         <!-- Pending Shop Entry Alert Banner (Clickable to Expand Outlets Breakdown) -->

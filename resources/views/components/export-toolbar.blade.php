@@ -14,8 +14,18 @@
             try {
                 let cleanBase = baseUrl.replace(/&amp;/g, '&').replace(/amp%3B/gi, '');
                 let url = new URL(cleanBase, window.location.origin);
-                let pageParams = new URLSearchParams(window.location.search);
 
+                // 1. Live Alpine state detection
+                let hubEl = document.querySelector('[x-data*="adminReportsHub"]');
+                let hubData = (hubEl && window.Alpine && typeof Alpine.$data === 'function') ? Alpine.$data(hubEl) : null;
+
+                let activeTimeframe = (hubData && hubData.timeframe) || window.activeHubTimeframe;
+                let activeStart = (hubData && hubData.startDate) || window.activeHubStartDate;
+                let activeEnd = (hubData && hubData.endDate) || window.activeHubEndDate;
+                let activeScope = (hubData && hubData.typeFilter) || window.activeHubTypeFilter;
+
+                // 2. URL search parameters fallback
+                let pageParams = new URLSearchParams(window.location.search);
                 for (let [k, v] of Array.from(pageParams.entries())) {
                     if (k.startsWith('amp;') || k.toLowerCase().startsWith('amp%3b')) {
                         let cleanK = k.replace(/^amp(;|%3b)/i, '');
@@ -25,16 +35,15 @@
                     }
                 }
 
-                let activeTimeframe = window.activeHubTimeframe || pageParams.get('timeframe') || url.searchParams.get('timeframe');
-                let activeStart = window.activeHubStartDate || pageParams.get('start_date') || url.searchParams.get('start_date');
-                let activeEnd = window.activeHubEndDate || pageParams.get('end_date') || url.searchParams.get('end_date');
+                if (!activeTimeframe) activeTimeframe = pageParams.get('timeframe') || url.searchParams.get('timeframe');
+                if (!activeStart) activeStart = pageParams.get('start_date') || url.searchParams.get('start_date');
+                if (!activeEnd) activeEnd = pageParams.get('end_date') || url.searchParams.get('end_date');
+                if (!activeScope) activeScope = pageParams.get('scope') || url.searchParams.get('scope') || 'all';
 
                 if (activeTimeframe) url.searchParams.set('timeframe', activeTimeframe);
                 if (activeStart) url.searchParams.set('start_date', activeStart);
                 if (activeEnd) url.searchParams.set('end_date', activeEnd);
-
-                let activeScope = window.activeHubTypeFilter || (typeof typeFilter !== 'undefined' ? typeFilter : null) || pageParams.get('scope') || 'all';
-                url.searchParams.set('scope', activeScope);
+                if (activeScope) url.searchParams.set('scope', activeScope);
 
                 url.searchParams.set('include_details', includeDetails || '0');
                 return url.toString();
@@ -46,7 +55,42 @@
     }
 </script>
 
-<div x-data="{ open: false, includeDetails: '0' }" class="relative inline-block text-left print:hidden">
+<div x-data="{
+    open: false,
+    includeDetails: '0',
+    getActiveDateInfo() {
+        let hubEl = document.querySelector('[x-data*=\'adminReportsHub\']');
+        let hubData = (hubEl && window.Alpine && typeof Alpine.$data === 'function') ? Alpine.$data(hubEl) : null;
+
+        let start = (hubData && hubData.startDate) || window.activeHubStartDate;
+        let end = (hubData && hubData.endDate) || window.activeHubEndDate;
+        let tf = (hubData && hubData.timeframe) || window.activeHubTimeframe || 'today';
+        let scope = (hubData && hubData.typeFilter) || window.activeHubTypeFilter || 'owned';
+
+        if (!start || !end) {
+            let pageParams = new URLSearchParams(window.location.search);
+            start = pageParams.get('start_date') || '{{ $startDate ?? today()->toDateString() }}';
+            end = pageParams.get('end_date') || '{{ $endDate ?? today()->toDateString() }}';
+            tf = pageParams.get('timeframe') || 'today';
+            scope = pageParams.get('scope') || 'owned';
+        }
+
+        let dateText = start === end ? start : (start + ' to ' + end);
+        return {
+            dateText: dateText,
+            timeframe: tf.toUpperCase(),
+            scope: scope.toUpperCase()
+        };
+    },
+    triggerExport(baseUrl, download = 0) {
+        this.open = false;
+        let exportUrl = window.buildExportUrl(baseUrl, this.includeDetails);
+        if (download) {
+            exportUrl += (exportUrl.includes('?') ? '&' : '?') + 'download=1';
+        }
+        window.open(exportUrl, '_blank');
+    }
+}" class="relative inline-block text-left print:hidden">
     <!-- Compact Share / Export Trigger Button -->
     <button @click="open = !open" type="button"
         class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-800 shadow-2xs hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
@@ -68,8 +112,17 @@
         x-transition:leave="transition ease-in duration-75"
         x-transition:leave-start="transform opacity-100 scale-100"
         x-transition:leave-end="transform opacity-0 scale-95"
-        class="absolute right-0 mt-1.5 w-64 max-w-[calc(100vw-1.5rem)] rounded-2xl bg-white p-2 shadow-xl ring-1 ring-black/5 z-50 space-y-1" style="display: none;">
+        class="absolute right-0 mt-1.5 w-72 max-w-[calc(100vw-1.5rem)] rounded-2xl bg-white p-2 shadow-xl ring-1 ring-black/5 z-50 space-y-1" style="display: none;">
         
+        <!-- Live Active Date Range Info Banner -->
+        <div class="px-2.5 py-1.5 bg-emerald-50/90 border border-emerald-200/70 rounded-xl mb-1 flex items-center justify-between gap-1.5 text-[10px]">
+            <div class="flex items-center gap-1 text-emerald-900 font-bold min-w-0 truncate">
+                <svg class="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                <span class="truncate font-mono" x-text="getActiveDateInfo().dateText"></span>
+            </div>
+            <span class="text-[8.5px] font-black uppercase bg-emerald-200/80 text-emerald-950 px-1.5 py-0.5 rounded shrink-0" x-text="getActiveDateInfo().timeframe"></span>
+        </div>
+
         <!-- Radio Selection for Export Scope -->
         <div class="px-2.5 py-2 border-b border-slate-100 mb-1 bg-slate-50/80 rounded-xl space-y-1">
             <p class="text-[10px] font-black uppercase text-slate-500 tracking-wider">Export Scope</p>
@@ -102,7 +155,7 @@
 
         <!-- Excel / CSV Export -->
         @if ($excelUrl)
-            <a :href="window.buildExportUrl('{{ $excelUrl }}', includeDetails)" target="_blank" @click="open = false"
+            <button type="button" @click="triggerExport('{{ $excelUrl }}', 0)"
                 class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5 cursor-pointer">
                 <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-emerald-600 shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,7 +166,7 @@
                     <p class="font-black text-slate-900 leading-tight">Export Excel / CSV</p>
                     <p class="text-[10px] font-medium text-slate-400">Spreadsheet download</p>
                 </div>
-            </a>
+            </button>
         @else
             <button type="button"
                 @click="open = false; window.copyTableToGoogleSheets('{{ $tableId ?: 'table' }}', '{{ $title ?: 'Report' }}', includeDetails)"
@@ -132,7 +185,7 @@
 
         <!-- Download PDF -->
         @if ($pdfUrl)
-            <a :href="window.buildExportUrl('{{ $pdfUrl }}', includeDetails) + '&download=1'" target="_blank" @click="open = false"
+            <button type="button" @click="triggerExport('{{ $pdfUrl }}', 1)"
                 class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-950 transition flex items-center gap-2.5 cursor-pointer">
                 <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -143,12 +196,12 @@
                     <p class="font-black text-slate-900 leading-tight">Download PDF</p>
                     <p class="text-[10px] font-medium text-slate-400">Save A4 PDF document</p>
                 </div>
-            </a>
+            </button>
         @endif
 
         <!-- PDF Share / Print -->
         @if ($pdfUrl)
-            <a :href="window.buildExportUrl('{{ $pdfUrl }}', includeDetails)" target="_blank" @click="open = false"
+            <button type="button" @click="triggerExport('{{ $pdfUrl }}', 0)"
                 class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5 cursor-pointer">
                 <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -159,7 +212,7 @@
                     <p class="font-black text-slate-900 leading-tight">Print / Preview PDF</p>
                     <p class="text-[10px] font-medium text-slate-400">Printable A4 document</p>
                 </div>
-            </a>
+            </button>
         @else
             <button type="button"
                 @click="open = false; window.print()"
@@ -177,6 +230,7 @@
         @endif
     </div>
 </div>
+
 
 @once
     @push('scripts')
