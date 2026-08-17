@@ -18,7 +18,7 @@
                 if (pageParams.has('start_date') && !url.searchParams.has('start_date')) url.searchParams.set('start_date', pageParams.get('start_date'));
                 if (pageParams.has('end_date') && !url.searchParams.has('end_date')) url.searchParams.set('end_date', pageParams.get('end_date'));
 
-                let activeScope = (typeof typeFilter !== 'undefined' ? typeFilter : null) || pageParams.get('scope') || 'all';
+                let activeScope = window.activeHubTypeFilter || (typeof typeFilter !== 'undefined' ? typeFilter : null) || pageParams.get('scope') || 'all';
                 url.searchParams.set('scope', activeScope);
 
                 url.searchParams.set('include_details', includeDetails || '1');

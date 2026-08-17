@@ -132,10 +132,12 @@
 
                 syncUrl() {
                     try {
+                        window.activeHubTypeFilter = this.typeFilter;
                         const url = new URL(window.location.href);
                         url.searchParams.set('timeframe', this.timeframe);
                         url.searchParams.set('start_date', this.startDate);
                         url.searchParams.set('end_date', this.endDate);
+                        url.searchParams.set('scope', this.typeFilter);
                         window.history.replaceState({}, '', url);
 
                         document.querySelectorAll('[data-nav-hub], [data-nav-charts], [data-nav-analytics], [data-nav-glbills]').forEach(el => {
@@ -143,6 +145,7 @@
                             navUrl.searchParams.set('timeframe', this.timeframe);
                             navUrl.searchParams.set('start_date', this.startDate);
                             navUrl.searchParams.set('end_date', this.endDate);
+                            navUrl.searchParams.set('scope', this.typeFilter);
                             el.href = navUrl.toString();
                         });
                     } catch (e) { }
@@ -303,17 +306,17 @@
                 
                 <!-- 3-Option Shop Type Switcher (Own, Direct, All) -->
                 <div class="inline-flex items-center gap-0.5 rounded-2xl bg-slate-200/70 p-0.5 sm:p-1 shrink-0">
-                    <button type="button" @click="typeFilter = 'owned'"
+                    <button type="button" @click="typeFilter = 'owned'; syncUrl()"
                         class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all"
                         :class="typeFilter === 'owned' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                         Own
                     </button>
-                    <button type="button" @click="typeFilter = 'direct'"
+                    <button type="button" @click="typeFilter = 'direct'; syncUrl()"
                         class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all"
                         :class="typeFilter === 'direct' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                         Direct
                     </button>
-                    <button type="button" @click="typeFilter = 'all'"
+                    <button type="button" @click="typeFilter = 'all'; syncUrl()"
                         class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all"
                         :class="typeFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                         All
