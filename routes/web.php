@@ -661,6 +661,7 @@ Route::middleware('auth')->group(function () {
             Route::get('mobile/ledger/{shop}', [AdminCashbookReportsController::class, 'mobileLedger'])->name('reports.mobile-ledger');
             Route::get('reports/export/csv', [CashbookController::class, 'exportReportsCsv'])->name('reports.export.csv');
             Route::get('reports/export/excel', [CashbookController::class, 'exportReportsExcel'])->name('reports.export.excel');
+            Route::get('reports/export/pdf', [CashbookController::class, 'exportReportsPdf'])->name('reports.export.pdf');
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
             Route::get('accept-payment', [CashbookController::class, 'acceptPaymentPage'])->name('accept-payment');
             Route::get('income-expenses', [CashbookController::class, 'incomeExpenses'])->name('income-expenses');

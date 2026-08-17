@@ -155,6 +155,27 @@ final class CashbookController extends Controller
         );
     }
 
+    public function exportReportsPdf(Request $request): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->reportFilters($request);
+        $rows = $this->cashbookReportExportRows(
+            $filters['selected_date'],
+            $filters['timeframe'],
+            $filters['start_date'],
+            $filters['end_date']
+        );
+
+        return view('admin.cashbook.reports.pdf', [
+            'selectedDate' => $filters['selected_date'],
+            'timeframe' => $filters['timeframe'],
+            'startDate' => $filters['start_date'],
+            'endDate' => $filters['end_date'],
+            'exportRows' => $rows,
+        ]);
+    }
+
     public function payables(Request $request): View
     {
         $this->ensureMainAdmin($request);
@@ -2351,109 +2372,112 @@ final class CashbookController extends Controller
      */
     private function cashbookReportExportRows(string $selectedDate, string $timeframe, string $startDate, string $endDate): array
     {
-        $overviewRequest = Request::create('/admin/cashbook/api/all-shops-overview', 'GET', [
-            'business_date' => $selectedDate,
-            'timeframe' => $timeframe,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-        ]);
-        $clientRequest = Request::create('/admin/cashbook/api/client-summary', 'GET', [
-            'business_date' => $selectedDate,
-            'timeframe' => $timeframe,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-        ]);
-        $billRequest = Request::create('/admin/cashbook/api/report-bills', 'GET', [
-            'business_date' => $selectedDate,
-            'timeframe' => $timeframe,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-        ]);
+        // 1. Daily Summary Aggregates
+        $salesPerDate = ShopLedgerTransaction::query()
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'income')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+            })
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->selectRaw('DATE(business_date) as b_date, SUM(amount) as total_sales')
+            ->groupBy('b_date')
+            ->pluck('total_sales', 'b_date');
 
-        $userResolver = fn () => auth()->user();
-        $overviewRequest->setUserResolver($userResolver);
-        $clientRequest->setUserResolver($userResolver);
-        $billRequest->setUserResolver($userResolver);
+        $expensePerDate = ShopLedgerTransaction::query()
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'expense')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+            })
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->selectRaw('DATE(business_date) as b_date, SUM(amount) as total_expense')
+            ->groupBy('b_date')
+            ->pluck('total_expense', 'b_date');
 
-        $overview = $this->getAllShopsOverview($overviewRequest)->getData(true);
-        $clients = $this->getClientSummary($clientRequest)->getData(true);
-        $bills = $this->getReportBills($billRequest)->getData(true);
+        $glBillsPerDate = ShopInvoice::query()
+            ->where('status', '!=', 'cancelled')
+            ->where('final_total', '>', 0)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->selectRaw('DATE(business_date) as b_date, SUM(final_total) as total_gl')
+            ->groupBy('b_date')
+            ->pluck('total_gl', 'b_date');
 
-        $rows = [
-            ['Cashbook CEO Report'],
-            ['Selected Date', $selectedDate, 'Timeframe', $timeframe, 'From', $startDate, 'To', $endDate],
-            [],
-            ['Executive Summary'],
-            ['Metric', 'Amount'],
-            ['Total Sales', $overview['totals']['total_sales'] ?? 0],
-            ['Total Expense', $overview['totals']['total_expense'] ?? 0],
-            ['Net P/L', $overview['totals']['net_pl'] ?? 0],
-            ['Closing Shop Position', $overview['totals']['closing_shop_position'] ?? 0],
-            ['Company Pending', $overview['totals']['closing_company_pending'] ?? 0],
-            ['Green Leaf Bills', $overview['totals']['total_green_leaf_bills'] ?? 0],
-            ['Received', $overview['totals']['total_received_today'] ?? 0],
-            ['Net Receivable', $clients['grand_totals']['net_receivable'] ?? 0],
-            [],
-            ['Client Groups'],
-            ['Client', 'Shop Count', 'GL Bills', 'Received', 'Company Pending', 'Shop Position'],
-        ];
+        $allDates = collect()
+            ->merge($salesPerDate->keys())
+            ->merge($expensePerDate->keys())
+            ->merge($glBillsPerDate->keys())
+            ->unique()
+            ->sort()
+            ->values();
 
-        foreach ($overview['client_groups'] ?? [] as $group) {
-            $groupTotals = [
-                'gl_bills' => 0.0,
-                'received' => 0.0,
-                'company_pending' => 0.0,
-                'shop_position' => 0.0,
-            ];
+        if ($allDates->isEmpty()) {
+            $allDates = collect([$startDate]);
+        }
 
-            foreach ($group['shops'] ?? [] as $shopRow) {
-                $groupTotals['gl_bills'] += (float) ($shopRow['green_leaf_bill'] ?? 0);
-                $groupTotals['received'] += (float) ($shopRow['received_today'] ?? 0);
-                $groupTotals['company_pending'] += (float) ($shopRow['snapshot']['closing_company_pending'] ?? 0);
-                $groupTotals['shop_position'] += (float) ($shopRow['snapshot']['closing_shop_position'] ?? 0);
-            }
+        $rows = [];
 
-            $rows[] = [
-                $group['client']['name'] ?? 'Client',
-                count($group['shops'] ?? []),
-                round($groupTotals['gl_bills'], 2),
-                round($groupTotals['received'], 2),
-                round($groupTotals['company_pending'], 2),
-                round($groupTotals['shop_position'], 2),
-            ];
+        // Table 1: Summary Table
+        $rows[] = ['Date', 'Sales Total', 'Total Expense', 'Net Balance', 'GL Bill'];
+
+        foreach ($allDates as $dStr) {
+            $sVal = round((float) ($salesPerDate[$dStr] ?? 0), 2);
+            $eVal = round((float) ($expensePerDate[$dStr] ?? 0), 2);
+            $nVal = round($sVal - $eVal, 2);
+            $gVal = round((float) ($glBillsPerDate[$dStr] ?? 0), 2);
+
+            $rows[] = [$dStr, $sVal, $eVal, $nVal, $gVal];
         }
 
         $rows[] = [];
-        $rows[] = ['Direct Shops'];
-        $rows[] = ['Shop', 'Code', 'GL Bill', 'Received', 'Company Pending', 'Shop Position'];
 
-        foreach ($overview['direct_owned_shops'] ?? [] as $shopRow) {
-            $rows[] = [
-                $shopRow['shop']['name'] ?? 'Shop',
-                $shopRow['shop']['code'] ?? '',
-                round((float) ($shopRow['green_leaf_bill'] ?? 0), 2),
-                round((float) ($shopRow['received_today'] ?? 0), 2),
-                round((float) ($shopRow['snapshot']['closing_company_pending'] ?? 0), 2),
-                round((float) ($shopRow['snapshot']['closing_shop_position'] ?? 0), 2),
-            ];
+        // Table 2: Total Sales Details
+        $rows[] = ['Total Sales Details'];
+        $rows[] = ['Date', 'Income'];
+
+        $incomeTransactions = ShopLedgerTransaction::query()
+            ->with('entryType')
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'income')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+            })
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($incomeTransactions as $tx) {
+            $bDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date)->format('Y-m-d') : '';
+            $rows[] = [$bDate, round((float) $tx->amount, 2)];
         }
 
         $rows[] = [];
-        $rows[] = ['Bill Details'];
-        $rows[] = ['Date', 'Invoice', 'Scope', 'Client', 'Shop', 'Bill', 'Paid', 'Balance', 'Payment Status'];
 
-        foreach ($bills['rows'] ?? [] as $bill) {
-            $rows[] = [
-                $bill['business_date'] ?? '',
-                $bill['invoice_number'] ?? '',
-                $bill['scope'] ?? '',
-                $bill['client']['name'] ?? '',
-                $bill['shop']['name'] ?? '',
-                round((float) ($bill['final_total'] ?? 0), 2),
-                round((float) ($bill['paid_amount'] ?? 0), 2),
-                round((float) ($bill['balance_amount'] ?? 0), 2),
-                $bill['payment_status'] ?? $bill['status'] ?? '',
-            ];
+        // Table 3: Total Expense Details
+        $rows[] = ['Total Expense Details'];
+        $rows[] = ['Date', 'Expense'];
+
+        $expenseTransactions = ShopLedgerTransaction::query()
+            ->with('entryType')
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'expense')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+            })
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($expenseTransactions as $tx) {
+            $bDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date)->format('Y-m-d') : '';
+            $rows[] = [$bDate, round((float) $tx->amount, 2)];
         }
 
         return $rows;

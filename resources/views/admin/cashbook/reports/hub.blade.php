@@ -325,6 +325,7 @@
                 <!-- Export Actions (Excel, PDF Share, Copy for Google Sheets) -->
                 <x-export-toolbar
                     excel-url="{{ route('admin.cashbook.reports.export.excel', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                    pdf-url="{{ route('admin.cashbook.reports.export.pdf', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
                     title="Shops Overview"
                     align="right"
                 />
