@@ -324,8 +324,8 @@
             <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <!-- Export Actions (Excel, PDF Share, Copy for Google Sheets) -->
                 <x-export-toolbar
-                    :excel-url="'{{ route('admin.cashbook.reports.export.excel', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}' + '&scope=' + typeFilter"
-                    :pdf-url="'{{ route('admin.cashbook.reports.export.pdf', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}' + '&scope=' + typeFilter"
+                    excel-url="{{ route('admin.cashbook.reports.export.excel', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                    pdf-url="{{ route('admin.cashbook.reports.export.pdf', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
                     title="Shops Overview"
                     align="right"
                 />
