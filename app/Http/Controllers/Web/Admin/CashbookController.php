@@ -180,6 +180,7 @@ final class CashbookController extends Controller
         );
 
         return view('admin.cashbook.reports.pdf', [
+            'title' => 'Finance Hub — Shops Overview Summary',
             'selectedDate' => $filters['selected_date'],
             'timeframe' => $filters['timeframe'],
             'startDate' => $filters['start_date'],
@@ -388,6 +389,7 @@ final class CashbookController extends Controller
 
         if ($format === 'pdf') {
             return view('admin.cashbook.reports.pdf', [
+                'title' => $resolvedShop->name . ' — Cashbook Report',
                 'selectedDate' => $date,
                 'timeframe' => $timeframe,
                 'startDate' => $finalStart,
@@ -2516,40 +2518,52 @@ final class CashbookController extends Controller
             ->groupBy('shop_id')
             ->pluck('total_expense', 'shop_id');
 
-        // 3. GL Bills per shop
+        // 3. GL Bills per shop with counts
         $glBillsPerShop = ShopInvoice::query()
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'cancelled')
             ->where('final_total', '>', 0)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->selectRaw('shop_id, SUM(final_total) as total_gl')
+            ->selectRaw('shop_id, COUNT(*) as bill_count, SUM(final_total) as total_gl')
             ->groupBy('shop_id')
-            ->pluck('total_gl', 'shop_id');
+            ->get()
+            ->keyBy('shop_id');
 
         $rows = [];
 
         // Table 1: Summary Table (Shop-by-Shop)
+        $rows[] = ['Shop-Wise Finance Overview Summary'];
         $rows[] = ['Shop Name', 'Scope', 'Sales Total', 'Total Expense', 'Net Balance', 'GL Bill'];
 
         $grandSales = 0.0;
         $grandExpense = 0.0;
         $grandNet = 0.0;
         $grandGl = 0.0;
+        $exportedShopsCount = 0;
 
         foreach ($filteredShops as $shop) {
             $isDirect = $shop->client_id === null && $shop->profile_template === 'direct_buyer';
             $scopeLabel = $isDirect ? 'Direct' : ($shop->client?->name ?: 'Own');
 
+            $glData = $glBillsPerShop->get($shop->shop_id);
+            $billCount = (int) ($glData->bill_count ?? 0);
+            $gVal = round((float) ($glData->total_gl ?? 0), 2);
+
             $sVal = round((float) ($salesPerShop[$shop->shop_id] ?? 0), 2);
             $eVal = round((float) ($expensePerShop[$shop->shop_id] ?? 0), 2);
             $nVal = round($sVal - $eVal, 2);
-            $gVal = round((float) ($glBillsPerShop[$shop->shop_id] ?? 0), 2);
+
+            // Filter rule: Exclude shops that have only 1 bill (or 0 bills) and no sales/expense activity
+            if ($billCount <= 1 && $sVal == 0.0 && $eVal == 0.0) {
+                continue;
+            }
 
             $grandSales += $sVal;
             $grandExpense += $eVal;
             $grandNet += $nVal;
             $grandGl += $gVal;
+            $exportedShopsCount++;
 
             $rows[] = [
                 $shop->name ?: ('Shop #' . $shop->shop_id),
@@ -2563,7 +2577,7 @@ final class CashbookController extends Controller
 
         // Grand Total Row
         $rows[] = [
-            'Total',
+            'Total (' . $exportedShopsCount . ' Shops)',
             '-',
             round($grandSales, 2),
             round($grandExpense, 2),
