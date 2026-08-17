@@ -12,10 +12,10 @@
 
 @section('header_actions')
     <div class="flex items-center gap-2 flex-wrap">
-        <button type="button" onclick="window.shopAppInstance ? window.shopAppInstance.approvePendingForDay(window.shopAppInstance.selectedDate, false) : null" class="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer">
+        <button type="button" onclick="window.shopAppInstance ? window.shopAppInstance.approvePendingForDay(null, false) : null" class="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer">
             <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-600"></i> Approve Day
         </button>
-        <button type="button" onclick="window.shopAppInstance ? window.shopAppInstance.approvePendingForDay(window.shopAppInstance.selectedDate, true) : null" class="px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer" title="Approve all pending entries for this shop up to selected date">
+        <button type="button" onclick="window.shopAppInstance ? window.shopAppInstance.approvePendingForDay(null, true) : null" class="px-3.5 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer" title="Approve all pending entries for this shop up to selected date">
             <i data-lucide="check-check" class="w-3.5 h-3.5 text-teal-600"></i> Approve All Till Date
         </button>
         <button id="toggle-day-btn" onclick="handleToggleDay()" class="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer">
@@ -1786,8 +1786,11 @@
             },
 
             async approvePendingForDay(day, tillDate = false) {
-                if (!day) return;
-                const selected = day;
+                const selected = day || this.headerDate || this.selectedApprovalDate || currentDate;
+                if (!selected) {
+                    showToast('No business date selected', 'error');
+                    return;
+                }
                 await this.approveRequest('/admin/cashbook/api/approve-day', {
                     shop_id: currentShopId,
                     business_date: selected,
