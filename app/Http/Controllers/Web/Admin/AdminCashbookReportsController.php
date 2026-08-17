@@ -705,11 +705,30 @@ class AdminCashbookReportsController extends Controller
             ->filter(fn ($t) => $t->funding_source === 'petty')
             ->sum('amount');
 
-        // Detailed category breakdown with itemized list for each category (separated by direction)
-        $categoryBreakdown = $transactions
+        // Filter out system settlement transfers and secondary rule duplicates for category breakdown
+        $userCategoriesTxs = $transactions->filter(function ($t) {
+            $code = $t->entryType?->code ?: $t->entry_type_code;
+            if (in_array($code, ['sales_company', 'shop_paid_company'], true)) {
+                return false;
+            }
+            if (in_array($t->direction, ['settlement', 'transfer'], true)) {
+                return false;
+            }
+            if ($t->generated_by_rule && $t->parent_transaction_id) {
+                return false;
+            }
+            return true;
+        });
+
+        // Detailed category breakdown with itemized list for each category
+        $categoryBreakdown = $userCategoriesTxs
             ->groupBy(function ($t) {
-                $name = $t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry');
-                $dir = $t->direction ?: ($t->entryType?->category ?: 'expense');
+                $isGlBill = in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
+                    || $t->reference_type === 'App\Models\ShopInvoice'
+                    || $t->reference_type === \App\Models\ShopInvoice::class;
+
+                $name = $isGlBill ? 'GL Bill' : ($t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry'));
+                $dir = $isGlBill ? 'expense' : ($t->entryType?->category ?: ($t->direction ?: 'expense'));
                 return $name . '___' . $dir;
             })
             ->map(function ($group, $key) {
@@ -725,6 +744,7 @@ class AdminCashbookReportsController extends Controller
                     || $first->reference_type === \App\Models\ShopInvoice::class;
 
                 return [
+                    'category_key' => $key,
                     'category' => $categoryName,
                     'direction' => $direction,
                     'amount' => $total,
@@ -750,7 +770,18 @@ class AdminCashbookReportsController extends Controller
                     })->values()->all(),
                 ];
             })
-            ->sortByDesc('amount')
+            ->sort(function ($a, $b) {
+                // 1. GL Bill first
+                if ($a['is_gl_bill']) return -1;
+                if ($b['is_gl_bill']) return 1;
+
+                // 2. Expenses next (sorted by amount desc)
+                if ($a['direction'] === 'expense' && $b['direction'] !== 'expense') return -1;
+                if ($a['direction'] !== 'expense' && $b['direction'] === 'expense') return 1;
+
+                // 3. Amount desc within same direction group
+                return $b['amount'] <=> $a['amount'];
+            })
             ->values();
 
         return [

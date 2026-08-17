@@ -217,11 +217,11 @@
 
         <!-- Category Total Cards with Accordion Itemized Date & Price List -->
         <section class="space-y-2.5">
-            <template x-for="cat in filteredCategories()" :key="cat.category">
+            <template x-for="cat in filteredCategories()" :key="cat.category_key || cat.category">
                 <div class="rounded-2xl border border-slate-200/90 bg-white shadow-xs overflow-hidden transition-all hover:border-slate-300">
                     <!-- Clickable Category Total Card Header -->
                     <div
-                        @click="toggleCategory(cat.category)"
+                        @click="toggleCategory(cat.category_key || cat.category)"
                         class="p-3 flex items-center justify-between cursor-pointer select-none bg-white hover:bg-slate-50/70 transition"
                     >
                         <div class="flex items-center gap-2.5 min-w-0">
@@ -258,7 +258,7 @@
                                     x-text="(cat.direction === 'income' ? '+' : '-') + currency(cat.amount)"
                                 ></span>
                             </div>
-                            <div class="text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': isExpanded(cat.category) }">
+                            <div class="text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': isExpanded(cat.category_key || cat.category) }">
                                 <i data-lucide="chevron-down" class="w-4 h-4"></i>
                             </div>
                         </div>
@@ -266,7 +266,7 @@
 
                     <!-- Itemized Date & Price List (Shown when tapped/clicked) -->
                     <div
-                        x-show="isExpanded(cat.category)"
+                        x-show="isExpanded(cat.category_key || cat.category)"
                         class="border-t border-slate-100 bg-slate-50/50 p-2.5 space-y-2"
                     >
                         <template x-for="item in cat.items" :key="item.id">
@@ -401,7 +401,8 @@
                 init() {
                     // Auto expand the first category if available
                     if (this.categories.length > 0) {
-                        this.expandedCategories[this.categories[0].category] = true;
+                        const first = this.categories[0];
+                        this.expandedCategories[first.category_key || first.category] = true;
                     }
                     this.$nextTick(() => {
                         if (window.lucide) window.lucide.createIcons();
@@ -413,20 +414,20 @@
                     this.loadData();
                 },
 
-                toggleCategory(catName) {
-                    this.expandedCategories[catName] = !this.expandedCategories[catName];
+                toggleCategory(catKey) {
+                    this.expandedCategories[catKey] = !this.expandedCategories[catKey];
                     this.$nextTick(() => {
                         if (window.lucide) window.lucide.createIcons();
                     });
                 },
 
-                isExpanded(catName) {
-                    return !!this.expandedCategories[catName];
+                isExpanded(catKey) {
+                    return !!this.expandedCategories[catKey];
                 },
 
                 expandAll() {
                     this.filteredCategories().forEach(c => {
-                        this.expandedCategories[c.category] = true;
+                        this.expandedCategories[c.category_key || c.category] = true;
                     });
                     this.$nextTick(() => {
                         if (window.lucide) window.lucide.createIcons();
