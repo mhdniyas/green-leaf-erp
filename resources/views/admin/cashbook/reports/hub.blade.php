@@ -298,34 +298,43 @@
     <div class="mx-auto max-w-4xl space-y-4" x-data="adminReportsHub()" x-init="init()">
         <!-- Top Fintech Header: Full Row with Title, Switcher (Own default), & Refresh Button -->
         <div class="flex items-center justify-between gap-2 pt-1 border-b border-slate-100 pb-3">
-            <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl shrink-0">Finance</h1>
-
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+                <h1 class="text-xl sm:text-3xl font-black tracking-tight text-slate-900 shrink-0">Finance</h1>
+                
                 <!-- 3-Option Shop Type Switcher (Own, Direct, All) -->
-                <div class="inline-flex items-center gap-0.5 rounded-2xl bg-slate-200/70 p-1 shrink-0">
+                <div class="inline-flex items-center gap-0.5 rounded-2xl bg-slate-200/70 p-0.5 sm:p-1 shrink-0">
                     <button type="button" @click="typeFilter = 'owned'"
-                        class="rounded-xl px-2.5 sm:px-3.5 py-1 text-[11px] sm:text-xs font-extrabold transition-all"
+                        class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all"
                         :class="typeFilter === 'owned' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                         Own
                     </button>
                     <button type="button" @click="typeFilter = 'direct'"
-                        class="rounded-xl px-2.5 sm:px-3.5 py-1 text-[11px] sm:text-xs font-extrabold transition-all"
+                        class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all"
                         :class="typeFilter === 'direct' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                         Direct
                     </button>
                     <button type="button" @click="typeFilter = 'all'"
-                        class="rounded-xl px-2.5 sm:px-3.5 py-1 text-[11px] sm:text-xs font-extrabold transition-all"
+                        class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all"
                         :class="typeFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                         All
                     </button>
                 </div>
+            </div>
+
+            <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <!-- Export Actions (Excel, PDF Share, Copy for Google Sheets) -->
+                <x-export-toolbar
+                    excel-url="{{ route('admin.cashbook.reports.export.excel', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                    title="Shops Overview"
+                    align="right"
+                />
 
                 <!-- Refresh Control -->
                 <button type="button" @click="loadData()"
-                    class="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-xs transition hover:bg-slate-50 shrink-0"
+                    class="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-2xs transition hover:bg-slate-50 shrink-0 cursor-pointer"
                     title="Refresh Live Data">
                     <span :class="loading ? 'animate-spin' : ''" class="inline-flex items-center justify-center">
-                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                     </span>
                 </button>
             </div>

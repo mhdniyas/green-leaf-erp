@@ -142,9 +142,100 @@ class FinanceController extends Controller
         return view('finance.vendor-daily', compact('date', 'report'));
     }
 
+    public function vendorDailyExcel(Request $request): StreamedResponse
+    {
+        $this->authorizeReportExport();
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $report = $this->financePillars->vendorDailyDetail($date);
+
+        return response()->streamDownload(function () use ($report): void {
+            $file = fopen('php://output', 'w');
+
+            if ($file === false) {
+                return;
+            }
+
+            fputcsv($file, ['Invoice Number', 'Vendor', 'Credit', 'Debit', 'Status']);
+
+            foreach ($report['invoices'] as $invoice) {
+                $balance = max(0, round((float) $invoice->amount - (float) $invoice->paid_amount, 2));
+                fputcsv($file, [
+                    $invoice->invoice_number,
+                    $invoice->supplier?->name ?? 'Vendor pending',
+                    number_format((float) $invoice->amount, 2, '.', ''),
+                    number_format((float) $invoice->paid_amount, 2, '.', ''),
+                    $balance > 0 ? 'Due' : 'Settled',
+                ]);
+            }
+
+            fclose($file);
+        }, 'vendor-daily-'.$date->toDateString().'.csv', [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    public function vendorDailyPdf(Request $request): View
+    {
+        $this->authorizeReportExport();
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $report = $this->financePillars->vendorDailyDetail($date);
+
+        return view('finance.vendor-daily', compact('date', 'report'));
+    }
+
     public function salesDaily(Request $request): View
     {
         Gate::authorize('accounting.ledger.view');
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $statusFilter = $request->string('status')->toString();
+        $statusFilter = in_array($statusFilter, ['all', 'pending', 'settled'], true) ? $statusFilter : 'all';
+        $report = $this->financePillars->salesDailyDetail($date, $statusFilter);
+
+        return view('finance.sales-daily', compact('date', 'report', 'statusFilter'));
+    }
+
+    public function salesDailyExcel(Request $request): StreamedResponse
+    {
+        $this->authorizeReportExport();
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $statusFilter = $request->string('status')->toString();
+        $statusFilter = in_array($statusFilter, ['all', 'pending', 'settled'], true) ? $statusFilter : 'all';
+        $report = $this->financePillars->salesDailyDetail($date, $statusFilter);
+
+        return response()->streamDownload(function () use ($report): void {
+            $file = fopen('php://output', 'w');
+
+            if ($file === false) {
+                return;
+            }
+
+            fputcsv($file, ['Invoice Number', 'Business Date', 'Shop', 'Credit', 'Debit', 'Status']);
+
+            foreach ($report['invoices'] as $invoice) {
+                $isPending = (float) $invoice->balance_amount > 0;
+                fputcsv($file, [
+                    $invoice->invoice_number,
+                    $invoice->business_date,
+                    $invoice->shop?->name ?? 'Shop pending',
+                    number_format((float) $invoice->final_total, 2, '.', ''),
+                    number_format((float) $invoice->paid_amount, 2, '.', ''),
+                    $isPending ? 'Pending' : 'Settled',
+                ]);
+            }
+
+            fclose($file);
+        }, 'sales-daily-'.$date->toDateString().'.csv', [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    public function salesDailyPdf(Request $request): View
+    {
+        $this->authorizeReportExport();
 
         $date = Carbon::parse($request->input('date', today()->toDateString()));
         $statusFilter = $request->string('status')->toString();

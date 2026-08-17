@@ -24,6 +24,15 @@
             </div>
         </section>
 
+        <section class="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs print:hidden">
+            <x-export-toolbar
+                excel-url="{{ route('finance.vendor-daily.excel', ['date' => $date->format('Y-m-d')]) }}"
+                pdf-url="{{ route('finance.vendor-daily.pdf', ['date' => $date->format('Y-m-d')]) }}"
+                title="Vendor Daily Report ({{ $date->format('d M Y') }})"
+                align="between"
+            />
+        </section>
+
         <section class="grid gap-4 md:grid-cols-4">
             <div class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Vendors</p>

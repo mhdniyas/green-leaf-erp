@@ -331,9 +331,10 @@
                 <button type="button" @click="openCopyYesterday()" :disabled="copyLoading" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs shadow-xs flex items-center gap-1.5 transition-all disabled:opacity-50" title="Quick fill from yesterday's transactions">
                     <i data-lucide="copy" class="w-4 h-4 text-emerald-600"></i> Copy Yesterday
                 </button>
-                <button type="button" @click="openExportModal = true" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all">
-                    <i data-lucide="download" class="w-4 h-4"></i> Export Cashbook
-                </button>
+                <x-export-toolbar
+                    title="{{ $currentShop->name }} Ledger"
+                    align="right"
+                />
                 <a href="{{ route('admin.cashbook.shop.accept-payment', $currentShop->slug ?: $currentShop->shop_id) }}" class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-900 font-semibold text-xs shadow-sm flex items-center gap-1.5">
                     <i data-lucide="wallet" class="w-4 h-4"></i> Accept Payment
                 </a>

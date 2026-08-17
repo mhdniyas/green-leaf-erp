@@ -18,10 +18,17 @@
         @endforeach
     </nav>
 
-    <form method="GET" action="{{ url()->current() }}" class="flex items-center gap-2">
-        <label class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-2">
-            <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Period</span>
-            <input type="date" name="date" value="{{ $navDate }}" onchange="this.form.submit()" class="mt-1 w-40 border-0 bg-transparent p-0 text-sm font-black text-slate-950 focus:outline-none focus:ring-0">
-        </label>
-    </form>
+    <div class="flex flex-wrap items-center gap-3">
+        <x-export-toolbar
+            title="Finance V2 Report"
+            align="right"
+        />
+
+        <form method="GET" action="{{ url()->current() }}" class="flex items-center gap-2">
+            <label class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-2">
+                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Period</span>
+                <input type="date" name="date" value="{{ $navDate }}" onchange="this.form.submit()" class="mt-1 w-40 border-0 bg-transparent p-0 text-sm font-black text-slate-950 focus:outline-none focus:ring-0">
+            </label>
+        </form>
+    </div>
 </div>

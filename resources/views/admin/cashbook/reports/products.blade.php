@@ -22,40 +22,47 @@
 @section('content')
     <div class="mx-auto max-w-5xl space-y-4">
         <!-- Top Fintech Header & Shop Switcher -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            <div>
-                <div class="flex items-center gap-2">
-                    <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">Products Marketplace</h1>
-                    <span class="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">Group {{ $shopGroup }}</span>
+        <div class="flex items-center justify-between gap-2 pt-1 border-b border-slate-100 pb-3">
+            <div class="min-w-0">
+                <div class="flex items-center gap-1.5 sm:gap-2">
+                    <h1 class="text-xl sm:text-3xl font-black tracking-tight text-slate-900 truncate">Products</h1>
+                    <span class="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">Group {{ $shopGroup }}</span>
                 </div>
-                <p class="text-xs font-bold text-slate-500 mt-0.5">Daily approved selling prices <span class="text-slate-400 font-medium">&amp; product catalog</span></p>
+                <p class="text-[10px] sm:text-xs font-bold text-slate-500 mt-0.5 truncate">Daily approved selling prices</p>
             </div>
 
-            <!-- Custom Tailwind Shop Selector Dropdown -->
-            <div x-data="{ open: false }" class="relative inline-block text-left">
-                <button @click="open = !open" type="button" class="inline-flex items-center justify-between gap-2 h-10 px-3.5 rounded-2xl bg-white border border-slate-200/90 text-xs font-black text-slate-800 shadow-xs hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer w-full sm:w-auto">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <i data-lucide="store" class="w-4 h-4 text-emerald-600 shrink-0"></i>
-                        <span class="truncate">{{ $currentShop ? ($currentShop->name ?: 'Shop #'.$currentShop->shop_id) : 'All Outlets' }}</span>
-                    </div>
-                    <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0" :class="{ 'rotate-180': open }"></i>
-                </button>
+            <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <x-export-toolbar
+                    title="Products Marketplace"
+                    align="right"
+                />
 
-                <div x-show="open" @click.away="open = false" x-cloak
-                    x-transition:enter="transition ease-out duration-100"
-                    x-transition:enter-start="transform opacity-0 scale-95"
-                    x-transition:enter-end="transform opacity-100 scale-100"
-                    x-transition:leave="transition ease-in duration-75"
-                    x-transition:leave-start="transform opacity-100 scale-100"
-                    x-transition:leave-end="transform opacity-0 scale-95"
-                    class="absolute right-0 mt-2 w-56 rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-black/5 z-50 space-y-0.5" style="display: none;">
-                    <div class="px-3 py-1.5 text-[10px] font-black uppercase text-slate-400 tracking-wider">Select Outlet Pricing</div>
-                    @foreach($shops as $s)
-                        <a href="{{ route('admin.cashbook.reports.products', array_merge(request()->except('shop_id'), ['shop_id' => $s->shop_id])) }}"
-                            class="block rounded-xl px-3 py-2 text-xs font-bold transition-all {{ ($currentShop->shop_id ?? null) == $s->shop_id ? 'bg-slate-900 text-white font-black' : 'text-slate-700 hover:bg-slate-100' }}">
-                            {{ $s->name ?: 'Shop #'.$s->shop_id }} {{ $s->code ? '('.$s->code.')' : '' }}
-                        </a>
-                    @endforeach
+                <!-- Custom Tailwind Shop Selector Dropdown -->
+                <div x-data="{ open: false }" class="relative inline-block text-left">
+                    <button @click="open = !open" type="button" class="inline-flex items-center justify-between gap-1.5 sm:gap-2 h-9 px-2.5 sm:px-3.5 rounded-2xl bg-white border border-slate-200/90 text-xs font-black text-slate-800 shadow-2xs hover:bg-slate-50 focus:outline-none transition-all cursor-pointer">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <i data-lucide="store" class="w-3.5 h-3.5 text-emerald-600 shrink-0"></i>
+                            <span class="truncate max-w-[80px] sm:max-w-[140px]">{{ $currentShop ? ($currentShop->name ?: 'Shop #'.$currentShop->shop_id) : 'All Outlets' }}</span>
+                        </div>
+                        <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0" :class="{ 'rotate-180': open }"></i>
+                    </button>
+
+                    <div x-show="open" @click.away="open = false" x-cloak
+                        x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="transform opacity-0 scale-95"
+                        x-transition:enter-end="transform opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="transform opacity-100 scale-100"
+                        x-transition:leave-end="transform opacity-0 scale-95"
+                        class="absolute right-0 mt-2 w-56 rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-black/5 z-50 space-y-0.5">
+                        <div class="px-3 py-1.5 text-[10px] font-black uppercase text-slate-400 tracking-wider">Select Outlet Pricing</div>
+                        @foreach($shops as $s)
+                            <a href="{{ route('admin.cashbook.reports.products', array_merge(request()->except('shop_id'), ['shop_id' => $s->shop_id])) }}"
+                                class="block rounded-xl px-3 py-2 text-xs font-bold transition-all {{ ($currentShop->shop_id ?? null) == $s->shop_id ? 'bg-slate-900 text-white font-black' : 'text-slate-700 hover:bg-slate-100' }}">
+                                {{ $s->name ?: 'Shop #'.$s->shop_id }} {{ $s->code ? '('.$s->code.')' : '' }}
+                            </a>
+                        @endforeach
+                    </div>
                 </div>
             </div>
         </div>

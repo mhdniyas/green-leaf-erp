@@ -438,7 +438,11 @@ Route::middleware('auth')->group(function () {
         Route::get('/sales/excel', [FinanceController::class, 'salesExcel'])->name('sales.excel');
         Route::get('/sales/pdf', [FinanceController::class, 'salesPdf'])->name('sales.pdf');
         Route::get('/vendor-daily', [FinanceController::class, 'vendorDaily'])->name('vendor-daily');
+        Route::get('/vendor-daily/excel', [FinanceController::class, 'vendorDailyExcel'])->name('vendor-daily.excel');
+        Route::get('/vendor-daily/pdf', [FinanceController::class, 'vendorDailyPdf'])->name('vendor-daily.pdf');
         Route::get('/sales-daily', [FinanceController::class, 'salesDaily'])->name('sales-daily');
+        Route::get('/sales-daily/excel', [FinanceController::class, 'salesDailyExcel'])->name('sales-daily.excel');
+        Route::get('/sales-daily/pdf', [FinanceController::class, 'salesDailyPdf'])->name('sales-daily.pdf');
         Route::get('/statement/export/csv', [FinanceController::class, 'legacyExportRedirect'])->name('statement.export.csv');
         Route::get('/statement/export/pdf', [FinanceController::class, 'legacyExportRedirect'])->name('statement.export.pdf');
         Route::get('accounts', [FinanceController::class, 'legacyRedirect'])->name('accounts.index');

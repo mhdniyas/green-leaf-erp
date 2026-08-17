@@ -31,6 +31,12 @@
 
                     <!-- Timeframe Presets & Actions -->
                     <div class="flex flex-wrap items-center gap-2">
+                        <x-export-toolbar
+                            excel-url="{{ route('admin.cashbook.shop.export', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'format' => 'excel', 'timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                            pdf-url="{{ route('admin.cashbook.shop.export', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'format' => 'pdf', 'timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                            title="{{ $currentShop->name }}"
+                            compact="true"
+                        />
                         <div class="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-xs">
                             <a href="{{ route('admin.cashbook.reports.shop', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'timeframe' => 'today']) }}" class="rounded-lg px-2.5 py-1 text-xs font-bold transition {{ $timeframe === 'today' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">Today</a>
                             <a href="{{ route('admin.cashbook.reports.shop', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'timeframe' => 'yesterday']) }}" class="rounded-lg px-2.5 py-1 text-xs font-bold transition {{ $timeframe === 'yesterday' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">Yesterday</a>

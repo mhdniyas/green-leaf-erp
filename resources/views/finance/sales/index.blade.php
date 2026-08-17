@@ -30,9 +30,13 @@
             </div>
         </section>
 
-        <section class="flex flex-wrap gap-3">
-            <a href="{{ route('finance.sales.excel', ['start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">Excel Export</a>
-            <a href="{{ route('finance.sales.pdf', ['start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">PDF View</a>
+        <section class="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs print:hidden">
+            <x-export-toolbar
+                excel-url="{{ route('finance.sales.excel', ['start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}"
+                pdf-url="{{ route('finance.sales.pdf', ['start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}"
+                title="Sales Reports"
+                align="between"
+            />
         </section>
 
         <section class="grid gap-4 md:grid-cols-4">

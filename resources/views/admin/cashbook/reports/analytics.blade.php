@@ -37,47 +37,48 @@
     <div class="mx-auto max-w-lg space-y-5" style="background:#ffffff;">
 
         {{-- ── HEADER ROW: title + shop picker ── --}}
-        {{-- ── HEADER ROW: title + shop picker ── --}}
-        <div class="flex items-center justify-between pt-1">
-            <div>
+        <div class="flex items-center justify-between gap-2 pt-1 border-b border-slate-100 pb-3">
+            <div class="min-w-0">
                 <div class="flex items-center gap-2">
-                    <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                        {{ $mode === 'weekly' ? ('Weekly Overview • ' . $weekLabel) : '30-Day Overview' }}
+                    <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 truncate">
+                        {{ $mode === 'weekly' ? ('Weekly • ' . $weekLabel) : '30-Day Overview' }}
                     </p>
                     @if (($intel['pending_days_count'] ?? 0) > 0)
-                        <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-800">
+                        <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-black text-amber-800 shrink-0">
                             <i data-lucide="clock" class="w-3 h-3 text-amber-600"></i>
-                            {{ $intel['pending_days_count'] }} {{ Str::plural('Day', $intel['pending_days_count']) }} Pending
+                            {{ $intel['pending_days_count'] }} Pending
                         </span>
                     @endif
                 </div>
-                <h1 class="text-xl font-black tracking-tight text-slate-900 leading-tight">
+                <h1 class="text-lg sm:text-xl font-black tracking-tight text-slate-900 leading-tight truncate">
                     {{ $shop ? ($shop->name ?: 'Shop #'.$shop->shop_id) : 'Select Shop' }}
                 </h1>
             </div>
 
-            {{-- Shop Selector Dropdown --}}
-            <div x-data="{ open: false }" class="relative inline-block text-left">
-                <button @click="open = !open" type="button"
-                    class="inline-flex items-center justify-between gap-2 h-9 px-3 rounded-full bg-slate-900 text-[11px] font-black text-white shadow-sm hover:bg-slate-800 focus:outline-none transition-all cursor-pointer">
-                    <i data-lucide="store" class="w-3.5 h-3.5 opacity-70"></i>
-                    <span class="max-w-[80px] truncate">{{ $shop ? ($shop->code ?: 'Shop') : 'Select' }}</span>
-                    <i data-lucide="chevron-down" class="w-3 h-3 opacity-60 transition-transform duration-200" :class="{ 'rotate-180': open }"></i>
-                </button>
+            <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                {{-- Shop Selector Dropdown --}}
+                <div x-data="{ open: false }" class="relative inline-block text-left">
+                    <button @click="open = !open" type="button"
+                        class="inline-flex items-center justify-between gap-2 h-9 px-3 rounded-full bg-slate-900 text-[11px] font-black text-white shadow-sm hover:bg-slate-800 focus:outline-none transition-all cursor-pointer">
+                        <i data-lucide="store" class="w-3.5 h-3.5 opacity-70"></i>
+                        <span class="max-w-[80px] truncate">{{ $shop ? ($shop->code ?: 'Shop') : 'Select' }}</span>
+                        <i data-lucide="chevron-down" class="w-3 h-3 opacity-60 transition-transform duration-200" :class="{ 'rotate-180': open }"></i>
+                    </button>
 
-                <div x-show="open" @click.away="open = false" x-cloak
-                     x-transition:enter="transition ease-out duration-100" x-transition:enter-start="transform opacity-0 scale-95" x-transition:enter-end="transform opacity-100 scale-100"
-                     x-transition:leave="transition ease-in duration-75" x-transition:leave-start="transform opacity-100 scale-100" x-transition:leave-end="transform opacity-0 scale-95"
-                     class="absolute right-0 mt-2 w-60 origin-top-right rounded-2xl bg-white p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.12)] ring-1 ring-black/5 z-50 max-h-72 overflow-y-auto">
-                    @foreach ($shops as $s)
-                        <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $s->shop_id, 'mode' => $mode, 'week_offset' => $weekOffset]) }}"
-                           class="flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition-all {{ $shop?->shop_id === $s->shop_id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50' }}">
-                            <span class="truncate">{{ $s->name ?: ('Shop #' . $s->shop_id) }}</span>
-                            <span class="ml-2 rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase {{ $shop?->shop_id === $s->shop_id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400' }}">
-                                {{ $s->code }}
-                            </span>
-                        </a>
-                    @endforeach
+                    <div x-show="open" @click.away="open = false" x-cloak
+                         x-transition:enter="transition ease-out duration-100" x-transition:enter-start="transform opacity-0 scale-95" x-transition:enter-end="transform opacity-100 scale-100"
+                         x-transition:leave="transition ease-in duration-75" x-transition:leave-start="transform opacity-100 scale-100" x-transition:leave-end="transform opacity-0 scale-95"
+                         class="absolute right-0 mt-2 w-60 origin-top-right rounded-2xl bg-white p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.12)] ring-1 ring-black/5 z-50 max-h-72 overflow-y-auto">
+                        @foreach ($shops as $s)
+                            <a href="{{ route('admin.cashbook.reports.analytics', ['shop_id' => $s->shop_id, 'mode' => $mode, 'week_offset' => $weekOffset]) }}"
+                               class="flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition-all {{ $shop?->shop_id === $s->shop_id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50' }}">
+                                <span class="truncate">{{ $s->name ?: ('Shop #' . $s->shop_id) }}</span>
+                                <span class="ml-2 rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase {{ $shop?->shop_id === $s->shop_id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400' }}">
+                                    {{ $s->code }}
+                                </span>
+                            </a>
+                        @endforeach
+                    </div>
                 </div>
             </div>
         </div>
