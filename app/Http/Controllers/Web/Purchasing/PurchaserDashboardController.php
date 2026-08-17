@@ -24,8 +24,8 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
-use App\Models\PurchaserSharePreset;
 use App\Models\PurchaserCredit;
+use App\Models\PurchaserSharePreset;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
@@ -3303,41 +3303,57 @@ class PurchaserDashboardController extends Controller
         return max(0, $approvedQuantity - $alreadySubmittedQuantity);
     }
 
+    private function isAdminUserAccess(?Request $request = null): bool
+    {
+        $req = $request ?? request();
+        if (! $req || ! $req->hasSession()) {
+            return false;
+        }
+
+        return $req->session()->has('admin_impersonator_id')
+            || ($req->user() && $req->user()->hasRole('admin'));
+    }
+
     private function resolveBusinessDate(Request $request): Carbon|RedirectResponse
     {
         $operationalDate = $this->businessDayService->operationalDate();
-        PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
+        if (! $this->isAdminUserAccess($request)) {
+            PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
+        }
+
         $dateInput = $request->input('date');
 
         if ($dateInput) {
             $date = Carbon::parse($dateInput)->startOfDay();
 
-            $routeName = $request->route()?->getName();
-            if (in_array($routeName, ['purchaser.daily', 'purchaser.b-grade', 'purchaser.vendors', 'purchaser.bulk-buy', 'purchaser.bulk-buy.details'], true)) {
-                if (! $date->isSameDay($operationalDate)) {
+            if (! $this->isAdminUserAccess($request)) {
+                $routeName = $request->route()?->getName();
+                if (in_array($routeName, ['purchaser.daily', 'purchaser.b-grade', 'purchaser.vendors', 'purchaser.bulk-buy', 'purchaser.bulk-buy.details'], true)) {
+                    if (! $date->isSameDay($operationalDate)) {
+                        $fallbackDate = $operationalDate->format('Y-m-d');
+
+                        return redirect()
+                            ->route($routeName, array_filter([
+                                'date' => $fallbackDate,
+                                'chip' => $request->input('chip'),
+                                'search' => $request->input('search'),
+                                'tab' => $request->input('tab'),
+                            ]))
+                            ->with('error', 'Only the active business day order can be viewed/processed.');
+                    }
+                }
+
+                if (! $this->businessDayService->isSelectableDate($date)) {
                     $fallbackDate = $operationalDate->format('Y-m-d');
 
                     return redirect()
-                        ->route($routeName, array_filter([
+                        ->route($routeName === 'purchaser.b-grade' ? 'purchaser.b-grade' : 'purchaser.daily', [
                             'date' => $fallbackDate,
                             'chip' => $request->input('chip'),
                             'search' => $request->input('search'),
-                            'tab' => $request->input('tab'),
-                        ]))
-                        ->with('error', 'Only the active business day order can be viewed/processed.');
+                        ])
+                        ->with('error', 'That purchase date is not available right now. Showing the active business day instead.');
                 }
-            }
-
-            if (! $this->businessDayService->isSelectableDate($date)) {
-                $fallbackDate = $operationalDate->format('Y-m-d');
-
-                return redirect()
-                    ->route($routeName === 'purchaser.b-grade' ? 'purchaser.b-grade' : 'purchaser.daily', [
-                        'date' => $fallbackDate,
-                        'chip' => $request->input('chip'),
-                        'search' => $request->input('search'),
-                    ])
-                    ->with('error', 'That purchase date is not available right now. Showing the active business day instead.');
             }
 
             return $date;
@@ -4913,8 +4929,10 @@ class PurchaserDashboardController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $operationalDate = $this->businessDayService->operationalDate();
-        PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
+        if (! $this->isAdminUserAccess($request)) {
+            $operationalDate = $this->businessDayService->operationalDate();
+            PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
+        }
     }
 
     private function ensurePurchaseManager(Request $request): void

@@ -160,6 +160,10 @@ class PurchaserCart extends Model
 
     public static function cancelOverdueCartsAndOrders(Carbon $operationalDate): void
     {
+        if (request() && request()->hasSession() && (request()->session()->has('admin_impersonator_id') || request()->user()?->hasRole('admin'))) {
+            return;
+        }
+
         self::query()
             ->whereDate('business_date', '<', $operationalDate)
             ->where('status', 'draft')

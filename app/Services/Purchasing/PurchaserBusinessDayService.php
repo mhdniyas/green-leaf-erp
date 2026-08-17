@@ -44,13 +44,31 @@ class PurchaserBusinessDayService
         return $moment->gte($this->rolloverStartsAt($moment));
     }
 
+    public function isAdminUserAccess(): bool
+    {
+        if (! request() || ! request()->hasSession()) {
+            return false;
+        }
+
+        return request()->session()->has('admin_impersonator_id')
+            || (request()->user() && request()->user()->hasRole('admin'));
+    }
+
     public function maxSelectableDate(?Carbon $moment = null): Carbon
     {
+        if ($this->isAdminUserAccess()) {
+            return now()->addYears(10);
+        }
+
         return $this->operationalDate($moment);
     }
 
     public function isSelectableDate(Carbon|string $date, ?Carbon $moment = null): bool
     {
+        if ($this->isAdminUserAccess()) {
+            return true;
+        }
+
         return Carbon::parse($date)->startOfDay()->lte($this->maxSelectableDate($moment));
     }
 
