@@ -168,24 +168,119 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->reportFilters($request);
-        $includeDetails = $request->boolean('include_details', true);
         $scope = (string) $request->input('scope', 'all');
-        $rows = $this->cashbookReportExportRows(
-            $filters['selected_date'],
-            $filters['timeframe'],
-            $filters['start_date'],
-            $filters['end_date'],
-            $includeDetails,
-            $scope
-        );
 
-        return view('admin.cashbook.reports.pdf', [
-            'title' => 'Finance Hub — Shops Overview Summary',
+        $allShops = $this->shopSyncService->syncAndGetProfiles();
+        $allShops->load('client');
+
+        $filteredShops = $allShops->filter(function (ShopLedgerProfile $shop) use ($scope): bool {
+            $isDirect = $shop->client_id === null && $shop->profile_template === 'direct_buyer';
+            if ($scope === 'owned') {
+                return ! $isDirect;
+            }
+            if ($scope === 'direct') {
+                return $isDirect;
+            }
+            return true;
+        })->values();
+
+        $shopIds = $filteredShops->pluck('shop_id')->map(fn ($id) => (int) $id)->all();
+
+        // 1. Sales per shop
+        $salesPerShop = ShopLedgerTransaction::query()
+            ->whereIn('shop_id', $shopIds)
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'income')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+            })
+            ->whereDate('business_date', '>=', $filters['start_date'])
+            ->whereDate('business_date', '<=', $filters['end_date'])
+            ->selectRaw('shop_id, SUM(amount) as total_sales')
+            ->groupBy('shop_id')
+            ->pluck('total_sales', 'shop_id');
+
+        // 2. Expense per shop
+        $expensePerShop = ShopLedgerTransaction::query()
+            ->whereIn('shop_id', $shopIds)
+            ->where('status', '!=', 'voided')
+            ->where(function ($q) {
+                $q->where('direction', 'expense')
+                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+            })
+            ->whereDate('business_date', '>=', $filters['start_date'])
+            ->whereDate('business_date', '<=', $filters['end_date'])
+            ->selectRaw('shop_id, SUM(amount) as total_expense')
+            ->groupBy('shop_id')
+            ->pluck('total_expense', 'shop_id');
+
+        // 3. GL Bills per shop
+        $glBillsPerShop = ShopInvoice::query()
+            ->whereIn('shop_id', $shopIds)
+            ->where('status', '!=', 'cancelled')
+            ->where('final_total', '>', 0)
+            ->whereDate('business_date', '>=', $filters['start_date'])
+            ->whereDate('business_date', '<=', $filters['end_date'])
+            ->selectRaw('shop_id, COUNT(*) as bill_count, SUM(final_total) as total_gl')
+            ->groupBy('shop_id')
+            ->get()
+            ->keyBy('shop_id');
+
+        $shopRows = [];
+        $grandSales = 0.0;
+        $grandExpense = 0.0;
+        $grandNet = 0.0;
+        $grandGl = 0.0;
+
+        foreach ($filteredShops as $shop) {
+            $isDirect = $shop->client_id === null && $shop->profile_template === 'direct_buyer';
+            $scopeLabel = $isDirect ? 'Direct' : ($shop->client?->name ?: 'Own');
+
+            $glData = $glBillsPerShop->get($shop->shop_id);
+            $billCount = (int) ($glData->bill_count ?? 0);
+            $gVal = round((float) ($glData->total_gl ?? 0), 2);
+
+            $sVal = round((float) ($salesPerShop[$shop->shop_id] ?? 0), 2);
+            $eVal = round((float) ($expensePerShop[$shop->shop_id] ?? 0), 2);
+            $nVal = round($sVal - $eVal, 2);
+
+            if ($billCount === 0 && $sVal == 0.0 && $eVal == 0.0) {
+                continue;
+            }
+
+            $grandSales += $sVal;
+            $grandExpense += $eVal;
+            $grandNet += $nVal;
+            $grandGl += $gVal;
+
+            $shopRows[] = [
+                'shop_id' => $shop->shop_id,
+                'name' => $shop->name ?: ('Shop #' . $shop->shop_id),
+                'scope' => $scopeLabel,
+                'sales' => $sVal,
+                'expense' => $eVal,
+                'net' => $nVal,
+                'gl_bills' => $gVal,
+                'bill_count' => $billCount,
+            ];
+        }
+
+        $totals = [
+            'sales' => round($grandSales, 2),
+            'expense' => round($grandExpense, 2),
+            'net' => round($grandNet, 2),
+            'gl_bills' => round($grandGl, 2),
+        ];
+
+        return view('admin.cashbook.reports.pdf_all_shops', [
+            'title' => 'All Shops Executive Financial Overview',
             'selectedDate' => $filters['selected_date'],
             'timeframe' => $filters['timeframe'],
             'startDate' => $filters['start_date'],
             'endDate' => $filters['end_date'],
-            'exportRows' => $rows,
+            'scope' => $scope,
+            'shopRows' => $shopRows,
+            'totals' => $totals,
         ]);
     }
 
