@@ -361,6 +361,7 @@ Route::middleware('auth')->group(function () {
         Route::post('suppliers/{supplier}/credit-approve', [SupplierController::class, 'approveCreditApproval'])->name('suppliers.credit-approve');
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
         Route::post('prices/toggle-publish', [DailyPriceBoardController::class, 'togglePublish'])->name('prices.toggle-publish');
+        Route::post('prices/update', [DailyPriceBoardController::class, 'updatePrices'])->name('prices.update');
         Route::get('prices/matrix', [DailyPriceMatrixController::class, 'index'])->name('prices.matrix.index');
         Route::get('prices/matrix/export/excel', [DailyPriceMatrixController::class, 'exportExcel'])->name('prices.matrix.export.excel');
         Route::get('prices/matrix/export/pdf', [DailyPriceMatrixController::class, 'exportPdf'])->name('prices.matrix.export.pdf');
