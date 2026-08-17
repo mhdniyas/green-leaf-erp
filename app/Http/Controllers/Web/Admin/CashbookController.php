@@ -1730,7 +1730,7 @@ final class CashbookController extends Controller
     }
 
     /**
-     * API: Approve every non-approved income/expense transaction for a day.
+     * API: Approve every non-approved income/expense transaction for a day or up to a date.
      */
     public function approveDay(Request $request): JsonResponse
     {
@@ -1739,24 +1739,35 @@ final class CashbookController extends Controller
         $validated = $request->validate([
             'shop_id' => ['required', 'integer'],
             'business_date' => ['required', 'date_format:Y-m-d'],
+            'till_date' => ['nullable', 'boolean'],
         ]);
 
+        $tillDate = $request->boolean('till_date', false);
+
         try {
-            $updated = ShopLedgerTransaction::query()
+            $query = ShopLedgerTransaction::query()
                 ->where('shop_id', (int) $validated['shop_id'])
-                ->whereDate('business_date', $validated['business_date'])
                 ->where('status', '!=', 'approved')
-                ->where('status', '!=', 'void')
-                ->update([
-                    'status' => 'approved',
-                    'approved_by' => $request->user()?->id,
-                ]);
+                ->where('status', '!=', 'void');
+
+            if ($tillDate) {
+                $query->whereDate('business_date', '<=', $validated['business_date']);
+            } else {
+                $query->whereDate('business_date', $validated['business_date']);
+            }
+
+            $updated = $query->update([
+                'status' => 'approved',
+                'approved_by' => $request->user()?->id,
+            ]);
+
+            $label = $tillDate
+                ? "Approved {$updated} entries up to {$validated['business_date']}."
+                : "Approved {$updated} entries for {$validated['business_date']}.";
 
             return response()->json([
                 'success' => true,
-                'message' => $updated > 0
-                    ? "Approved {$updated} entries for {$validated['business_date']}."
-                    : "No pending entries found for {$validated['business_date']}.",
+                'message' => $updated > 0 ? $label : "No pending entries found to approve.",
                 'approved_count' => $updated,
             ]);
         } catch (Throwable $e) {
