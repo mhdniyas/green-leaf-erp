@@ -12,8 +12,19 @@
         window.buildExportUrl = function(baseUrl, includeDetails) {
             if (!baseUrl || baseUrl === '#') return '#';
             try {
-                let url = new URL(baseUrl, window.location.origin);
+                let cleanBase = baseUrl.replace(/&amp;/g, '&').replace(/amp%3B/gi, '');
+                let url = new URL(cleanBase, window.location.origin);
                 let pageParams = new URLSearchParams(window.location.search);
+
+                for (let [k, v] of Array.from(pageParams.entries())) {
+                    if (k.startsWith('amp;') || k.toLowerCase().startsWith('amp%3b')) {
+                        let cleanK = k.replace(/^amp(;|%3b)/i, '');
+                        if (cleanK && !pageParams.has(cleanK)) {
+                            pageParams.set(cleanK, v);
+                        }
+                    }
+                }
+
                 if (pageParams.has('timeframe') && !url.searchParams.has('timeframe')) url.searchParams.set('timeframe', pageParams.get('timeframe'));
                 if (pageParams.has('start_date') && !url.searchParams.has('start_date')) url.searchParams.set('start_date', pageParams.get('start_date'));
                 if (pageParams.has('end_date') && !url.searchParams.has('end_date')) url.searchParams.set('end_date', pageParams.get('end_date'));

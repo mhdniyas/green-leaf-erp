@@ -2535,20 +2535,37 @@ final class CashbookController extends Controller
      */
     private function reportFilters(Request $request): array
     {
+        // Sanitize any HTML-entity escaped parameter keys (e.g., amp;start_date -> start_date)
+        foreach ($request->all() as $key => $value) {
+            if (str_starts_with($key, 'amp;') || str_starts_with($key, 'amp%3B')) {
+                $cleanKey = preg_replace('/^amp(;|%3B)/i', '', $key);
+                if ($cleanKey && ! $request->has($cleanKey)) {
+                    $request->merge([$cleanKey => $value]);
+                }
+            }
+        }
+
         $validated = $request->validate([
             'date' => ['nullable', 'date_format:Y-m-d'],
             'business_date' => ['nullable', 'date_format:Y-m-d'],
-            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
+            'timeframe' => ['nullable', 'string'],
             'start_date' => ['nullable', 'date_format:Y-m-d'],
-            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+            'end_date' => ['nullable', 'date_format:Y-m-d'],
         ]);
 
         $selectedDate = $validated['date']
             ?? $validated['business_date']
+            ?? $request->input('date')
+            ?? $request->input('business_date')
             ?? today()->toDateString();
-        $timeframe = $validated['timeframe'] ?? 'daily';
-        $reqStart = $validated['start_date'] ?? null;
-        $reqEnd = $validated['end_date'] ?? null;
+
+        $timeframe = $validated['timeframe'] ?? $request->input('timeframe') ?? 'daily';
+        if ($timeframe === 'today') {
+            $timeframe = 'daily';
+        }
+
+        $reqStart = $validated['start_date'] ?? $request->input('start_date');
+        $reqEnd = $validated['end_date'] ?? $request->input('end_date');
 
         if ($reqStart && $reqEnd && ($reqStart !== $reqEnd || $timeframe === 'custom')) {
             $timeframe = 'custom';
