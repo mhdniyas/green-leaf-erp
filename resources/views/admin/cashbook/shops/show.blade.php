@@ -392,7 +392,7 @@
                                 <div class="relative inline-block w-36 sm:w-48">
                                     <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">₹</span>
                                     <input type="number" step="0.01" min="0.01" x-model="row.amount"
-                                        class="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-1.5 pl-6 pr-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                        class="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-1.5 pl-6 pr-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                         placeholder="0" />
                                 </div>
                             </td>

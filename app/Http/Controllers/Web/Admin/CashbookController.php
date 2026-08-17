@@ -111,11 +111,13 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->reportFilters($request);
+        $includeDetails = $request->boolean('include_details', true);
         $rows = $this->cashbookReportExportRows(
             $filters['selected_date'],
             $filters['timeframe'],
             $filters['start_date'],
-            $filters['end_date']
+            $filters['end_date'],
+            $includeDetails
         );
 
         return response()->streamDownload(function () use ($rows): void {
@@ -140,6 +142,7 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->reportFilters($request);
+        $includeDetails = $request->boolean('include_details', true);
 
         return Excel::download(
             new PurchaserReportArrayExport(
@@ -147,7 +150,8 @@ final class CashbookController extends Controller
                     $filters['selected_date'],
                     $filters['timeframe'],
                     $filters['start_date'],
-                    $filters['end_date']
+                    $filters['end_date'],
+                    $includeDetails
                 ),
                 'Cashbook Report'
             ),
@@ -160,11 +164,13 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->reportFilters($request);
+        $includeDetails = $request->boolean('include_details', true);
         $rows = $this->cashbookReportExportRows(
             $filters['selected_date'],
             $filters['timeframe'],
             $filters['start_date'],
-            $filters['end_date']
+            $filters['end_date'],
+            $includeDetails
         );
 
         return view('admin.cashbook.reports.pdf', [
@@ -2370,7 +2376,7 @@ final class CashbookController extends Controller
     /**
      * @return array<int, array<int, mixed>>
      */
-    private function cashbookReportExportRows(string $selectedDate, string $timeframe, string $startDate, string $endDate): array
+    private function cashbookReportExportRows(string $selectedDate, string $timeframe, string $startDate, string $endDate, bool $includeDetails = true): array
     {
         // 1. Daily Summary Aggregates
         $salesPerDate = ShopLedgerTransaction::query()
@@ -2432,11 +2438,15 @@ final class CashbookController extends Controller
             $rows[] = [$dStr, $sVal, $eVal, $nVal, $gVal];
         }
 
+        if (! $includeDetails) {
+            return $rows;
+        }
+
         $rows[] = [];
 
-        // Table 2: Total Sales Details
+        // Table 2: Total Sales Details (with Day header)
         $rows[] = ['Total Sales Details'];
-        $rows[] = ['Date', 'Income'];
+        $rows[] = ['Date', 'Day', 'Income'];
 
         $incomeTransactions = ShopLedgerTransaction::query()
             ->with('entryType')
@@ -2452,15 +2462,18 @@ final class CashbookController extends Controller
             ->get();
 
         foreach ($incomeTransactions as $tx) {
-            $bDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date)->format('Y-m-d') : '';
-            $rows[] = [$bDate, round((float) $tx->amount, 2)];
+            $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+            $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
+            $dayName = $carbonDate ? $carbonDate->format('l') : '';
+
+            $rows[] = [$bDate, $dayName, round((float) $tx->amount, 2)];
         }
 
         $rows[] = [];
 
-        // Table 3: Total Expense Details
+        // Table 3: Total Expense Details (with Day header)
         $rows[] = ['Total Expense Details'];
-        $rows[] = ['Date', 'Expense'];
+        $rows[] = ['Date', 'Day', 'Expense'];
 
         $expenseTransactions = ShopLedgerTransaction::query()
             ->with('entryType')
@@ -2476,8 +2489,11 @@ final class CashbookController extends Controller
             ->get();
 
         foreach ($expenseTransactions as $tx) {
-            $bDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date)->format('Y-m-d') : '';
-            $rows[] = [$bDate, round((float) $tx->amount, 2)];
+            $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+            $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
+            $dayName = $carbonDate ? $carbonDate->format('l') : '';
+
+            $rows[] = [$bDate, $dayName, round((float) $tx->amount, 2)];
         }
 
         return $rows;
