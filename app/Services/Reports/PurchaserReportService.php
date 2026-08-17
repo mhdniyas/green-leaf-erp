@@ -240,6 +240,7 @@ class PurchaserReportService
             ->selectRaw('MAX(shop_invoice_items.product_name) as product_name')
             ->selectRaw('MAX(products.sku) as product_sku')
             ->selectRaw('MAX(categories.name) as category_name')
+            ->selectRaw('MAX(products.image) as product_image')
             ->selectRaw("{$unitExpression} as unit")
             ->selectRaw("SUM({$quantityExpression}) as billed_quantity")
             ->selectRaw('SUM(shop_invoice_items.final_line_total) as line_sales_amount')
@@ -297,8 +298,14 @@ class PurchaserReportService
     /** @return array<string, mixed> */
     private function itemRow(object $row): array
     {
+        $imagePath = isset($row->product_image) && $row->product_image !== null && (string) $row->product_image !== "" ? (string) $row->product_image : null;
+        $imageUrl = $imagePath ? asset("storage/".$imagePath) : null;
+
         return [
-            'product_id' => (int) $row->product_id,
+            "image" => $imagePath,
+            "image_url" => $imageUrl,
+            "product_image" => $imagePath,
+            "product_id" => (int) $row->product_id,
             'product_name' => (string) $row->product_name,
             'product_sku' => $row->product_sku !== null ? (string) $row->product_sku : null,
             'category_name' => $row->category_name !== null ? (string) $row->category_name : null,
