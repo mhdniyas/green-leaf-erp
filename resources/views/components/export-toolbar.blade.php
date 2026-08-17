@@ -63,7 +63,7 @@
 
         <!-- Excel / CSV Export -->
         @if ($excelUrl)
-            <a href="{{ $excelUrl }}" @click.prevent="open = false; window.location.href = window.buildExportUrl('{{ $excelUrl }}', includeDetails)"
+            <a :href="window.buildExportUrl('{{ $excelUrl }}', includeDetails)" target="_blank" @click="open = false"
                 class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5 cursor-pointer">
                 <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-emerald-600 shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,7 +93,7 @@
 
         <!-- PDF Share / Print -->
         @if ($pdfUrl)
-            <a href="{{ $pdfUrl }}" target="_blank" @click.prevent="open = false; window.open(window.buildExportUrl('{{ $pdfUrl }}', includeDetails), '_blank')"
+            <a :href="window.buildExportUrl('{{ $pdfUrl }}', includeDetails)" target="_blank" @click="open = false"
                 class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5 cursor-pointer">
                 <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
