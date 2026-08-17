@@ -111,7 +111,7 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->reportFilters($request);
-        $includeDetails = $request->boolean('include_details', true);
+        $includeDetails = $request->boolean('include_details', false);
         $scope = (string) $request->input('scope', 'all');
         $rows = $this->cashbookReportExportRows(
             $filters['selected_date'],
@@ -144,7 +144,7 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->reportFilters($request);
-        $includeDetails = $request->boolean('include_details', true);
+        $includeDetails = $request->boolean('include_details', false);
         $scope = (string) $request->input('scope', 'all');
 
         return Excel::download(
@@ -347,7 +347,7 @@ final class CashbookController extends Controller
         $date = (string) $request->input('date', today()->toDateString());
         $reqStart = $request->input('start_date');
         $reqEnd = $request->input('end_date');
-        $includeDetails = $request->boolean('include_details', true);
+        $includeDetails = $request->boolean('include_details', false);
 
         $carbon = Carbon::parse($date);
 

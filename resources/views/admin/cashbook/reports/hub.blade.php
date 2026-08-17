@@ -64,6 +64,7 @@
                     const gl_bills = list.reduce((sum, s) => sum + (parseFloat(s.gl_bills) || 0), 0);
                     const gl_bills_count = list.reduce((sum, s) => sum + (parseInt(s.gl_bills_count || 0) || 0), 0);
                     const net = sales - expense;
+                    const net_pct = sales > 0 ? (net / sales) * 100 : 0;
                     const sales_less_gl = sales - gl_bills;
                     const sales_less_gl_pct = sales > 0 ? (sales_less_gl / sales) * 100 : 0;
                     const gl_bills_pct = sales > 0 ? (gl_bills / sales) * 100 : 0;
@@ -71,6 +72,8 @@
                         sales: Math.round(sales * 100) / 100,
                         expense: Math.round(expense * 100) / 100,
                         net: Math.round(net * 100) / 100,
+                        net_pct: (net_pct >= 0 ? '+' : '') + (net_pct % 1 === 0 ? net_pct.toFixed(0) : net_pct.toFixed(1)) + '%',
+                        is_net_positive: net >= 0,
                         gl_bills: Math.round(gl_bills * 100) / 100,
                         gl_bills_count: gl_bills_count,
                         sales_less_gl: Math.round(sales_less_gl * 100) / 100,
@@ -286,6 +289,21 @@
                     const pct = sales > 0 ? (gl / sales) * 100 : 0;
                     return (pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
                 },
+
+                getDaysCount() {
+                    if (!this.startDate || !this.endDate) return 1;
+                    const start = new Date(this.startDate);
+                    const end = new Date(this.endDate);
+                    const diffTime = Math.abs(end - start);
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                    return Math.max(1, diffDays || 1);
+                },
+
+                getDailyAvgAmount(totalAmount) {
+                    const days = this.getDaysCount();
+                    const val = parseFloat(totalAmount || 0);
+                    return Math.round((val / days) * 100) / 100;
+                },
             };
         };
 
@@ -493,9 +511,20 @@
                         <p class="text-sm sm:text-base font-black text-slate-900 truncate" x-text="currency(activeTotals().sales)">{{ number_format($totals['sales'], 2) }}</p>
                     </div>
                 </div>
-                <span class="text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200/60 shrink-0 text-[9px] font-bold">
-                    <span x-text="activeTotals().count"></span> Outlets
-                </span>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <span class="px-2 py-1 rounded-lg border shrink-0 font-extrabold inline-flex items-center gap-1 text-[9px] sm:text-[10px] whitespace-nowrap"
+                        :class="activeTotals().is_net_positive ? 'bg-emerald-50 text-emerald-800 border-emerald-200/90' : 'bg-rose-50 text-rose-800 border-rose-200/90'"
+                        title="Net Balance & Profit Margin">
+                        <span>Net:</span>
+                        <span x-text="currency(activeTotals().net)">{{ number_format($totals['sales'] - $totals['expense'], 2) }}</span>
+                        @php
+                            $initSales = $totals['sales'] ?? 0;
+                            $initNet = ($totals['sales'] ?? 0) - ($totals['expense'] ?? 0);
+                            $initPct = $initSales > 0 ? round(($initNet / $initSales) * 100, 1) : 0;
+                        @endphp
+                        <span class="font-bold" :class="activeTotals().is_net_positive ? 'text-emerald-700' : 'text-rose-700'">(<span x-text="activeTotals().net_pct">{{ $initPct >= 0 ? '+' : '' }}{{ $initPct }}%</span>)</span>
+                    </span>
+                </div>
             </div>
 
             <!-- 2. Total Expenses Card -->
@@ -574,10 +603,14 @@
                             <!-- 4 Key Metrics in 2 Compact Rows (Sales, Expense, GL Bill, Net P/L) -->
                             <div class="mt-2 pt-2 border-t border-slate-100 grid grid-cols-2 gap-1.5 text-[10px]">
                                 <div class="bg-slate-50/80 rounded-lg px-2 py-1 border border-slate-100">
-                                    <span class="text-[7px] font-black uppercase text-slate-400 block tracking-tight">Total
-                                        Sales</span>
-                                    <span class="text-[11px] font-black text-slate-900 truncate block"
-                                        x-text="currency(item.sales)"></span>
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[7px] font-black uppercase text-slate-400 tracking-tight">Total Sales</span>
+                                        <span class="text-[6.5px] font-bold text-slate-400" x-show="getDaysCount() > 1" x-text="getDaysCount() + ' days'"></span>
+                                    </div>
+                                    <span class="text-[11px] font-black text-slate-900 truncate block" x-text="currency(item.sales)"></span>
+                                    <span class="text-[7.5px] font-bold text-slate-500 block truncate" x-show="getDaysCount() > 1">
+                                        Avg: <span class="font-extrabold text-slate-800" x-text="currency(getDailyAvgAmount(item.sales))"></span>/day
+                                    </span>
                                 </div>
                                 <div class="bg-slate-50/80 rounded-lg px-2 py-1 border border-slate-100">
                                     <span

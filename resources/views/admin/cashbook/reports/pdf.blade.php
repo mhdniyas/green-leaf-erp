@@ -5,10 +5,47 @@
     <title>Finance Statement Export ({{ $startDate }} to {{ $endDate }})</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        @page {
+            size: A4 portrait;
+            margin: 8mm 10mm 8mm 10mm;
+        }
         @media print {
-            .no-print { display: none !important; }
-            body { background: white !important; color: black !important; padding: 0 !important; }
-            .print-card { border: 1px solid #cbd5e1 !important; shadow: none !important; }
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            html, body {
+                background: white !important;
+                color: #0f172a !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-card {
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+                width: 100% !important;
+            }
+            table {
+                page-break-inside: auto !important;
+                width: 100% !important;
+            }
+            tr {
+                page-break-inside: avoid !important;
+                page-break-after: auto !important;
+            }
+            thead {
+                display: table-header-group !important;
+            }
+            tfoot {
+                display: table-footer-group !important;
+            }
         }
     </style>
 </head>

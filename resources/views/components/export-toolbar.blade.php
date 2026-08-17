@@ -32,17 +32,17 @@
                 let activeScope = window.activeHubTypeFilter || (typeof typeFilter !== 'undefined' ? typeFilter : null) || pageParams.get('scope') || 'all';
                 url.searchParams.set('scope', activeScope);
 
-                url.searchParams.set('include_details', includeDetails || '1');
+                url.searchParams.set('include_details', includeDetails || '0');
                 return url.toString();
             } catch (e) {
                 let sep = baseUrl.includes('?') ? '&' : '?';
-                return baseUrl + sep + 'include_details=' + (includeDetails || '1');
+                return baseUrl + sep + 'include_details=' + (includeDetails || '0');
             }
         };
     }
 </script>
 
-<div x-data="{ open: false, includeDetails: '1' }" class="relative inline-block text-left print:hidden">
+<div x-data="{ open: false, includeDetails: '0' }" class="relative inline-block text-left print:hidden">
     <!-- Compact Share / Export Trigger Button -->
     <button @click="open = !open" type="button"
         class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-800 shadow-2xs hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"

@@ -5,10 +5,47 @@
     <title>All Shops Financial Overview ({{ $startDate }} to {{ $endDate }})</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        @page {
+            size: A4 portrait;
+            margin: 8mm 10mm 8mm 10mm;
+        }
         @media print {
-            .no-print { display: none !important; }
-            body { background: white !important; color: black !important; padding: 0 !important; }
-            .print-card { border: 1px solid #cbd5e1 !important; box-shadow: none !important; }
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            html, body {
+                background: white !important;
+                color: #0f172a !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-card {
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+                width: 100% !important;
+            }
+            table {
+                page-break-inside: auto !important;
+                width: 100% !important;
+            }
+            tr {
+                page-break-inside: avoid !important;
+                page-break-after: auto !important;
+            }
+            thead {
+                display: table-header-group !important;
+            }
+            tfoot {
+                display: table-footer-group !important;
+            }
         }
     </style>
 </head>
@@ -48,22 +85,45 @@
         </div>
 
         <!-- Executive Summary Cards Grid -->
+        @php
+            $sCarbon = \Carbon\Carbon::parse($startDate);
+            $eCarbon = \Carbon\Carbon::parse($endDate);
+            $daysCount = max(1, $sCarbon->diffInDays($eCarbon) + 1);
+
+            $totSales = $totals['sales'] ?? 0;
+            $totExpense = $totals['expense'] ?? 0;
+            $totNet = $totals['net'] ?? 0;
+            $totGl = $totals['gl_bills'] ?? 0;
+
+            $totDailyAvgSales = round($totSales / $daysCount, 2);
+            $expPct = $totSales > 0 ? round(($totExpense / $totSales) * 100, 1) : 0;
+            $netPct = $totSales > 0 ? round(($totNet / $totSales) * 100, 1) : 0;
+            $glPct = $totSales > 0 ? round(($totGl / $totSales) * 100, 1) : 0;
+        @endphp
         <div class="grid grid-cols-4 gap-3">
             <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-center">
                 <p class="text-[10px] font-black uppercase text-slate-500 tracking-wider">Total Network Sales</p>
-                <p class="text-lg font-black text-emerald-700 font-mono mt-0.5">₹{{ number_format($totals['sales'], 2) }}</p>
+                <p class="text-lg font-black text-emerald-700 font-mono mt-0.5">₹{{ number_format($totSales, 2) }}</p>
+                @if($daysCount > 1)
+                    <p class="text-[10px] font-bold text-emerald-600 mt-1">Avg: ₹{{ number_format($totDailyAvgSales, 2) }}/day</p>
+                @else
+                    <p class="text-[10px] font-bold text-emerald-600 mt-1">100% (Gross Inflow)</p>
+                @endif
             </div>
             <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-center">
                 <p class="text-[10px] font-black uppercase text-slate-500 tracking-wider">Total Network Expense</p>
-                <p class="text-lg font-black text-rose-700 font-mono mt-0.5">₹{{ number_format($totals['expense'], 2) }}</p>
+                <p class="text-lg font-black text-rose-700 font-mono mt-0.5">₹{{ number_format($totExpense, 2) }}</p>
+                <p class="text-[10px] font-bold text-rose-600 mt-1">{{ $expPct }}% of Sales</p>
             </div>
             <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-center">
                 <p class="text-[10px] font-black uppercase text-slate-500 tracking-wider">Net Network P/L</p>
-                <p class="text-lg font-black {{ $totals['net'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }} font-mono mt-0.5">₹{{ number_format($totals['net'], 2) }}</p>
+                <p class="text-lg font-black {{ $totNet >= 0 ? 'text-emerald-700' : 'text-rose-700' }} font-mono mt-0.5">₹{{ number_format($totNet, 2) }}</p>
+                <p class="text-[10px] font-bold {{ $totNet >= 0 ? 'text-emerald-600' : 'text-rose-600' }} mt-1">{{ $netPct >= 0 ? '+' : '' }}{{ $netPct }}% Margin</p>
             </div>
             <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-center">
                 <p class="text-[10px] font-black uppercase text-slate-500 tracking-wider">Total GL Bills</p>
-                <p class="text-lg font-black text-amber-800 font-mono mt-0.5">₹{{ number_format($totals['gl_bills'], 2) }}</p>
+                <p class="text-lg font-black text-amber-800 font-mono mt-0.5">₹{{ number_format($totGl, 2) }}</p>
+                <p class="text-[10px] font-bold text-amber-700 mt-1">{{ $glPct }}% of Sales</p>
             </div>
         </div>
 
@@ -82,6 +142,17 @@
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-semibold">
                     @foreach($shopRows as $shopRow)
+                        @php
+                            $sSales = $shopRow['sales'] ?? 0;
+                            $sExpense = $shopRow['expense'] ?? 0;
+                            $sNet = $shopRow['net'] ?? 0;
+                            $sGl = $shopRow['gl_bills'] ?? 0;
+
+                            $sDailyAvgSales = round($sSales / $daysCount, 2);
+                            $sExpPct = $sSales > 0 ? round(($sExpense / $sSales) * 100, 1) : 0;
+                            $sNetPct = $sSales > 0 ? round(($sNet / $sSales) * 100, 1) : 0;
+                            $sGlPct = $sSales > 0 ? round(($sGl / $sSales) * 100, 1) : 0;
+                        @endphp
                         <tr class="hover:bg-slate-50">
                             <td class="py-2.5 px-3 font-bold text-slate-900">{{ $shopRow['name'] }}</td>
                             <td class="py-2.5 px-3 text-slate-500 text-[11px]">
@@ -89,10 +160,24 @@
                                     {{ $shopRow['scope'] }}
                                 </span>
                             </td>
-                            <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">₹{{ number_format($shopRow['sales'], 2) }}</td>
-                            <td class="py-2.5 px-3 text-right font-mono font-bold text-rose-700">₹{{ number_format($shopRow['expense'], 2) }}</td>
-                            <td class="py-2.5 px-3 text-right font-mono font-bold {{ $shopRow['net'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">₹{{ number_format($shopRow['net'], 2) }}</td>
-                            <td class="py-2.5 px-3 text-right font-mono font-bold text-amber-800">₹{{ number_format($shopRow['gl_bills'], 2) }}</td>
+                            <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
+                                ₹{{ number_format($sSales, 2) }}
+                                @if($daysCount > 1)
+                                    <span class="block text-[9px] font-bold text-slate-400">(Avg: ₹{{ number_format($sDailyAvgSales, 2) }}/day)</span>
+                                @endif
+                            </td>
+                            <td class="py-2.5 px-3 text-right font-mono font-bold text-rose-700">
+                                ₹{{ number_format($sExpense, 2) }}
+                                <span class="block text-[9px] font-bold text-slate-400">({{ $sExpPct }}%)</span>
+                            </td>
+                            <td class="py-2.5 px-3 text-right font-mono font-bold {{ $sNet >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
+                                ₹{{ number_format($sNet, 2) }}
+                                <span class="block text-[9px] font-bold {{ $sNet >= 0 ? 'text-emerald-600' : 'text-rose-600' }}">({{ $sNetPct >= 0 ? '+' : '' }}{{ $sNetPct }}%)</span>
+                            </td>
+                            <td class="py-2.5 px-3 text-right font-mono font-bold text-amber-800">
+                                ₹{{ number_format($sGl, 2) }}
+                                <span class="block text-[9px] font-bold text-slate-400">({{ $sGlPct }}%)</span>
+                            </td>
                         </tr>
                     @endforeach
                 </tbody>
@@ -100,10 +185,24 @@
                     <tr>
                         <td class="py-3 px-3">Total ({{ count($shopRows) }} Active Shops)</td>
                         <td class="py-3 px-3 text-slate-400">-</td>
-                        <td class="py-3 px-3 text-right font-mono text-emerald-400">₹{{ number_format($totals['sales'], 2) }}</td>
-                        <td class="py-3 px-3 text-right font-mono text-rose-300">₹{{ number_format($totals['expense'], 2) }}</td>
-                        <td class="py-3 px-3 text-right font-mono {{ $totals['net'] >= 0 ? 'text-emerald-400' : 'text-rose-400' }}">₹{{ number_format($totals['net'], 2) }}</td>
-                        <td class="py-3 px-3 text-right font-mono text-amber-300">₹{{ number_format($totals['gl_bills'], 2) }}</td>
+                        <td class="py-3 px-3 text-right font-mono text-emerald-400">
+                            ₹{{ number_format($totSales, 2) }}
+                            @if($daysCount > 1)
+                                <span class="block text-[9px] font-bold text-emerald-300/80">(Avg: ₹{{ number_format($totDailyAvgSales, 2) }}/day)</span>
+                            @endif
+                        </td>
+                        <td class="py-3 px-3 text-right font-mono text-rose-300">
+                            ₹{{ number_format($totExpense, 2) }}
+                            <span class="block text-[9px] font-bold text-rose-400">({{ $expPct }}%)</span>
+                        </td>
+                        <td class="py-3 px-3 text-right font-mono {{ $totNet >= 0 ? 'text-emerald-400' : 'text-rose-400' }}">
+                            ₹{{ number_format($totNet, 2) }}
+                            <span class="block text-[9px] font-bold {{ $totNet >= 0 ? 'text-emerald-400' : 'text-rose-400' }}">({{ $netPct >= 0 ? '+' : '' }}{{ $netPct }}%)</span>
+                        </td>
+                        <td class="py-3 px-3 text-right font-mono text-amber-300">
+                            ₹{{ number_format($totGl, 2) }}
+                            <span class="block text-[9px] font-bold text-amber-400">({{ $glPct }}%)</span>
+                        </td>
                     </tr>
                 </tfoot>
             </table>
