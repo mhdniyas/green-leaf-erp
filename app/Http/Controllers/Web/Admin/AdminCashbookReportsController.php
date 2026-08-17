@@ -705,16 +705,13 @@ class AdminCashbookReportsController extends Controller
             ->filter(fn ($t) => $t->funding_source === 'petty')
             ->sum('amount');
 
-        // Filter out system settlement transfers and secondary rule duplicates for category breakdown
+        // Filter out system settlement transfers for category breakdown (include rule child expense entries)
         $userCategoriesTxs = $transactions->filter(function ($t) {
             $code = $t->entryType?->code ?: $t->entry_type_code;
             if (in_array($code, ['sales_company', 'shop_paid_company'], true)) {
                 return false;
             }
             if (in_array($t->direction, ['settlement', 'transfer'], true)) {
-                return false;
-            }
-            if ($t->generated_by_rule && $t->parent_transaction_id) {
                 return false;
             }
             return true;
