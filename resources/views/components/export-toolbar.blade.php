@@ -63,8 +63,8 @@
 
         <!-- Excel / CSV Export -->
         @if ($excelUrl)
-            <a :href="'{{ $excelUrl }}' + (includeDetails === '0' ? '&include_details=0' : '&include_details=1')" @click="open = false"
-                class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5">
+            <a href="{{ $excelUrl }}" @click.prevent="open = false; window.location.href = window.buildExportUrl('{{ $excelUrl }}', includeDetails)"
+                class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5 cursor-pointer">
                 <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-emerald-600 shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
@@ -93,8 +93,8 @@
 
         <!-- PDF Share / Print -->
         @if ($pdfUrl)
-            <a :href="'{{ $pdfUrl }}' + (includeDetails === '0' ? '&include_details=0' : '&include_details=1')" target="_blank" @click="open = false"
-                class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5">
+            <a href="{{ $pdfUrl }}" target="_blank" @click.prevent="open = false; window.open(window.buildExportUrl('{{ $pdfUrl }}', includeDetails), '_blank')"
+                class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition flex items-center gap-2.5 cursor-pointer">
                 <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-600 shrink-0">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
@@ -126,6 +126,22 @@
 @once
     @push('scripts')
         <script>
+            window.buildExportUrl = function(baseUrl, includeDetails) {
+                if (!baseUrl || baseUrl === '#') return '#';
+                try {
+                    let url = new URL(baseUrl, window.location.origin);
+                    let pageParams = new URLSearchParams(window.location.search);
+                    if (pageParams.has('timeframe')) url.searchParams.set('timeframe', pageParams.get('timeframe'));
+                    if (pageParams.has('start_date')) url.searchParams.set('start_date', pageParams.get('start_date'));
+                    if (pageParams.has('end_date')) url.searchParams.set('end_date', pageParams.get('end_date'));
+
+                    url.searchParams.set('include_details', includeDetails || '1');
+                    return url.toString();
+                } catch (e) {
+                    let sep = baseUrl.includes('?') ? '&' : '?';
+                    return baseUrl + sep + 'include_details=' + (includeDetails || '1');
+                }
+            };
             window.copyTableToGoogleSheets = function(tableTarget, customTitle, includeDetails) {
                 let tables = [];
                 if (typeof tableTarget === 'string') {
