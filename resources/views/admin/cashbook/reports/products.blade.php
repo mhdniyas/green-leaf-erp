@@ -320,6 +320,11 @@
                                     <span class="text-[7.5px] sm:text-[8px] font-black text-emerald-700/80 block truncate">
                                         {{ $p['price_date'] }}
                                     </span>
+                                    @if(!empty($p['updated_by_name']))
+                                        <span class="text-[7.5px] sm:text-[8px] font-bold text-slate-500 block truncate" title="Last updated by {{ $p['updated_by_name'] }}">
+                                            By {{ $p['updated_by_name'] }}
+                                        </span>
+                                    @endif
                                 </div>
                                 <div class="text-right shrink-0">
                                     @if ($isPublished || $p['selling_price'] > 0)

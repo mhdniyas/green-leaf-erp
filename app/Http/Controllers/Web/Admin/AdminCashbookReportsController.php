@@ -301,12 +301,14 @@ class AdminCashbookReportsController extends Controller
         $pageProductIds = $products->getCollection()->pluck('id')->map(fn ($id): int => (int) $id)->all();
 
         $currentApprovals = DailyPriceApproval::query()
+            ->with(['updatedBy:id,name', 'approvedBy:id,name'])
             ->whereDate('business_date', $targetBusinessDate)
             ->whereIn('product_id', $pageProductIds)
             ->get()
             ->keyBy('product_id');
 
         $previousApprovals = DailyPriceApproval::query()
+            ->with(['updatedBy:id,name', 'approvedBy:id,name'])
             ->whereDate('business_date', '<', $targetBusinessDate)
             ->whereIn('product_id', $pageProductIds)
             ->where('status', 'approved')
@@ -318,6 +320,7 @@ class AdminCashbookReportsController extends Controller
         $shopDailyPrices = collect();
         if ($activeShop) {
             $shopDailyPrices = ShopDailyProductPrice::query()
+                ->with(['createdBy:id,name', 'approvedBy:id,name'])
                 ->where('shop_id', $activeShop->id)
                 ->whereDate('business_date', $targetBusinessDate)
                 ->whereIn('product_id', $pageProductIds)
@@ -372,12 +375,24 @@ class AdminCashbookReportsController extends Controller
                 $sellingPrice = $candidatePrices !== [] ? max($candidatePrices) : 0.0;
 
                 $priceDate = null;
+                $updatedByName = null;
                 if ($shopCustomPrice && (float) $shopCustomPrice->selling_price > 0 && $shopCustomPrice->business_date) {
                     $priceDate = Carbon::parse($shopCustomPrice->business_date)->format('d M');
+                    $updatedByName = $shopCustomPrice->approvedBy?->name ?? $shopCustomPrice->createdBy?->name;
                 } elseif (($curr = $currentApprovals->get($product->id)) && (float) ($curr->$priceKey ?? 0) > 0 && $curr->business_date) {
                     $priceDate = Carbon::parse($curr->business_date)->format('d M');
+                    $updatedByName = $curr->updatedBy?->name ?? $curr->approvedBy?->name;
                 } elseif (($prev = $previousApprovals->get($product->id)) && (float) ($prev->$priceKey ?? 0) > 0 && $prev->business_date) {
                     $priceDate = Carbon::parse($prev->business_date)->format('d M');
+                    $updatedByName = $prev->updatedBy?->name ?? $prev->approvedBy?->name;
+                }
+
+                if (! $updatedByName && ($curr = $currentApprovals->get($product->id))) {
+                    $updatedByName = $curr->updatedBy?->name ?? $curr->approvedBy?->name;
+                }
+
+                if (! $updatedByName && ($prev = $previousApprovals->get($product->id))) {
+                    $updatedByName = $prev->updatedBy?->name ?? $prev->approvedBy?->name;
                 }
 
                 if (! $priceDate) {
@@ -393,6 +408,7 @@ class AdminCashbookReportsController extends Controller
                     'image' => $product->image,
                     'selling_price' => $sellingPrice,
                     'price_date' => $priceDate,
+                    'updated_by_name' => $updatedByName,
                     'group_name' => $groupName,
                     'has_custom_price' => $shopCustomPrice !== null,
                 ];
