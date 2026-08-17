@@ -18,8 +18,19 @@
             : ['resources/css/shop-owner/app.css', 'resources/js/shop-owner/app.js'];
     @endphp
     @vite($shopOwnerAssets)
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <style>[x-cloak] { display: none !important; }</style>
+    <style>
+        [x-cloak] { display: none !important; }
+        /* Remove browser default spinner arrows on number input fields */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none !important;
+            margin: 0 !important;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield !important;
+            appearance: textfield !important;
+        }
+    </style>
 </head>
 <body class="min-h-full bg-slate-100 text-slate-900 antialiased">
     <div id="shop-owner-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">

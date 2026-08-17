@@ -947,7 +947,7 @@
                             </label>
                             <label class="block">
                                 <span class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Amount</span>
-                                <input id="cashbook-line-amount" type="number" min="0.01" step="0.01" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:mt-2 sm:h-auto sm:rounded-2xl sm:bg-slate-50 sm:px-4 sm:py-3 sm:font-semibold sm:focus:ring-0" placeholder="0.00">
+                                <input id="cashbook-line-amount" type="number" min="0.01" step="0.01" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:mt-2 sm:h-auto sm:rounded-2xl sm:bg-slate-50 sm:px-4 sm:py-3 sm:font-semibold sm:focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="0.00">
                             </label>
                             <label class="block" id="cashbook-funding-wrap">
                                 <span class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Paid From</span>

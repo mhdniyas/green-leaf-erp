@@ -44,6 +44,16 @@
 
     <style>
         [x-cloak] { display: none !important; }
+        /* Remove browser default spinner arrows on number input fields */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none !important;
+            margin: 0 !important;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield !important;
+            appearance: textfield !important;
+        }
         .white-card {
             background: #ffffff;
             border: 1px solid #e2e8f0;
