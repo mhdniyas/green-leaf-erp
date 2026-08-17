@@ -2474,7 +2474,29 @@ final class CashbookController extends Controller
     private function ensureMainAdmin(Request $request): void
     {
         $user = $request->user();
-        abort_unless($user instanceof User && $user->isMainAdmin(), 403);
+        if (! $user instanceof User) {
+            abort(401);
+        }
+
+        if (
+            $user->isMainAdmin()
+            || $user->hasRole('admin')
+            || $user->hasRole('accounts')
+            || $user->hasRole('accountant')
+            || $user->hasRole('account')
+            || $user->hasRole('manager')
+            || (property_exists($user, 'is_admin') && $user->is_admin)
+            || $user->hasAnyPermission([
+                'accounting.report.view',
+                'accounting.dashboard.view',
+                'accounting.ledger.view',
+                'finance.dashboard.view',
+            ])
+        ) {
+            return;
+        }
+
+        abort(403, 'Unauthorized access to cashbook.');
     }
 
     private function resolveShop(int|string $shopParam): ShopLedgerProfile
