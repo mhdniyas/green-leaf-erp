@@ -135,7 +135,11 @@
 
                 syncUrl() {
                     try {
+                        window.activeHubTimeframe = this.timeframe;
+                        window.activeHubStartDate = this.startDate;
+                        window.activeHubEndDate = this.endDate;
                         window.activeHubTypeFilter = this.typeFilter;
+
                         const url = new URL(window.location.href);
                         url.searchParams.set('timeframe', this.timeframe);
                         url.searchParams.set('start_date', this.startDate);

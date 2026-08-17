@@ -186,45 +186,12 @@ final class CashbookController extends Controller
 
         $shopIds = $filteredShops->pluck('shop_id')->map(fn ($id) => (int) $id)->all();
 
-        // 1. Sales per shop
-        $salesPerShop = ShopLedgerTransaction::query()
+        $transactions = ShopLedgerTransaction::query()
             ->whereIn('shop_id', $shopIds)
-            ->where('status', '!=', 'voided')
-            ->where(function ($q) {
-                $q->where('direction', 'income')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
-            })
-            ->whereDate('business_date', '>=', $filters['start_date'])
-            ->whereDate('business_date', '<=', $filters['end_date'])
-            ->selectRaw('shop_id, SUM(amount) as total_sales')
-            ->groupBy('shop_id')
-            ->pluck('total_sales', 'shop_id');
-
-        // 2. Expense per shop
-        $expensePerShop = ShopLedgerTransaction::query()
-            ->whereIn('shop_id', $shopIds)
-            ->where('status', '!=', 'voided')
-            ->where(function ($q) {
-                $q->where('direction', 'expense')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
-            })
-            ->whereDate('business_date', '>=', $filters['start_date'])
-            ->whereDate('business_date', '<=', $filters['end_date'])
-            ->selectRaw('shop_id, SUM(amount) as total_expense')
-            ->groupBy('shop_id')
-            ->pluck('total_expense', 'shop_id');
-
-        // 3. GL Bills per shop
-        $glBillsPerShop = ShopInvoice::query()
-            ->whereIn('shop_id', $shopIds)
-            ->where('status', '!=', 'cancelled')
-            ->where('final_total', '>', 0)
-            ->whereDate('business_date', '>=', $filters['start_date'])
-            ->whereDate('business_date', '<=', $filters['end_date'])
-            ->selectRaw('shop_id, COUNT(*) as bill_count, SUM(final_total) as total_gl')
-            ->groupBy('shop_id')
-            ->get()
-            ->keyBy('shop_id');
+            ->whereBetween('business_date', [$filters['start_date'], $filters['end_date']])
+            ->where('status', '!=', 'void')
+            ->with('entryType')
+            ->get();
 
         $shopRows = [];
         $grandSales = 0.0;
@@ -236,13 +203,47 @@ final class CashbookController extends Controller
             $isDirect = $shop->client_id === null && $shop->profile_template === 'direct_buyer';
             $scopeLabel = $isDirect ? 'Direct' : ($shop->client?->name ?: 'Own');
 
-            $glData = $glBillsPerShop->get($shop->shop_id);
-            $billCount = (int) ($glData->bill_count ?? 0);
-            $gVal = round((float) ($glData->total_gl ?? 0), 2);
+            $shopTx = $transactions->where('shop_id', $shop->shop_id);
 
-            $sVal = round((float) ($salesPerShop[$shop->shop_id] ?? 0), 2);
-            $eVal = round((float) ($expensePerShop[$shop->shop_id] ?? 0), 2);
+            $txByDate = $shopTx->groupBy(
+                fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
+            );
+
+            $activeTx = collect();
+            foreach ($txByDate as $dateStr => $dayTxs) {
+                $hasNonGlBill = $dayTxs->contains(function ($t) {
+                    $code = $t->entryType?->code ?: $t->entry_type_code;
+                    return $t->reference_type !== 'App\Models\ShopInvoice'
+                        && $t->reference_type !== \App\Models\ShopInvoice::class
+                        && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
+                });
+
+                if ($hasNonGlBill) {
+                    $activeTx = $activeTx->concat($dayTxs);
+                }
+            }
+
+            $sVal = (float) $activeTx
+                ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
+                ->sum('amount');
+
+            $eVal = (float) $activeTx
+                ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
+                ->sum('amount');
+
             $nVal = round($sVal - $eVal, 2);
+
+            $glBillTxs = $activeTx
+                ->filter(function ($t) {
+                    $code = $t->entryType?->code ?: $t->entry_type_code;
+                    return in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
+                        || str_contains(strtolower((string) $t->notes), 'invoice')
+                        || $t->reference_type === 'App\Models\ShopInvoice'
+                        || $t->reference_type === \App\Models\ShopInvoice::class;
+                });
+
+            $gVal = (float) $glBillTxs->sum('amount');
+            $billCount = (int) $glBillTxs->count();
 
             if ($billCount === 0 && $sVal == 0.0 && $eVal == 0.0) {
                 continue;
@@ -257,10 +258,10 @@ final class CashbookController extends Controller
                 'shop_id' => $shop->shop_id,
                 'name' => $shop->name ?: ('Shop #' . $shop->shop_id),
                 'scope' => $scopeLabel,
-                'sales' => $sVal,
-                'expense' => $eVal,
+                'sales' => round($sVal, 2),
+                'expense' => round($eVal, 2),
                 'net' => $nVal,
-                'gl_bills' => $gVal,
+                'gl_bills' => round($gVal, 2),
                 'bill_count' => $billCount,
             ];
         }
