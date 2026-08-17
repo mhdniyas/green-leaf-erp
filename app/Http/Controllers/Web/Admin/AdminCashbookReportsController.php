@@ -565,7 +565,6 @@ class AdminCashbookReportsController extends Controller
             ->whereIn('shop_id', $shopIds)
             ->whereBetween('business_date', [$startDate, $endDate])
             ->where('status', '!=', 'void')
-            ->whereNull('parent_transaction_id')
             ->with('entryType')
             ->get();
 
@@ -656,7 +655,6 @@ class AdminCashbookReportsController extends Controller
             ->where('shop_id', $shopId)
             ->whereBetween('business_date', [$startDate, $endDate])
             ->where('status', '!=', 'void')
-            ->whereNull('parent_transaction_id')
             ->with('entryType')
             ->orderByDesc('business_date')
             ->orderByDesc('id')
