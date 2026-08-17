@@ -95,9 +95,10 @@
                     <tr class="hover:bg-slate-50 {{ isset($row[0]) && $row[0] === 'Total' ? 'bg-slate-100/80 font-black' : '' }}">
                         @foreach($row as $colIndex => $colVal)
                             @php
-                                $isNumeric = is_numeric($colVal) && ($row[0] === 'Total' || (count($row) >= 5 && $colIndex >= 2) || (count($row) === 4 && $colIndex === 3) || (count($row) === 3 && $colIndex === 2));
+                                $isNumeric = is_numeric($colVal) && $colIndex > 0;
+                                $isSalesCol = ($colIndex === 1 && count($row) === 5) || ($colIndex === 2 && count($row) === 6);
                             @endphp
-                            <td class="py-2.5 px-3 {{ $isNumeric ? 'text-right font-mono font-bold' : 'text-left font-semibold text-slate-800' }}">
+                            <td class="py-2.5 px-3 {{ $isNumeric ? 'text-right font-mono font-bold' : 'text-left font-semibold text-slate-800' }} {{ $isSalesCol ? 'text-emerald-700 font-extrabold' : '' }}">
                                 @if($isNumeric)
                                     ₹{{ number_format((float) $colVal, 2) }}
                                 @else
