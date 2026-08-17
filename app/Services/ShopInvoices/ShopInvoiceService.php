@@ -23,7 +23,9 @@ use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class ShopInvoiceService
 {
@@ -838,33 +840,48 @@ class ShopInvoiceService
                     $shortageQty = 0.0;
                 }
 
-                $price = $this->approvedDailyPriceResolver->resolve($product, $invoice->shop, $invoice->business_date);
-                $unitPrice = round((float) $price['price'], 2);
-                $priceUnit = (string) $price['price_unit'];
-                $productOrderItems = $orderItemsByProduct->get((int) $product->id);
-                $orderItemContext = $productOrderItems instanceof Collection ? $productOrderItems : null;
-                $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit, $orderItemContext);
-                $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItemContext);
-                $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit, $orderItemContext);
-                $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit, $orderItemContext);
-                $lineSubtotal = round($priceQuantity * $unitPrice, 2);
-                $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
-                $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
+                try {
+                    $price = $this->approvedDailyPriceResolver->resolve($product, $invoice->shop, $invoice->business_date);
+                    $unitPrice = round((float) $price['price'], 2);
+                    $priceUnit = (string) $price['price_unit'];
+                    $productOrderItems = $orderItemsByProduct->get((int) $product->id);
+                    $orderItemContext = $productOrderItems instanceof Collection ? $productOrderItems : null;
+                    $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit, $orderItemContext);
+                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItemContext);
+                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit, $orderItemContext);
+                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit, $orderItemContext);
+                    $lineSubtotal = round($priceQuantity * $unitPrice, 2);
+                    $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
+                    $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
 
-                $invoiceItem->update([
-                    'price_unit' => $priceUnit,
-                    'price_quantity' => $priceQuantity,
-                    'delivered_price_quantity' => $deliveredPriceQuantity,
-                    'shortage_qty' => $shortageQty,
-                    'shortage_price_quantity' => $shortagePriceQuantity,
-                    'excess_qty' => $excessQty,
-                    'excess_price_quantity' => $excessPriceQuantity,
-                    'unit_price' => $unitPrice,
-                    'line_subtotal' => $lineSubtotal,
-                    'shortage_amount' => $shortageAmount,
-                    'excess_amount' => $excessAmount,
-                    'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
-                ]);
+                    $invoiceItem->update([
+                        'price_unit' => $priceUnit,
+                        'price_quantity' => $priceQuantity,
+                        'delivered_price_quantity' => $deliveredPriceQuantity,
+                        'shortage_qty' => $shortageQty,
+                        'shortage_price_quantity' => $shortagePriceQuantity,
+                        'excess_qty' => $excessQty,
+                        'excess_price_quantity' => $excessPriceQuantity,
+                        'unit_price' => $unitPrice,
+                        'line_subtotal' => $lineSubtotal,
+                        'shortage_amount' => $shortageAmount,
+                        'excess_amount' => $excessAmount,
+                        'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
+                    ]);
+                } catch (Throwable $e) {
+                    // Skip this product if pricing data is missing or invalid.
+                    // The loadout save must not be blocked by a single product's price issue.
+                    // The unpriced_product_names list shown in the UI will surface these products.
+                    Log::warning('repriceInvoice: skipped product due to pricing error', [
+                        'invoice_id' => $invoice->id,
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'business_date' => $invoice->business_date,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    continue;
+                }
             }
 
             $invoice->update([

@@ -21,6 +21,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Spatie\Permission\Models\Permission;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -59,6 +61,164 @@ class ProductController extends Controller
             : 0;
 
         return view('inventory.products.index', compact('products', 'categories', 'warehouseReceivers', 'deletedCount'));
+    }
+
+    public function flags(Request $request): View
+    {
+        $today = now()->toDateString();
+
+        // 1. Base unit marked is_orderable=0 → "cannot be invoiced in kg" error
+        $baseUnitNotOrderable = DB::table('product_units as pu')
+            ->join('products as p', 'p.id', '=', 'pu.product_id')
+            ->where('p.is_active', 1)
+            ->where('pu.is_base', 1)
+            ->where('pu.is_orderable', 0)
+            ->select('p.id', 'p.name', 'p.sku', DB::raw("'Base unit is_orderable=0 — invoice will throw \'cannot be invoiced\' error' as detail"))
+            ->orderBy('p.name')
+            ->get();
+
+        // 2. No approved price today → loadout save will fail
+        $missingTodayPrice = DB::table('products as p')
+            ->where('p.is_active', 1)
+            ->whereNotExists(fn ($q) => $q
+                ->from('daily_price_approvals as dpa')
+                ->whereColumn('dpa.product_id', 'p.id')
+                ->where('dpa.business_date', $today)
+                ->where('dpa.status', 'approved')
+            )
+            ->select('p.id', 'p.name', 'p.sku', DB::raw("CONCAT('No approved price for {$today}') as detail"))
+            ->orderBy('p.name')
+            ->get();
+
+        // 3. price_unit in latest approval has no matching orderable product_unit → conversion error
+        $priceUnitMismatch = DB::table('daily_price_approvals as dpa')
+            ->join('products as p', 'p.id', '=', 'dpa.product_id')
+            ->where('p.is_active', 1)
+            ->where('dpa.business_date', $today)
+            ->where('dpa.status', 'approved')
+            ->whereRaw('LOWER(dpa.price_unit) != LOWER(p.unit)')
+            ->whereNotExists(fn ($q) => $q
+                ->from('product_units as pu')
+                ->whereColumn('pu.product_id', 'dpa.product_id')
+                ->whereRaw('LOWER(pu.unit) = LOWER(dpa.price_unit)')
+                ->where('pu.is_orderable', 1)
+            )
+            ->select('p.id', 'p.name', 'p.sku',
+                DB::raw("CONCAT('Price unit \"', dpa.price_unit, '\" has no orderable product unit — conversion error') as detail")
+            )
+            ->orderBy('p.name')
+            ->get();
+
+        // 4. Active product with zero product_units rows
+        $noProductUnits = DB::table('products as p')
+            ->where('p.is_active', 1)
+            ->whereNotExists(fn ($q) => $q
+                ->from('product_units as pu')
+                ->whereColumn('pu.product_id', 'p.id')
+            )
+            ->select('p.id', 'p.name', 'p.sku', DB::raw("'No product units defined — all conversions will fail' as detail"))
+            ->orderBy('p.name')
+            ->get();
+
+        // 5. NULL base unit on product
+        $nullBaseUnit = DB::table('products as p')
+            ->where('p.is_active', 1)
+            ->whereNull('p.unit')
+            ->select('p.id', 'p.name', 'p.sku', DB::raw("'Product base unit is NULL — unpredictable invoice behaviour' as detail"))
+            ->orderBy('p.name')
+            ->get();
+
+        // 6. Price unit NULL in latest approval
+        $nullPriceUnit = DB::table('daily_price_approvals as dpa')
+            ->join('products as p', 'p.id', '=', 'dpa.product_id')
+            ->where('p.is_active', 1)
+            ->where('dpa.business_date', $today)
+            ->where('dpa.status', 'approved')
+            ->whereNull('dpa.price_unit')
+            ->select('p.id', 'p.name', 'p.sku', DB::raw("'Price unit is NULL in today\'s approval — may default wrongly' as detail"))
+            ->orderBy('p.name')
+            ->get();
+
+        // 7. No approved price in last 7 days (potential scheduler gap)
+        $noPriceLast7Days = DB::table('products as p')
+            ->where('p.is_active', 1)
+            ->whereNotExists(fn ($q) => $q
+                ->from('daily_price_approvals as dpa')
+                ->whereColumn('dpa.product_id', 'p.id')
+                ->where('dpa.status', 'approved')
+                ->where('dpa.business_date', '>=', now()->subDays(7)->toDateString())
+            )
+            ->select('p.id', 'p.name', 'p.sku', DB::raw("'No approved price in last 7 days — price seeder may have missed this product' as detail"))
+            ->orderBy('p.name')
+            ->get();
+
+        // 8. Duplicate product units (same unit code appears twice)
+        $duplicateUnits = DB::table('product_units as pu')
+            ->join('products as p', 'p.id', '=', 'pu.product_id')
+            ->where('p.is_active', 1)
+            ->select(
+                'p.id as id',
+                'p.name',
+                'p.sku',
+                'pu.unit',
+                DB::raw('COUNT(*) as unit_count'),
+                DB::raw("CONCAT('Unit \"', pu.unit, '\" appears ', COUNT(*), ' times — may cause wrong conversion lookup') as detail")
+            )
+            ->groupBy('p.id', 'p.name', 'p.sku', 'pu.unit')
+            ->havingRaw('COUNT(*) > 1')
+            ->orderBy('p.name')
+            ->get();
+
+        // 9. Today's approved price above 5000 — informational sanity check
+        $priceAbove5000 = DB::table('daily_price_approvals as dpa')
+            ->join('products as p', 'p.id', '=', 'dpa.product_id')
+            ->where('p.is_active', 1)
+            ->where('dpa.business_date', $today)
+            ->where('dpa.status', 'approved')
+            ->where(fn ($q) => $q->where('dpa.price_a', '>', 5000)
+                ->orWhere('dpa.price_b', '>', 5000)
+                ->orWhere('dpa.price_c', '>', 5000)
+            )
+            ->select(
+                'p.id as id',
+                'p.name',
+                'p.sku',
+                'dpa.price_unit',
+                'dpa.price_a',
+                'dpa.price_b',
+                'dpa.price_c',
+                DB::raw("CONCAT('Price A=', dpa.price_a, ' B=', dpa.price_b, ' C=', dpa.price_c, ' ', dpa.price_unit, ' — verify this is not a data entry error') as detail")
+            )
+            ->orderByRaw('GREATEST(dpa.price_a, dpa.price_b, dpa.price_c) DESC')
+            ->get();
+
+        $criticalCount = $baseUnitNotOrderable->count()
+            + $missingTodayPrice->count()
+            + $priceUnitMismatch->count()
+            + $noProductUnits->count()
+            + $nullBaseUnit->count();
+
+        $warningCount = $nullPriceUnit->count()
+            + $noPriceLast7Days->count()
+            + $duplicateUnits->count();
+
+        $infoCount = $priceAbove5000->count();
+
+        return view('inventory.products.flags', compact(
+            'today',
+            'baseUnitNotOrderable',
+            'missingTodayPrice',
+            'priceUnitMismatch',
+            'noProductUnits',
+            'nullBaseUnit',
+            'nullPriceUnit',
+            'noPriceLast7Days',
+            'duplicateUnits',
+            'priceAbove5000',
+            'criticalCount',
+            'warningCount',
+            'infoCount',
+        ));
     }
 
     public function trash(Request $request): View

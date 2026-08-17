@@ -289,6 +289,7 @@ Route::middleware('auth')->group(function () {
             Route::get('products/export/csv', [ProductController::class, 'exportCsv'])->name('products.export.csv');
             Route::get('products/export/pdf', [ProductController::class, 'exportPdf'])->name('products.export.pdf');
             Route::get('products/export/whatsapp', [ProductController::class, 'exportWhatsApp'])->name('products.export.whatsapp');
+            Route::get('products/flags', [ProductController::class, 'flags'])->name('products.flags');
             Route::get('products-trash', [ProductController::class, 'trash'])->name('products.trash');
         Route::patch('products-trash/{product}/restore', [ProductController::class, 'restore'])->name('products.restore');
         Route::delete('products-trash/{product}/force-delete', [ProductController::class, 'forceDelete'])->name('products.force-delete');

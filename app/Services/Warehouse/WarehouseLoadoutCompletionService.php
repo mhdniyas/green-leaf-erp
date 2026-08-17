@@ -16,7 +16,9 @@ use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class WarehouseLoadoutCompletionService
 {
@@ -167,11 +169,21 @@ class WarehouseLoadoutCompletionService
         $order->load(['shop.priceGroup', 'items.product', 'invoice.items']);
         $invoice = $this->invoiceService->synchronizeOrderInvoice($order, $user->id);
         if (! $invoice->isFinalLocked()) {
-            $this->invoiceService->repriceInvoice(
-                $invoice,
-                $user->id,
-                "Invoice recalculated after all warehouse loadouts completed for order {$order->order_number}."
-            );
+            try {
+                $this->invoiceService->repriceInvoice(
+                    $invoice,
+                    $user->id,
+                    "Invoice recalculated after all warehouse loadouts completed for order {$order->order_number}."
+                );
+            } catch (Throwable $e) {
+                // A pricing issue on one product must not block the order from moving to ready_for_dispatch.
+                // The missing price will be visible in the unpriced_product_names banner on the loadout screen.
+                Log::warning('WarehouseLoadoutCompletionService: repriceInvoice skipped due to error', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 
