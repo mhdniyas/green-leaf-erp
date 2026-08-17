@@ -705,12 +705,19 @@ class AdminCashbookReportsController extends Controller
             ->filter(fn ($t) => $t->funding_source === 'petty')
             ->sum('amount');
 
-        // Detailed category breakdown with itemized list for each category
+        // Detailed category breakdown with itemized list for each category (separated by direction)
         $categoryBreakdown = $transactions
-            ->groupBy(fn ($t) => $t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry'))
-            ->map(function ($group, $categoryName) {
+            ->groupBy(function ($t) {
+                $name = $t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry');
+                $dir = $t->direction ?: ($t->entryType?->category ?: 'expense');
+                return $name . '___' . $dir;
+            })
+            ->map(function ($group, $key) {
+                $parts = explode('___', $key);
+                $categoryName = $parts[0];
+                $direction = $parts[1] ?? 'expense';
+
                 $first = $group->first();
-                $direction = $first->direction ?: ($first->entryType?->category ?: 'expense');
                 $total = round((float) $group->sum('amount'), 2);
                 $count = $group->count();
                 $isGlBill = in_array($first->entryType?->code ?: $first->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
@@ -723,11 +730,11 @@ class AdminCashbookReportsController extends Controller
                     'amount' => $total,
                     'count' => $count,
                     'is_gl_bill' => $isGlBill,
-                    'items' => $group->map(function ($t) {
+                    'items' => $group->map(function ($t) use ($direction) {
                         return [
                             'id' => $t->id,
                             'amount' => (float) $t->amount,
-                            'direction' => $t->direction ?: ($t->entryType?->category ?: 'expense'),
+                            'direction' => $t->direction ?: ($t->entryType?->category ?: $direction),
                             'business_date' => Carbon::parse($t->business_date)->toDateString(),
                             'formatted_date' => Carbon::parse($t->business_date)->format('d M Y'),
                             'category_name' => $t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry'),
