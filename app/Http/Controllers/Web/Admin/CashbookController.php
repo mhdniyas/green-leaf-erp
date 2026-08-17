@@ -2577,12 +2577,14 @@ final class CashbookController extends Controller
 
         $rows[] = [];
 
+        $shopMap = $allShops->keyBy('shop_id');
+
         // Table 2: Total Sales Details (with Day header & Shop name)
         $rows[] = ['Total Sales Details'];
         $rows[] = ['Date', 'Day', 'Shop', 'Income'];
 
         $incomeTransactions = ShopLedgerTransaction::query()
-            ->with(['entryType', 'shopProfile'])
+            ->with('entryType')
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
@@ -2599,7 +2601,7 @@ final class CashbookController extends Controller
             $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
             $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
             $dayName = $carbonDate ? $carbonDate->format('l') : '';
-            $shopName = $tx->shopProfile?->name ?: ('Shop #' . $tx->shop_id);
+            $shopName = isset($shopMap[$tx->shop_id]) ? $shopMap[$tx->shop_id]->name : ('Shop #' . $tx->shop_id);
 
             $rows[] = [$bDate, $dayName, $shopName, round((float) $tx->amount, 2)];
         }
@@ -2611,7 +2613,7 @@ final class CashbookController extends Controller
         $rows[] = ['Date', 'Day', 'Shop', 'Expense'];
 
         $expenseTransactions = ShopLedgerTransaction::query()
-            ->with(['entryType', 'shopProfile'])
+            ->with('entryType')
             ->whereIn('shop_id', $shopIds)
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
@@ -2628,7 +2630,7 @@ final class CashbookController extends Controller
             $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
             $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
             $dayName = $carbonDate ? $carbonDate->format('l') : '';
-            $shopName = $tx->shopProfile?->name ?: ('Shop #' . $tx->shop_id);
+            $shopName = isset($shopMap[$tx->shop_id]) ? $shopMap[$tx->shop_id]->name : ('Shop #' . $tx->shop_id);
 
             $rows[] = [$bDate, $dayName, $shopName, round((float) $tx->amount, 2)];
         }

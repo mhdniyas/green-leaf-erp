@@ -47,37 +47,58 @@
         </div>
 
         <!-- Render Export Tables -->
-        @php
-            $currentSection = null;
-        @endphp
-
         <div class="space-y-6">
-            @foreach($exportRows as $row)
+            @php $inTable = false; @endphp
+            @foreach($exportRows as $rowIndex => $row)
                 @if(empty($row))
+                    @if($inTable)
+                        </tbody>
+                        </table>
+                        </div>
+                        @php $inTable = false; @endphp
+                    @endif
                     @continue
                 @endif
 
                 @if(count($row) === 1 && in_array($row[0], ['Total Sales Details', 'Total Expense Details']))
-                    @php $currentSection = $row[0]; @endphp
+                    @if($inTable)
+                        </tbody>
+                        </table>
+                        </div>
+                        @php $inTable = false; @endphp
+                    @endif
                     <div class="pt-4 border-t border-slate-200">
-                        <h3 class="text-base font-black text-slate-900">{{ $currentSection }}</h3>
+                        <h3 class="text-base font-black text-slate-900">{{ $row[0] }}</h3>
                     </div>
-                @elseif(isset($row[0]) && $row[0] === 'Date')
+                @elseif(isset($row[0]) && in_array($row[0], ['Date', 'Shop Name', 'Shop']))
+                    @if($inTable)
+                        </tbody>
+                        </table>
+                        </div>
+                        @php $inTable = false; @endphp
+                    @endif
                     <div class="overflow-x-auto rounded-xl border border-slate-200">
                         <table class="w-full text-left text-xs">
                             <thead class="bg-slate-50 border-b border-slate-200 text-[10px] font-black uppercase text-slate-500">
                                 <tr>
                                     @foreach($row as $colIndex => $colHeader)
-                                        <th class="py-2.5 px-3 {{ $colIndex > 0 ? 'text-right' : '' }}">{{ $colHeader }}</th>
+                                        @php
+                                            $isRight = in_array($colHeader, ['Sales Total', 'Total Expense', 'Net Balance', 'GL Bill', 'Income', 'Expense']);
+                                        @endphp
+                                        <th class="py-2.5 px-3 {{ $isRight ? 'text-right' : 'text-left' }}">{{ $colHeader }}</th>
                                     @endforeach
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-slate-100 font-mono">
+                            <tbody class="divide-y divide-slate-100">
+                            @php $inTable = true; @endphp
                 @else
-                    <tr class="hover:bg-slate-50">
+                    <tr class="hover:bg-slate-50 {{ isset($row[0]) && $row[0] === 'Total' ? 'bg-slate-100/80 font-black' : '' }}">
                         @foreach($row as $colIndex => $colVal)
-                            <td class="py-2.5 px-3 {{ $colIndex > 0 ? 'text-right font-bold' : 'font-bold text-slate-900' }}">
-                                @if(is_numeric($colVal) && $colIndex > 0)
+                            @php
+                                $isNumeric = is_numeric($colVal) && ($row[0] === 'Total' || (count($row) >= 5 && $colIndex >= 2) || (count($row) === 4 && $colIndex === 3) || (count($row) === 3 && $colIndex === 2));
+                            @endphp
+                            <td class="py-2.5 px-3 {{ $isNumeric ? 'text-right font-mono font-bold' : 'text-left font-semibold text-slate-800' }}">
+                                @if($isNumeric)
                                     ₹{{ number_format((float) $colVal, 2) }}
                                 @else
                                     {{ $colVal }}
@@ -85,13 +106,14 @@
                             </td>
                         @endforeach
                     </tr>
-                    @if($loop->last || (isset($exportRows[$loop->index + 1]) && (empty($exportRows[$loop->index + 1]) || count($exportRows[$loop->index + 1]) === 1)))
-                            </tbody>
-                        </table>
-                    </div>
-                    @endif
                 @endif
             @endforeach
+
+            @if($inTable)
+                </tbody>
+                </table>
+                </div>
+            @endif
         </div>
     </div>
 </body>
