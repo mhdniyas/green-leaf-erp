@@ -35,6 +35,7 @@ use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -163,7 +164,7 @@ final class CashbookController extends Controller
         );
     }
 
-    public function exportReportsPdf(Request $request): View
+    public function exportReportsPdf(Request $request): mixed
     {
         $this->ensureMainAdmin($request);
 
@@ -181,6 +182,7 @@ final class CashbookController extends Controller
             if ($scope === 'direct') {
                 return $isDirect;
             }
+
             return true;
         })->values();
 
@@ -213,8 +215,9 @@ final class CashbookController extends Controller
             foreach ($txByDate as $dateStr => $dayTxs) {
                 $hasNonGlBill = $dayTxs->contains(function ($t) {
                     $code = $t->entryType?->code ?: $t->entry_type_code;
+
                     return $t->reference_type !== 'App\Models\ShopInvoice'
-                        && $t->reference_type !== \App\Models\ShopInvoice::class
+                        && $t->reference_type !== ShopInvoice::class
                         && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
                 });
 
@@ -236,10 +239,11 @@ final class CashbookController extends Controller
             $glBillTxs = $activeTx
                 ->filter(function ($t) {
                     $code = $t->entryType?->code ?: $t->entry_type_code;
+
                     return in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
                         || str_contains(strtolower((string) $t->notes), 'invoice')
                         || $t->reference_type === 'App\Models\ShopInvoice'
-                        || $t->reference_type === \App\Models\ShopInvoice::class;
+                        || $t->reference_type === ShopInvoice::class;
                 });
 
             $gVal = (float) $glBillTxs->sum('amount');
@@ -256,7 +260,7 @@ final class CashbookController extends Controller
 
             $shopRows[] = [
                 'shop_id' => $shop->shop_id,
-                'name' => $shop->name ?: ('Shop #' . $shop->shop_id),
+                'name' => $shop->name ?: ('Shop #'.$shop->shop_id),
                 'scope' => $scopeLabel,
                 'sales' => round($sVal, 2),
                 'expense' => round($eVal, 2),
@@ -273,7 +277,7 @@ final class CashbookController extends Controller
             'gl_bills' => round($grandGl, 2),
         ];
 
-        return view('admin.cashbook.reports.pdf_all_shops', [
+        $viewData = [
             'title' => 'All Shops Executive Financial Overview',
             'selectedDate' => $filters['selected_date'],
             'timeframe' => $filters['timeframe'],
@@ -282,7 +286,19 @@ final class CashbookController extends Controller
             'scope' => $scope,
             'shopRows' => $shopRows,
             'totals' => $totals,
-        ]);
+        ];
+
+        if ($request->boolean('download', false) || $request->input('download') === '1') {
+            $pdf = Pdf::loadView('admin.cashbook.reports.pdf_all_shops_download', $viewData)
+                ->setPaper('a4', 'portrait')
+                ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true]);
+
+            $fileName = 'all_shops_cashbook_report_'.$filters['start_date'].'_to_'.$filters['end_date'].'.pdf';
+
+            return $pdf->download($fileName);
+        }
+
+        return view('admin.cashbook.reports.pdf_all_shops', $viewData);
     }
 
     public function payables(Request $request): View
@@ -366,7 +382,7 @@ final class CashbookController extends Controller
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'income')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+                    ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
             })
             ->whereDate('business_date', '>=', $finalStart)
             ->whereDate('business_date', '<=', $finalEnd)
@@ -380,7 +396,7 @@ final class CashbookController extends Controller
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'expense')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+                    ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
             })
             ->whereDate('business_date', '>=', $finalStart)
             ->whereDate('business_date', '<=', $finalEnd)
@@ -438,7 +454,7 @@ final class CashbookController extends Controller
                 ->where('status', '!=', 'voided')
                 ->where(function ($q) {
                     $q->where('direction', 'income')
-                      ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+                        ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
                 })
                 ->whereDate('business_date', '>=', $finalStart)
                 ->whereDate('business_date', '<=', $finalEnd)
@@ -447,7 +463,7 @@ final class CashbookController extends Controller
                 ->get();
 
             foreach ($incomeTransactions as $tx) {
-                $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+                $carbonDate = $tx->business_date ? Carbon::parse($tx->business_date) : null;
                 $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
                 $dayName = $carbonDate ? $carbonDate->format('l') : '';
 
@@ -466,7 +482,7 @@ final class CashbookController extends Controller
                 ->where('status', '!=', 'voided')
                 ->where(function ($q) {
                     $q->where('direction', 'expense')
-                      ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+                        ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
                 })
                 ->whereDate('business_date', '>=', $finalStart)
                 ->whereDate('business_date', '<=', $finalEnd)
@@ -475,7 +491,7 @@ final class CashbookController extends Controller
                 ->get();
 
             foreach ($expenseTransactions as $tx) {
-                $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+                $carbonDate = $tx->business_date ? Carbon::parse($tx->business_date) : null;
                 $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
                 $dayName = $carbonDate ? $carbonDate->format('l') : '';
 
@@ -484,25 +500,38 @@ final class CashbookController extends Controller
         }
 
         if ($format === 'pdf') {
-            return view('admin.cashbook.reports.pdf', [
-                'title' => $resolvedShop->name . ' — Cashbook Report',
+            $viewData = [
+                'title' => $resolvedShop->name.' — Cashbook Report',
                 'selectedDate' => $date,
                 'timeframe' => $timeframe,
                 'startDate' => $finalStart,
                 'endDate' => $finalEnd,
                 'exportRows' => $rows,
-            ]);
+            ];
+
+            if ($request->boolean('download', false) || $request->input('download') === '1') {
+                $pdf = Pdf::loadView('admin.cashbook.reports.pdf_download', $viewData)
+                    ->setPaper('a4', 'portrait')
+                    ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true]);
+
+                $fileName = "cashbook_{$resolvedShop->slug}_{$finalStart}_to_{$finalEnd}.pdf";
+
+                return $pdf->download($fileName);
+            }
+
+            return view('admin.cashbook.reports.pdf', $viewData);
         }
 
         if ($format === 'excel') {
             return Excel::download(
-                new PurchaserReportArrayExport($rows, $resolvedShop->name . ' Report'),
+                new PurchaserReportArrayExport($rows, $resolvedShop->name.' Report'),
                 "cashbook_{$resolvedShop->slug}_{$finalStart}_to_{$finalEnd}.xlsx"
             );
         }
 
         // CSV Stream Download
         $filename = "cashbook_{$resolvedShop->slug}_{$finalStart}_to_{$finalEnd}.csv";
+
         return response()->streamDownload(function () use ($rows): void {
             $file = fopen('php://output', 'w');
             if ($file !== false) {
@@ -874,11 +903,13 @@ final class CashbookController extends Controller
                     $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
                     $payableDir = $setting?->payable_direction;
                     $isDeduction = $payableDir ? ($payableDir === 'minus') : ($direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true));
+
                     return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
                 }), 2);
 
                 $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
                     $notes = strtolower((string) ($st->notes ?? ''));
+
                     return str_contains($notes, strtolower($name)) || str_contains($notes, strtolower($code));
                 })->sum('amount');
 
@@ -935,6 +966,7 @@ final class CashbookController extends Controller
             $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
             $payableDir = $setting?->payable_direction;
             $isDeduction = $payableDir ? ($payableDir === 'minus') : ($direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true));
+
             return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
         }), 2);
         $totalReceivedAllocated = (float) $payableByCategory->sum('received_amount');
@@ -1240,12 +1272,12 @@ final class CashbookController extends Controller
                 'notes' => $item['notes'] ?? null,
             ];
 
-            if (!empty($item['funding_source']) && $item['funding_source'] !== 'none') {
+            if (! empty($item['funding_source']) && $item['funding_source'] !== 'none') {
                 $payload['funding_source'] = $item['funding_source'];
             }
 
             $result = $this->dailyLedgerService->recordEntry($payload);
-            if (!empty($result['transaction'])) {
+            if (! empty($result['transaction'])) {
                 $created[] = $result['transaction'];
             }
         }
@@ -1254,7 +1286,7 @@ final class CashbookController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => count($created) . ' entries created successfully.',
+            'message' => count($created).' entries created successfully.',
             'count' => count($created),
             'snapshot' => $snapshot,
         ]);
@@ -1279,7 +1311,7 @@ final class CashbookController extends Controller
             $entryType = LedgerEntryType::where('code', $categoryCode)->first();
             $categoryLabel = $entryType ? $entryType->name : $categoryCode;
             if (! str_contains(strtolower($notes), strtolower($categoryLabel))) {
-                $notes = "[{$categoryLabel}] " . $notes;
+                $notes = "[{$categoryLabel}] ".$notes;
             }
         }
 
@@ -1676,27 +1708,27 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $validated = $request->validate([
-            'shop_id'                => 'required|integer',
-            'entry_type_id'          => 'required|integer|exists:ledger_entry_types,id',
+            'shop_id' => 'required|integer',
+            'entry_type_id' => 'required|integer|exists:ledger_entry_types,id',
             'default_funding_source' => 'required|string',
-            'include_in_sales'       => 'nullable|boolean',
-            'include_in_expense'     => 'nullable|boolean',
-            'include_in_pl'          => 'nullable|boolean',
-            'generates_secondary'    => 'nullable|boolean',
+            'include_in_sales' => 'nullable|boolean',
+            'include_in_expense' => 'nullable|boolean',
+            'include_in_pl' => 'nullable|boolean',
+            'generates_secondary' => 'nullable|boolean',
         ]);
 
         try {
             $setting = ShopLedgerEntrySetting::updateOrCreate(
                 [
-                    'shop_id'       => $validated['shop_id'],
+                    'shop_id' => $validated['shop_id'],
                     'entry_type_id' => $validated['entry_type_id'],
                 ],
                 [
-                    'enabled'                   => true,
-                    'default_funding_source'    => $validated['default_funding_source'],
-                    'include_in_sales'          => (bool) ($validated['include_in_sales'] ?? false),
-                    'include_in_expense'        => (bool) ($validated['include_in_expense'] ?? false),
-                    'include_in_pl'             => (bool) ($validated['include_in_pl'] ?? true),
+                    'enabled' => true,
+                    'default_funding_source' => $validated['default_funding_source'],
+                    'include_in_sales' => (bool) ($validated['include_in_sales'] ?? false),
+                    'include_in_expense' => (bool) ($validated['include_in_expense'] ?? false),
+                    'include_in_pl' => (bool) ($validated['include_in_pl'] ?? true),
                     'generates_secondary_entry' => (bool) ($validated['generates_secondary'] ?? false),
                 ]
             );
@@ -1863,7 +1895,7 @@ final class CashbookController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => $updated > 0 ? $label : "No pending entries found to approve.",
+                'message' => $updated > 0 ? $label : 'No pending entries found to approve.',
                 'approved_count' => $updated,
             ]);
         } catch (Throwable $e) {
@@ -2301,7 +2333,7 @@ final class CashbookController extends Controller
      * Collection rows are posted as real ledger transactions, so every selected
      * row also needs a normal preset/shop ledger setting for the rule resolver.
      *
-     * @param array<int, string> $entryTypeRoles
+     * @param  array<int, string>  $entryTypeRoles
      */
     private function ensureCollectionEntrySettings(int $presetId, array $entryTypeRoles): void
     {
@@ -2421,7 +2453,7 @@ final class CashbookController extends Controller
 
         try {
             $name = trim($validated['name']);
-            $code = !empty($validated['code'])
+            $code = ! empty($validated['code'])
                 ? strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', str_replace(' ', '_', $validated['code'])))
                 : strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', str_replace(' ', '_', $name)));
 
@@ -2446,10 +2478,10 @@ final class CashbookController extends Controller
                     ],
                     [
                         'enabled' => true,
-                        'include_in_sales' => (bool)($validated['include_in_sales'] ?? false),
-                        'include_in_income' => (bool)($validated['include_in_sales'] ?? false),
-                        'include_in_expense' => (bool)($validated['include_in_expense'] ?? false),
-                        'include_in_pl' => (bool)($validated['include_in_pl'] ?? true),
+                        'include_in_sales' => (bool) ($validated['include_in_sales'] ?? false),
+                        'include_in_income' => (bool) ($validated['include_in_sales'] ?? false),
+                        'include_in_expense' => (bool) ($validated['include_in_expense'] ?? false),
+                        'include_in_pl' => (bool) ($validated['include_in_pl'] ?? true),
                         'settlement_behavior' => $validated['settlement_behavior'] ?? 'none',
                         'petty_behavior' => $validated['petty_behavior'] ?? 'none',
                         'company_pending_behavior' => $validated['company_pending_behavior'] ?? 'none',
@@ -2631,6 +2663,7 @@ final class CashbookController extends Controller
             if ($scope === 'direct') {
                 return $isDirect;
             }
+
             return true;
         })->values();
 
@@ -2642,7 +2675,7 @@ final class CashbookController extends Controller
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'income')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+                    ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
             })
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
@@ -2656,7 +2689,7 @@ final class CashbookController extends Controller
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'expense')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+                    ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
             })
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
@@ -2712,7 +2745,7 @@ final class CashbookController extends Controller
             $exportedShopsCount++;
 
             $rows[] = [
-                $shop->name ?: ('Shop #' . $shop->shop_id),
+                $shop->name ?: ('Shop #'.$shop->shop_id),
                 $scopeLabel,
                 $sVal,
                 $eVal,
@@ -2723,7 +2756,7 @@ final class CashbookController extends Controller
 
         // Grand Total Row
         $rows[] = [
-            'Total (' . $exportedShopsCount . ' Shops)',
+            'Total ('.$exportedShopsCount.' Shops)',
             '-',
             round($grandSales, 2),
             round($grandExpense, 2),
@@ -2749,7 +2782,7 @@ final class CashbookController extends Controller
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'income')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
+                    ->orWhereHas('entryType', fn ($e) => $e->where('category', 'income'));
             })
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
@@ -2758,10 +2791,10 @@ final class CashbookController extends Controller
             ->get();
 
         foreach ($incomeTransactions as $tx) {
-            $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+            $carbonDate = $tx->business_date ? Carbon::parse($tx->business_date) : null;
             $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
             $dayName = $carbonDate ? $carbonDate->format('l') : '';
-            $shopName = isset($shopMap[$tx->shop_id]) ? $shopMap[$tx->shop_id]->name : ('Shop #' . $tx->shop_id);
+            $shopName = isset($shopMap[$tx->shop_id]) ? $shopMap[$tx->shop_id]->name : ('Shop #'.$tx->shop_id);
 
             $rows[] = [$bDate, $dayName, $shopName, round((float) $tx->amount, 2)];
         }
@@ -2778,7 +2811,7 @@ final class CashbookController extends Controller
             ->where('status', '!=', 'voided')
             ->where(function ($q) {
                 $q->where('direction', 'expense')
-                  ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
+                    ->orWhereHas('entryType', fn ($e) => $e->where('category', 'expense'));
             })
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
@@ -2787,10 +2820,10 @@ final class CashbookController extends Controller
             ->get();
 
         foreach ($expenseTransactions as $tx) {
-            $carbonDate = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date) : null;
+            $carbonDate = $tx->business_date ? Carbon::parse($tx->business_date) : null;
             $bDate = $carbonDate ? $carbonDate->format('Y-m-d') : '';
             $dayName = $carbonDate ? $carbonDate->format('l') : '';
-            $shopName = isset($shopMap[$tx->shop_id]) ? $shopMap[$tx->shop_id]->name : ('Shop #' . $tx->shop_id);
+            $shopName = isset($shopMap[$tx->shop_id]) ? $shopMap[$tx->shop_id]->name : ('Shop #'.$tx->shop_id);
 
             $rows[] = [$bDate, $dayName, $shopName, round((float) $tx->amount, 2)];
         }

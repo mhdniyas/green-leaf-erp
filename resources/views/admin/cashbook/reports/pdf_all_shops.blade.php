@@ -50,6 +50,27 @@
     </style>
 </head>
 <body class="bg-slate-100 p-4 sm:p-6 text-slate-900 font-sans">
+    @php
+        $uniqueScopes = collect($shopRows)->pluck('scope')->filter()->unique();
+        $hasMultipleScopes = $uniqueScopes->count() > 1;
+        $singleScopeName = $uniqueScopes->count() === 1 ? $uniqueScopes->first() : null;
+        $displayScope = $singleScopeName ?: (strtoupper($scope) !== 'ALL' ? strtoupper($scope) : 'ALL');
+
+        $sCarbon = \Carbon\Carbon::parse($startDate);
+        $eCarbon = \Carbon\Carbon::parse($endDate);
+        $daysCount = max(1, $sCarbon->diffInDays($eCarbon) + 1);
+
+        $totSales = $totals['sales'] ?? 0;
+        $totExpense = $totals['expense'] ?? 0;
+        $totNet = $totals['net'] ?? 0;
+        $totGl = $totals['gl_bills'] ?? 0;
+
+        $totDailyAvgSales = round($totSales / $daysCount, 2);
+        $expPct = $totSales > 0 ? round(($totExpense / $totSales) * 100, 1) : 0;
+        $netPct = $totSales > 0 ? round(($totNet / $totSales) * 100, 1) : 0;
+        $glPct = $totSales > 0 ? round(($totGl / $totSales) * 100, 1) : 0;
+    @endphp
+
     <div class="max-w-5xl mx-auto bg-white rounded-2xl border border-slate-200 p-6 shadow-sm print-card space-y-6">
         <!-- Print Top Control Bar -->
         <div class="flex justify-between items-center no-print border-b border-slate-200 pb-4">
@@ -58,12 +79,17 @@
                 <p class="text-xs text-slate-500 font-medium">Network multi-shop financial summary and breakdown.</p>
             </div>
             <div class="flex gap-2">
-                <button onclick="window.close()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl cursor-pointer">
+                <button onclick="window.close()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer">
                     Close
                 </button>
-                <button onclick="window.print()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer">
-                    Print / Save PDF
+                <button onclick="window.print()" class="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                    Print
                 </button>
+                <a href="{{ request()->fullUrlWithQuery(['download' => 1]) }}" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Download PDF
+                </a>
             </div>
         </div>
 
@@ -71,11 +97,11 @@
         <div class="bg-slate-950 text-white rounded-xl p-4 sm:p-5 flex justify-between items-center overflow-hidden">
             <div class="min-w-0 pr-3">
                 <p class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Green Leaf ERP — Executive Network Report</p>
-                <h2 class="text-base sm:text-lg font-black text-white mt-0.5 tracking-tight truncate">{{ $title ?? 'Executive Financial Overview' }}</h2>
+                <h2 class="text-base sm:text-lg font-black text-white mt-0.5 tracking-tight truncate">{{ $title ?? 'All Shops Executive Financial Overview' }}</h2>
                 <p class="text-[11px] text-slate-400 mt-0.5 truncate">
                     Period: <span class="text-white font-bold">{{ $startDate }}</span> to <span class="text-white font-bold">{{ $endDate }}</span>
                     <span class="ml-1.5 uppercase text-[9.5px] font-black bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">{{ $timeframe }}</span>
-                    <span class="ml-1 uppercase text-[9.5px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded">Scope: {{ strtoupper($scope) }}</span>
+                    <span class="ml-1 uppercase text-[9.5px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded">Scope: {{ strtoupper($displayScope) }}</span>
                 </p>
             </div>
             <div class="text-right shrink-0">
@@ -85,21 +111,6 @@
         </div>
 
         <!-- Executive Summary Cards Grid -->
-        @php
-            $sCarbon = \Carbon\Carbon::parse($startDate);
-            $eCarbon = \Carbon\Carbon::parse($endDate);
-            $daysCount = max(1, $sCarbon->diffInDays($eCarbon) + 1);
-
-            $totSales = $totals['sales'] ?? 0;
-            $totExpense = $totals['expense'] ?? 0;
-            $totNet = $totals['net'] ?? 0;
-            $totGl = $totals['gl_bills'] ?? 0;
-
-            $totDailyAvgSales = round($totSales / $daysCount, 2);
-            $expPct = $totSales > 0 ? round(($totExpense / $totSales) * 100, 1) : 0;
-            $netPct = $totSales > 0 ? round(($totNet / $totSales) * 100, 1) : 0;
-            $glPct = $totSales > 0 ? round(($totGl / $totSales) * 100, 1) : 0;
-        @endphp
         <div class="grid grid-cols-4 gap-2.5">
             <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 text-center flex flex-col justify-between overflow-hidden min-w-0">
                 <p class="text-[9px] font-black uppercase text-slate-500 tracking-wider truncate">Total Network Sales</p>
@@ -133,7 +144,9 @@
                 <thead class="bg-slate-50 border-b border-slate-200 text-[10px] font-black uppercase text-slate-500">
                     <tr>
                         <th class="py-2.5 px-3">Shop Name</th>
-                        <th class="py-2.5 px-3">Scope</th>
+                        @if($hasMultipleScopes)
+                            <th class="py-2.5 px-3">Scope</th>
+                        @endif
                         <th class="py-2.5 px-3 text-right">Sales Total</th>
                         <th class="py-2.5 px-3 text-right">Total Expense</th>
                         <th class="py-2.5 px-3 text-right">Net Balance</th>
@@ -155,11 +168,13 @@
                         @endphp
                         <tr class="hover:bg-slate-50">
                             <td class="py-2.5 px-3 font-bold text-slate-900">{{ $shopRow['name'] }}</td>
-                            <td class="py-2.5 px-3 text-slate-500 text-[11px]">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase {{ $shopRow['scope'] === 'Direct' ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700' }}">
-                                    {{ $shopRow['scope'] }}
-                                </span>
-                            </td>
+                            @if($hasMultipleScopes)
+                                <td class="py-2.5 px-3 text-slate-500 text-[11px]">
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase {{ $shopRow['scope'] === 'Direct' ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700' }}">
+                                        {{ $shopRow['scope'] }}
+                                    </span>
+                                </td>
+                            @endif
                             <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
                                 ₹{{ number_format($sSales, 2) }}
                                 @if($daysCount > 1)
@@ -184,7 +199,9 @@
                 <tfoot class="bg-slate-900 text-white font-black text-xs border-t-2 border-slate-950">
                     <tr>
                         <td class="py-3 px-3">Total ({{ count($shopRows) }} Active Shops)</td>
-                        <td class="py-3 px-3 text-slate-400">-</td>
+                        @if($hasMultipleScopes)
+                            <td class="py-3 px-3 text-slate-400">-</td>
+                        @endif
                         <td class="py-3 px-3 text-right font-mono text-emerald-400">
                             ₹{{ number_format($totSales, 2) }}
                             @if($daysCount > 1)

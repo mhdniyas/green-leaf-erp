@@ -130,6 +130,22 @@
             </button>
         @endif
 
+        <!-- Download PDF -->
+        @if ($pdfUrl)
+            <a :href="window.buildExportUrl('{{ $pdfUrl }}', includeDetails) + '&download=1'" target="_blank" @click="open = false"
+                class="w-full text-left rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-950 transition flex items-center gap-2.5 cursor-pointer">
+                <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                </span>
+                <div>
+                    <p class="font-black text-slate-900 leading-tight">Download PDF</p>
+                    <p class="text-[10px] font-medium text-slate-400">Save A4 PDF document</p>
+                </div>
+            </a>
+        @endif
+
         <!-- PDF Share / Print -->
         @if ($pdfUrl)
             <a :href="window.buildExportUrl('{{ $pdfUrl }}', includeDetails)" target="_blank" @click="open = false"
@@ -140,8 +156,8 @@
                     </svg>
                 </span>
                 <div>
-                    <p class="font-black text-slate-900 leading-tight">PDF Share / Print</p>
-                    <p class="text-[10px] font-medium text-slate-400">Printable PDF document</p>
+                    <p class="font-black text-slate-900 leading-tight">Print / Preview PDF</p>
+                    <p class="text-[10px] font-medium text-slate-400">Printable A4 document</p>
                 </div>
             </a>
         @else
@@ -154,7 +170,7 @@
                     </svg>
                 </span>
                 <div>
-                    <p class="font-black text-slate-900 leading-tight">PDF Share / Print</p>
+                    <p class="font-black text-slate-900 leading-tight">Print / Preview PDF</p>
                     <p class="text-[10px] font-medium text-slate-400">Print or save as PDF</p>
                 </div>
             </button>
