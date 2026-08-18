@@ -145,3 +145,10 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 15. Existing payable configuration remains the source for what should be payable to the company.
 16. Any overpayment after payable clearing becomes advance balance for that shop.
 17. The first implementation should finish shop payments only; other payment types connect after this is stable.
+
+## Shop Owner Daily Payable Selection Fix Plan
+1. Keep the existing shop-owner daily payable balance list.
+2. Make selected daily rows recalculate the payable payment amount immediately.
+3. Show selected count and selected total directly below the daily payable table, not only in the top banner.
+4. Add visible column totals for collected, received, and net balance below the table.
+5. Keep select-all working for the currently visible page of daily rows.

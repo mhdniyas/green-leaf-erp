@@ -256,6 +256,36 @@
                         const amt = parseFloat(this.paymentAmount || 0);
                         return 'Rs. ' + amt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     },
+                    get selectedRows() {
+                        if (!Array.isArray(this.datesData)) return [];
+                        const selectedSet = new Set(this.selectedDates.map(String));
+                        return this.datesData.filter(item => selectedSet.has(String(item.date)));
+                    },
+                    get selectedOutTotal() {
+                        return this.selectedRows.reduce((sum, item) => sum + (parseFloat(item.out_amount) || 0), 0);
+                    },
+                    get selectedInTotal() {
+                        return this.selectedRows.reduce((sum, item) => sum + (parseFloat(item.in_amount) || 0), 0);
+                    },
+                    get selectedBalanceTotal() {
+                        return this.selectedRows.reduce((sum, item) => sum + (parseFloat(item.net_balance) || 0), 0);
+                    },
+                    get visibleOutTotal() {
+                        if (!Array.isArray(this.datesData)) return 0;
+                        return this.datesData.reduce((sum, item) => sum + (parseFloat(item.out_amount) || 0), 0);
+                    },
+                    get visibleInTotal() {
+                        if (!Array.isArray(this.datesData)) return 0;
+                        return this.datesData.reduce((sum, item) => sum + (parseFloat(item.in_amount) || 0), 0);
+                    },
+                    get visibleBalanceTotal() {
+                        if (!Array.isArray(this.datesData)) return 0;
+                        return this.datesData.reduce((sum, item) => sum + (parseFloat(item.net_balance) || 0), 0);
+                    },
+                    money(value) {
+                        const amt = parseFloat(value || 0);
+                        return 'Rs. ' + amt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    },
                     get computedPaymentReference() {
                         if (this.paymentMethod === 'cheque') {
                             let ref = this.chequeNumber ? ('CHQ#' + this.chequeNumber) : '';
@@ -318,7 +348,7 @@
                             <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
                                 <tr>
                                     <th class="px-3 py-2.5 w-10 text-center">
-                                        <input type="checkbox" @change="toggleAll($event.target.checked)" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                                        <input type="checkbox" :checked="datesData.length > 0 && selectedDates.length === datesData.length" @change="toggleAll($event.target.checked)" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
                                     </th>
                                     <th class="px-3.5 py-2.5">Business Date</th>
                                     <th class="px-3.5 py-2.5 text-right">Collected (Out)</th>
@@ -351,6 +381,16 @@
                                     </tr>
                                 @endforeach
                             </tbody>
+                            <tfoot class="border-t border-slate-200 bg-slate-50 font-mono text-xs">
+                                <tr>
+                                    <td class="px-3 py-2.5"></td>
+                                    <td class="px-3.5 py-2.5 font-black text-slate-900">Visible Total</td>
+                                    <td class="px-3.5 py-2.5 text-right font-black text-slate-900" x-text="money(visibleOutTotal)"></td>
+                                    <td class="px-3.5 py-2.5 text-right font-black text-emerald-700" x-text="money(visibleInTotal)"></td>
+                                    <td class="px-3.5 py-2.5 text-right font-black text-rose-700" x-text="money(visibleBalanceTotal)"></td>
+                                    <td class="px-3.5 py-2.5 text-center font-sans text-[10px] font-black uppercase text-slate-500">Page Total</td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
 
@@ -358,7 +398,7 @@
                     <div class="block sm:hidden border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
                         <div class="flex items-center justify-between p-2.5 bg-slate-50 text-xs font-bold text-slate-700 border-b border-slate-200">
                             <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" @change="toggleAll($event.target.checked)" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                                <input type="checkbox" :checked="datesData.length > 0 && selectedDates.length === datesData.length" @change="toggleAll($event.target.checked)" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
                                 <span>Select All</span>
                             </label>
                             <span class="text-[11px] text-slate-500 font-normal">Tap date to select</span>
@@ -387,6 +427,27 @@
                                 </div>
                             </label>
                         @endforeach
+                    </div>
+
+                    <div class="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3">
+                        <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                            <div>
+                                <span class="block text-[10px] font-black uppercase tracking-wider text-cyan-800">Selected Dates</span>
+                                <strong class="mt-1 block font-mono text-sm text-slate-950" x-text="selectedDates.length"></strong>
+                            </div>
+                            <div>
+                                <span class="block text-[10px] font-black uppercase tracking-wider text-cyan-800">Selected Collected</span>
+                                <strong class="mt-1 block font-mono text-sm text-slate-950" x-text="money(selectedOutTotal)"></strong>
+                            </div>
+                            <div>
+                                <span class="block text-[10px] font-black uppercase tracking-wider text-cyan-800">Selected Received</span>
+                                <strong class="mt-1 block font-mono text-sm text-emerald-700" x-text="money(selectedInTotal)"></strong>
+                            </div>
+                            <div>
+                                <span class="block text-[10px] font-black uppercase tracking-wider text-cyan-800">Selected Balance</span>
+                                <strong class="mt-1 block font-mono text-sm text-rose-700" x-text="money(selectedBalanceTotal)"></strong>
+                            </div>
+                        </div>
                     </div>
 
                     @if ($dailyPayableBalances instanceof \Illuminate\Contracts\Pagination\Paginator && $dailyPayableBalances->hasPages())

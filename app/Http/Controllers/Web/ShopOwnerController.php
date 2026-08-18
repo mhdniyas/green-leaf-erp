@@ -698,7 +698,17 @@ class ShopOwnerController extends Controller
                     || $tx->entry_type_code === 'shop_paid_company';
             });
 
-            $payableReceivedTotal = round((float) $settlementTransactions->sum('amount'), 2);
+            $approvedPaymentRequests = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $activeShop->id)
+                ->where('status', '!=', 'rejected')
+                ->when($filterStartDate, fn ($query) => $query->whereDate('payment_date', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('payment_date', '<=', $filterEndDate))
+                ->get();
+
+            $payableReceivedTotal = round(max(
+                (float) $settlementTransactions->sum('amount'),
+                (float) $approvedPaymentRequests->sum('reconciled_amount')
+            ), 2);
 
             $payableCategories = $payableRows
                 ->groupBy(fn ($tx) => $tx->entryType?->name ?: $tx->entry_type_code)
@@ -770,7 +780,7 @@ class ShopOwnerController extends Controller
 
             $dailyPayableBalances = $allTx
                 ->groupBy(fn ($tx) => $tx->business_date?->format('Y-m-d') ?: 'Unknown')
-                ->map(function ($group, $dateStr) use ($payableEntryTypeIds, $dailyPendingPaymentRequests) {
+                ->map(function ($group, $dateStr) use ($payableEntryTypeIds, $dailyPendingPaymentRequests, $approvedPaymentRequests) {
                     $datePayableRows = $group->filter(function ($tx) use ($payableEntryTypeIds) {
                         return in_array($tx->entry_type_id, $payableEntryTypeIds, true)
                             || $tx->reference_type === 'collection_group';
@@ -781,8 +791,16 @@ class ShopOwnerController extends Controller
                             || $tx->entry_type_code === 'shop_paid_company';
                     });
 
+                    $dateApprovedAmount = (float) $approvedPaymentRequests
+                        ->filter(function (ShopInvoicePaymentRequest $paymentRequest) use ($dateStr): bool {
+                            return $paymentRequest->payment_date?->toDateString() === $dateStr
+                                || str_contains((string) $paymentRequest->shop_note, $dateStr)
+                                || str_contains((string) $paymentRequest->payment_reference, $dateStr);
+                        })
+                        ->sum('reconciled_amount');
+
                     $outAmount = round((float) $datePayableRows->sum('amount'), 2);
-                    $inAmount = round((float) $dateSettlements->sum('amount'), 2);
+                    $inAmount = round(max((float) $dateSettlements->sum('amount'), $dateApprovedAmount), 2);
                     $netBalance = max(0, round($outAmount - $inAmount, 2));
 
                     $hasPendingRequest = $dailyPendingPaymentRequests->contains(function ($pr) use ($dateStr) {
@@ -885,7 +903,14 @@ class ShopOwnerController extends Controller
                     || $tx->entry_type_code === 'shop_paid_company';
             });
 
-            $monthlyPaidAmount = round((float) $monthlySettlements->sum('amount'), 2);
+            $monthlyReconciledPaymentAmount = (float) ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $activeShop->id)
+                ->where('status', '!=', 'rejected')
+                ->whereDate('payment_date', '>=', $currentMonthStart)
+                ->whereDate('payment_date', '<=', $currentMonthEnd)
+                ->sum('reconciled_amount');
+
+            $monthlyPaidAmount = round(max((float) $monthlySettlements->sum('amount'), $monthlyReconciledPaymentAmount), 2);
             $monthlyTotalOut = round((float) $monthlyPayableRows->sum('amount'), 2);
             $monthlyBalanceToPay = max(0, round($monthlyTotalOut - $monthlyPaidAmount, 2));
         } else {
