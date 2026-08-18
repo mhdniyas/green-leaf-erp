@@ -120,3 +120,28 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 3. Manual cash-in-hand statement rows must update the cash account balance immediately.
 4. Reconciliation must link to an existing cash statement row or auto-create one for the selected cash account.
 5. Account balance must come from statement movement, not hidden reconciliation-only balance changes.
+
+## Loader Fix Plan
+1. Keep the cashbook loader hidden after the page is ready.
+2. Show the loader only for real page navigation and form submission.
+3. Hide the loader again on `DOMContentLoaded`, `load`, `pageshow`, cancelled navigation, and print return.
+4. Avoid showing the loader for same-page links, new-tab links, downloads, anchors, JavaScript links, or button-only interactions.
+
+## Accept Payment Redesign QA Plan
+1. Replace the current mixed settlement screen with a simple shop-card index.
+2. Each shop card must show current-month total received, floating amount, pending amount, payable balance, approved amount, and after-approved balance.
+3. Clicking a shop opens a redesigned shop payment detail page.
+4. The shop detail page must focus first on recording cash, cheque, bank transfer, UPI, or other payment details received from that shop.
+5. Monthly data is the default and only period shown on this page; remove period switching from this flow.
+6. Cash received by admin is approved directly and added to the selected Cash in Hand statement at the same time.
+7. Cheque, bank transfer, UPI, and other non-cash payments must move to finance reconciliation as floating money until cleared.
+8. Shop owner payable balance must reduce only after admin reconciliation approval, or immediately for direct cash approval.
+9. After approval, the approved shop balance can be applied against shop relations: bills, expenses, company payable rows, and configured payable categories.
+10. Admin must be able to manually select which bills or expense relations are cleared by the approved balance.
+11. Bill and expense rows must show oldest first, with search, manual date filters, select-all, and links back to existing detailed cashbook split pages where available.
+12. Show grouped totals for same entry/category rows so admin can understand large volumes quickly before opening the detailed split.
+13. Every selected clearing action must keep a trace to the original payment, reconciliation, shop, bill or expense row, account, admin, and date.
+14. Cheque payments must remain floating until bank submission and bank reconciliation confirms clearance.
+15. Existing payable configuration remains the source for what should be payable to the company.
+16. Any overpayment after payable clearing becomes advance balance for that shop.
+17. The first implementation should finish shop payments only; other payment types connect after this is stable.

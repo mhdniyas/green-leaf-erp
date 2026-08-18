@@ -88,7 +88,7 @@
     <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none"></div>
 
     <!-- Pure Transparent 3-Dot Bouncing Loader (Uiverse.io by mahendrameghwal) -->
-    <div id="global-page-loader" class="hidden fixed inset-0 z-[100] flex items-center justify-center pointer-events-none transition-all duration-200">
+    <div id="global-page-loader" aria-hidden="true" class="hidden fixed inset-0 z-[100] flex items-center justify-center pointer-events-none transition-all duration-200">
         <div class="w-full gap-x-2 flex justify-center items-center">
             <div class="w-5 h-5 bg-[#d991c2] animate-pulse rounded-full animate-bounce"></div>
             <div class="w-5 h-5 bg-[#9869b8] animate-pulse rounded-full animate-bounce [animation-delay:0.2s]"></div>
@@ -115,26 +115,75 @@
 
     <!-- Base Scripts -->
     <script>
+        const cashbookPageLoader = (() => {
+            const loader = () => document.getElementById('global-page-loader');
+            let showTimer = null;
+
+            const hide = () => {
+                if (showTimer) {
+                    window.clearTimeout(showTimer);
+                    showTimer = null;
+                }
+
+                const element = loader();
+                if (element) {
+                    element.classList.add('hidden');
+                    element.setAttribute('aria-hidden', 'true');
+                }
+            };
+
+            const show = () => {
+                hide();
+                showTimer = window.setTimeout(() => {
+                    const element = loader();
+                    if (element) {
+                        element.classList.remove('hidden');
+                        element.setAttribute('aria-hidden', 'false');
+                    }
+                }, 160);
+            };
+
+            return { show, hide };
+        })();
+
         document.addEventListener('DOMContentLoaded', () => {
+            cashbookPageLoader.hide();
+
             if (window.lucide) { lucide.createIcons(); }
 
             document.querySelectorAll('a[href]').forEach(a => {
                 a.addEventListener('click', (e) => {
                     const href = a.getAttribute('href');
-                    if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !a.hasAttribute('target')) {
-                        const loader = document.getElementById('global-page-loader');
-                        if (loader) loader.classList.remove('hidden');
+                    const target = a.getAttribute('target');
+                    const isModifiedClick = e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+                    const isSamePageAnchor = href && href.startsWith('#');
+                    const isScriptLink = href && href.startsWith('javascript:');
+                    const isDownload = a.hasAttribute('download') || href?.includes('download=1') || href?.includes('format=pdf') || href?.includes('format=excel') || href?.includes('format=csv');
+
+                    if (href && !isSamePageAnchor && !isScriptLink && !target && !isModifiedClick && !isDownload) {
+                        cashbookPageLoader.show();
+                        window.setTimeout(cashbookPageLoader.hide, 8000);
                     }
                 });
             });
 
             document.querySelectorAll('form').forEach(f => {
-                f.addEventListener('submit', () => {
-                    const loader = document.getElementById('global-page-loader');
-                    if (loader) loader.classList.remove('hidden');
+                f.addEventListener('submit', (event) => {
+                    if (event.defaultPrevented || f.hasAttribute('data-no-loader')) {
+                        return;
+                    }
+
+                    cashbookPageLoader.show();
+                    window.setTimeout(cashbookPageLoader.hide, 12000);
                 });
             });
         });
+
+        window.addEventListener('load', cashbookPageLoader.hide);
+        window.addEventListener('pageshow', cashbookPageLoader.hide);
+        window.addEventListener('focus', cashbookPageLoader.hide);
+        window.addEventListener('beforeprint', cashbookPageLoader.hide);
+        window.addEventListener('afterprint', cashbookPageLoader.hide);
 
         function toggleMobileSidebar() {
             const sidebar = document.getElementById('main-sidebar');

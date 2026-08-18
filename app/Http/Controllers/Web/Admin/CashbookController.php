@@ -317,7 +317,38 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        return $this->renderApp('payments', 1);
+        [$month, $startDate, $endDate] = $this->paymentMonthWindow($request);
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $shops->load('client');
+        $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        $shopCards = $shops
+            ->map(fn (ShopLedgerProfile $shop): array => $this->shopPaymentCard($shop, $startDate, $endDate))
+            ->sortByDesc(fn (array $card): float => $card['after_balance'] + $card['floating_amount'] + $card['pending_amount'])
+            ->values();
+
+        $totals = [
+            'received' => round((float) $shopCards->sum('received_amount'), 2),
+            'approved' => round((float) $shopCards->sum('approved_amount'), 2),
+            'floating' => round((float) $shopCards->sum('floating_amount'), 2),
+            'pending' => round((float) $shopCards->sum('pending_amount'), 2),
+            'payable' => round((float) $shopCards->sum('payable_balance'), 2),
+            'after_balance' => round((float) $shopCards->sum('after_balance'), 2),
+        ];
+
+        return view('admin.cashbook.payments.index', compact(
+            'shops',
+            'companyAccounts',
+            'company',
+            'currentShop',
+            'month',
+            'startDate',
+            'endDate',
+            'shopCards',
+            'totals',
+        ));
     }
 
     public function incomeExpenses(Request $request): View
@@ -566,15 +597,45 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
+        [$month, $monthStart, $monthEnd] = $this->paymentMonthWindow($request);
+        $dateFrom = Carbon::parse((string) $request->input('date_from', $monthStart))->toDateString();
+        $dateTo = Carbon::parse((string) $request->input('date_to', $monthEnd))->toDateString();
+        $search = trim((string) $request->input('search', ''));
         $shops = $this->shopSyncService->syncAndGetProfiles();
-        $clients = LedgerClient::with('shops')->where('enabled', true)->get();
-        $companyAccounts = CompanyAccount::where('enabled', true)->get();
+        $shops->load('client');
+        $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
         $company = config('greenleaf');
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client', 'preset');
+        $shopCard = $this->shopPaymentCard($currentShop, $monthStart, $monthEnd);
+        $payableDetails = $this->shopPayableDetails($currentShop, $dateFrom, $dateTo, $search);
+        $paymentRequests = ShopInvoicePaymentRequest::query()
+            ->with(['requestedBy', 'reviewedBy', 'reconciliations.companyAccount', 'reconciliations.statementEntry'])
+            ->where('shop_id', $currentShop->shop_id)
+            ->where(function ($query) use ($monthStart, $monthEnd): void {
+                $query->whereBetween('payment_date', [$monthStart, $monthEnd])
+                    ->orWhereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+            })
+            ->latest('id')
+            ->get();
 
-        return view('admin.cashbook.shops.settlement', compact(
-            'shops', 'clients', 'companyAccounts', 'company', 'currentShop'
+        $cashAccounts = $companyAccounts->where('account_type', 'cash')->values();
+
+        return view('admin.cashbook.payments.shop', compact(
+            'shops',
+            'companyAccounts',
+            'cashAccounts',
+            'company',
+            'currentShop',
+            'month',
+            'monthStart',
+            'monthEnd',
+            'dateFrom',
+            'dateTo',
+            'search',
+            'shopCard',
+            'payableDetails',
+            'paymentRequests',
         ));
     }
 
@@ -1671,9 +1732,15 @@ final class CashbookController extends Controller
         $date = $validated['business_date'];
         $settle = (float) ($validated['settle_amount'] ?? 0);
         $petty = (float) ($validated['petty_amount'] ?? 0);
+        $amount = round($settle + $petty, 2);
+        $paymentMethod = (string) ($validated['payment_method'] ?? 'cash');
         $categoryCode = $validated['category_code'] ?? null;
         $companyAccountId = isset($validated['company_account_id']) ? (int) $validated['company_account_id'] : null;
         $notes = $validated['notes'] ?? 'Payment received by admin';
+
+        if ($amount <= 0.0) {
+            return response()->json(['success' => false, 'message' => 'Enter a payment amount greater than zero.'], 422);
+        }
 
         if ($categoryCode && $categoryCode !== 'all') {
             $entryType = LedgerEntryType::where('code', $categoryCode)->first();
@@ -1686,49 +1753,68 @@ final class CashbookController extends Controller
         $userId = $request->user()?->id ?? 1;
 
         try {
-            $posted = [];
+            $shop = Shop::query()->findOrFail($shopId);
+            $invoice = ShopInvoice::query()
+                ->where('shop_id', $shop->id)
+                ->where('balance_amount', '>', 0)
+                ->oldest('business_date')
+                ->oldest('id')
+                ->first();
 
-            if ($settle > 0) {
-                $res = $this->ledgerService->recordEntry([
-                    'shop_id' => $shopId,
-                    'business_date' => $date,
-                    'entry_type_code' => 'shop_paid_company',
-                    'amount' => $settle,
-                    'funding_source' => 'sales',
-                    'entered_by' => $userId,
-                    'notes' => $notes,
-                    'company_account_id' => $companyAccountId,
-                ]);
-                $posted[] = $res['transaction'];
-            }
+            $paymentRequest = ShopInvoicePaymentRequest::query()->create([
+                'shop_invoice_id' => $invoice?->id,
+                'shop_id' => $shop->id,
+                'requested_by' => $userId,
+                'request_type' => $invoice instanceof ShopInvoice ? 'admin_cashbook' : 'shop_balance',
+                'payment_method' => $paymentMethod,
+                'payment_reference' => filled($validated['payment_reference'] ?? null) ? trim((string) $validated['payment_reference']) : null,
+                'payment_date' => $date,
+                'cheque_status' => $paymentMethod === 'cheque' ? 'pending' : null,
+                'cheque_bank_name' => $validated['cheque_bank_name'] ?? null,
+                'cheque_date' => $validated['cheque_date'] ?? null,
+                'requested_amount' => $amount,
+                'admin_verified_amount' => $paymentMethod === 'cash' ? $amount : null,
+                'approved_amount' => null,
+                'applied_amount' => 0,
+                'credit_amount' => 0,
+                'status' => 'pending',
+                'reconciliation_status' => 'floating',
+                'reconciled_amount' => 0,
+                'floating_amount' => $amount,
+                'shop_advance_amount' => 0,
+                'shop_note' => $notes,
+            ]);
 
-            if ($petty > 0) {
-                $res = $this->ledgerService->recordEntry([
-                    'shop_id' => $shopId,
-                    'business_date' => $date,
-                    'entry_type_code' => 'company_to_petty',
-                    'amount' => $petty,
-                    'funding_source' => 'company',
-                    'entered_by' => $userId,
-                    'notes' => $notes.' (Petty Top-up)',
-                    'company_account_id' => $companyAccountId,
-                ]);
-                $posted[] = $res['transaction'];
-            }
+            $message = 'Payment recorded and moved to reconciliation.';
 
-            if ($companyAccountId && ($settle + $petty) > 0) {
-                $companyAccount = CompanyAccount::find($companyAccountId);
-                if ($companyAccount) {
-                    $companyAccount->increment('current_balance', $settle + $petty);
+            if ($paymentMethod === 'cash') {
+                $cashAccount = $companyAccountId
+                    ? CompanyAccount::query()->whereKey($companyAccountId)->where('account_type', 'cash')->first()
+                    : CompanyAccount::query()->where('enabled', true)->where('account_type', 'cash')->orderByDesc('is_default')->first();
+
+                if (! $cashAccount instanceof CompanyAccount) {
+                    return response()->json(['success' => false, 'message' => 'Create or select a Cash in Hand account before accepting cash.'], 422);
                 }
+
+                $this->companyPaymentReconciliationService->reconcilePayment($paymentRequest, [
+                    'company_account_id' => $cashAccount->id,
+                    'statement_amount' => $amount,
+                    'cleared_amount' => $amount,
+                    'difference_amount' => 0,
+                    'difference_action' => 'none',
+                    'business_date' => $date,
+                    'admin_note' => $notes.' Cash received directly by admin.',
+                ], (int) $userId);
+
+                $message = 'Cash received, approved, and added to Cash in Hand statement.';
             }
 
             $snapshot = $this->ledgerService->dailySummary($shopId, $date);
 
             return response()->json([
                 'success' => true,
-                'message' => '₹'.number_format($settle + $petty, 2)." accepted & processed for Shop #{$shopId}.",
-                'posted' => $posted,
+                'message' => $message,
+                'payment_request' => $paymentRequest->fresh(['reconciliations.companyAccount', 'reconciliations.statementEntry']),
                 'snapshot' => $snapshot,
             ]);
         } catch (Throwable $e) {
@@ -3211,6 +3297,160 @@ final class CashbookController extends Controller
     private function reportFilename(string $prefix, string $startDate, string $endDate, string $extension): string
     {
         return "{$prefix}-{$startDate}_{$endDate}.{$extension}";
+    }
+
+    /**
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private function paymentMonthWindow(Request $request): array
+    {
+        $selected = Carbon::parse((string) $request->input('month', today()->format('Y-m')) . '-01');
+        $end = $selected->isSameMonth(today()) ? today() : $selected->copy()->endOfMonth();
+
+        return [
+            $selected->format('Y-m'),
+            $selected->copy()->startOfMonth()->toDateString(),
+            $end->toDateString(),
+        ];
+    }
+
+    private function shopPaymentCard(ShopLedgerProfile $shop, string $startDate, string $endDate): array
+    {
+        $paymentSummary = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shop->shop_id)
+            ->where('status', '!=', 'rejected')
+            ->where(function ($query) use ($startDate, $endDate): void {
+                $query->whereBetween('payment_date', [$startDate, $endDate])
+                    ->orWhereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
+            })
+            ->selectRaw('COALESCE(SUM(requested_amount), 0) as received_amount')
+            ->selectRaw('COALESCE(SUM(reconciled_amount), 0) as approved_amount')
+            ->selectRaw('COALESCE(SUM(floating_amount), 0) as floating_amount')
+            ->selectRaw("COALESCE(SUM(CASE WHEN status = 'pending' THEN requested_amount ELSE 0 END), 0) as pending_amount")
+            ->selectRaw('COALESCE(SUM(shop_advance_amount), 0) as advance_amount')
+            ->first();
+
+        $payableSummary = $this->shopPayableSummary((int) $shop->shop_id, $startDate, $endDate);
+        $approved = round((float) ($paymentSummary->approved_amount ?? 0), 2);
+        $payable = round((float) $payableSummary['total'], 2);
+
+        return [
+            'shop' => $shop,
+            'payable_balance' => $payable,
+            'approved_amount' => $approved,
+            'after_balance' => round(max(0, $payable - $approved), 2),
+            'received_amount' => round((float) ($paymentSummary->received_amount ?? 0), 2),
+            'floating_amount' => round((float) ($paymentSummary->floating_amount ?? 0), 2),
+            'pending_amount' => round((float) ($paymentSummary->pending_amount ?? 0), 2),
+            'advance_amount' => round((float) ($paymentSummary->advance_amount ?? 0), 2),
+            'entry_count' => $payableSummary['count'],
+        ];
+    }
+
+    /**
+     * @return array{total: float, count: int}
+     */
+    private function shopPayableSummary(int $shopId, string $startDate, string $endDate): array
+    {
+        $details = $this->shopPayableDetailsByQuery($shopId, $startDate, $endDate, '');
+
+        return [
+            'total' => round((float) $details['rows']->sum('signed_amount'), 2),
+            'count' => (int) $details['rows']->count(),
+        ];
+    }
+
+    private function shopPayableDetails(ShopLedgerProfile $shop, string $startDate, string $endDate, string $search): array
+    {
+        return $this->shopPayableDetailsByQuery((int) $shop->shop_id, $startDate, $endDate, $search);
+    }
+
+    private function shopPayableDetailsByQuery(int $shopId, string $startDate, string $endDate, string $search): array
+    {
+        $settings = ShopLedgerEntrySetting::query()
+            ->with('entryType')
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->get();
+
+        $payableEntryTypeIds = $settings
+            ->where('include_in_payable', true)
+            ->pluck('entry_type_id')
+            ->all();
+
+        $rows = ShopLedgerTransaction::query()
+            ->with('entryType')
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->whereNotIn('status', ['void', 'voided'])
+            ->where(function ($query) use ($payableEntryTypeIds): void {
+                if (! empty($payableEntryTypeIds)) {
+                    $query->whereIn('entry_type_id', $payableEntryTypeIds);
+                }
+
+                $query->orWhere('reference_type', 'collection_group')
+                    ->orWhere('funding_source', 'company')
+                    ->orWhere('company_pending_delta', '!=', 0);
+            })
+            ->oldest('business_date')
+            ->oldest('id')
+            ->get()
+            ->map(function (ShopLedgerTransaction $transaction) use ($settings): ShopLedgerTransaction {
+                $setting = $settings->firstWhere('entry_type_id', $transaction->entry_type_id);
+                $direction = (string) ($transaction->direction ?: ($transaction->entryType?->category ?: 'income'));
+                $category = (string) ($transaction->entryType?->category ?: $direction);
+                $code = (string) ($transaction->entryType?->code ?: $transaction->entry_type_code);
+                $payableDirection = (string) ($setting?->payable_direction ?: '');
+                $isDeduction = $payableDirection === 'minus'
+                    || $payableDirection === 'decrease'
+                    || $direction === 'expense'
+                    || $category === 'expense'
+                    || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true);
+
+                $transaction->signed_amount = round($isDeduction ? -(float) $transaction->amount : (float) $transaction->amount, 2);
+
+                return $transaction;
+            })
+            ->filter(function (ShopLedgerTransaction $transaction) use ($search): bool {
+                if ($search === '') {
+                    return true;
+                }
+
+                $haystack = strtolower(implode(' ', [
+                    $transaction->entryType?->name,
+                    $transaction->entryType?->code,
+                    $transaction->notes,
+                    $transaction->business_date?->toDateString(),
+                    (string) $transaction->amount,
+                ]));
+
+                return str_contains($haystack, strtolower($search));
+            })
+            ->values();
+
+        $groups = $rows
+            ->groupBy(fn (ShopLedgerTransaction $transaction): string => $transaction->entryType?->name ?: (string) $transaction->entry_type_code)
+            ->map(function ($group, string $name): array {
+                $first = $group->first();
+
+                return [
+                    'name' => $name,
+                    'code' => $first?->entryType?->code ?: $first?->entry_type_code,
+                    'count' => $group->count(),
+                    'total' => round((float) $group->sum('signed_amount'), 2),
+                    'first_date' => $group->sortBy('business_date')->first()?->business_date?->toDateString(),
+                    'last_date' => $group->sortByDesc('business_date')->first()?->business_date?->toDateString(),
+                ];
+            })
+            ->sortByDesc(fn (array $group): float => abs((float) $group['total']))
+            ->values();
+
+        return [
+            'rows' => $rows,
+            'groups' => $groups,
+            'total' => round((float) $rows->sum('signed_amount'), 2),
+            'count' => $rows->count(),
+        ];
     }
 
     private function collectionGroupsForShop(int $shopId)

@@ -139,6 +139,8 @@ class ShopInvoicePaymentRequest extends Model
             'cash' => 'Cash',
             'online_upi' => 'Online UPI',
             'cheque' => 'Cheque',
+            'bank_transfer' => 'Bank Transfer',
+            'other' => 'Other',
             default => 'Not set',
         };
     }
