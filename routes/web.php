@@ -11,6 +11,7 @@ use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CompanySettingsController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
+use App\Http\Controllers\Web\Admin\DatabaseBackupController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
 use App\Http\Controllers\Web\Admin\EmptyInventoryController;
@@ -853,6 +854,10 @@ Route::middleware('auth')->group(function () {
         })->name('price-approvals.index');
         Route::get('delivery-reviews', DeliveryReviewController::class)->name('delivery-reviews.index');
         Route::get('discrepancies', DiscrepancyReportController::class)->name('discrepancies.index');
+        Route::get('backup', [DatabaseBackupController::class, 'index'])->name('backup.index');
+        Route::post('backup/email', [DatabaseBackupController::class, 'sendEmail'])->name('backup.email');
+        Route::get('backup/download', [DatabaseBackupController::class, 'download'])->name('backup.download');
+        Route::delete('backup/{filename}', [DatabaseBackupController::class, 'destroy'])->name('backup.delete');
     });
 
     // ── Sort Sheet ──────────────────────────────────────────────────────────────

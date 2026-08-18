@@ -716,6 +716,11 @@
                             Discrepancies & Wastage
                         </x-nav-item>
                         @endif
+                        @can('admin.user.view')
+                        <x-nav-item href="{{ route('admin.backup.index') }}" :active="request()->routeIs('admin.backup.*')" :sub="true">
+                            Database Backup
+                        </x-nav-item>
+                        @endcan
                         @can('sort.sheet.view')
                         <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*')" :sub="true">
                             Print Dashboard
