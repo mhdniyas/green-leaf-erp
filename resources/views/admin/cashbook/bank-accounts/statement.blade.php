@@ -134,6 +134,11 @@
                                     {{ $entry->reconciliations->pluck('paymentRequest.shop.name')->filter()->join(', ') ?: 'Reconciled payment' }}
                                 </div>
                             @endif
+                            @if($entry->direction === 'in' && in_array($entry->status, ['unmatched', 'partially_matched'], true))
+                                <a href="{{ route('admin.cashbook.finance.reconciliation', ['statementRef' => $entry->secureRouteKey(), 'company_account_id' => $entry->company_account_id, 'month' => $entry->transaction_date?->format('Y-m')]) }}" class="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500">
+                                    <i data-lucide="git-compare-arrows" class="h-4 w-4"></i> Reconcile
+                                </a>
+                            @endif
                         </div>
                     @empty
                         <div class="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No statement entries yet.</div>
@@ -152,6 +157,7 @@
                                 <th class="px-3 py-3 text-right">Open</th>
                                 <th class="px-3 py-3">Reconciled With</th>
                                 <th class="px-3 py-3">Status</th>
+                                <th class="px-3 py-3 text-right">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
@@ -169,10 +175,19 @@
                                     <td class="px-3 py-3">
                                         <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ str_replace('_', ' ', $entry->status) }}</span>
                                     </td>
+                                    <td class="px-3 py-3 text-right">
+                                        @if($entry->direction === 'in' && in_array($entry->status, ['unmatched', 'partially_matched'], true))
+                                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['statementRef' => $entry->secureRouteKey(), 'company_account_id' => $entry->company_account_id, 'month' => $entry->transaction_date?->format('Y-m')]) }}" class="inline-flex min-h-8 items-center justify-center rounded-lg bg-emerald-50 px-2 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100">
+                                                Reconcile
+                                            </a>
+                                        @else
+                                            <span class="text-[11px] font-bold text-slate-400">-</span>
+                                        @endif
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="8" class="px-3 py-6 text-center font-bold text-slate-400">No statement entries yet.</td>
+                                    <td colspan="9" class="px-3 py-6 text-center font-bold text-slate-400">No statement entries yet.</td>
                                 </tr>
                             @endforelse
                         </tbody>

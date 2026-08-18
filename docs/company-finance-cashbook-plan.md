@@ -152,3 +152,23 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 3. Show selected count and selected total directly below the daily payable table, not only in the top banner.
 4. Add visible column totals for collected, received, and net balance below the table.
 5. Keep select-all working for the currently visible page of daily rows.
+
+## Shop Owner Daily Payable Total Rebuild Plan
+1. Remove the previous selected-total getter calculations from the daily payable Alpine block.
+2. Store selected count, selected collected, selected received, selected balance, and visible totals as plain numeric fields.
+3. Recalculate all totals through one function after every checkbox or select-all change.
+4. Keep the selected balance synced into the payment amount input.
+5. Show the below-table totals even before selection, with zero selected values until rows are picked.
+
+## Statement First Reconciliation Plan
+1. Make reconciliation start from company account statement rows, because bank/cash statement is the final money proof.
+2. Admin selects account and month, then sees only unmatched or partially matched incoming statement rows.
+3. Admin opens one statement row at a time to avoid clutter.
+4. For the selected statement row, show possible shop payment matches by amount, date range, reference, and payment method.
+5. Default matching window is statement date plus or minus 10 days, but admin can change it.
+6. Admin can approve one payment against the selected statement row, including partial matching.
+7. If statement amount and cleared amount differ, admin must choose how to account for the difference.
+8. After approval, update payment, statement, account balance, and journal trace through the existing reconciliation service.
+9. Accept Payment should only record received payment details; non-cash payments should move to the reconciliation queue.
+10. Cash payments remain direct approval into Cash in Hand statement.
+11. Journal and reconciliation links should avoid exposing raw numeric IDs where the model has a stable secure key available.

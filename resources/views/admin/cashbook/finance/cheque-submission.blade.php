@@ -104,7 +104,7 @@
                             <tr>
                                 <td class="px-3 py-3 font-mono font-bold text-slate-600">{{ $loop->iteration }}</td>
                                 <td class="px-3 py-3 font-bold text-slate-900">
-                                    <a href="{{ route('admin.cashbook.finance.journal.show', $payment) }}" class="no-print hover:text-emerald-700">{{ $payment->shop?->name ?? 'Shop' }}</a>
+                                    <a href="{{ route('admin.cashbook.finance.journal.secure-show', $payment->secureRouteKey()) }}" class="no-print hover:text-emerald-700">{{ $payment->shop?->name ?? 'Shop' }}</a>
                                     <span class="hidden print:inline">{{ $payment->shop?->name ?? 'Shop' }}</span>
                                 </td>
                                 <td class="px-3 py-3 font-semibold text-slate-700">{{ $payment->cheque_bank_name ?: '-' }}</td>

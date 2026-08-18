@@ -77,7 +77,11 @@
                     <i data-lucide="file-check-2" class="w-4 h-4"></i>
                     <span>Cheque Bank Submit</span>
                 </a>
-                <a href="{{ route('admin.cashbook.finance.journal') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.journal') || request()->routeIs('admin.cashbook.finance.journal.show') ? 'active-sidebar' : '' }}">
+                <a href="{{ route('admin.cashbook.finance.reconciliation') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.reconciliation') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="git-compare-arrows" class="w-4 h-4"></i>
+                    <span>Reconciliation</span>
+                </a>
+                <a href="{{ route('admin.cashbook.finance.journal') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.journal') || request()->routeIs('admin.cashbook.finance.journal.show') || request()->routeIs('admin.cashbook.finance.journal.secure-show') ? 'active-sidebar' : '' }}">
                     <i data-lucide="book-open-check" class="w-4 h-4"></i>
                     <span>Payment Journal</span>
                 </a>

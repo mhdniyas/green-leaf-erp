@@ -666,7 +666,10 @@ Route::middleware('auth')->group(function () {
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
             Route::get('finance', [CashbookController::class, 'companyFinancePage'])->name('finance');
             Route::get('finance/cheque-submission', [CashbookController::class, 'companyFinanceChequeSubmission'])->name('finance.cheque-submission');
+            Route::get('finance/reconciliation/{statementRef?}', [CashbookController::class, 'companyFinanceReconciliation'])->name('finance.reconciliation');
+            Route::post('finance/reconciliation/{statementRef}/match', [CashbookController::class, 'matchStatementReconciliation'])->name('finance.reconciliation.match');
             Route::get('finance/journal', [CashbookController::class, 'companyFinanceJournal'])->name('finance.journal');
+            Route::get('finance/journal-ref/{paymentRef}', [CashbookController::class, 'companyFinanceJournalShowSecure'])->name('finance.journal.secure-show');
             Route::get('finance/journal/{paymentRequest}', [CashbookController::class, 'companyFinanceJournalShow'])->name('finance.journal.show');
             Route::post('finance/statement-entries', [CashbookController::class, 'storeCompanyStatementEntry'])->name('finance.statement-entries.store');
             Route::post('finance/payments/{paymentRequest}/reconcile', [CashbookController::class, 'reconcileCompanyPayment'])->name('finance.payments.reconcile');

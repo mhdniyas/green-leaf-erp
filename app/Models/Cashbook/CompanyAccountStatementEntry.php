@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Crypt;
 
 class CompanyAccountStatementEntry extends Model
 {
@@ -60,5 +61,10 @@ class CompanyAccountStatementEntry extends Model
     public function reconciledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reconciled_by');
+    }
+
+    public function secureRouteKey(): string
+    {
+        return rtrim(strtr(base64_encode(Crypt::encryptString('statement-entry:'.$this->getKey())), '+/', '-_'), '=');
     }
 }

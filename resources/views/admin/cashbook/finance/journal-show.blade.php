@@ -52,8 +52,8 @@
                         <div>Reviewed by: <span class="font-bold text-slate-700">{{ $paymentRequest->reviewedBy?->name ?: '-' }}</span></div>
                     </div>
                 </div>
-                <a href="{{ route('admin.cashbook.finance') }}" class="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 sm:w-auto">
-                    <i data-lucide="badge-dollar-sign" class="h-4 w-4"></i> Reconciliation
+                <a href="{{ route('admin.cashbook.finance.reconciliation', ['month' => ($paymentRequest->payment_date ?: $paymentRequest->created_at)->format('Y-m')]) }}" class="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 shadow-sm hover:bg-emerald-100 sm:w-auto">
+                    <i data-lucide="git-compare-arrows" class="h-4 w-4"></i> Match Statement
                 </a>
             </div>
         </section>
@@ -81,7 +81,7 @@
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
                 <div class="mb-4 border-b border-slate-200 pb-3">
                     <h3 class="text-base font-extrabold text-slate-950">Reconcile This Payment</h3>
-                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Match bank transfer, cheque clearance, UPI, or liquid cash here.</p>
+                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Use the statement-first queue for normal approval. This form remains for admin fallback.</p>
                 </div>
 
                 @if($paymentRequest->reconciliation_status !== 'reconciled')

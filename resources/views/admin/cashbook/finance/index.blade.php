@@ -16,6 +16,10 @@
             <i data-lucide="file-check-2" class="h-4 w-4"></i>
             <span class="hidden sm:inline">Cheques</span>
         </a>
+        <a href="{{ route('admin.cashbook.finance.reconciliation') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 shadow-sm hover:bg-emerald-100">
+            <i data-lucide="git-compare-arrows" class="h-4 w-4"></i>
+            <span class="hidden sm:inline">Reconcile</span>
+        </a>
         <a href="{{ route('admin.cashbook.finance.journal') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
             <i data-lucide="book-open-check" class="h-4 w-4"></i>
             <span class="hidden sm:inline">Journal</span>
@@ -124,7 +128,7 @@
                 <div class="mb-4 flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h2 class="text-base font-extrabold text-slate-950">Pending Shop Payments</h2>
-                        <p class="mt-0.5 text-xs font-semibold text-slate-500">Reconcile fully or partially against bank, wallet, cheque, or cash in hand.</p>
+                        <p class="mt-0.5 text-xs font-semibold text-slate-500">Payments waiting for the statement-first reconciliation queue.</p>
                     </div>
                     <span class="font-mono text-xs font-bold text-slate-400">{{ $pendingPaymentRequests->count() }} open</span>
                 </div>
@@ -140,7 +144,7 @@
                             <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <a href="{{ route('admin.cashbook.finance.journal.show', $paymentRequest) }}" class="text-sm font-black text-slate-950 hover:text-emerald-700">{{ $paymentRequest->shop?->name ?? 'Shop' }}</a>
+                                        <a href="{{ route('admin.cashbook.finance.journal.secure-show', $paymentRequest->secureRouteKey()) }}" class="text-sm font-black text-slate-950 hover:text-emerald-700">{{ $paymentRequest->shop?->name ?? 'Shop' }}</a>
                                         <span class="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">{{ $paymentRequest->reconciliationStatusLabel() }}</span>
                                     </div>
                                     <div class="mt-2 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
@@ -169,43 +173,14 @@
                                     </p>
                                 </div>
 
-                                <form method="POST" action="{{ route('admin.cashbook.finance.payments.reconcile', $paymentRequest) }}" class="grid w-full grid-cols-1 gap-2 text-xs sm:grid-cols-2 lg:max-w-2xl lg:grid-cols-6">
-                                    @csrf
-                                    <select name="company_account_id" required class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 lg:col-span-2">
-                                        <option value="">Account</option>
-                                        @foreach($companyAccounts as $account)
-                                            <option value="{{ $account->id }}">{{ $account->name }}</option>
-                                        @endforeach
-                                    </select>
-                                    <select name="statement_entry_id" class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 lg:col-span-2">
-                                        <option value="">Auto add to selected account statement</option>
-                                        @foreach($statementEntries as $entry)
-                                            <option value="{{ $entry->id }}">
-                                                {{ $entry->companyAccount?->name }} / {{ $entry->transaction_date?->format('d M') }} / ₹{{ number_format($entry->amount - $entry->matched_amount, 2) }}
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                    <input type="number" step="0.01" min="0.01" name="cleared_amount" value="{{ number_format($floatingAmount ?: $paymentRequest->requested_amount, 2, '.', '') }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono font-bold text-slate-800" placeholder="Cleared">
-                                    <input type="number" step="0.01" min="0" name="statement_amount" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono font-bold text-slate-800" placeholder="Bank amt">
-                                    <select name="difference_action" class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 lg:col-span-2">
-                                        <option value="none">No difference</option>
-                                        <option value="keep_floating">Keep floating</option>
-                                        <option value="shop_expense">Add shop expense</option>
-                                        <option value="shop_income">Add shop income</option>
-                                    </select>
-                                    <input type="number" step="0.01" min="0" name="difference_amount" class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono font-bold text-slate-800" placeholder="Difference">
-                                    <select name="difference_entry_type_id" class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 lg:col-span-2">
-                                        <option value="">Default category</option>
-                                        @foreach($reconciliationEntryTypes as $entryType)
-                                            <option value="{{ $entryType->id }}">{{ $entryType->name }}</option>
-                                        @endforeach
-                                    </select>
-                                    <input type="date" name="business_date" value="{{ today()->toDateString() }}" class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800">
-                                    <input type="text" name="admin_note" class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-800 lg:col-span-4" placeholder="Admin note">
-                                    <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 font-bold text-white hover:bg-slate-800 lg:col-span-2">
-                                        <i data-lucide="check-circle-2" class="h-4 w-4"></i> Reconcile
-                                    </button>
-                                </form>
+                                <div class="flex w-full flex-col gap-2 text-xs sm:w-auto sm:flex-row lg:shrink-0">
+                                    <a href="{{ route('admin.cashbook.finance.reconciliation', ['month' => ($paymentRequest->payment_date ?: $paymentRequest->created_at)->format('Y-m')]) }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 font-bold text-white hover:bg-emerald-500">
+                                        <i data-lucide="git-compare-arrows" class="h-4 w-4"></i> Match Statement
+                                    </a>
+                                    <a href="{{ route('admin.cashbook.finance.journal.secure-show', $paymentRequest->secureRouteKey()) }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 font-bold text-slate-700 hover:bg-slate-50">
+                                        <i data-lucide="eye" class="h-4 w-4"></i> Details
+                                    </a>
+                                </div>
                             </div>
                         </div>
                     @empty
@@ -263,7 +238,7 @@
                             <div class="min-w-0">
                                 <div class="text-xs font-black text-slate-950">
                                     @if($reconciliation->paymentRequest)
-                                        <a href="{{ route('admin.cashbook.finance.journal.show', $reconciliation->paymentRequest) }}" class="hover:text-emerald-700">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</a>
+                                        <a href="{{ route('admin.cashbook.finance.journal.secure-show', $reconciliation->paymentRequest->secureRouteKey()) }}" class="hover:text-emerald-700">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</a>
                                     @else
                                         Shop
                                     @endif
@@ -313,7 +288,7 @@
                                 <td class="px-3 py-3 font-mono font-bold text-slate-700">{{ $reconciliation->reconciled_at?->format('Y-m-d') }}</td>
                                 <td class="px-3 py-3 font-bold text-slate-900">
                                     @if($reconciliation->paymentRequest)
-                                        <a href="{{ route('admin.cashbook.finance.journal.show', $reconciliation->paymentRequest) }}" class="hover:text-emerald-700">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</a>
+                                        <a href="{{ route('admin.cashbook.finance.journal.secure-show', $reconciliation->paymentRequest->secureRouteKey()) }}" class="hover:text-emerald-700">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</a>
                                     @else
                                         Shop
                                     @endif

@@ -45,6 +45,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
@@ -1005,6 +1006,132 @@ final class CashbookController extends Controller
             'status',
             'method',
         ));
+    }
+
+    public function companyFinanceReconciliation(Request $request, ?string $statementRef = null): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $companyAccounts = CompanyAccount::query()
+            ->where('enabled', true)
+            ->orderBy('is_default', 'desc')
+            ->orderBy('name')
+            ->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+        $month = (string) $request->input('month', today()->format('Y-m'));
+        $selectedMonth = Carbon::parse($month.'-01');
+        $monthStart = $selectedMonth->copy()->startOfMonth()->toDateString();
+        $monthEnd = $selectedMonth->copy()->endOfMonth()->toDateString();
+        $graceDays = max(0, min(60, (int) $request->input('grace_days', 10)));
+        $selectedAccountId = $request->integer('company_account_id') ?: (int) ($companyAccounts->first()?->id ?? 0);
+        $search = trim((string) $request->input('search', ''));
+
+        $statementEntries = CompanyAccountStatementEntry::query()
+            ->with('companyAccount')
+            ->where('direction', 'in')
+            ->whereIn('status', ['unmatched', 'partially_matched'])
+            ->when($selectedAccountId > 0, fn ($query) => $query->where('company_account_id', $selectedAccountId))
+            ->whereBetween('transaction_date', [$monthStart, $monthEnd])
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($sub) use ($search): void {
+                    $sub->where('reference', 'like', '%'.$search.'%')
+                        ->orWhere('narration', 'like', '%'.$search.'%')
+                        ->orWhere('amount', 'like', '%'.$search.'%');
+                });
+            })
+            ->oldest('transaction_date')
+            ->oldest('id')
+            ->get();
+
+        $selectedStatement = $statementRef
+            ? $this->resolveSecureStatementEntry($statementRef)
+            : $statementEntries->first();
+
+        if ($selectedStatement instanceof CompanyAccountStatementEntry) {
+            $selectedStatement->load('companyAccount', 'reconciliations.paymentRequest.shop');
+            $selectedAccountId = (int) $selectedStatement->company_account_id;
+        }
+
+        $possiblePayments = $selectedStatement instanceof CompanyAccountStatementEntry
+            ? $this->possiblePaymentsForStatement($selectedStatement, $graceDays, $search)
+            : collect();
+
+        $reconciliationEntryTypes = LedgerEntryType::query()
+            ->where('active', true)
+            ->whereIn('code', ['reconciliation_adjustment', 'bank_charges', 'short_receipt', 'excess_receipt'])
+            ->orderBy('display_order')
+            ->get();
+
+        return view('admin.cashbook.finance.reconciliation', compact(
+            'shops',
+            'companyAccounts',
+            'company',
+            'currentShop',
+            'month',
+            'monthStart',
+            'monthEnd',
+            'graceDays',
+            'selectedAccountId',
+            'search',
+            'statementEntries',
+            'selectedStatement',
+            'possiblePayments',
+            'reconciliationEntryTypes',
+        ));
+    }
+
+    public function matchStatementReconciliation(Request $request, string $statementRef): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $statementEntry = $this->resolveSecureStatementEntry($statementRef);
+        $validated = $request->validate([
+            'payment_request_ref' => ['required', 'string'],
+            'statement_amount' => ['nullable', 'numeric', 'min:0'],
+            'cleared_amount' => ['required', 'numeric', 'min:0.01'],
+            'difference_amount' => ['nullable', 'numeric', 'min:0'],
+            'difference_action' => ['required', 'in:none,keep_floating,shop_expense,shop_income'],
+            'difference_entry_type_id' => ['nullable', 'integer', 'exists:ledger_entry_types,id'],
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'admin_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $paymentRequest = $this->resolveSecurePaymentRequest((string) $validated['payment_request_ref']);
+        $remainingStatementAmount = round((float) $statementEntry->amount - (float) $statementEntry->matched_amount, 2);
+
+        $this->companyPaymentReconciliationService->reconcilePayment(
+            $paymentRequest,
+            [
+                'company_account_id' => $statementEntry->company_account_id,
+                'statement_entry_id' => $statementEntry->id,
+                'statement_amount' => (float) ($validated['statement_amount'] ?? $remainingStatementAmount),
+                'cleared_amount' => $validated['cleared_amount'],
+                'difference_amount' => $validated['difference_amount'] ?? 0,
+                'difference_action' => $validated['difference_action'],
+                'difference_entry_type_id' => $validated['difference_entry_type_id'] ?? null,
+                'business_date' => $validated['business_date'] ?? $statementEntry->transaction_date?->toDateString(),
+                'admin_note' => $validated['admin_note'] ?? null,
+            ],
+            (int) $request->user()->id,
+        );
+
+        return redirect()
+            ->route('admin.cashbook.finance.reconciliation', [
+                'company_account_id' => $statementEntry->company_account_id,
+                'month' => $statementEntry->transaction_date?->format('Y-m'),
+                'grace_days' => $request->input('grace_days', 10),
+            ])
+            ->with('success', 'Statement row matched and reconciliation approved.');
+    }
+
+    public function companyFinanceJournalShowSecure(Request $request, string $paymentRef): View
+    {
+        return $this->companyFinanceJournalShow(
+            $request,
+            $this->resolveSecurePaymentRequest($paymentRef),
+        );
     }
 
     public function companyFinanceJournalShow(Request $request, ShopInvoicePaymentRequest $paymentRequest): View
@@ -3451,6 +3578,101 @@ final class CashbookController extends Controller
             'total' => round((float) $rows->sum('signed_amount'), 2),
             'count' => $rows->count(),
         ];
+    }
+
+    private function resolveSecurePaymentRequest(string $paymentRef): ShopInvoicePaymentRequest
+    {
+        return ShopInvoicePaymentRequest::query()
+            ->whereKey($this->decodeFinanceRouteKey($paymentRef, 'shop-payment'))
+            ->firstOrFail();
+    }
+
+    private function resolveSecureStatementEntry(string $statementRef): CompanyAccountStatementEntry
+    {
+        return CompanyAccountStatementEntry::query()
+            ->whereKey($this->decodeFinanceRouteKey($statementRef, 'statement-entry'))
+            ->firstOrFail();
+    }
+
+    private function decodeFinanceRouteKey(string $routeKey, string $expectedType): int
+    {
+        try {
+            $payload = strtr($routeKey, '-_', '+/');
+            $payload .= str_repeat('=', (4 - strlen($payload) % 4) % 4);
+            $decoded = Crypt::decryptString(base64_decode($payload, true) ?: '');
+        } catch (Throwable) {
+            abort(404);
+        }
+
+        $prefix = $expectedType.':';
+        if (! str_starts_with($decoded, $prefix)) {
+            abort(404);
+        }
+
+        $id = (int) Str::after($decoded, $prefix);
+        abort_if($id <= 0, 404);
+
+        return $id;
+    }
+
+    private function possiblePaymentsForStatement(CompanyAccountStatementEntry $statementEntry, int $graceDays, string $search)
+    {
+        $statementDate = $statementEntry->transaction_date ?: today();
+        $startDate = $statementDate->copy()->subDays($graceDays)->toDateString();
+        $endDate = $statementDate->copy()->addDays($graceDays)->toDateString();
+        $remainingStatementAmount = round((float) $statementEntry->amount - (float) $statementEntry->matched_amount, 2);
+
+        return ShopInvoicePaymentRequest::query()
+            ->with(['shop', 'invoice', 'requestedBy'])
+            ->where('status', '!=', 'rejected')
+            ->where(function ($query): void {
+                $query->whereIn('status', ['pending', 'partially_reconciled'])
+                    ->orWhereIn('reconciliation_status', ['pending', 'floating', 'partially_reconciled']);
+            })
+            ->where(function ($query) use ($startDate, $endDate): void {
+                $query->whereBetween('payment_date', [$startDate, $endDate])
+                    ->orWhereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
+            })
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($sub) use ($search): void {
+                    $sub->where('payment_reference', 'like', '%'.$search.'%')
+                        ->orWhere('shop_note', 'like', '%'.$search.'%')
+                        ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', '%'.$search.'%'));
+                });
+            })
+            ->get()
+            ->map(function (ShopInvoicePaymentRequest $paymentRequest) use ($statementEntry, $remainingStatementAmount): array {
+                $floatingAmount = (float) $paymentRequest->floating_amount > 0
+                    ? (float) $paymentRequest->floating_amount
+                    : max(0, (float) $paymentRequest->requested_amount - (float) $paymentRequest->reconciled_amount);
+                $score = 0;
+
+                if (abs($floatingAmount - $remainingStatementAmount) < 0.01) {
+                    $score += 70;
+                } elseif (abs($floatingAmount - $remainingStatementAmount) <= 5) {
+                    $score += 40;
+                }
+
+                if ($paymentRequest->payment_date && $statementEntry->transaction_date) {
+                    $score += max(0, 20 - abs($paymentRequest->payment_date->diffInDays($statementEntry->transaction_date)));
+                }
+
+                if ($paymentRequest->payment_reference && $statementEntry->reference && str_contains(
+                    strtolower((string) $statementEntry->reference),
+                    strtolower((string) $paymentRequest->payment_reference)
+                )) {
+                    $score += 25;
+                }
+
+                return [
+                    'payment' => $paymentRequest,
+                    'floating_amount' => round($floatingAmount, 2),
+                    'score' => $score,
+                ];
+            })
+            ->filter(fn (array $item): bool => $item['floating_amount'] > 0)
+            ->sortByDesc('score')
+            ->values();
     }
 
     private function collectionGroupsForShop(int $shopId)

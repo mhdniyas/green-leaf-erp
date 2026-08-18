@@ -122,7 +122,7 @@
 
                 <div class="space-y-2">
                     @forelse($paymentRequests as $payment)
-                        <a href="{{ route('admin.cashbook.finance.journal.show', $payment) }}" class="block rounded-lg border border-slate-200 bg-slate-50 p-3 hover:bg-white">
+                        <a href="{{ route('admin.cashbook.finance.journal.secure-show', $payment->secureRouteKey()) }}" class="block rounded-lg border border-slate-200 bg-slate-50 p-3 hover:bg-white">
                             <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">

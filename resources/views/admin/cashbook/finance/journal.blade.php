@@ -76,7 +76,7 @@
                     @php
                         $floating = (float) $payment->floating_amount > 0 ? (float) $payment->floating_amount : max(0, (float) $payment->requested_amount - (float) $payment->reconciled_amount);
                     @endphp
-                    <a href="{{ route('admin.cashbook.finance.journal.show', $payment) }}" class="block rounded-2xl border border-slate-200 bg-slate-50 p-3 transition hover:bg-slate-100">
+                    <a href="{{ route('admin.cashbook.finance.journal.secure-show', $payment->secureRouteKey()) }}" class="block rounded-2xl border border-slate-200 bg-slate-50 p-3 transition hover:bg-slate-100">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
                                 <div class="break-words text-sm font-black text-slate-950">{{ $payment->shop?->name ?? 'Shop' }}</div>
@@ -125,7 +125,7 @@
                                 $floating = (float) $payment->floating_amount > 0 ? (float) $payment->floating_amount : max(0, (float) $payment->requested_amount - (float) $payment->reconciled_amount);
                                 $accountNames = $payment->reconciliations->pluck('companyAccount.name')->filter()->unique()->join(', ');
                             @endphp
-                            <tr class="cursor-pointer hover:bg-slate-50" onclick="window.location.href='{{ route('admin.cashbook.finance.journal.show', $payment) }}'">
+                            <tr class="cursor-pointer hover:bg-slate-50" onclick="window.location.href='{{ route('admin.cashbook.finance.journal.secure-show', $payment->secureRouteKey()) }}'">
                                 <td class="px-3 py-3 font-mono font-bold text-slate-700">{{ $payment->payment_date?->format('Y-m-d') ?: $payment->created_at?->format('Y-m-d') }}</td>
                                 <td class="px-3 py-3 font-bold text-slate-900">{{ $payment->shop?->name ?? 'Shop' }}</td>
                                 <td class="px-3 py-3 font-semibold text-slate-700">{{ $payment->paymentMethodLabel() }}</td>

@@ -209,6 +209,13 @@
                  x-data="{
                     selectedDates: [],
                     datesData: [],
+                    selectedCount: 0,
+                    selectedOutTotal: 0,
+                    selectedInTotal: 0,
+                    selectedBalanceTotal: 0,
+                    visibleOutTotal: 0,
+                    visibleInTotal: 0,
+                    visibleBalanceTotal: 0,
                     paymentAmount: '{{ number_format((float) ($payableBalance > 0 ? $payableBalance : ($shopBalancePayable ?? 0)), 2, '.', '') }}',
                     paymentMethod: '{{ old('payment_method', 'cash') }}',
                     chequeNumber: '{{ old('cheque_number', '') }}',
@@ -222,27 +229,43 @@
                         } catch (e) {
                             this.datesData = [];
                         }
-                        this.recalculateTotal();
+                        this.recalculateTotals();
                     },
-                    recalculateTotal() {
-                        if (!Array.isArray(this.datesData) || this.datesData.length === 0) {
+                    recalculateTotals() {
+                        this.selectedCount = 0;
+                        this.selectedOutTotal = 0;
+                        this.selectedInTotal = 0;
+                        this.selectedBalanceTotal = 0;
+                        this.visibleOutTotal = 0;
+                        this.visibleInTotal = 0;
+                        this.visibleBalanceTotal = 0;
+
+                        if (!Array.isArray(this.datesData)) {
                             return;
                         }
-                        if (this.selectedDates.length === 0) {
-                            this.paymentAmount = '{{ number_format((float) ($payableBalance > 0 ? $payableBalance : ($shopBalancePayable ?? 0)), 2, '.', '') }}';
-                            return;
-                        }
+
                         const selectedSet = new Set(this.selectedDates.map(String));
-                        let sum = 0;
+
                         for (const item of this.datesData) {
+                            const outAmount = parseFloat(item.out_amount) || 0;
+                            const inAmount = parseFloat(item.in_amount) || 0;
+                            const balanceAmount = parseFloat(item.net_balance) || 0;
+
+                            this.visibleOutTotal += outAmount;
+                            this.visibleInTotal += inAmount;
+                            this.visibleBalanceTotal += balanceAmount;
+
                             if (selectedSet.has(String(item.date))) {
-                                const val = parseFloat(item.net_balance);
-                                if (!isNaN(val)) {
-                                    sum += val;
-                                }
+                                this.selectedCount += 1;
+                                this.selectedOutTotal += outAmount;
+                                this.selectedInTotal += inAmount;
+                                this.selectedBalanceTotal += balanceAmount;
                             }
                         }
-                        this.paymentAmount = sum.toFixed(2);
+
+                        this.paymentAmount = this.selectedCount > 0
+                            ? this.selectedBalanceTotal.toFixed(2)
+                            : '{{ number_format((float) ($payableBalance > 0 ? $payableBalance : ($shopBalancePayable ?? 0)), 2, '.', '') }}';
                     },
                     toggleAll(checked) {
                         if (checked && Array.isArray(this.datesData)) {
@@ -250,37 +273,7 @@
                         } else {
                             this.selectedDates = [];
                         }
-                        this.recalculateTotal();
-                    },
-                    get selectedTotalFormatted() {
-                        const amt = parseFloat(this.paymentAmount || 0);
-                        return 'Rs. ' + amt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    },
-                    get selectedRows() {
-                        if (!Array.isArray(this.datesData)) return [];
-                        const selectedSet = new Set(this.selectedDates.map(String));
-                        return this.datesData.filter(item => selectedSet.has(String(item.date)));
-                    },
-                    get selectedOutTotal() {
-                        return this.selectedRows.reduce((sum, item) => sum + (parseFloat(item.out_amount) || 0), 0);
-                    },
-                    get selectedInTotal() {
-                        return this.selectedRows.reduce((sum, item) => sum + (parseFloat(item.in_amount) || 0), 0);
-                    },
-                    get selectedBalanceTotal() {
-                        return this.selectedRows.reduce((sum, item) => sum + (parseFloat(item.net_balance) || 0), 0);
-                    },
-                    get visibleOutTotal() {
-                        if (!Array.isArray(this.datesData)) return 0;
-                        return this.datesData.reduce((sum, item) => sum + (parseFloat(item.out_amount) || 0), 0);
-                    },
-                    get visibleInTotal() {
-                        if (!Array.isArray(this.datesData)) return 0;
-                        return this.datesData.reduce((sum, item) => sum + (parseFloat(item.in_amount) || 0), 0);
-                    },
-                    get visibleBalanceTotal() {
-                        if (!Array.isArray(this.datesData)) return 0;
-                        return this.datesData.reduce((sum, item) => sum + (parseFloat(item.net_balance) || 0), 0);
+                        this.recalculateTotals();
                     },
                     money(value) {
                         const amt = parseFloat(value || 0);
@@ -326,9 +319,9 @@
                     <div class="flex items-center gap-3">
                         <div class="text-right">
                             <span class="text-[9px] uppercase font-bold text-cyan-200 block">Total Selected</span>
-                            <span class="text-sm sm:text-base font-black text-white font-mono" x-text="selectedTotalFormatted"></span>
+                            <span class="text-sm sm:text-base font-black text-white font-mono" x-text="money(selectedBalanceTotal)"></span>
                         </div>
-                        <button type="button" @click="selectedDates = []; recalculateTotal();" class="rounded-lg bg-white/10 px-2 py-1 text-[10px] font-bold hover:bg-white/20 text-white transition">
+                        <button type="button" @click="selectedDates = []; recalculateTotals();" class="rounded-lg bg-white/10 px-2 py-1 text-[10px] font-bold hover:bg-white/20 text-white transition">
                             Clear
                         </button>
                     </div>
@@ -361,7 +354,7 @@
                                 @foreach ($dailyPayableBalances as $day)
                                     <tr class="hover:bg-cyan-50/30 transition-colors" :class="selectedDates.includes('{{ $day['date'] }}') ? 'bg-cyan-50/50' : ''">
                                         <td class="px-3 py-2.5 text-center">
-                                            <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" @change="recalculateTotal()" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                                            <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" @change="$nextTick(() => recalculateTotals())" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
                                         </td>
                                         <td class="px-3.5 py-2.5 font-sans font-bold text-slate-900">{{ $day['date_label'] }}</td>
                                         <td class="px-3.5 py-2.5 text-right font-semibold text-slate-900">Rs. {{ number_format($day['out_amount'], 2) }}</td>
@@ -407,7 +400,7 @@
                             <label class="flex items-center justify-between p-3 transition-colors cursor-pointer"
                                    :class="selectedDates.includes('{{ $day['date'] }}') ? 'bg-cyan-50/70' : 'bg-white'">
                                 <div class="flex items-center gap-2.5 min-w-0 pr-2">
-                                    <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" @change="recalculateTotal()" class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 shrink-0">
+                                    <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" @change="$nextTick(() => recalculateTotals())" class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 shrink-0">
                                     <div class="min-w-0">
                                         <span class="font-sans text-xs font-bold text-slate-900 block truncate">{{ $day['date_label'] }}</span>
                                         <span class="text-[10px] text-slate-500 font-mono block mt-0.5">Coll: {{ number_format($day['out_amount']) }} · Recv: {{ number_format($day['in_amount']) }}</span>
@@ -433,7 +426,7 @@
                         <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                             <div>
                                 <span class="block text-[10px] font-black uppercase tracking-wider text-cyan-800">Selected Dates</span>
-                                <strong class="mt-1 block font-mono text-sm text-slate-950" x-text="selectedDates.length"></strong>
+                                <strong class="mt-1 block font-mono text-sm text-slate-950" x-text="selectedCount"></strong>
                             </div>
                             <div>
                                 <span class="block text-[10px] font-black uppercase tracking-wider text-cyan-800">Selected Collected</span>
