@@ -2,9 +2,9 @@
     <div class="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <h3 class="flex items-center gap-2 text-base font-extrabold text-slate-900">
-                <i data-lucide="landmark" class="h-5 w-5 text-emerald-600"></i> Green Leaf — Bank & Cash Accounts
+                <i data-lucide="landmark" class="h-5 w-5 text-emerald-600"></i> Green Leaf — Bank & Cash In Hand
             </h3>
-            <p class="mt-0.5 text-xs font-medium text-slate-500">Company bank accounts, cash vault, and merchant QR accounts.</p>
+            <p class="mt-0.5 text-xs font-medium text-slate-500">Company bank accounts, cash in hand, and merchant QR accounts.</p>
         </div>
         <div class="flex flex-col gap-2 sm:flex-row">
             <a href="{{ route('admin.cashbook.finance') }}" class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-slate-800 sm:w-auto">

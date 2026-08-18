@@ -795,6 +795,20 @@ final class CashbookController extends Controller
             ->latest('id')
             ->limit(30)
             ->get();
+        $today = today()->toDateString();
+        $chequeToBank = ShopInvoicePaymentRequest::query()
+            ->where('payment_method', 'cheque')
+            ->where('status', '!=', 'rejected')
+            ->where(function ($query): void {
+                $query->whereNull('cheque_status')
+                    ->orWhere('cheque_status', 'pending');
+            })
+            ->where(function ($query) use ($today): void {
+                $query->whereDate('payment_date', '<=', $today)
+                    ->orWhereDate('cheque_date', '<=', $today)
+                    ->orWhereDate('created_at', '<=', $today);
+            })
+            ->get();
         $reconciliationEntryTypes = LedgerEntryType::query()
             ->where('active', true)
             ->whereIn('code', ['reconciliation_adjustment', 'bank_charges', 'short_receipt', 'excess_receipt'])
@@ -804,12 +818,21 @@ final class CashbookController extends Controller
         $currentShop = $shops->first();
 
         $totals = [
+            'current_balance' => round((float) $companyAccounts->sum('current_balance'), 2),
             'bank_balance' => round((float) $companyAccounts->where('account_type', 'bank')->sum('current_balance'), 2),
             'liquid_cash' => round((float) $companyAccounts->where('account_type', 'cash')->sum('current_balance'), 2),
             'wallet_balance' => round((float) $companyAccounts->where('account_type', 'wallet')->sum('current_balance'), 2),
             'floating_payments' => round((float) $pendingPaymentRequests->sum(
                 fn (ShopInvoicePaymentRequest $paymentRequest): float => (float) ($paymentRequest->floating_amount ?: $paymentRequest->requested_amount)
             ), 2),
+            'pending_payments' => round((float) $pendingPaymentRequests
+                ->where('status', 'pending')
+                ->sum('requested_amount'), 2),
+            'open_statement' => round((float) $statementEntries->sum(
+                fn (CompanyAccountStatementEntry $entry): float => max(0, (float) $entry->amount - (float) $entry->matched_amount)
+            ), 2),
+            'cheque_to_bank_count' => $chequeToBank->count(),
+            'cheque_to_bank_amount' => round((float) $chequeToBank->sum('requested_amount'), 2),
         ];
 
         return view('admin.cashbook.finance.index', compact(
@@ -822,6 +845,143 @@ final class CashbookController extends Controller
             'company',
             'currentShop',
             'totals',
+        ));
+    }
+
+    public function companyFinanceChequeSubmission(Request $request): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $date = Carbon::parse((string) $request->input('date', today()->toDateString()))->toDateString();
+        $accountId = $request->integer('company_account_id') ?: null;
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $companyAccounts = CompanyAccount::query()
+            ->where('enabled', true)
+            ->orderBy('is_default', 'desc')
+            ->orderBy('name')
+            ->get();
+        $selectedAccount = $accountId
+            ? $companyAccounts->firstWhere('id', $accountId)
+            : $companyAccounts->firstWhere('account_type', 'bank');
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        $chequePayments = ShopInvoicePaymentRequest::query()
+            ->with(['shop', 'requestedBy', 'reconciliations.companyAccount'])
+            ->where('payment_method', 'cheque')
+            ->where('status', '!=', 'rejected')
+            ->where(function ($query): void {
+                $query->whereNull('cheque_status')
+                    ->orWhere('cheque_status', 'pending');
+            })
+            ->where(function ($query) use ($date): void {
+                $query->whereDate('payment_date', '<=', $date)
+                    ->orWhereDate('cheque_date', '<=', $date)
+                    ->orWhereDate('created_at', '<=', $date);
+            })
+            ->latest('payment_date')
+            ->latest('id')
+            ->get();
+
+        $totals = [
+            'count' => $chequePayments->count(),
+            'amount' => round((float) $chequePayments->sum('requested_amount'), 2),
+            'floating' => round((float) $chequePayments->sum(
+                fn (ShopInvoicePaymentRequest $paymentRequest): float => (float) ($paymentRequest->floating_amount ?: $paymentRequest->requested_amount)
+            ), 2),
+        ];
+
+        return view('admin.cashbook.finance.cheque-submission', compact(
+            'shops',
+            'companyAccounts',
+            'selectedAccount',
+            'company',
+            'currentShop',
+            'date',
+            'chequePayments',
+            'totals',
+        ));
+    }
+
+    public function companyFinanceJournal(Request $request): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $status = (string) $request->input('status', 'all');
+        $method = (string) $request->input('payment_method', 'all');
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        $paymentRequests = ShopInvoicePaymentRequest::query()
+            ->with(['shop', 'requestedBy', 'reviewedBy', 'reconciliations.companyAccount', 'reconciliations.statementEntry'])
+            ->when($status !== 'all', fn ($query) => $query->where('reconciliation_status', $status))
+            ->when($method !== 'all', fn ($query) => $query->where('payment_method', $method))
+            ->latest('id')
+            ->paginate(30)
+            ->withQueryString();
+
+        $summaryBase = ShopInvoicePaymentRequest::query()->where('status', '!=', 'rejected');
+        $totals = [
+            'requested' => round((float) (clone $summaryBase)->sum('requested_amount'), 2),
+            'reconciled' => round((float) (clone $summaryBase)->sum('reconciled_amount'), 2),
+            'floating' => round((float) (clone $summaryBase)->sum('floating_amount'), 2),
+            'pending' => round((float) (clone $summaryBase)
+                ->where('status', 'pending')
+                ->sum('requested_amount'), 2),
+        ];
+
+        return view('admin.cashbook.finance.journal', compact(
+            'shops',
+            'companyAccounts',
+            'company',
+            'currentShop',
+            'paymentRequests',
+            'totals',
+            'status',
+            'method',
+        ));
+    }
+
+    public function companyFinanceJournalShow(Request $request, ShopInvoicePaymentRequest $paymentRequest): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        $paymentRequest->load([
+            'shop',
+            'invoice',
+            'requestedBy',
+            'reviewedBy',
+            'allocations.invoice',
+            'reconciliations.companyAccount',
+            'reconciliations.statementEntry',
+            'reconciliations.differenceTransaction.entryType',
+            'reconciliations.reconciledBy',
+        ]);
+
+        $openStatementEntries = CompanyAccountStatementEntry::query()
+            ->with('companyAccount')
+            ->whereIn('status', ['unmatched', 'partially_matched'])
+            ->latest('transaction_date')
+            ->latest('id')
+            ->limit(30)
+            ->get();
+
+        return view('admin.cashbook.finance.journal-show', compact(
+            'shops',
+            'companyAccounts',
+            'company',
+            'currentShop',
+            'paymentRequest',
+            'openStatementEntries',
         ));
     }
 

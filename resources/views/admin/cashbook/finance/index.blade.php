@@ -11,10 +11,20 @@
 @endsection
 
 @section('header_actions')
-    <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white shadow-sm hover:bg-slate-800">
-        <i data-lucide="landmark" class="h-4 w-4"></i>
-        <span class="hidden sm:inline">Accounts</span>
-    </a>
+    <div class="flex items-center gap-2">
+        <a href="{{ route('admin.cashbook.finance.cheque-submission') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-bold text-amber-800 shadow-sm hover:bg-amber-100">
+            <i data-lucide="file-check-2" class="h-4 w-4"></i>
+            <span class="hidden sm:inline">Cheques</span>
+        </a>
+        <a href="{{ route('admin.cashbook.finance.journal') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+            <i data-lucide="book-open-check" class="h-4 w-4"></i>
+            <span class="hidden sm:inline">Journal</span>
+        </a>
+        <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white shadow-sm hover:bg-slate-800">
+            <i data-lucide="landmark" class="h-4 w-4"></i>
+            <span class="hidden sm:inline">Accounts</span>
+        </a>
+    </div>
 @endsection
 
 @section('content')
@@ -33,11 +43,15 @@
 
         <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Current Balance</span>
+                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-emerald-700">₹{{ number_format($totals['current_balance'], 2) }}</div>
+            </div>
+            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
                 <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Bank Balance</span>
                 <div class="mt-2 break-words font-mono text-2xl font-extrabold text-slate-950">₹{{ number_format($totals['bank_balance'], 2) }}</div>
             </div>
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Liquid Cash</span>
+                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Cash In Hand</span>
                 <div class="mt-2 break-words font-mono text-2xl font-extrabold text-emerald-700">₹{{ number_format($totals['liquid_cash'], 2) }}</div>
             </div>
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
@@ -48,6 +62,21 @@
                 <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Floating Payments</span>
                 <div class="mt-2 break-words font-mono text-2xl font-extrabold text-amber-700">₹{{ number_format($totals['floating_payments'], 2) }}</div>
             </div>
+            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Pending Payment Amount</span>
+                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-rose-700">₹{{ number_format($totals['pending_payments'], 2) }}</div>
+            </div>
+            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Open Statement Balance</span>
+                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-indigo-700">₹{{ number_format($totals['open_statement'], 2) }}</div>
+            </div>
+            <a href="{{ route('admin.cashbook.finance.cheque-submission') }}" class="white-card rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm transition hover:bg-amber-100">
+                <span class="text-[10px] font-black uppercase tracking-wider text-amber-700">Cheques To Bank Today</span>
+                <div class="mt-2 flex items-baseline justify-between gap-3">
+                    <strong class="font-mono text-2xl font-extrabold text-amber-800">{{ $totals['cheque_to_bank_count'] }}</strong>
+                    <span class="break-words text-right font-mono text-sm font-extrabold text-amber-800">₹{{ number_format($totals['cheque_to_bank_amount'], 2) }}</span>
+                </div>
+            </a>
         </section>
 
         <section class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
@@ -95,7 +124,7 @@
                 <div class="mb-4 flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <h2 class="text-base font-extrabold text-slate-950">Pending Shop Payments</h2>
-                        <p class="mt-0.5 text-xs font-semibold text-slate-500">Reconcile fully or partially against bank, wallet, cheque, or liquid cash.</p>
+                        <p class="mt-0.5 text-xs font-semibold text-slate-500">Reconcile fully or partially against bank, wallet, cheque, or cash in hand.</p>
                     </div>
                     <span class="font-mono text-xs font-bold text-slate-400">{{ $pendingPaymentRequests->count() }} open</span>
                 </div>
@@ -111,7 +140,7 @@
                             <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <h3 class="text-sm font-black text-slate-950">{{ $paymentRequest->shop?->name ?? 'Shop' }}</h3>
+                                        <a href="{{ route('admin.cashbook.finance.journal.show', $paymentRequest) }}" class="text-sm font-black text-slate-950 hover:text-emerald-700">{{ $paymentRequest->shop?->name ?? 'Shop' }}</a>
                                         <span class="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">{{ $paymentRequest->reconciliationStatusLabel() }}</span>
                                     </div>
                                     <div class="mt-2 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
@@ -149,7 +178,7 @@
                                         @endforeach
                                     </select>
                                     <select name="statement_entry_id" class="rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 lg:col-span-2">
-                                        <option value="">Liquid cash / no statement</option>
+                                        <option value="">Auto add to selected account statement</option>
                                         @foreach($statementEntries as $entry)
                                             <option value="{{ $entry->id }}">
                                                 {{ $entry->companyAccount?->name }} / {{ $entry->transaction_date?->format('d M') }} / ₹{{ number_format($entry->amount - $entry->matched_amount, 2) }}
@@ -232,7 +261,13 @@
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <div class="text-xs font-black text-slate-950">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</div>
+                                <div class="text-xs font-black text-slate-950">
+                                    @if($reconciliation->paymentRequest)
+                                        <a href="{{ route('admin.cashbook.finance.journal.show', $reconciliation->paymentRequest) }}" class="hover:text-emerald-700">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</a>
+                                    @else
+                                        Shop
+                                    @endif
+                                </div>
                                 <div class="mt-1 text-xs font-semibold text-slate-500">{{ $reconciliation->companyAccount?->name }}</div>
                                 <div class="mt-1 font-mono text-[11px] font-bold text-slate-400">{{ $reconciliation->reconciled_at?->format('Y-m-d') }} / {{ $reconciliation->reconciledBy?->name ?? '-' }}</div>
                             </div>
@@ -276,7 +311,13 @@
                         @forelse($recentReconciliations as $reconciliation)
                             <tr class="hover:bg-slate-50">
                                 <td class="px-3 py-3 font-mono font-bold text-slate-700">{{ $reconciliation->reconciled_at?->format('Y-m-d') }}</td>
-                                <td class="px-3 py-3 font-bold text-slate-900">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</td>
+                                <td class="px-3 py-3 font-bold text-slate-900">
+                                    @if($reconciliation->paymentRequest)
+                                        <a href="{{ route('admin.cashbook.finance.journal.show', $reconciliation->paymentRequest) }}" class="hover:text-emerald-700">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop' }}</a>
+                                    @else
+                                        Shop
+                                    @endif
+                                </td>
                                 <td class="px-3 py-3 font-semibold text-slate-700">{{ $reconciliation->companyAccount?->name }}</td>
                                 <td class="px-3 py-3 text-right font-mono font-bold text-slate-800">₹{{ number_format($reconciliation->statement_amount, 2) }}</td>
                                 <td class="px-3 py-3 text-right font-mono font-bold text-emerald-700">₹{{ number_format($reconciliation->cleared_amount, 2) }}</td>

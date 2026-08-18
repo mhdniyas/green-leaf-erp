@@ -665,6 +665,9 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/export/pdf', [CashbookController::class, 'exportReportsPdf'])->name('reports.export.pdf');
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
             Route::get('finance', [CashbookController::class, 'companyFinancePage'])->name('finance');
+            Route::get('finance/cheque-submission', [CashbookController::class, 'companyFinanceChequeSubmission'])->name('finance.cheque-submission');
+            Route::get('finance/journal', [CashbookController::class, 'companyFinanceJournal'])->name('finance.journal');
+            Route::get('finance/journal/{paymentRequest}', [CashbookController::class, 'companyFinanceJournalShow'])->name('finance.journal.show');
             Route::post('finance/statement-entries', [CashbookController::class, 'storeCompanyStatementEntry'])->name('finance.statement-entries.store');
             Route::post('finance/payments/{paymentRequest}/reconcile', [CashbookController::class, 'reconcileCompanyPayment'])->name('finance.payments.reconcile');
             Route::get('accept-payment', [CashbookController::class, 'acceptPaymentPage'])->name('accept-payment');

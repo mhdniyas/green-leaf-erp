@@ -73,13 +73,21 @@
                     <i data-lucide="badge-dollar-sign" class="w-4 h-4"></i>
                     <span>Company Finance</span>
                 </a>
+                <a href="{{ route('admin.cashbook.finance.cheque-submission') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.cheque-submission') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="file-check-2" class="w-4 h-4"></i>
+                    <span>Cheque Bank Submit</span>
+                </a>
+                <a href="{{ route('admin.cashbook.finance.journal') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.journal') || request()->routeIs('admin.cashbook.finance.journal.show') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="book-open-check" class="w-4 h-4"></i>
+                    <span>Payment Journal</span>
+                </a>
                 <a href="{{ route('admin.cashbook.accept-payment') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.accept-payment') || request()->routeIs('admin.cashbook.shop.settlement') || request()->routeIs('admin.cashbook.shop.accept-payment') ? 'active-sidebar' : '' }}">
                     <i data-lucide="wallet" class="w-4 h-4"></i>
                     <span>Accept Payment &amp; Settlement</span>
                 </a>
                 <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bank-accounts.*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="landmark" class="w-4 h-4"></i>
-                    <span>Bank &amp; Cash Accounts</span>
+                    <span>Bank &amp; Cash In Hand</span>
                 </a>
             </div>
 

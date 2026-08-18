@@ -22,21 +22,32 @@ class CompanyPaymentReconciliationService
 
     public function createStatementEntry(array $input, int $userId): CompanyAccountStatementEntry
     {
-        return CompanyAccountStatementEntry::query()->create([
-            'company_account_id' => (int) $input['company_account_id'],
-            'transaction_date' => $input['transaction_date'],
-            'value_date' => $input['value_date'] ?? null,
-            'direction' => $input['direction'] ?? 'in',
-            'amount' => round((float) $input['amount'], 2),
-            'reference' => filled($input['reference'] ?? null) ? trim((string) $input['reference']) : null,
-            'narration' => filled($input['narration'] ?? null) ? trim((string) $input['narration']) : null,
-            'source' => $input['source'] ?? 'manual',
-            'status' => 'unmatched',
-            'matched_amount' => 0,
-            'statement_batch' => $input['statement_batch'] ?? null,
-            'notes' => filled($input['notes'] ?? null) ? trim((string) $input['notes']) : null,
-            'imported_by' => $userId,
-        ]);
+        return DB::transaction(function () use ($input, $userId): CompanyAccountStatementEntry {
+            $account = CompanyAccount::query()
+                ->whereKey((int) $input['company_account_id'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $entry = CompanyAccountStatementEntry::query()->create([
+                'company_account_id' => $account->id,
+                'transaction_date' => $input['transaction_date'],
+                'value_date' => $input['value_date'] ?? null,
+                'direction' => $input['direction'] ?? 'in',
+                'amount' => round((float) $input['amount'], 2),
+                'reference' => filled($input['reference'] ?? null) ? trim((string) $input['reference']) : null,
+                'narration' => filled($input['narration'] ?? null) ? trim((string) $input['narration']) : null,
+                'source' => $input['source'] ?? 'manual',
+                'status' => 'unmatched',
+                'matched_amount' => 0,
+                'statement_batch' => $input['statement_batch'] ?? null,
+                'notes' => filled($input['notes'] ?? null) ? trim((string) $input['notes']) : null,
+                'imported_by' => $userId,
+            ]);
+
+            $this->applyStatementBalanceMovement($account, $entry);
+
+            return $entry;
+        });
     }
 
     public function reconcilePayment(ShopInvoicePaymentRequest $paymentRequest, array $input, int $userId): CompanyPaymentReconciliation
@@ -92,10 +103,35 @@ class CompanyPaymentReconciliationService
                 ]);
             }
 
+            if ($statementAmount <= 0.0) {
+                $statementAmount = $clearedAmount;
+            }
+
             if ($statementAmount < 0.0 || $differenceAmount < 0.0) {
                 throw ValidationException::withMessages([
                     'cleared_amount' => 'Amounts cannot be negative.',
                 ]);
+            }
+
+            $bankClearedDifference = round(abs($statementAmount - $clearedAmount), 2);
+            if ($bankClearedDifference > 0.0 && $differenceAction === 'none') {
+                throw ValidationException::withMessages([
+                    'difference_action' => 'Select how to account for the difference between bank amount and cleared amount.',
+                ]);
+            }
+
+            if ($bankClearedDifference > 0.0 && $differenceAmount <= 0.0) {
+                $differenceAmount = $bankClearedDifference;
+            }
+
+            if ($differenceAmount > 0.0 && $differenceAction === 'none') {
+                throw ValidationException::withMessages([
+                    'difference_action' => 'Select a difference action when a difference amount is entered.',
+                ]);
+            }
+
+            if (! $statementEntry instanceof CompanyAccountStatementEntry) {
+                $statementEntry = $this->createAutoStatementEntry($paymentRequest, $account, $input, $statementAmount, $userId);
             }
 
             $differenceTransaction = null;
@@ -113,7 +149,7 @@ class CompanyPaymentReconciliationService
                 'payment_request_id' => $paymentRequest->id,
                 'shop_id' => $paymentRequest->shop_id,
                 'company_account_id' => $account->id,
-                'statement_entry_id' => $statementEntry?->id,
+                'statement_entry_id' => $statementEntry->id,
                 'statement_amount' => $statementAmount,
                 'cleared_amount' => $clearedAmount,
                 'difference_amount' => $differenceAmount,
@@ -126,20 +162,15 @@ class CompanyPaymentReconciliationService
                 'reconciled_at' => now(),
             ]);
 
-            $accountBalanceChange = $statementAmount > 0 ? $statementAmount : $clearedAmount;
-            $account->increment('current_balance', $accountBalanceChange);
-
-            if ($statementEntry instanceof CompanyAccountStatementEntry) {
-                $statementEntry->increment('matched_amount', $statementAmount);
-                $statementEntry->refresh();
-                $statementEntry->update([
-                    'status' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount
-                        ? 'reconciled'
-                        : 'partially_matched',
-                    'reconciled_by' => $userId,
-                    'reconciled_at' => now(),
-                ]);
-            }
+            $statementEntry->increment('matched_amount', $statementAmount);
+            $statementEntry->refresh();
+            $statementEntry->update([
+                'status' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount
+                    ? 'reconciled'
+                    : 'partially_matched',
+                'reconciled_by' => $userId,
+                'reconciled_at' => now(),
+            ]);
 
             $this->refreshPaymentReconciliationTotals($paymentRequest);
 
@@ -152,6 +183,39 @@ class CompanyPaymentReconciliationService
                 'reconciledBy',
             ]);
         });
+    }
+
+    private function createAutoStatementEntry(
+        ShopInvoicePaymentRequest $paymentRequest,
+        CompanyAccount $account,
+        array $input,
+        float $statementAmount,
+        int $userId
+    ): CompanyAccountStatementEntry {
+        return $this->createStatementEntry([
+            'company_account_id' => $account->id,
+            'transaction_date' => $input['business_date'] ?? $paymentRequest->payment_date?->toDateString() ?? now()->toDateString(),
+            'value_date' => $input['business_date'] ?? $paymentRequest->payment_date?->toDateString() ?? now()->toDateString(),
+            'direction' => 'in',
+            'amount' => $statementAmount,
+            'reference' => $paymentRequest->payment_reference ?: 'SHOP-PAY-'.$paymentRequest->id,
+            'narration' => 'Auto statement entry from shop payment reconciliation: '.($paymentRequest->shop?->name ?? 'Shop #'.$paymentRequest->shop_id),
+            'source' => 'reconciliation',
+            'status' => 'unmatched',
+            'matched_amount' => 0,
+            'statement_batch' => 'auto-reconciliation',
+            'notes' => filled($input['admin_note'] ?? null)
+                ? trim((string) $input['admin_note'])
+                : 'Created automatically during reconciliation approval.',
+        ], $userId);
+    }
+
+    private function applyStatementBalanceMovement(CompanyAccount $account, CompanyAccountStatementEntry $entry): void
+    {
+        $amount = round((float) $entry->amount, 2);
+        $balanceChange = $entry->direction === 'out' ? -$amount : $amount;
+
+        $account->increment('current_balance', $balanceChange);
     }
 
     private function refreshPaymentReconciliationTotals(ShopInvoicePaymentRequest $paymentRequest): void

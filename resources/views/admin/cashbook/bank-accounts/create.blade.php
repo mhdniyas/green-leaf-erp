@@ -11,8 +11,8 @@
                 <i data-lucide="landmark" class="w-6 h-6"></i>
                 </div>
                 <div class="min-w-0">
-                    <h2 class="break-words text-xl font-extrabold text-slate-900">Company Bank &amp; Cash Accounts</h2>
-                    <p class="mt-0.5 text-xs font-medium leading-relaxed text-slate-500">Register and manage company bank accounts, cash vaults, or merchant QR accounts for ledger settlements.</p>
+                    <h2 class="break-words text-xl font-extrabold text-slate-900">Company Bank &amp; Cash In Hand Accounts</h2>
+                    <p class="mt-0.5 text-xs font-medium leading-relaxed text-slate-500">Register and manage company bank accounts, cash in hand, or merchant QR accounts for ledger settlements.</p>
                 </div>
             </div>
             <div class="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto">
@@ -52,7 +52,7 @@
             <div class="flex items-center justify-between border-b border-slate-200 pb-3">
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-wider text-emerald-600">Manage Account</p>
-                    <h3 class="text-base font-extrabold text-slate-900">Edit Bank Account Details</h3>
+                    <h3 class="text-base font-extrabold text-slate-900">Edit Account Details</h3>
                 </div>
                 <button @click="showEditModal = false" class="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
             </div>
@@ -70,7 +70,7 @@
                         <label class="block font-bold text-slate-700 mb-1">Account Type <span class="text-rose-500">*</span></label>
                         <select name="account_type" x-model="editForm.account_type" required class="w-full bg-white text-xs font-semibold text-slate-800 px-3 py-2 rounded-xl border border-slate-300">
                             <option value="bank">Bank Account</option>
-                            <option value="cash">Cash Box / Vault</option>
+                            <option value="cash">Cash In Hand</option>
                             <option value="wallet">Merchant Wallet / QR Account</option>
                         </select>
                     </div>
@@ -130,7 +130,7 @@
                     <label class="block font-bold text-slate-700 mb-1.5">Account Type <span class="text-rose-500">*</span></label>
                     <select name="account_type" required class="w-full bg-white text-xs font-semibold text-slate-800 px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
                         <option value="bank">Bank Account</option>
-                        <option value="cash">Cash Box / Vault</option>
+                        <option value="cash">Cash In Hand</option>
                         <option value="wallet">Merchant Wallet / QR Account</option>
                     </select>
                 </div>

@@ -7,7 +7,7 @@
 @endsection
 
 @section('header_subtitle')
-    Statement rows and reconciliation status for one bank, cash, or wallet account.
+    Statement rows and reconciliation status for one bank, cash in hand, or wallet account.
 @endsection
 
 @section('header_actions')
@@ -90,7 +90,7 @@
                     </div>
                     <input type="number" step="0.01" min="0.01" name="amount" required class="min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono font-bold text-slate-800" placeholder="Amount">
                     <input type="text" name="reference" class="min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-800" placeholder="Reference number">
-                    <textarea name="narration" rows="3" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-800" placeholder="Bank narration or cash receipt detail"></textarea>
+                    <textarea name="narration" rows="3" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-800" placeholder="Bank narration or cash in hand receipt detail"></textarea>
                     <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 font-bold text-white hover:bg-emerald-500">
                         <i data-lucide="plus-circle" class="h-4 w-4"></i> Add Entry
                     </button>

@@ -87,6 +87,97 @@ class AdminCashbookCompanyFinanceTest extends TestCase
         $this->assertSame(12000.00, (float) $account->current_balance);
     }
 
+    public function test_admin_reconciliation_auto_creates_statement_entry_when_none_selected(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        [$paymentRequest, $account] = $this->paymentSetup(3500, 3500);
+
+        CompanyAccountStatementEntry::query()->delete();
+        $account->update(['current_balance' => 0]);
+
+        $reconciliation = app(CompanyPaymentReconciliationService::class)->reconcilePayment($paymentRequest, [
+            'company_account_id' => $account->id,
+            'statement_amount' => 3500,
+            'cleared_amount' => 3500,
+            'difference_action' => 'none',
+            'admin_note' => 'Bank transfer received.',
+        ], $admin->id);
+
+        $paymentRequest->refresh();
+        $account->refresh();
+        $statementEntry = CompanyAccountStatementEntry::query()->first();
+
+        $this->assertNotNull($statementEntry);
+        $this->assertSame($statementEntry->id, $reconciliation->statement_entry_id);
+        $this->assertSame($account->id, $statementEntry->company_account_id);
+        $this->assertSame('reconciliation', $statementEntry->source);
+        $this->assertSame('reconciled', $statementEntry->status);
+        $this->assertSame(3500.00, (float) $statementEntry->amount);
+        $this->assertSame(3500.00, (float) $statementEntry->matched_amount);
+        $this->assertSame(3500.00, (float) $account->current_balance);
+        $this->assertSame('reconciled', $paymentRequest->reconciliation_status);
+    }
+
+    public function test_cash_in_hand_reconciliation_creates_cash_statement_and_balance(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        [$paymentRequest, $account] = $this->paymentSetup(900, 900);
+        $account->update([
+            'name' => 'Cash In Hand',
+            'account_type' => 'cash',
+            'current_balance' => 0,
+        ]);
+        CompanyAccountStatementEntry::query()->delete();
+
+        app(CompanyPaymentReconciliationService::class)->reconcilePayment($paymentRequest, [
+            'company_account_id' => $account->id,
+            'cleared_amount' => 900,
+            'difference_action' => 'none',
+            'admin_note' => 'Cash received by office.',
+        ], $admin->id);
+
+        $account->refresh();
+        $statementEntry = CompanyAccountStatementEntry::query()->first();
+
+        $this->assertSame('cash', $account->account_type);
+        $this->assertSame($account->id, $statementEntry->company_account_id);
+        $this->assertSame('reconciliation', $statementEntry->source);
+        $this->assertSame('reconciled', $statementEntry->status);
+        $this->assertSame(900.00, (float) $statementEntry->amount);
+        $this->assertSame(900.00, (float) $account->current_balance);
+    }
+
+    public function test_manual_cash_in_hand_statement_updates_account_balance(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $account = CompanyAccount::query()->create([
+            'name' => 'Cash In Hand',
+            'account_type' => 'cash',
+            'opening_balance' => 100,
+            'current_balance' => 100,
+            'enabled' => true,
+        ]);
+
+        app(CompanyPaymentReconciliationService::class)->createStatementEntry([
+            'company_account_id' => $account->id,
+            'transaction_date' => '2026-08-18',
+            'direction' => 'in',
+            'amount' => 250,
+            'reference' => 'CASH-001',
+            'narration' => 'Cash counted in office.',
+        ], $admin->id);
+
+        $account->refresh();
+
+        $this->assertSame(350.00, (float) $account->current_balance);
+    }
+
     public function test_main_admin_can_open_company_finance_page(): void
     {
         $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
@@ -165,7 +256,7 @@ class AdminCashbookCompanyFinanceTest extends TestCase
             'name' => 'Main Bank',
             'account_type' => 'bank',
             'opening_balance' => 0,
-            'current_balance' => 0,
+            'current_balance' => $statementAmount,
             'enabled' => true,
         ]);
 

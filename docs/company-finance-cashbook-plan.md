@@ -97,3 +97,26 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 4. Add a bank account details page showing the account identity, balances, recent statement activity, and recent reconciliations.
 5. Add a separate bank account statement page that lists statement entries for only that account, with matched/floating status and reconciliation links.
 6. Link every bank account row to Details and Statement pages so admin can trace where money went from the account level.
+
+## Shop Payment Finish Plan: Bank Submit, Reconcile, Journal
+1. Keep this phase focused on shop payments only; other company payments will connect after this flow is stable.
+2. Add a daily cheque-to-bank list so admin can see how many cheque payments must be submitted to bank for a selected date.
+3. Add a print-friendly bank submission form with company account details and cheque/payment rows.
+4. Let admin reconcile a bank transfer or statement entry against shop payment transactions and keep the trace visible from both payment and bank statement sides.
+5. Add a finance journal page that lists all shop-payment finance transactions with account, shop, amount, status, and date.
+6. Add a journal detail page so clicking any row shows payment request, statement entry, reconciliation, account, and admin notes.
+7. Show clear totals for current company balance, floating balance, pending payment amount, and open statement amount.
+
+## Accountability Fix Plan: Every Reconciliation Must Hit Statement
+1. When admin approves reconciliation with an existing bank/cash statement row, link and match that row as before.
+2. When admin approves reconciliation without selecting a statement row, automatically create an incoming statement row for the selected account.
+3. Mark the linked or created statement row as reconciled or partially matched in the same approval transaction.
+4. Keep account balance movement tied to the statement amount so the account statement, reconciliation record, and account balance all show the same money flow.
+5. If bank amount and cleared amount differ, force the difference to be recorded with an action so no rupee disappears from the trace.
+
+## Cash In Hand Plan
+1. Treat Cash in Hand as a company account type, same as a bank account.
+2. Cash in Hand must have its own account details page and statement page.
+3. Manual cash-in-hand statement rows must update the cash account balance immediately.
+4. Reconciliation must link to an existing cash statement row or auto-create one for the selected cash account.
+5. Account balance must come from statement movement, not hidden reconciliation-only balance changes.
