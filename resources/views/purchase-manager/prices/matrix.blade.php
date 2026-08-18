@@ -12,13 +12,14 @@
         $nextDayDate = $currentCarbonDate->copy()->addDay()->toDateString();
         $prevDayWeekStart = $currentCarbonDate->copy()->subDay()->startOfWeek(\Illuminate\Support\Carbon::MONDAY)->toDateString();
         $nextDayWeekStart = $currentCarbonDate->copy()->addDay()->startOfWeek(\Illuminate\Support\Carbon::MONDAY)->toDateString();
-        $matrixExportParams = [
+        $categoryIds = $categoryIds ?? ($categoryId ? [(int)$categoryId] : []);
+        $categoryParams = !empty($categoryIds) ? ['category_ids' => $categoryIds] : [];
+        $matrixExportParams = array_merge([
             'date' => $purchaseDate,
             'search' => $search,
-            'category_id' => $categoryId,
             'matrix_category' => $matrixCategory,
             'week_start' => $weekStartDate,
-        ];
+        ], $categoryParams);
     @endphp
 
     <div class="space-y-4">
@@ -48,20 +49,102 @@
                         </div>
                     </div>
 
-                    <!-- Category Filter -->
-                    <div>
-                        <label for="category_id" class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Product Category</label>
-                        <select
-                            id="category_id"
-                            name="category_id"
-                            onchange="this.form.submit()"
-                            class="w-full h-9 rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-xs font-bold text-slate-900 focus:border-cyan-500 focus:bg-white focus:ring-2 focus:ring-cyan-500/20 focus:outline-none transition touch-manipulation"
+                    <!-- Category Filter (Multi-Select Support) -->
+                    <div x-data="matrixMultiCategorySelect({
+                        categories: {{ json_encode($categories->map(fn($cat) => ['id' => (int) $cat->id, 'name' => $cat->name])) }},
+                        selected: {{ json_encode(array_values(array_map('intval', $categoryIds))) }}
+                    })" class="relative">
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Product Categories</label>
+
+                        <!-- Trigger Button -->
+                        <button
+                            type="button"
+                            @click="open = !open"
+                            @click.outside="open = false"
+                            class="w-full h-9 rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-xs font-bold text-slate-900 flex items-center justify-between gap-1.5 focus:border-cyan-500 focus:bg-white focus:ring-2 focus:ring-cyan-500/20 focus:outline-none transition touch-manipulation cursor-pointer"
                         >
-                            <option value="">All Categories</option>
-                            @foreach ($categories as $cat)
-                                <option value="{{ $cat->id }}" @selected((string) $categoryId === (string) $cat->id)>{{ $cat->name }}</option>
-                            @endforeach
-                        </select>
+                            <span class="truncate" x-text="buttonText()"></span>
+                            <svg class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </button>
+
+                        <!-- Hidden Inputs for Form Submission -->
+                        <template x-for="catId in selected" :key="catId">
+                            <input type="hidden" name="category_ids[]" :value="catId">
+                        </template>
+
+                        <!-- Popover Menu -->
+                        <div
+                            x-show="open"
+                            x-transition:enter="transition ease-out duration-100"
+                            x-transition:enter-start="opacity-0 scale-95"
+                            x-transition:enter-end="opacity-100 scale-100"
+                            x-transition:leave="transition ease-in duration-75"
+                            x-transition:leave-start="opacity-100 scale-100"
+                            x-transition:leave-end="opacity-0 scale-95"
+                            class="absolute left-0 right-0 z-40 mt-1 max-h-72 w-64 min-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl space-y-2"
+                            style="display: none;"
+                        >
+                            <!-- Search & Quick Toggles -->
+                            <div class="space-y-1.5 pb-1 border-b border-slate-100">
+                                <div class="relative">
+                                    <input
+                                        type="text"
+                                        x-model="searchCat"
+                                        placeholder="Search categories..."
+                                        class="w-full h-7 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 focus:outline-none focus:border-cyan-500 focus:bg-white"
+                                    >
+                                </div>
+                                <div class="flex items-center justify-between px-1">
+                                    <button
+                                        type="button"
+                                        @click="selectAll()"
+                                        class="text-[10px] font-black uppercase tracking-wider text-cyan-600 hover:text-cyan-800 cursor-pointer"
+                                    >
+                                        Select All
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="clearAll()"
+                                        class="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600 cursor-pointer"
+                                    >
+                                        Clear All
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Scrollable Category Checkboxes -->
+                            <div class="max-h-40 overflow-y-auto space-y-0.5 px-0.5">
+                                <template x-for="cat in filteredCategories()" :key="cat.id">
+                                    <label class="flex items-center gap-2 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer select-none">
+                                        <input
+                                            type="checkbox"
+                                            :value="cat.id"
+                                            :checked="selected.includes(cat.id)"
+                                            @change="toggleCategory(cat.id)"
+                                            class="h-3.5 w-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                                        >
+                                        <span class="truncate" x-text="cat.name"></span>
+                                    </label>
+                                </template>
+                                <div x-show="filteredCategories().length === 0" class="py-3 text-center text-[11px] font-semibold text-slate-400">
+                                    No matching categories
+                                </div>
+                            </div>
+
+                            <!-- Popover Footer Action -->
+                            <div class="pt-1.5 border-t border-slate-100 flex items-center justify-between px-1">
+                                <span class="text-[10px] font-bold text-slate-400" x-text="summaryText()"></span>
+                                <button
+                                    type="button"
+                                    @click="apply()"
+                                    class="rounded-lg bg-slate-900 px-3 py-1 text-[11px] font-black text-white hover:bg-slate-800 transition active:scale-95 cursor-pointer"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Business Date Stepper -->
@@ -69,7 +152,7 @@
                         <label for="date" class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Business Date</label>
                         <div class="relative flex items-center h-9 rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
                             <a
-                                href="{{ route('purchasing.prices.matrix.index', ['date' => $prevDayDate, 'search' => $search, 'category_id' => $categoryId, 'matrix_category' => $matrixCategory, 'week_start' => $prevDayWeekStart]) }}"
+                                href="{{ route('purchasing.prices.matrix.index', array_merge(['date' => $prevDayDate, 'search' => $search, 'matrix_category' => $matrixCategory, 'week_start' => $prevDayWeekStart], $categoryParams)) }}"
                                 title="Previous Day ({{ \Illuminate\Support\Carbon::parse($prevDayDate)->format('d M') }})"
                                 aria-label="Previous Day"
                                 class="w-8 h-9 inline-flex items-center justify-center bg-slate-100 text-slate-700 hover:bg-cyan-600 hover:text-white transition active:scale-95 shrink-0 touch-manipulation"
@@ -87,7 +170,7 @@
                                 class="w-full h-9 border-0 bg-white px-2 text-center text-xs font-black text-cyan-800 focus:ring-0 focus:outline-none transition touch-manipulation"
                             >
                             <a
-                                href="{{ route('purchasing.prices.matrix.index', ['date' => $nextDayDate, 'search' => $search, 'category_id' => $categoryId, 'matrix_category' => $matrixCategory, 'week_start' => $nextDayWeekStart]) }}"
+                                href="{{ route('purchasing.prices.matrix.index', array_merge(['date' => $nextDayDate, 'search' => $search, 'matrix_category' => $matrixCategory, 'week_start' => $nextDayWeekStart], $categoryParams)) }}"
                                 title="Next Day ({{ \Illuminate\Support\Carbon::parse($nextDayDate)->format('d M') }})"
                                 aria-label="Next Day"
                                 class="w-8 h-9 inline-flex items-center justify-center bg-slate-100 text-slate-700 hover:bg-cyan-600 hover:text-white transition active:scale-95 shrink-0 touch-manipulation"
@@ -179,7 +262,7 @@
                     <!-- Week Stepper Navigation -->
                     <div class="flex flex-wrap items-center gap-1.5">
                         <a
-                            href="{{ route('purchasing.prices.matrix.index', ['date' => $purchaseDate, 'search' => $search, 'category_id' => $categoryId, 'matrix_category' => $matrixCategory, 'week_start' => $previousWeekStartDate]) }}"
+                            href="{{ route('purchasing.prices.matrix.index', array_merge(['date' => $purchaseDate, 'search' => $search, 'matrix_category' => $matrixCategory, 'week_start' => $previousWeekStartDate], $categoryParams)) }}"
                             aria-label="Previous Week"
                             class="h-8 inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-[11px] font-black text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 transition active:scale-95 shadow-2xs touch-manipulation"
                         >
@@ -195,7 +278,7 @@
                             <span>{{ \Illuminate\Support\Carbon::parse($weekStartDate)->format('d M') }} – {{ \Illuminate\Support\Carbon::parse($weekEndDate)->format('d M Y') }}</span>
                         </div>
                         <a
-                            href="{{ route('purchasing.prices.matrix.index', ['date' => $purchaseDate, 'search' => $search, 'category_id' => $categoryId, 'matrix_category' => $matrixCategory, 'week_start' => $nextWeekStartDate]) }}"
+                            href="{{ route('purchasing.prices.matrix.index', array_merge(['date' => $purchaseDate, 'search' => $search, 'matrix_category' => $matrixCategory, 'week_start' => $nextWeekStartDate], $categoryParams)) }}"
                             aria-label="Next Week"
                             class="h-8 inline-flex items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-[11px] font-black text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 transition active:scale-95 shadow-2xs touch-manipulation"
                         >
@@ -269,7 +352,7 @@
                         <span>{{ $error }}</span>
                     </div>
                 @endforeach
- on             </div>
+            </div>
         @endif
 
         @if ($canEditPrices)
@@ -277,7 +360,12 @@
                 @csrf
                 <input type="hidden" name="date" value="{{ $purchaseDate }}">
                 <input type="hidden" name="search" value="{{ $search }}">
-                <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                @foreach ($categoryIds as $cId)
+                    <input type="hidden" name="category_ids[]" value="{{ $cId }}">
+                @endforeach
+                @if ($categoryId)
+                    <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                @endif
                 <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
                 <input type="hidden" name="matrix_category" value="{{ $matrixCategory }}">
                 @foreach ($matrixProducts as $prod)
@@ -292,7 +380,12 @@
                 @csrf
                 <input type="hidden" name="date" value="{{ $purchaseDate }}">
                 <input type="hidden" name="search" value="{{ $search }}">
-                <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                @foreach ($categoryIds as $cId)
+                    <input type="hidden" name="category_ids[]" value="{{ $cId }}">
+                @endforeach
+                @if ($categoryId)
+                    <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                @endif
                 <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
                 <input type="hidden" name="matrix_category" value="{{ $matrixCategory }}">
                 @foreach ($matrixProducts as $prod)
@@ -310,7 +403,12 @@
             @csrf
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
             <input type="hidden" name="search" value="{{ $search }}">
-            <input type="hidden" name="category_id" value="{{ $categoryId }}">
+            @foreach ($categoryIds as $cId)
+                <input type="hidden" name="category_ids[]" value="{{ $cId }}">
+            @endforeach
+            @if ($categoryId)
+                <input type="hidden" name="category_id" value="{{ $categoryId }}">
+            @endif">
             <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
             <input type="hidden" name="matrix_category" id="update-matrix-category" value="{{ $matrixCategory }}">
             <input type="hidden" name="action" id="matrix-form-action" value="update">
@@ -605,6 +703,58 @@
     @once
         @push('scripts')
             <script>
+                function matrixMultiCategorySelect(config) {
+                    return {
+                        open: false,
+                        categories: config.categories || [],
+                        selected: (config.selected || []).map(id => Number(id)),
+                        searchCat: '',
+                        buttonText() {
+                            if (this.selected.length === 0 || this.selected.length === this.categories.length) {
+                                return 'All Categories';
+                            }
+                            if (this.selected.length === 1) {
+                                const cat = this.categories.find(c => Number(c.id) === Number(this.selected[0]));
+                                return cat ? cat.name : '1 Category';
+                            }
+                            return this.selected.length + ' Categories Selected';
+                        },
+                        summaryText() {
+                            if (this.selected.length === 0) return 'None selected (showing all)';
+                            if (this.selected.length === this.categories.length) return 'All selected';
+                            return this.selected.length + ' of ' + this.categories.length + ' selected';
+                        },
+                        filteredCategories() {
+                            if (!this.searchCat.trim()) {
+                                return this.categories;
+                            }
+                            const q = this.searchCat.toLowerCase();
+                            return this.categories.filter(c => c.name.toLowerCase().includes(q));
+                        },
+                        toggleCategory(id) {
+                            id = Number(id);
+                            if (this.selected.includes(id)) {
+                                this.selected = this.selected.filter(i => i !== id);
+                            } else {
+                                this.selected.push(id);
+                            }
+                        },
+                        selectAll() {
+                            this.selected = this.categories.map(c => Number(c.id));
+                        },
+                        clearAll() {
+                            this.selected = [];
+                        },
+                        apply() {
+                            this.open = false;
+                            const form = document.getElementById('matrix-filter-form');
+                            if (form) {
+                                form.submit();
+                            }
+                        }
+                    };
+                }
+
                 let currentMatrixCategory = "{{ $matrixCategory }}";
                 let matrixSaving = false;
                 const matrixLoadingOverlay = document.getElementById('matrix-loading-overlay');

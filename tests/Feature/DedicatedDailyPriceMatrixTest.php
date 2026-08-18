@@ -6,8 +6,9 @@ use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\User;
-use Illuminate\Support\Facades\Artisan;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
 
 class DedicatedDailyPriceMatrixTest extends TestCase
@@ -16,7 +17,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_dedicated_matrix_page_renders_with_filters_and_category_a_default(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
         $user = User::factory()->create();
         $user->syncRoles(['admin']);
 
@@ -48,7 +49,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_matrix_cell_update_endpoint_updates_cell_price(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
         $user = User::factory()->create();
         $user->syncRoles(['purchase']);
 
@@ -88,7 +89,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_matrix_update_saves_submitted_prices(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
         $user = User::factory()->create();
         $user->syncRoles(['purchase']);
 
@@ -129,7 +130,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_next_day_matrix_is_seeded_from_previous_day(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
 
         $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
         $product = Product::create([
@@ -169,7 +170,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_matrix_fill_forward_copies_latest_price_into_missing_visible_days(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
 
         $user = User::factory()->create();
         $user->syncRoles(['purchase']);
@@ -234,7 +235,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_matrix_fill_forward_uses_9999_when_no_previous_price_exists(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
 
         $user = User::factory()->create();
         $user->syncRoles(['purchase']);
@@ -274,7 +275,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_matrix_fill_forward_does_not_fill_dates_after_selected_business_date(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
 
         $user = User::factory()->create();
         $user->syncRoles(['purchase']);
@@ -308,7 +309,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
 
     public function test_remove_future_prices_only_deletes_visible_dates_after_selected_date(): void
     {
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
 
         $user = User::factory()->create();
         $user->syncRoles(['purchase']);
@@ -356,5 +357,51 @@ class DedicatedDailyPriceMatrixTest extends TestCase
             'product_id' => $product->id,
             'business_date' => '2026-08-18 00:00:00',
         ]);
+    }
+
+    public function test_matrix_supports_multiple_category_selection(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+        $user = User::factory()->create();
+        $user->syncRoles(['admin']);
+
+        $categoryA = Category::create(['name' => 'Vegetables', 'is_active' => true]);
+        $categoryB = Category::create(['name' => 'Fruits', 'is_active' => true]);
+        $categoryC = Category::create(['name' => 'Dairy', 'is_active' => true]);
+
+        $productA = Product::create([
+            'name' => 'Tomato H',
+            'sku' => 'TOM-H',
+            'category_id' => $categoryA->id,
+            'unit' => 'KG',
+            'base_price' => 22.00,
+            'is_active' => true,
+        ]);
+        $productB = Product::create([
+            'name' => 'Apple Red',
+            'sku' => 'APP-R',
+            'category_id' => $categoryB->id,
+            'unit' => 'KG',
+            'base_price' => 120.00,
+            'is_active' => true,
+        ]);
+        $productC = Product::create([
+            'name' => 'Fresh Milk',
+            'sku' => 'MLK-1',
+            'category_id' => $categoryC->id,
+            'unit' => 'LTR',
+            'base_price' => 50.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('purchasing.prices.matrix.index', [
+            'date' => '2026-08-18',
+            'category_ids' => [$categoryA->id, $categoryB->id],
+        ]));
+
+        $response->assertStatus(200);
+        $response->assertSee('Tomato H');
+        $response->assertSee('Apple Red');
+        $response->assertDontSee('Fresh Milk');
     }
 }

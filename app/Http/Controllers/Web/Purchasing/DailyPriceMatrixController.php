@@ -8,18 +8,19 @@ use App\Exports\DailyPriceMatrixExport;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
+use App\Models\DailyPricePublication;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\ShopOrderItem;
 use App\Models\ShopPriceGroup;
-use App\Models\User;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
-use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -92,7 +93,27 @@ class DailyPriceMatrixController extends Controller
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
         $selectedDate = Carbon::parse($purchaseDate);
         $search = trim((string) $request->input('search', ''));
-        $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
+
+        $categoryIds = [];
+        if ($request->has('category_ids')) {
+            $rawCatIds = $request->input('category_ids');
+            if (is_array($rawCatIds)) {
+                $categoryIds = array_map('intval', array_filter($rawCatIds));
+            } elseif (is_string($rawCatIds) && strlen(trim($rawCatIds)) > 0) {
+                $categoryIds = array_map('intval', array_filter(explode(',', $rawCatIds)));
+            }
+        } elseif ($request->filled('category_id')) {
+            $rawCatId = $request->input('category_id');
+            if (is_array($rawCatId)) {
+                $categoryIds = array_map('intval', array_filter($rawCatId));
+            } elseif (is_string($rawCatId) && str_contains($rawCatId, ',')) {
+                $categoryIds = array_map('intval', array_filter(explode(',', $rawCatId)));
+            } else {
+                $categoryIds = [(int) $rawCatId];
+            }
+        }
+        $categoryIds = array_values(array_unique(array_filter($categoryIds)));
+        $categoryId = $categoryIds[0] ?? null;
 
         $matrixCategory = strtolower((string) $request->input('matrix_category', 'a'));
         if (! in_array($matrixCategory, ['a', 'b', 'c'], true)) {
@@ -143,8 +164,8 @@ class DailyPriceMatrixController extends Controller
             }
         }
 
-        if ($categoryId) {
-            $productQuery->where('category_id', $categoryId);
+        if (! empty($categoryIds)) {
+            $productQuery->whereIn('category_id', $categoryIds);
         }
 
         if ($search !== '') {
@@ -249,6 +270,7 @@ class DailyPriceMatrixController extends Controller
             'targetBusinessDate' => $targetBusinessDate,
             'search' => $search,
             'categoryId' => $categoryId,
+            'categoryIds' => $categoryIds,
             'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
             'matrixDates' => $matrixDates,
             'matrixProducts' => $matrixProducts,
@@ -258,7 +280,7 @@ class DailyPriceMatrixController extends Controller
             'previousWeekStartDate' => $weekStart->copy()->subWeek()->toDateString(),
             'nextWeekStartDate' => $weekStart->copy()->addWeek()->toDateString(),
             'previousDate' => $previousDate,
-            'isPublished' => \App\Models\DailyPricePublication::isPublishedForDate($targetBusinessDate),
+            'isPublished' => DailyPricePublication::isPublishedForDate($targetBusinessDate),
         ];
     }
 
@@ -366,7 +388,8 @@ class DailyPriceMatrixController extends Controller
         $validated = $request->validate([
             'date' => ['required', 'date'],
             'search' => ['nullable', 'string', 'max:255'],
-            'category_id' => ['nullable', 'integer'],
+            'category_id' => ['nullable'],
+            'category_ids' => ['nullable'],
             'week_start' => ['required', 'date'],
             'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
             'all_product_ids' => ['required', 'array', 'min:1'],
@@ -391,13 +414,7 @@ class DailyPriceMatrixController extends Controller
 
         if ($productIds->isEmpty() || $dateStrings->isEmpty()) {
             return redirect()
-                ->route('purchasing.prices.matrix.index', [
-                    'date' => $validated['date'],
-                    'search' => $validated['search'] ?? null,
-                    'category_id' => $validated['category_id'] ?? null,
-                    'week_start' => $validated['week_start'],
-                    'matrix_category' => $matrixCategory,
-                ])
+                ->route('purchasing.prices.matrix.index', $this->buildRedirectParams($request, $validated))
                 ->with('warning', 'No visible products or dates were available to fill.');
         }
 
@@ -560,13 +577,7 @@ class DailyPriceMatrixController extends Controller
             : 'No future matrix prices needed removing.';
 
         return redirect()
-            ->route('purchasing.prices.matrix.index', [
-                'date' => $selectedDate,
-                'search' => $validated['search'] ?? null,
-                'category_id' => $validated['category_id'] ?? null,
-                'week_start' => $validated['week_start'],
-                'matrix_category' => $matrixCategory,
-            ])
+            ->route('purchasing.prices.matrix.index', $this->buildRedirectParams($request, $validated))
             ->with($deletedRows > 0 ? 'success' : 'warning', $message);
     }
 
@@ -791,14 +802,30 @@ class DailyPriceMatrixController extends Controller
         $message = "Updated {$updatedCells} matrix price cell(s) as final prices.";
 
         return redirect()
-            ->route('purchasing.prices.matrix.index', [
-                'date' => $validated['date'],
-                'search' => $validated['search'] ?? null,
-                'category_id' => $validated['category_id'] ?? null,
-                'week_start' => $validated['week_start'] ?? null,
-                'matrix_category' => $matrixCategory,
-            ])
+            ->route('purchasing.prices.matrix.index', $this->buildRedirectParams($request, $validated))
             ->with('success', $message);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function buildRedirectParams(Request $request, array $validated): array
+    {
+        $params = [
+            'date' => $validated['date'] ?? null,
+            'search' => $validated['search'] ?? null,
+            'week_start' => $validated['week_start'] ?? null,
+            'matrix_category' => strtolower((string) ($validated['matrix_category'] ?? 'a')),
+        ];
+
+        if ($request->has('category_ids')) {
+            $params['category_ids'] = (array) $request->input('category_ids');
+        } elseif ($request->filled('category_id')) {
+            $params['category_id'] = $request->input('category_id');
+        }
+
+        return array_filter($params, fn ($val) => $val !== null && $val !== '' && $val !== []);
     }
 
     private function authorizeBoardAccess(): void
@@ -828,7 +855,7 @@ class DailyPriceMatrixController extends Controller
      */
     private function detectPrimaryOrderedUnit(int $productId, string $businessDate): ?string
     {
-        $units = \App\Models\ShopOrderItem::query()
+        $units = ShopOrderItem::query()
             ->where('product_id', $productId)
             ->whereHas('order', fn ($q) => $q->where('business_date', $businessDate)->where('state', 'approved'))
             ->pluck('requested_unit')
