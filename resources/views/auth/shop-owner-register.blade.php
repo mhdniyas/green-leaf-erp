@@ -1,4 +1,4 @@
-<x-layouts.auth title="Shop Owner Registration">
+<x-layouts.auth title="Shop Incharge Registration">
     <div class="min-h-screen bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_30%),linear-gradient(180deg,#f8fbf8_0%,#eef7f1_55%,#e5f0e8_100%)] px-4 py-6 sm:px-6 lg:px-8">
         <div class="mx-auto flex min-h-[calc(100vh-3rem)] max-w-xl items-center">
             <div class="w-full rounded-[2rem] border border-white/70 bg-white/88 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-7">
@@ -8,7 +8,7 @@
                         Registration
                     </div>
                     <h1 class="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
-                        Shop-owner registration
+                        Shop-incharge registration
                     </h1>
                     <p class="text-sm leading-6 text-slate-600 sm:text-base">
                         Fill this form. Admin will approve the account, then you can log in.
@@ -33,7 +33,7 @@
                     </div>
 
                     <div class="space-y-1.5">
-                        <label for="owner_name" class="block text-sm font-medium text-slate-700">Owner name</label>
+                        <label for="owner_name" class="block text-sm font-medium text-slate-700">Incharge name</label>
                         <input id="owner_name" name="owner_name" type="text" value="{{ old('owner_name') }}" required class="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 transition focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 @error('owner_name') border-red-300 bg-red-50 @enderror">
                         @error('owner_name')
                             <p class="text-xs text-red-600">{{ $message }}</p>

@@ -92,7 +92,7 @@
                                 @foreach(['bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll', 'chaak'] as $unit)
                                     <th class="border-b border-slate-200 px-2 py-3 text-right">{{ strtoupper(str_replace('_', ' ', $unit)) }}</th>
                                 @endforeach
-                                <th class="border-b border-slate-200 px-3 py-3 text-left">Shop Owner Preview</th>
+                                <th class="border-b border-slate-200 px-3 py-3 text-left">Shop Incharge Preview</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-right">Row</th>
                             </tr>
                         </thead>
@@ -180,7 +180,7 @@
                                                 <div class="relative mx-auto mt-24 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
                                                     <div class="flex items-start justify-between gap-3">
                                                         <div class="min-w-0">
-                                                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Shop Owner Units</p>
+                                                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Shop Incharge Units</p>
                                                             <h3 class="mt-1 truncate text-sm font-black text-slate-950">{{ $product->name }}</h3>
                                                         </div>
                                                         <button type="button" data-close-visibility-popup class="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600">Close</button>

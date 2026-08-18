@@ -23,7 +23,7 @@
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_38%),linear-gradient(135deg,_#020617_0%,_#0f172a_55%,_#082f49_100%)] px-5 py-6 sm:px-7 sm:py-7">
                 <p class="text-[11px] font-black uppercase tracking-[0.22em] text-cyan-300">Purchase Manager</p>
                 <h2 class="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Daily shop marketplace</h2>
-                <p class="mt-2 max-w-2xl text-sm font-medium text-slate-300">Same product window shop owners use. Admin can create or update quantities for any shop on {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}.</p>
+                <p class="mt-2 max-w-2xl text-sm font-medium text-slate-300">Same product window shop incharges use. Admin can create or update quantities for any shop on {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}.</p>
 
                 <div class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
                     @php

@@ -49,7 +49,7 @@ class UpdateProductMeasuresBulkRequest extends FormRequest
 
                 if (array_key_exists('visible_labels', $row)
                     && collect($row['visible_labels'])->filter(fn ($visible): bool => (bool) $visible)->isEmpty()) {
-                    $validator->errors()->add("products.{$index}.visible_labels", 'At least one shop owner unit must be visible.');
+                    $validator->errors()->add("products.{$index}.visible_labels", 'At least one shop incharge unit must be visible.');
                 }
             }
         });

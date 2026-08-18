@@ -160,7 +160,7 @@ $unitRows = old('units', $existingUnitRows);
 
                     <div class="space-y-1.5">
                         <label for="unit" class="block text-sm font-medium text-gray-700">Active Unit <span class="text-red-500">*</span></label>
-                        <p class="text-xs text-gray-400">The unit shop owners order and get invoiced in. Other units below stay saved for reference.</p>
+                        <p class="text-xs text-gray-400">The unit shop incharges order and get invoiced in. Other units below stay saved for reference.</p>
                         <div class="relative" data-product-select data-select-target="unit">
                             <input id="unit" type="hidden" name="unit" value="{{ $baseUnit }}" data-product-select-input>
                             <button type="button" data-product-select-trigger class="flex w-full items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left text-sm font-bold text-slate-900 transition hover:border-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 @error('unit') border-red-300 @enderror" aria-haspopup="listbox" aria-expanded="false">
@@ -308,7 +308,7 @@ $unitRows = old('units', $existingUnitRows);
                     <input id="show_in_purchaser_order" name="show_in_purchaser_order" type="checkbox" value="1"
                            @checked(old('show_in_purchaser_order', $product->show_in_purchaser_order ?? true))
                            class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500/30 cursor-pointer">
-                    <label for="show_in_purchaser_order" class="text-sm text-gray-700 cursor-pointer">Show in Purchase Order / Shop Owner Order Screen</label>
+                    <label for="show_in_purchaser_order" class="text-sm text-gray-700 cursor-pointer">Show in Purchase Order / Shop Incharge Order Screen</label>
                 </div>
 
                 @isset($product)
@@ -556,8 +556,8 @@ $unitRows = old('units', $existingUnitRows);
                             hint.classList.add('border', 'border-emerald-100', 'bg-emerald-50', 'text-emerald-700');
                         } else if (!isBase && unitSelect.value === 'piece') {
                             hint.textContent = conversionInput?.value
-                                ? 'Shop owner sees PIECE and conversion info.'
-                                : 'Shop owner sees PIECE as count only.';
+                                ? 'Shop incharge sees PIECE and conversion info.'
+                                : 'Shop incharge sees PIECE as count only.';
                             hint.classList.remove('hidden');
                             hint.classList.add('border', 'border-sky-100', 'bg-sky-50', 'text-sky-700');
                         }

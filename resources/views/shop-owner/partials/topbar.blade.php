@@ -12,7 +12,7 @@
                 type="button"
                 id="shop-owner-mobile-sidebar-open"
                 class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:border-slate-300 hover:bg-white lg:hidden"
-                aria-label="Open shop owner sidebar"
+                aria-label="Open shop incharge sidebar"
             >
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -23,8 +23,8 @@
 
             <div class="min-w-0">
                 <p class="truncate text-[9px] font-black uppercase tracking-[0.14em] text-slate-400 sm:text-[10px] sm:tracking-[0.18em]">Green Leaf</p>
-                <p class="mt-0.5 max-w-[120px] truncate text-xs font-bold text-slate-800 sm:max-w-none sm:text-sm" title="{{ $activeShop?->name ?? 'Shop Owner' }}">
-                    {{ $activeShop?->name ?? 'Shop Owner' }}
+                <p class="mt-0.5 max-w-[120px] truncate text-xs font-bold text-slate-800 sm:max-w-none sm:text-sm" title="{{ $activeShop?->name ?? 'Shop Incharge' }}">
+                    {{ $activeShop?->name ?? 'Shop Incharge' }}
                 </p>
             </div>
         </div>

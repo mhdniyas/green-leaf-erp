@@ -13,7 +13,7 @@
                     <h2 class="mt-1 text-xl font-black text-slate-950">Purchase Manager Approval Desk</h2>
                     <p class="mt-1 text-sm text-slate-500">
                         Step 1 approves purchased stock. Step 2 updates category price proposals.
-                        Admin approval then publishes prices, generates shop invoices, and updates shop-owner finance.
+                        Admin approval then publishes prices, generates shop invoices, and updates shop-incharge finance.
                     </p>
                 </div>
                 <form method="GET" action="{{ route('purchasing.grns.index') }}" class="flex items-end gap-3">

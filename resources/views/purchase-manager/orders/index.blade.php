@@ -48,7 +48,7 @@
             <div class="mt-5 flex flex-col gap-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <p class="text-sm font-black text-emerald-950">Edit daily shop orders</p>
-                    <p class="mt-1 text-xs font-semibold text-emerald-800">Open the shop marketplace for any date and add or update products like a shop owner.</p>
+                    <p class="mt-1 text-xs font-semibold text-emerald-800">Open the shop marketplace for any date and add or update products like a shop incharge.</p>
                 </div>
                 <a href="{{ route('purchasing.shop-orders.index', ['date' => $tomorrowDate]) }}"
                     class="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-700">

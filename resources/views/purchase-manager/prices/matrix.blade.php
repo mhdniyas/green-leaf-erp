@@ -115,7 +115,7 @@
                             type="submit"
                             form="matrix-toggle-publish-form"
                             class="h-9 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-xs font-black uppercase tracking-wider transition shadow-2xs {{ $isPublished ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-500 text-white hover:bg-amber-600' }}"
-                            title="{{ $isPublished ? 'Click to unpublish prices' : 'Click to publish daily prices to shop owners' }}"
+                            title="{{ $isPublished ? 'Click to unpublish prices' : 'Click to publish daily prices to shop incharges' }}"
                         >
                             <span class="h-2 w-2 rounded-full {{ $isPublished ? 'bg-white animate-pulse' : 'bg-amber-200' }}"></span>
                             <span>{{ $isPublished ? 'Published' : 'Publish Prices' }}</span>

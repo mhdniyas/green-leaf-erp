@@ -3,7 +3,7 @@
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
                 <h1 class="text-2xl font-black text-slate-950">Advance Payments</h1>
-                <p class="mt-1 text-sm font-semibold text-slate-500">Review shop-owner advance requests separately from salary payments.</p>
+                <p class="mt-1 text-sm font-semibold text-slate-500">Review shop-incharge advance requests separately from salary payments.</p>
             </div>
 
             <form method="GET" action="{{ route('admin.staff.advance-payments.index') }}" class="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
@@ -68,7 +68,7 @@
                                 <h2 class="text-lg font-black text-slate-950">{{ $advanceRequest->employee?->name }}</h2>
                                 <span class="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $statusClass }}">{{ $advanceRequest->status }}</span>
                             </div>
-                            <p class="mt-1 text-sm font-semibold text-slate-500">{{ $advanceRequest->shop?->name }} · requested by {{ $advanceRequest->requestedBy?->name ?? 'Shop owner' }} · {{ $advanceRequest->requested_on->format('d M Y') }}</p>
+                            <p class="mt-1 text-sm font-semibold text-slate-500">{{ $advanceRequest->shop?->name }} · requested by {{ $advanceRequest->requestedBy?->name ?? 'Shop incharge' }} · {{ $advanceRequest->requested_on->format('d M Y') }}</p>
                             @if($advanceRequest->request_note)
                                 <p class="mt-2 text-sm font-semibold text-slate-700">{{ $advanceRequest->request_note }}</p>
                             @endif

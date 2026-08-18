@@ -8,7 +8,7 @@
                 <span>@yield('page_back_label', 'Back')</span>
             </a>
             <div class="min-w-0">
-                <p class="hidden text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700 sm:block">@yield('eyebrow', 'Shop Owner')</p>
+                <p class="hidden text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700 sm:block">@yield('eyebrow', 'Shop Incharge')</p>
                 <h1 class="truncate text-base font-black tracking-tight text-slate-950 sm:mt-0.5 sm:text-3xl">@yield('page_title')</h1>
                 @hasSection('page_description')
                     <p class="truncate text-[11px] font-semibold text-slate-500 sm:mt-1 sm:max-w-3xl sm:text-sm">@yield('page_description')</p>
@@ -25,7 +25,7 @@
 @else
     <div class="mb-4 flex flex-col gap-3 sm:mb-6 md:flex-row md:items-end md:justify-between">
         <div>
-            <p class="hidden text-xs font-black uppercase tracking-[0.2em] text-emerald-700 sm:block">@yield('eyebrow', 'Shop Owner')</p>
+            <p class="hidden text-xs font-black uppercase tracking-[0.2em] text-emerald-700 sm:block">@yield('eyebrow', 'Shop Incharge')</p>
             <h1 class="mt-0.5 text-2xl font-black tracking-tight text-slate-950 sm:mt-1 sm:text-3xl">@yield('page_title')</h1>
             @hasSection('page_description')
                 <p class="mt-1 hidden max-w-3xl text-xs text-slate-600 sm:mt-2 sm:block sm:text-sm">@yield('page_description')</p>

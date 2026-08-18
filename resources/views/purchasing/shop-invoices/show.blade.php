@@ -189,13 +189,13 @@
                             </svg>
                         </div>
                         <div>
-                            <h3 class="text-base font-black text-amber-950">Notes from Shop Owner</h3>
-                            <p class="text-xs font-semibold text-amber-800">Verification remarks, delivery notes & product feedback submitted by shop owner.</p>
+                            <h3 class="text-base font-black text-amber-950">Notes from Shop Incharge</h3>
+                            <p class="text-xs font-semibold text-amber-800">Verification remarks, delivery notes & product feedback submitted by shop incharge.</p>
                         </div>
                     </div>
                     @if ($invoice->order?->shop_checked_at)
                         <span class="w-fit text-xs font-bold text-amber-900 bg-amber-200/80 px-3 py-1.5 rounded-full border border-amber-300">
-                            Verified by {{ $invoice->order->shopCheckedBy?->name ?? 'Shop Owner' }} &middot; {{ $invoice->order->shop_checked_at->format('d M Y, h:i A') }}
+                            Verified by {{ $invoice->order->shopCheckedBy?->name ?? 'Shop Incharge' }} &middot; {{ $invoice->order->shop_checked_at->format('d M Y, h:i A') }}
                         </span>
                     @endif
                     </div>
@@ -218,7 +218,7 @@
 
                     @if ($itemsWithNotes->isNotEmpty())
                         <div class="rounded-2xl border border-amber-200/80 bg-white p-4 shadow-xs">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 mb-3">Item Remarks from Shop Owner</p>
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 mb-3">Item Remarks from Shop Incharge</p>
                             <div class="divide-y divide-slate-100">
                                 @foreach ($itemsWithNotes as $item)
                                     <div class="py-2.5 first:pt-0 last:pb-0">
@@ -478,7 +478,7 @@
                             <input type="hidden" name="invoice_number" value="{{ $invoice->invoice_number }}">
                             <label class="block">
                                 <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Correction Note</span>
-                                <textarea name="review_note" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-rose-400 focus:outline-none" placeholder="Tell the shop owner what to correct">{{ old('review_note') }}</textarea>
+                                <textarea name="review_note" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-rose-400 focus:outline-none" placeholder="Tell the shop incharge what to correct">{{ old('review_note') }}</textarea>
                             </label>
                             <button type="submit" class="mt-3 inline-flex h-10 w-full items-center justify-center rounded-xl bg-rose-600 px-4 text-sm font-black text-white hover:bg-rose-700 sm:w-auto">
                                 Request Delivery Correction
@@ -620,7 +620,7 @@
                                         </td>
                                         <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</td>
                                         <td class="px-5 py-4 text-slate-700">
-                                            {{ $paymentRequest->requestedBy?->name ?? 'Shop Owner' }}
+                                            {{ $paymentRequest->requestedBy?->name ?? 'Shop Incharge' }}
                                             <div class="mt-1 text-xs text-slate-500">{{ $paymentRequest->created_at?->format('d M Y h:i A') }}</div>
                                         </td>
                                         <td class="px-5 py-4 text-slate-700">

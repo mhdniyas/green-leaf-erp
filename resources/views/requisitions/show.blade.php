@@ -269,7 +269,7 @@
                             <svg class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                             <div>
                                 <span class="font-bold block mb-1">Discrepancy Detected:</span>
-                                The shop owner submitted a check-in with shortages. Please review the table on the left, then approve to finalize the stock consumption and check-in.
+                                The shop incharge submitted a check-in with shortages. Please review the table on the left, then approve to finalize the stock consumption and check-in.
                             </div>
                         </div>
 
@@ -345,7 +345,7 @@
 
                     <div class="flex items-center justify-between text-xs">
                         <span class="text-slate-400 font-bold">Created By</span>
-                        <span class="font-semibold text-slate-800">{{ $order->creator ? $order->creator->name : 'Shop Owner' }}</span>
+                        <span class="font-semibold text-slate-800">{{ $order->creator ? $order->creator->name : 'Shop Incharge' }}</span>
                     </div>
 
                     @if($order->is_delivered || $order->delivery_status === 'pending_approval')
@@ -367,7 +367,7 @@
                         <div class="space-y-3 text-xs">
                             <div class="flex items-center justify-between">
                                 <span class="text-slate-400 font-bold">Checked-in By</span>
-                                <span class="font-semibold text-slate-800">{{ $order->deliveredBy ? $order->deliveredBy->name : 'Shop Owner' }}</span>
+                                <span class="font-semibold text-slate-800">{{ $order->deliveredBy ? $order->deliveredBy->name : 'Shop Incharge' }}</span>
                             </div>
                             <div class="flex items-center justify-between">
                                 <span class="text-slate-400 font-bold">Received At</span>

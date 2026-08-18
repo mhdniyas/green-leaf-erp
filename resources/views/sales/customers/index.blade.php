@@ -186,7 +186,7 @@
                         <tr class="border-b border-gray-100">
                             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Shop</th>
                             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Sale Type</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Owners</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Incharges</th>
                             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Contact</th>
                             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Address</th>
                             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Warehouse Tag</th>
@@ -230,7 +230,7 @@
                                             </div>
                                         @empty
                                             <span class="inline-flex w-fit rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
-                                                No owner assigned
+                                                No incharge assigned
                                             </span>
                                         @endforelse
                                     </div>

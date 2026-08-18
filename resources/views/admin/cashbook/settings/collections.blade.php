@@ -50,7 +50,7 @@
                     <div>
                         <h2 class="text-sm font-black text-slate-950">2. Collection Form Setup</h2>
                         <p class="mt-1 text-xs font-semibold text-slate-500">
-                            This is the form shop owner will see. Tick rows here; dummy amounts only preview the calculation.
+                            This is the form shop incharge will see. Tick rows here; dummy amounts only preview the calculation.
                         </p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">

@@ -298,7 +298,7 @@
                             Danger zone · Clear cashbook only
                         </summary>
                         <div class="border-t border-rose-200 px-4 py-4">
-                            <p class="text-sm font-semibold text-rose-800">Removes this date's manual cashbook lines so the shop owner can submit again. Bills, invoices, payment requests, and loan movements stay unchanged.</p>
+                            <p class="text-sm font-semibold text-rose-800">Removes this date's manual cashbook lines so the shop incharge can submit again. Bills, invoices, payment requests, and loan movements stay unchanged.</p>
                             <form method="POST" action="{{ route('admin.accounting.owned-shops.entries.clear', ['shop' => $shop, 'entry' => $entry]) }}" class="mt-4 flex flex-col gap-2 sm:max-w-md" onsubmit="return confirm('Clear only this cashbook entry? Invoices, bills, payment requests, and loan cash movements will be skipped.');">
                                 @csrf
                                 @method('DELETE')
@@ -790,7 +790,7 @@
                     lineReviewTitle.textContent = action === 'approve' ? 'Approve this item' : 'Send item for recheck';
                     lineReviewDescription.textContent = description;
                     lineReviewNoteLabel.textContent = action === 'approve' ? 'Optional note' : 'Recheck note';
-                    lineReviewNoteInput.placeholder = action === 'approve' ? 'Add a short note if needed.' : 'Tell the shop owner what to fix.';
+                    lineReviewNoteInput.placeholder = action === 'approve' ? 'Add a short note if needed.' : 'Tell the shop incharge what to fix.';
                     lineReviewSubmitButton.textContent = action === 'approve' ? 'Confirm approve' : 'Confirm recheck';
                     lineReviewSubmitButton.className = `inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-black text-white transition ${action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'}`;
                     lineReviewNoteInput.value = '';

@@ -3,7 +3,7 @@
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
                 <h1 class="text-2xl font-black text-slate-950">Assign Employees</h1>
-                <p class="text-sm font-semibold text-slate-500">Manage shop staff assignment from a shop-first view with owner and daily attendance details.</p>
+                <p class="text-sm font-semibold text-slate-500">Manage shop staff assignment from a shop-first view with incharge and daily attendance details.</p>
             </div>
             <form method="GET" class="flex flex-wrap gap-2">
                 <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
@@ -25,12 +25,12 @@
                     </div>
 
                     <div class="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                        <p class="text-xs font-black uppercase text-slate-400">Owner Details</p>
+                        <p class="text-xs font-black uppercase text-slate-400">Incharge Details</p>
                         <div class="mt-2 space-y-2">
                             @forelse($shop->ownerAssignments as $ownerAssignment)
                                 <div class="flex flex-wrap items-center justify-between gap-2">
                                     <div>
-                                        <p class="text-sm font-black text-slate-900">{{ $ownerAssignment->user?->name ?? 'Unknown owner' }}</p>
+                                        <p class="text-sm font-black text-slate-900">{{ $ownerAssignment->user?->name ?? 'Unknown incharge' }}</p>
                                         <p class="text-xs font-semibold text-slate-500">{{ $ownerAssignment->user?->email ?? 'No email' }}</p>
                                     </div>
                                     @if($ownerAssignment->user?->roles?->isNotEmpty())
@@ -40,7 +40,7 @@
                                     @endif
                                 </div>
                             @empty
-                                <p class="text-sm font-semibold text-rose-600">No owner assigned to this shop.</p>
+                                <p class="text-sm font-semibold text-rose-600">No incharge assigned to this shop.</p>
                             @endforelse
                         </div>
                     </div>

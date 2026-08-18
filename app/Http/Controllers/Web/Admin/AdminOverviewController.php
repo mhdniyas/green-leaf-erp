@@ -85,7 +85,7 @@ class AdminOverviewController extends Controller
 
         $roleProgress = [
             [
-                'name' => 'Shop Owners',
+                'name' => 'Shop Incharges',
                 'count' => User::role('shop')->count(),
                 'online' => $onlineUsers->filter(fn (User $user): bool => $user->hasRole('shop'))->count(),
                 'pending' => ShopOrder::whereDate('business_date', $date)->whereIn('state', ['submitted', 'update_requested'])->count(),

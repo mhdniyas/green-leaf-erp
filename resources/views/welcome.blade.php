@@ -26,7 +26,7 @@
             $customers = ['Grocery shops', 'Supermarkets', 'Restaurants', 'Hotels', 'Caterers', 'Homes'];
             $testimonials = [
                 ['quote' => 'The vegetables arrive fresh and the ordering process is simple. Green Leaf has become part of our daily kitchen routine.', 'name' => 'Anjali Menon', 'role' => 'Restaurant owner'],
-                ['quote' => 'Their team understands regular shop requirements and helps us confirm availability quickly every morning.', 'name' => 'Rakesh Kumar', 'role' => 'Grocery shop owner'],
+                ['quote' => 'Their team understands regular shop requirements and helps us confirm availability quickly every morning.', 'name' => 'Rakesh Kumar', 'role' => 'Grocery shop incharge'],
                 ['quote' => 'Good variety, fair rates, and friendly service. We can order exactly what we need for the family.', 'name' => 'Meera Thomas', 'role' => 'Retail customer'],
             ];
         @endphp

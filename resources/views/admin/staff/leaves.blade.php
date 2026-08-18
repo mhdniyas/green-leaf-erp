@@ -10,7 +10,7 @@
     <div class="mx-auto max-w-6xl space-y-6">
         <div>
             <h1 class="text-2xl font-black text-slate-950">Leave Requests</h1>
-            <p class="text-sm font-semibold text-slate-500">Admin reviews leave requests submitted by owners or linked users.</p>
+            <p class="text-sm font-semibold text-slate-500">Admin reviews leave requests submitted by incharges or linked users.</p>
         </div>
 
         @if(session('success'))

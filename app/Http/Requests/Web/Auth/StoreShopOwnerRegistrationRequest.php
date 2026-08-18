@@ -37,4 +37,12 @@ class StoreShopOwnerRegistrationRequest extends FormRequest
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ];
     }
+
+    public function attributes(): array
+    {
+        return [
+            'owner_name' => 'incharge name',
+            'shop_name' => 'shop name',
+        ];
+    }
 }

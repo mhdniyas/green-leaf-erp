@@ -49,7 +49,7 @@
                                 <td class="px-5 py-4 font-mono font-black text-cyan-700">{{ $review->invoice_number }}</td>
                                 <td class="px-5 py-4 font-semibold text-slate-950">{{ $review->shop?->name }}</td>
                                 <td class="px-5 py-4 text-slate-600">{{ $review->business_date->format('d M Y') }}</td>
-                                <td class="px-5 py-4 text-slate-700">{{ $review->order?->shopCheckedBy?->name ?? 'Shop Owner' }}</td>
+                                <td class="px-5 py-4 text-slate-700">{{ $review->order?->shopCheckedBy?->name ?? 'Shop Incharge' }}</td>
                                 <td class="px-5 py-4 text-slate-700">{{ $review->order?->shop_checked_at?->format('d M Y h:i A') ?? '-' }}</td>
                                 <td class="px-5 py-4 text-right">
                                     <a href="{{ route('purchasing.shop-invoices.show', $review) }}" class="font-bold text-cyan-700 hover:text-cyan-900">Open Review</a>

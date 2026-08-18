@@ -115,7 +115,7 @@
                 <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
                         <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider">Stock-Out & Delivery Discrepancies</h2>
-                        <p class="text-xs text-slate-400 mt-0.5">Approved Requisition vs. Warehouse Loaded vs. Shop Owner Delivery Check-In.</p>
+                        <p class="text-xs text-slate-400 mt-0.5">Approved Requisition vs. Warehouse Loaded vs. Shop Incharge Delivery Check-In.</p>
                     </div>
                     <span class="inline-flex items-center bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full text-[10px] font-black border border-indigo-100">
                         {{ $shopOrderItems->count() }} Discrepancy Item(s)

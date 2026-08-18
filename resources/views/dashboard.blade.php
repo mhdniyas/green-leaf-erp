@@ -46,7 +46,7 @@ if (isset($productsByCategory) && $productsByCategory) {
 
 $roleConfig = [
     'admin'     => ['label' => 'Administrator',     'color' => 'bg-purple-100 text-purple-700 border-purple-200'],
-    'shop'      => ['label' => 'Shop Owner',        'color' => 'bg-emerald-100 text-emerald-700 border-emerald-200'],
+    'shop'      => ['label' => 'Shop Incharge',     'color' => 'bg-emerald-100 text-emerald-700 border-emerald-200'],
     'purchase'  => ['label' => 'Purchase Manager',  'color' => 'bg-amber-100 text-amber-700 border-amber-200'],
     'warehouse_receiver' => ['label' => 'Warehouse Receiver', 'color' => 'bg-cyan-100 text-cyan-700 border-cyan-200'],
 ];
@@ -167,7 +167,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
 
     @if($role === 'shop')
     {{-- ========================================================================= --}}
-    {{-- 🏪 SHOP OWNER - OPERATIONS CONTROL CENTER                                   --}}
+    {{-- 🏪 SHOP INCHARGE - OPERATIONS CONTROL CENTER                                --}}
     {{-- ========================================================================= --}}
     <div class="space-y-6 animate-fade-in" id="shop-dashboard-container">
 
@@ -2811,7 +2811,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
                 <h2 class="text-lg font-black text-slate-800 tracking-tight">Shop Requisitions Approval Center</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Review and approve daily order requests submitted by shop owners</p>
+                <p class="text-xs text-slate-400 mt-0.5">Review and approve daily order requests submitted by shop incharges</p>
             </div>
             
             {{-- Tabs --}}

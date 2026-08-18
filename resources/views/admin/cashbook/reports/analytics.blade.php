@@ -132,7 +132,7 @@
             @endif
         </div>
 
-        {{-- Pending Days Alert Banner (when shop owner has not entered sales for delivered GL bills) --}}
+        {{-- Pending Days Alert Banner (when shop incharge has not entered sales for delivered GL bills) --}}
         @if (($intel['pending_days_count'] ?? 0) > 0)
             <div class="rounded-[20px] bg-amber-500/10 border border-amber-500/20 p-3.5 flex items-start gap-3">
                 <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white mt-0.5">

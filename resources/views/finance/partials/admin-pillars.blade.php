@@ -173,7 +173,7 @@
                     <div>
                         <p class="text-[10px] font-black uppercase tracking-[0.24em] text-sky-700">Section 02</p>
                         <h3 class="mt-2 text-xl font-black text-slate-950">Sales Reports</h3>
-                        <p class="mt-2 text-sm font-semibold text-slate-600">Daily sales credits, debit collections, and shop-owner recovery status.</p>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Daily sales credits, debit collections, and shop-incharge recovery status.</p>
                     </div>
                     <a href="{{ route('purchasing.shop-invoices.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-sky-200 bg-white px-4 text-xs font-black uppercase tracking-[0.18em] text-sky-700 transition hover:bg-sky-50">
                         Open Sales Ledger
@@ -225,7 +225,7 @@
                         <table class="min-w-full text-left">
                             <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
                                 <tr>
-                                    <th class="px-4 py-3">Shop Owner</th>
+                                    <th class="px-4 py-3">Shop Incharge</th>
                                     <th class="px-4 py-3 text-right">Credit</th>
                                     <th class="px-4 py-3 text-right">Debit</th>
                                     <th class="px-4 py-3 text-right">Balance</th>

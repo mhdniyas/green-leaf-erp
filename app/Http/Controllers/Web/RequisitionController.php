@@ -135,7 +135,7 @@ class RequisitionController extends Controller
                     $this->shopOrderChangeRequestRecorder->recordLateSubmission(
                         $shopOrder,
                         $user,
-                        'Shop owner submitted this order after cutoff.'
+                        'Shop incharge submitted this order after cutoff.'
                     );
                 }
 
@@ -276,8 +276,8 @@ class RequisitionController extends Controller
                 $items,
                 $user,
                 $isLate
-                    ? 'Shop owner resubmitted this approved order after cutoff.'
-                    : 'Shop owner resubmitted this approved order.'
+                    ? 'Shop incharge resubmitted this approved order after cutoff.'
+                    : 'Shop incharge resubmitted this approved order.'
             );
 
             if (! $revision) {
@@ -308,7 +308,7 @@ class RequisitionController extends Controller
                 $order,
                 $items,
                 $user,
-                'Shop owner resubmitted this order after cutoff.'
+                'Shop incharge resubmitted this order after cutoff.'
             );
         }
 
@@ -319,7 +319,7 @@ class RequisitionController extends Controller
             'is_late' => $isLate,
             'submitted_at' => now(),
             'deadline_at' => $cutoff->utc(),
-            'update_reason' => $isLate ? 'Shop owner requested quantity changes after cutoff.' : null,
+            'update_reason' => $isLate ? 'Shop incharge requested quantity changes after cutoff.' : null,
             'reviewed_by' => $autoApproveOrder ? $user->id : null,
             'reviewed_at' => $autoApproveOrder ? now() : null,
             'manager_note' => $autoApproveOrder ? PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE : null,
@@ -632,7 +632,7 @@ class RequisitionController extends Controller
 
         if ((! in_array($order->state, ['submitted', 'update_requested'], true) && ! $canRequestApprovedUpdate) || $order->is_delivered) {
             return redirect()->route('shop-owner.orders.show', $orderNumber)
-                ->with('error', 'This order can no longer be modified from the shop owner workflow.');
+                ->with('error', 'This order can no longer be modified from the shop incharge workflow.');
         }
 
         $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []));
@@ -690,7 +690,7 @@ class RequisitionController extends Controller
 
             $order->update([
                 'state' => 'update_requested',
-                'update_reason' => $reason !== '' ? $reason : 'Shop owner requested quantity changes after cutoff.',
+                'update_reason' => $reason !== '' ? $reason : 'Shop incharge requested quantity changes after cutoff.',
                 'submitted_at' => now(),
             ]);
         });
@@ -2067,7 +2067,7 @@ class RequisitionController extends Controller
         return redirect()->route(
             $this->deliveryReviewRedirectRoute($request),
             $this->deliveryReviewRedirectParameter($request, $order)
-        )->with('success', 'Delivery review rejected. Shop owner can submit delivery check-in again.');
+        )->with('success', 'Delivery review rejected. Shop incharge can submit delivery check-in again.');
     }
 
     private function deliveryReviewRedirectRoute(Request $request): string

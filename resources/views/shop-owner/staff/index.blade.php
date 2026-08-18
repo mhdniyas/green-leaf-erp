@@ -101,7 +101,7 @@
                 <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Owner Check-In</p>
+                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Incharge Check-In</p>
                             <h2 class="mt-1 text-lg font-black text-slate-950">{{ auth()->user()->name }}</h2>
                             <p class="text-sm font-semibold text-slate-500">{{ $selectedShop->name }} · {{ $selectedDate->format('d M Y') }}</p>
                             @if($ownerAttendance)
@@ -141,7 +141,7 @@
                 </section>
             @elseif($selectedShop)
                 <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900 shadow-sm sm:p-5">
-                    HR needs to link your user account to an employee profile before owner check-in is available.
+                    HR needs to link your user account to an employee profile before incharge check-in is available.
                 </section>
             @endif
 

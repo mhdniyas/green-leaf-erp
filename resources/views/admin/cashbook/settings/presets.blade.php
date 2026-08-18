@@ -505,7 +505,7 @@
                 <thead>
                     <tr class="bg-slate-100/70 border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
                         <th class="py-3.5 px-6">Shop Details</th>
-                        <th class="py-3.5 px-4">Owner / Client</th>
+                        <th class="py-3.5 px-4">Incharge / Client</th>
                         <th class="py-3.5 px-4">Current Active Preset</th>
                         <th class="py-3.5 px-4">Assign Preset (Select Dropdown)</th>
                         <th class="py-3.5 px-6 text-right">Actions</th>

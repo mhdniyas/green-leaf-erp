@@ -72,7 +72,7 @@
 
         @if($updateRequests->isNotEmpty())
             <div class="mb-6 rounded-3xl border border-indigo-200 dark:border-indigo-900/55 bg-indigo-50 dark:bg-indigo-950/20 px-5 py-4 text-indigo-900 dark:text-indigo-400 shadow-sm">
-                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-700 dark:text-indigo-300">Shop Owner Updates Waiting</p>
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-700 dark:text-indigo-300">Shop Incharge Updates Waiting</p>
                 <p class="mt-1 text-sm font-semibold text-indigo-900 dark:text-indigo-400">One or more shops changed their request after cutoff. Please review the note and update quantities before moving to the approved board.</p>
             </div>
         @endif
@@ -320,7 +320,7 @@
 
                                     <div class="mb-4">
                                         <label for="update-manager-note-{{ $order->order_number }}" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Manager Note</label>
-                                        <textarea id="update-manager-note-{{ $order->order_number }}" name="manager_note" rows="3" class="mt-2 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 focus:border-indigo-500 focus:outline-none" placeholder="Tell the shop owner why this update was declined or what was approved."></textarea>
+                                        <textarea id="update-manager-note-{{ $order->order_number }}" name="manager_note" rows="3" class="mt-2 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 focus:border-indigo-500 focus:outline-none" placeholder="Tell the shop incharge why this update was declined or what was approved."></textarea>
                                     </div>
 
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2.5">

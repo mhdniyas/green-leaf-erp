@@ -435,7 +435,7 @@
             <div class="flex items-center justify-between gap-3">
                 <div>
                     <h2 class="text-xl font-black text-slate-950">Leave Request History</h2>
-                    <p class="text-sm font-semibold text-slate-500">Review who submitted leave and whether shop-owner initiated requests are affecting this staff record.</p>
+                    <p class="text-sm font-semibold text-slate-500">Review who submitted leave and whether shop-incharge initiated requests are affecting this staff record.</p>
                 </div>
             </div>
 

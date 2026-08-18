@@ -87,7 +87,7 @@ class ShopOrderRevisionService
         $revision = $order->revisions()->create([
             'revision_no' => $order->nextRevisionNumber(),
             'status' => 'pending',
-            'reason' => $reason !== null && trim($reason) !== '' ? trim($reason) : 'Shop owner requested quantity changes.',
+            'reason' => $reason !== null && trim($reason) !== '' ? trim($reason) : 'Shop incharge requested quantity changes.',
             'requested_by' => $requester->id,
         ]);
 

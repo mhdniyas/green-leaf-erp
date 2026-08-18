@@ -98,7 +98,7 @@
     <div class="border-b border-slate-200 px-6 py-6">
         <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
-                <p class="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Shop Owner Portal</p>
+                <p class="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Shop Incharge Portal</p>
                 <h1 class="mt-2 truncate text-xl font-black text-slate-950">{{ $activeShop?->name ?? 'Green Leaf Traders' }}</h1>
                 <p class="mt-1 text-sm font-semibold text-slate-500">Orders, deliveries, finance, and staff.</p>
             </div>
@@ -107,7 +107,7 @@
                 type="button"
                 id="shop-owner-mobile-sidebar-close"
                 class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 lg:hidden"
-                aria-label="Close shop owner sidebar"
+                aria-label="Close shop incharge sidebar"
             >
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -150,5 +150,5 @@
     type="button"
     id="shop-owner-mobile-sidebar-overlay"
     class="fixed inset-0 z-40 hidden bg-slate-950/45 lg:hidden"
-    aria-label="Close shop owner sidebar"
+    aria-label="Close shop incharge sidebar"
 ></button>

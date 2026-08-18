@@ -198,7 +198,7 @@
             @endif
         </div>
 
-        <!-- Shop Owner Style Invoice Receipt Modals -->
+        <!-- Shop Incharge Style Invoice Receipt Modals -->
         @if ($selectedShopId)
             @foreach ($invoices as $inv)
                 <div

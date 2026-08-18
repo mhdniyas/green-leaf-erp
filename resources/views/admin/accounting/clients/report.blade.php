@@ -144,7 +144,7 @@
             <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div class="border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
                     <h2 class="text-xl font-black text-slate-950">Payment History</h2>
-                    <p class="mt-1 text-sm font-semibold text-slate-500">Shop owners see approved state only; admin/accounts keeps full review history.</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">Shop incharges see approved state only; admin/accounts keeps full review history.</p>
                 </div>
 
                 <div class="space-y-3 p-4 md:hidden">

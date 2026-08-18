@@ -185,7 +185,7 @@
         <div id="tab-panel-pending" class="tab-panel hidden space-y-6">
             <div class="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
                 <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                    <h2 class="text-sm font-bold text-slate-800 tracking-tight">Orders Awaiting Owner Approval</h2>
+                    <h2 class="text-sm font-bold text-slate-800 tracking-tight">Orders Awaiting Incharge Approval</h2>
                 </div>
 
                 @if($pendingOrders->isEmpty())
@@ -259,7 +259,7 @@
         <div id="tab-panel-history" class="tab-panel hidden space-y-6">
             <div class="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
                 <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                    <h2 class="text-sm font-bold text-slate-800 tracking-tight">Complete Audit Trail of Owner Decisions</h2>
+                    <h2 class="text-sm font-bold text-slate-800 tracking-tight">Complete Audit Trail of Incharge Decisions</h2>
                 </div>
 
                 @if($approvalHistory->isEmpty())

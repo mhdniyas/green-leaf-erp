@@ -14,7 +14,7 @@
         <div>
             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Payment Request</p>
             <h2 class="mt-2 text-xl font-black text-slate-950">Send paid amount for approval</h2>
-            <p class="mt-2 text-sm text-slate-600">Any paid amount update from shop owner must be approved by accounting before the invoice payment and journal change.</p>
+            <p class="mt-2 text-sm text-slate-600">Any paid amount update from shop incharge must be approved by accounting before the invoice payment and journal change.</p>
         </div>
         @if ($invoice)
             <div class="grid grid-cols-2 gap-3 lg:min-w-[260px]">

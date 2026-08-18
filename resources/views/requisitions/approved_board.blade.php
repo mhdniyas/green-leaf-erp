@@ -536,7 +536,7 @@
                 panel.classList.remove('hidden');
                 shopTitle.textContent = selectedShop.name;
                 shopMeta.textContent = `Update #${selectedUpdate.revision_no} • ${selectedUpdate.changed_items_count} item updates requested • ${selectedUpdate.order_number}`;
-                shopReason.textContent = selectedUpdate.update_reason || 'Shop owner requested an update.';
+                shopReason.textContent = selectedUpdate.update_reason || 'Shop incharge requested an update.';
                 panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
 

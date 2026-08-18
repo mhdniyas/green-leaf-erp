@@ -117,7 +117,7 @@ class ImportProductMeasuresJsonRequest extends FormRequest
 
                 if ($visibleLabels === []) {
                     throw ValidationException::withMessages([
-                        'import_file' => 'Product '.$product->sku.' must have at least one visible shop-owner unit.',
+                        'import_file' => 'Product '.$product->sku.' must have at least one visible shop-incharge unit.',
                     ]);
                 }
 

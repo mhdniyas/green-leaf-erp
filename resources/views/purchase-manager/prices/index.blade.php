@@ -24,7 +24,7 @@
                         <button
                             type="submit"
                             class="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-5 py-3 text-xs font-black uppercase tracking-wider transition shadow-sm {{ $isPublished ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-500 text-white hover:bg-amber-600' }}"
-                            title="{{ $isPublished ? 'Click to unpublish prices (set to draft)' : 'Click to publish daily prices to shop owners' }}"
+                            title="{{ $isPublished ? 'Click to unpublish prices (set to draft)' : 'Click to publish daily prices to shop incharges' }}"
                         >
                             <span class="h-2 w-2 rounded-full {{ $isPublished ? 'bg-white animate-pulse' : 'bg-amber-200' }}"></span>
                             <span>{{ $isPublished ? 'Prices Published (Live)' : 'Publish Today\'s Prices' }}</span>

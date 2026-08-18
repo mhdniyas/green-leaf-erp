@@ -291,7 +291,7 @@ class DailyPriceBoardController extends Controller
                     "Updated {$updatedCount} daily prices for business date {$dateStr}."
                 );
             } catch (\Throwable $e) {
-                Log::warning("Reprice warning after price update on {$dateStr}: " . $e->getMessage());
+                Log::warning("Reprice warning after price update on {$dateStr}: ".$e->getMessage());
             }
         }
 
@@ -331,8 +331,8 @@ class DailyPriceBoardController extends Controller
 
         $formattedDate = Carbon::parse($date)->format('d M Y');
         $message = $isPublished
-            ? "Daily prices for {$formattedDate} are now published and visible to shop owners."
-            : "Daily prices for {$formattedDate} are set to draft (hidden from shop owners).";
+            ? "Daily prices for {$formattedDate} are now published and visible to shop incharges."
+            : "Daily prices for {$formattedDate} are set to draft (hidden from shop incharges).";
 
         return redirect()->back()->with('success', $message);
     }

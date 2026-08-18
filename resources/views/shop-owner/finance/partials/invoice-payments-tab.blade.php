@@ -609,7 +609,7 @@
                         <span class="font-mono font-bold text-slate-800" x-text="activePaymentModal?.reference"></span>
                     </div>
                     <div class="py-1.5 border-b border-slate-100">
-                        <span class="text-slate-500 font-semibold block mb-1">Shop Owner Note:</span>
+                        <span class="text-slate-500 font-semibold block mb-1">Shop Incharge Note:</span>
                         <div class="font-medium text-slate-800 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60" x-text="activePaymentModal?.note"></div>
                     </div>
                     <div class="flex justify-between py-1.5 border-b border-slate-100">

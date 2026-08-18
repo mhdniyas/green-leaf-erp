@@ -60,7 +60,7 @@
         ])->values();
         $calculatedClosing = (float) ($receiptSummary['entered_closing'] ?? $receiptSummary['expected_closing']);
         $calculatedClosingTone = $calculatedClosing < 0 ? 'rose' : 'emerald';
-        $shopAccountingModeLabel = $shop->isOwnedAccountingEnabled() ? 'Manager Managed' : 'Owner Managed';
+        $shopAccountingModeLabel = $shop->isOwnedAccountingEnabled() ? 'Manager Managed' : 'Incharge Managed';
     @endphp
 
     <div class="space-y-6">
@@ -460,7 +460,7 @@
 
                     @if ($receiptSummary['owner_funded'] > 0)
                         <div class="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black text-rose-900">
-                            Owner funded Rs. {{ number_format($receiptSummary['owner_funded'], 2) }}
+                            Incharge funded Rs. {{ number_format($receiptSummary['owner_funded'], 2) }}
                         </div>
                     @endif
                 </div>

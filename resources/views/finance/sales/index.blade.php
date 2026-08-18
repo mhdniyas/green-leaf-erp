@@ -88,7 +88,7 @@
                     <table class="min-w-full text-left">
                         <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
                             <tr>
-                                <th class="px-4 py-3">Shop Owner</th>
+                                <th class="px-4 py-3">Shop Incharge</th>
                                 <th class="px-4 py-3 text-right">Credit</th>
                                 <th class="px-4 py-3 text-right">Debit</th>
                                 <th class="px-4 py-3 text-right">Balance</th>

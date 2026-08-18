@@ -77,7 +77,7 @@
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Client Shop Updates</p>
                     <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Submitted ledger updates waiting for accounting</h3>
-                    <p class="mt-2 text-sm font-semibold text-slate-600">Each card shows the exact line items the shop owner submitted for {{ $date->format('d M Y') }}.</p>
+                    <p class="mt-2 text-sm font-semibold text-slate-600">Each card shows the exact line items the shop incharge submitted for {{ $date->format('d M Y') }}.</p>
                 </div>
                 @if($canManageOwnedShops)
                     <a href="{{ route('admin.accounting.owned-shops.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">
@@ -102,7 +102,7 @@
                                 <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $entry->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
                                     {{ $entry->statusLabel() }}
                                 </span>
-                                <p class="text-xs font-semibold text-slate-500">Submitted by {{ $entry->submittedBy?->name ?? 'Shop owner' }}</p>
+                                <p class="text-xs font-semibold text-slate-500">Submitted by {{ $entry->submittedBy?->name ?? 'Shop incharge' }}</p>
                             </div>
                         </div>
 
