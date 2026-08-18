@@ -1,26 +1,28 @@
 @extends('admin.cashbook.layouts.app')
 
 @section('content')
-<div x-data="bankAccountsApp()" class="space-y-6">
+<div x-data="bankAccountsApp()" class="mx-auto max-w-[96rem] space-y-5">
 
     <!-- Top Banner & Navigation Header -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 white-card p-6 rounded-3xl shadow-sm border border-slate-200">
-        <div class="flex items-center gap-4">
-            <div class="h-12 w-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 shadow-sm">
+    <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm sm:p-5">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex min-w-0 items-start gap-3 sm:items-center sm:gap-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm sm:h-12 sm:w-12">
                 <i data-lucide="landmark" class="w-6 h-6"></i>
+                </div>
+                <div class="min-w-0">
+                    <h2 class="break-words text-xl font-extrabold text-slate-900">Company Bank &amp; Cash Accounts</h2>
+                    <p class="mt-0.5 text-xs font-medium leading-relaxed text-slate-500">Register and manage company bank accounts, cash vaults, or merchant QR accounts for ledger settlements.</p>
+                </div>
             </div>
-            <div>
-                <h2 class="text-xl font-extrabold text-slate-900">Company Bank & Cash Accounts</h2>
-                <p class="text-xs text-slate-500 font-medium mt-0.5">Register and manage company bank accounts, cash vaults, or merchant QR accounts for ledger settlements.</p>
+            <div class="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto">
+                <a href="{{ route('admin.cashbook.finance') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white shadow-sm transition-all hover:bg-emerald-500">
+                    <i data-lucide="badge-dollar-sign" class="w-4 h-4"></i> Company Finance
+                </a>
+                <a href="{{ route('admin.cashbook.reports') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i> Reports
+                </a>
             </div>
-        </div>
-        <div class="flex items-center gap-2">
-            <a href="{{ route('admin.cashbook.finance') }}" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm">
-                <i data-lucide="badge-dollar-sign" class="w-4 h-4"></i> Company Finance
-            </a>
-            <a href="{{ route('admin.cashbook.reports') }}" class="px-4 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm">
-                <i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Reports
-            </a>
         </div>
     </div>
 
@@ -103,7 +105,7 @@
     </div>
 
     <!-- Create Bank Account Form -->
-    <div class="white-card p-6 rounded-3xl space-y-5 shadow-xl border border-slate-200">
+    <div class="white-card space-y-5 rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-6">
         <div class="border-b border-slate-200 pb-3 flex items-center justify-between">
             <div>
                 <h3 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
@@ -170,8 +172,8 @@
     </div>
 
     <!-- Active Company Accounts Table -->
-    <div class="white-card p-6 rounded-3xl space-y-4 shadow-xl border border-slate-200">
-        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+    <div class="white-card space-y-4 rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-6">
+        <div class="flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
                 <h3 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
                     <i data-lucide="building-2" class="w-5 h-5 text-slate-700"></i> Registered Accounts Matrix
@@ -181,7 +183,55 @@
             <span class="text-xs font-mono font-bold text-slate-500">{{ count($companyAccounts) }} Accounts</span>
         </div>
 
-        <div class="overflow-x-auto custom-scrollbar">
+        <div class="space-y-3 lg:hidden">
+            @foreach($companyAccounts as $acc)
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h4 class="break-words text-sm font-extrabold text-slate-950">{{ $acc->name }}</h4>
+                                @if($acc->is_default)
+                                    <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-extrabold text-emerald-800">Default</span>
+                                @endif
+                            </div>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">{{ $acc->bank_name ?: '-' }}</p>
+                            <p class="mt-1 break-all font-mono text-xs font-bold text-slate-600">{{ $acc->account_number ?: '-' }}</p>
+                        </div>
+                        <span class="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700">{{ strtoupper($acc->account_type) }}</span>
+                    </div>
+                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div class="rounded-xl bg-white p-2">
+                            <span class="block font-bold text-slate-400">Opening</span>
+                            <strong class="font-mono text-slate-700">₹{{ number_format($acc->opening_balance, 2) }}</strong>
+                        </div>
+                        <div class="rounded-xl bg-white p-2">
+                            <span class="block font-bold text-slate-400">Current</span>
+                            <strong class="font-mono text-emerald-700">₹{{ number_format($acc->current_balance, 2) }}</strong>
+                        </div>
+                    </div>
+                    <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <a href="{{ route('admin.cashbook.bank-accounts.show', $acc) }}" class="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg bg-white px-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-100">
+                            <i data-lucide="eye" class="h-3.5 w-3.5"></i> Details
+                        </a>
+                        <a href="{{ route('admin.cashbook.bank-accounts.statement', $acc) }}" class="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg bg-emerald-50 px-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
+                            <i data-lucide="list-checks" class="h-3.5 w-3.5"></i> Statement
+                        </a>
+                        <button @click="openEdit({{ json_encode($acc) }})" class="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg bg-slate-100 px-2 text-xs font-bold text-slate-800 transition hover:bg-slate-200">
+                            <i data-lucide="edit-3" class="h-3.5 w-3.5 text-slate-600"></i> Edit
+                        </button>
+                        <form action="{{ route('admin.cashbook.bank-accounts.delete', $acc->id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this bank account?')">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="inline-flex min-h-9 w-full items-center justify-center gap-1 rounded-lg bg-rose-50 px-2 text-xs font-bold text-rose-700 transition hover:bg-rose-100">
+                                <i data-lucide="trash-2" class="h-3.5 w-3.5 text-rose-600"></i> Delete
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+
+        <div class="hidden overflow-x-auto custom-scrollbar lg:block">
             <table class="w-full text-left text-xs">
                 <thead>
                     <tr class="text-slate-600 bg-slate-100/80 border-b border-slate-200 uppercase tracking-wider font-bold">
@@ -214,11 +264,14 @@
                             <td class="py-3 px-3 text-right font-mono font-bold text-emerald-600">₹{{ number_format($acc->current_balance, 2) }}</td>
                             <td class="py-3 px-3 text-center">
                                 <div class="flex items-center justify-center gap-2">
+                                    <a href="{{ route('admin.cashbook.bank-accounts.show', $acc) }}" class="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1 border border-slate-200">
+                                        <i data-lucide="eye" class="w-3.5 h-3.5 text-slate-600"></i> Details
+                                    </a>
                                     <button @click="openEdit({{ json_encode($acc) }})" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center gap-1">
                                         <i data-lucide="edit-3" class="w-3.5 h-3.5 text-slate-600"></i> Edit
                                     </button>
 
-                                    <a href="{{ route('admin.cashbook.finance') }}" class="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold transition flex items-center gap-1">
+                                    <a href="{{ route('admin.cashbook.bank-accounts.statement', $acc) }}" class="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold transition flex items-center gap-1">
                                         <i data-lucide="list-checks" class="w-3.5 h-3.5 text-emerald-600"></i> Statement
                                     </a>
 

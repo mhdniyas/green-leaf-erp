@@ -683,6 +683,86 @@ final class CashbookController extends Controller
         ));
     }
 
+    public function showBankAccount(Request $request, CompanyAccount $account): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $companyAccounts = CompanyAccount::orderBy('is_default', 'desc')->orderBy('name')->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        $account->loadCount([
+            'statementEntries as unmatched_statement_count' => fn ($query) => $query->whereIn('status', ['unmatched', 'partially_matched']),
+            'statementEntries as total_statement_count',
+        ]);
+
+        $statementSummary = CompanyAccountStatementEntry::query()
+            ->where('company_account_id', $account->id)
+            ->selectRaw("SUM(CASE WHEN direction = 'in' THEN amount ELSE 0 END) as money_in")
+            ->selectRaw("SUM(CASE WHEN direction = 'out' THEN amount ELSE 0 END) as money_out")
+            ->selectRaw('SUM(matched_amount) as matched_total')
+            ->first();
+
+        $recentStatementEntries = $account->statementEntries()
+            ->latest('transaction_date')
+            ->latest('id')
+            ->limit(12)
+            ->get();
+
+        $recentReconciliations = CompanyPaymentReconciliation::query()
+            ->with(['paymentRequest.shop', 'statementEntry', 'reconciledBy'])
+            ->where('company_account_id', $account->id)
+            ->latest('id')
+            ->limit(12)
+            ->get();
+
+        return view('admin.cashbook.bank-accounts.show', compact(
+            'shops',
+            'companyAccounts',
+            'company',
+            'currentShop',
+            'account',
+            'statementSummary',
+            'recentStatementEntries',
+            'recentReconciliations',
+        ));
+    }
+
+    public function showBankAccountStatement(Request $request, CompanyAccount $account): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $companyAccounts = CompanyAccount::orderBy('is_default', 'desc')->orderBy('name')->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        $statementEntries = $account->statementEntries()
+            ->with(['reconciliations.paymentRequest.shop', 'reconciliations.reconciledBy'])
+            ->latest('transaction_date')
+            ->latest('id')
+            ->paginate(25)
+            ->withQueryString();
+
+        $statementSummary = CompanyAccountStatementEntry::query()
+            ->where('company_account_id', $account->id)
+            ->selectRaw("SUM(CASE WHEN direction = 'in' THEN amount ELSE 0 END) as money_in")
+            ->selectRaw("SUM(CASE WHEN direction = 'out' THEN amount ELSE 0 END) as money_out")
+            ->selectRaw('SUM(matched_amount) as matched_total')
+            ->first();
+
+        return view('admin.cashbook.bank-accounts.statement', compact(
+            'shops',
+            'companyAccounts',
+            'company',
+            'currentShop',
+            'account',
+            'statementEntries',
+            'statementSummary',
+        ));
+    }
+
     public function companyFinancePage(Request $request): View
     {
         $this->ensureMainAdmin($request);
@@ -762,7 +842,7 @@ final class CashbookController extends Controller
 
         $this->companyPaymentReconciliationService->createStatementEntry($validated, (int) $request->user()->id);
 
-        return redirect()->route('admin.cashbook.finance')
+        return redirect()->back()
             ->with('success', 'Statement entry added for reconciliation.');
     }
 

@@ -683,6 +683,8 @@ Route::middleware('auth')->group(function () {
             Route::get('settings/collections', [CashbookController::class, 'collectionGroupsPage'])->name('settings.collections');
             Route::get('bank-accounts/create', [CashbookController::class, 'createBankAccountPage'])->name('bank-accounts.create');
             Route::post('bank-accounts', [CashbookController::class, 'storeBankAccount'])->name('bank-accounts.store');
+            Route::get('bank-accounts/{account}', [CashbookController::class, 'showBankAccount'])->name('bank-accounts.show');
+            Route::get('bank-accounts/{account}/statement', [CashbookController::class, 'showBankAccountStatement'])->name('bank-accounts.statement');
             Route::put('bank-accounts/{account}', [CashbookController::class, 'updateBankAccount'])->name('bank-accounts.update');
             Route::delete('bank-accounts/{account}', [CashbookController::class, 'deleteBankAccount'])->name('bank-accounts.delete');
 

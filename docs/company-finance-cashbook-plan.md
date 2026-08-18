@@ -89,3 +89,11 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 3. If shop owner enters a positive amount, create the payment request as floating for admin reconciliation.
 4. Keep blocking only when both calculated payable balance and entered payment amount are not positive.
 5. Cover the behavior with a focused feature test.
+
+## UI Update Plan: Responsive Admin Cashbook Finance
+1. Move the Finance section near the top of the Admin Cashbook sidebar so company finance, reconciliation, and bank accounts are immediately visible.
+2. Improve the Company Finance page layout for mobile and desktop: summary cards, pending payment reconciliation forms, statement-entry form, and reconciliation table must stack cleanly and avoid overflow.
+3. Keep bank account creation and account management on the current bank accounts screen, but make its header/actions and accounts matrix responsive.
+4. Add a bank account details page showing the account identity, balances, recent statement activity, and recent reconciliations.
+5. Add a separate bank account statement page that lists statement entries for only that account, with matched/floating status and reconciliation links.
+6. Link every bank account row to Details and Statement pages so admin can trace where money went from the account level.

@@ -66,6 +66,23 @@
                 <span>Back to Admin</span>
             </a>
 
+            <!-- FINANCE -->
+            <div class="space-y-1">
+                <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">FINANCE</span>
+                <a href="{{ route('admin.cashbook.finance') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="badge-dollar-sign" class="w-4 h-4"></i>
+                    <span>Company Finance</span>
+                </a>
+                <a href="{{ route('admin.cashbook.accept-payment') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.accept-payment') || request()->routeIs('admin.cashbook.shop.settlement') || request()->routeIs('admin.cashbook.shop.accept-payment') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="wallet" class="w-4 h-4"></i>
+                    <span>Accept Payment &amp; Settlement</span>
+                </a>
+                <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bank-accounts.*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="landmark" class="w-4 h-4"></i>
+                    <span>Bank &amp; Cash Accounts</span>
+                </a>
+            </div>
+
             <!-- SHOP -->
             <div class="space-y-1">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">SHOP</span>
@@ -118,23 +135,6 @@
                 <a href="{{ route('admin.cashbook.reports.analytics') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'active-sidebar' : '' }}">
                     <i data-lucide="trending-up" class="w-4 h-4"></i>
                     <span>Profit Analytics</span>
-                </a>
-            </div>
-
-            <!-- FINANCE -->
-            <div class="space-y-1">
-                <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">FINANCE</span>
-                <a href="{{ route('admin.cashbook.finance') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="badge-dollar-sign" class="w-4 h-4"></i>
-                    <span>Company Finance</span>
-                </a>
-                <a href="{{ route('admin.cashbook.accept-payment') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.accept-payment') || request()->routeIs('admin.cashbook.shop.settlement') || request()->routeIs('admin.cashbook.shop.accept-payment') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="wallet" class="w-4 h-4"></i>
-                    <span>Accept Payment &amp; Settlement</span>
-                </a>
-                <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bank-accounts.create') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="landmark" class="w-4 h-4"></i>
-                    <span>Create Bank Account</span>
                 </a>
             </div>
 
