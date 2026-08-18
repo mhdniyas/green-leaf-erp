@@ -43,6 +43,10 @@ class LedgerEntryTypeSeeder extends Seeder
             ['code' => 'other_expense',   'name' => 'Other Expense',    'category' => 'expense'],
             ['code' => 'expense_cp',      'name' => 'CP (Expense)',      'category' => 'expense'],
             ['code' => 'expense_rent',    'name' => 'Rent (Expense)',    'category' => 'expense'],
+            ['code' => 'reconciliation_adjustment', 'name' => 'Reconciliation Adjustment', 'category' => 'expense'],
+            ['code' => 'bank_charges',    'name' => 'Bank Charges',      'category' => 'expense'],
+            ['code' => 'short_receipt',   'name' => 'Short Receipt',     'category' => 'expense'],
+            ['code' => 'excess_receipt',  'name' => 'Excess Receipt',    'category' => 'income'],
 
             // Transfers (overrides in shop_ledger_entry_settings drive their accounting behaviour)
             ['code' => 'sales_to_petty',    'name' => 'Sales → Petty',     'category' => 'transfer'],

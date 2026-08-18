@@ -18,6 +18,8 @@ use App\Http\Requests\Cashbook\UpdatePresetSettingRequest;
 use App\Http\Requests\Cashbook\UpdateRuleRequest;
 use App\Http\Requests\Cashbook\VoidEntryRequest;
 use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\LedgerClient;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\PresetCollectionGroup;
@@ -31,9 +33,11 @@ use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
+use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CollectionGroupPostingService;
+use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Cashbook\DailyLedgerService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
@@ -59,7 +63,8 @@ final class CashbookController extends Controller
     public function __construct(
         private readonly DailyLedgerService $ledgerService,
         private readonly CashbookShopSyncService $shopSyncService,
-        private readonly CollectionGroupPostingService $collectionGroupPostingService
+        private readonly CollectionGroupPostingService $collectionGroupPostingService,
+        private readonly CompanyPaymentReconciliationService $companyPaymentReconciliationService
     ) {}
 
     // ─── Page methods ────────────────────────────────────────────────────────
@@ -676,6 +681,115 @@ final class CashbookController extends Controller
         return view('admin.cashbook.bank-accounts.create', compact(
             'shops', 'companyAccounts', 'company', 'currentShop'
         ));
+    }
+
+    public function companyFinancePage(Request $request): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $companyAccounts = CompanyAccount::query()
+            ->where('enabled', true)
+            ->orderBy('is_default', 'desc')
+            ->orderBy('name')
+            ->get();
+        $pendingPaymentRequests = ShopInvoicePaymentRequest::query()
+            ->with(['shop', 'invoice', 'requestedBy', 'reconciliations.companyAccount'])
+            ->where('status', '!=', 'rejected')
+            ->where(function ($query): void {
+                $query->whereIn('status', ['pending', 'partially_reconciled'])
+                    ->orWhereIn('reconciliation_status', ['pending', 'floating', 'partially_reconciled']);
+            })
+            ->latest('id')
+            ->limit(40)
+            ->get();
+        $statementEntries = CompanyAccountStatementEntry::query()
+            ->with('companyAccount')
+            ->whereIn('status', ['unmatched', 'partially_matched'])
+            ->latest('transaction_date')
+            ->latest('id')
+            ->limit(60)
+            ->get();
+        $recentReconciliations = CompanyPaymentReconciliation::query()
+            ->with(['paymentRequest.shop', 'companyAccount', 'statementEntry', 'reconciledBy'])
+            ->latest('id')
+            ->limit(30)
+            ->get();
+        $reconciliationEntryTypes = LedgerEntryType::query()
+            ->where('active', true)
+            ->whereIn('code', ['reconciliation_adjustment', 'bank_charges', 'short_receipt', 'excess_receipt'])
+            ->orderBy('display_order')
+            ->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        $totals = [
+            'bank_balance' => round((float) $companyAccounts->where('account_type', 'bank')->sum('current_balance'), 2),
+            'liquid_cash' => round((float) $companyAccounts->where('account_type', 'cash')->sum('current_balance'), 2),
+            'wallet_balance' => round((float) $companyAccounts->where('account_type', 'wallet')->sum('current_balance'), 2),
+            'floating_payments' => round((float) $pendingPaymentRequests->sum(
+                fn (ShopInvoicePaymentRequest $paymentRequest): float => (float) ($paymentRequest->floating_amount ?: $paymentRequest->requested_amount)
+            ), 2),
+        ];
+
+        return view('admin.cashbook.finance.index', compact(
+            'shops',
+            'companyAccounts',
+            'pendingPaymentRequests',
+            'statementEntries',
+            'recentReconciliations',
+            'reconciliationEntryTypes',
+            'company',
+            'currentShop',
+            'totals',
+        ));
+    }
+
+    public function storeCompanyStatementEntry(Request $request): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'transaction_date' => ['required', 'date_format:Y-m-d'],
+            'value_date' => ['nullable', 'date_format:Y-m-d'],
+            'direction' => ['required', 'in:in,out'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'reference' => ['nullable', 'string', 'max:160'],
+            'narration' => ['nullable', 'string', 'max:2000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $this->companyPaymentReconciliationService->createStatementEntry($validated, (int) $request->user()->id);
+
+        return redirect()->route('admin.cashbook.finance')
+            ->with('success', 'Statement entry added for reconciliation.');
+    }
+
+    public function reconcileCompanyPayment(Request $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'statement_entry_id' => ['nullable', 'integer', 'exists:cashbook_company_account_statement_entries,id'],
+            'statement_amount' => ['nullable', 'numeric', 'min:0'],
+            'cleared_amount' => ['required', 'numeric', 'min:0.01'],
+            'difference_amount' => ['nullable', 'numeric', 'min:0'],
+            'difference_action' => ['required', 'in:none,keep_floating,shop_expense,shop_income'],
+            'difference_entry_type_id' => ['nullable', 'integer', 'exists:ledger_entry_types,id'],
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'admin_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $this->companyPaymentReconciliationService->reconcilePayment(
+            $paymentRequest,
+            $validated,
+            (int) $request->user()->id,
+        );
+
+        return redirect()->route('admin.cashbook.finance')
+            ->with('success', 'Payment reconciled and finance balances updated.');
     }
 
     public function storeBankAccount(Request $request): RedirectResponse

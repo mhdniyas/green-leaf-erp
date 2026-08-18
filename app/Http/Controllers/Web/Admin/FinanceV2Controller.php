@@ -181,6 +181,10 @@ class FinanceV2Controller extends Controller
             'applied_amount' => 0,
             'credit_amount' => 0,
             'status' => 'pending',
+            'reconciliation_status' => 'floating',
+            'reconciled_amount' => 0,
+            'floating_amount' => round((float) $validated['requested_amount'], 2),
+            'shop_advance_amount' => 0,
             'shop_note' => filled($validated['shop_note'] ?? null) ? trim((string) $validated['shop_note']) : 'Admin entered Finance V2 payment.',
         ]);
 

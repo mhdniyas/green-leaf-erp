@@ -6,9 +6,14 @@
             </h3>
             <p class="mt-0.5 text-xs font-medium text-slate-500">Company bank accounts, cash vault, and merchant QR accounts.</p>
         </div>
-        <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-emerald-500 sm:w-auto">
-            <i data-lucide="plus-circle" class="h-3.5 w-3.5"></i> Add Bank Account
-        </a>
+        <div class="flex flex-col gap-2 sm:flex-row">
+            <a href="{{ route('admin.cashbook.finance') }}" class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-slate-800 sm:w-auto">
+                <i data-lucide="badge-dollar-sign" class="h-3.5 w-3.5"></i> Company Finance
+            </a>
+            <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-emerald-500 sm:w-auto">
+                <i data-lucide="plus-circle" class="h-3.5 w-3.5"></i> Add Bank Account
+            </a>
+        </div>
     </div>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         @foreach($companyAccounts as $acc)

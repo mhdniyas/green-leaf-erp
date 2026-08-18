@@ -439,6 +439,10 @@ class ShopInvoiceService
                 'applied_amount' => 0,
                 'credit_amount' => 0,
                 'status' => 'pending',
+                'reconciliation_status' => 'floating',
+                'reconciled_amount' => 0,
+                'floating_amount' => $requestedAmount,
+                'shop_advance_amount' => 0,
                 'shop_note' => filled($payload['shop_note'] ?? null) ? trim((string) $payload['shop_note']) : null,
             ]);
         });
@@ -496,6 +500,10 @@ class ShopInvoiceService
                 'applied_amount' => 0,
                 'credit_amount' => 0,
                 'status' => 'pending',
+                'reconciliation_status' => 'floating',
+                'reconciled_amount' => 0,
+                'floating_amount' => $requestedAmount,
+                'shop_advance_amount' => 0,
                 'shop_note' => filled($payload['shop_note'] ?? null)
                     ? trim((string) $payload['shop_note'])
                     : 'Closing balance payment for '.$balanceDate->toDateString(),
@@ -1197,7 +1205,9 @@ class ShopInvoiceService
 
     private function shouldPostPaymentToJournal(ShopInvoice $invoice): bool
     {
-        return true;
+        $invoice->loadMissing('shop');
+
+        return ! $invoice->shop?->isOwnedAccountingEnabled();
     }
 
     private function invoiceNumberFor(ShopOrder $order): string

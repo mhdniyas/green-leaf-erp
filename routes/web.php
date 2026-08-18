@@ -664,6 +664,9 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/export/excel', [CashbookController::class, 'exportReportsExcel'])->name('reports.export.excel');
             Route::get('reports/export/pdf', [CashbookController::class, 'exportReportsPdf'])->name('reports.export.pdf');
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
+            Route::get('finance', [CashbookController::class, 'companyFinancePage'])->name('finance');
+            Route::post('finance/statement-entries', [CashbookController::class, 'storeCompanyStatementEntry'])->name('finance.statement-entries.store');
+            Route::post('finance/payments/{paymentRequest}/reconcile', [CashbookController::class, 'reconcileCompanyPayment'])->name('finance.payments.reconcile');
             Route::get('accept-payment', [CashbookController::class, 'acceptPaymentPage'])->name('accept-payment');
             Route::get('income-expenses', [CashbookController::class, 'incomeExpenses'])->name('income-expenses');
             Route::get('post-entry', [CashbookController::class, 'postEntryPage'])->name('post-entry');

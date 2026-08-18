@@ -33,4 +33,9 @@ class CompanyAccount extends Model
     {
         return $this->hasMany(ShopLedgerTransaction::class, 'company_account_id');
     }
+
+    public function statementEntries(): HasMany
+    {
+        return $this->hasMany(CompanyAccountStatementEntry::class, 'company_account_id');
+    }
 }
