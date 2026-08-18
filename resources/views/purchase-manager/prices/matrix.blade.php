@@ -408,7 +408,7 @@
             @endforeach
             @if ($categoryId)
                 <input type="hidden" name="category_id" value="{{ $categoryId }}">
-            @endif">
+            @endif
             <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
             <input type="hidden" name="matrix_category" id="update-matrix-category" value="{{ $matrixCategory }}">
             <input type="hidden" name="action" id="matrix-form-action" value="update">
