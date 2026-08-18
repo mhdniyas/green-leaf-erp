@@ -522,13 +522,7 @@ class DailyPriceMatrixController extends Controller
             : 'No missing matrix prices needed filling.';
 
         return redirect()
-            ->route('purchasing.prices.matrix.index', [
-                'date' => $validated['date'],
-                'search' => $validated['search'] ?? null,
-                'category_id' => $validated['category_id'] ?? null,
-                'week_start' => $validated['week_start'],
-                'matrix_category' => $matrixCategory,
-            ])
+            ->route('purchasing.prices.matrix.index', $this->buildRedirectParams($request, $validated))
             ->with($filledRows > 0 ? 'success' : 'warning', $message);
     }
 
@@ -673,13 +667,7 @@ class DailyPriceMatrixController extends Controller
 
         if ($rawMatrixPrices->isEmpty() && $rawMatrixPriceUnits->isEmpty()) {
             return redirect()
-                ->route('purchasing.prices.matrix.index', [
-                    'date' => $validated['date'],
-                    'search' => $validated['search'] ?? null,
-                    'category_id' => $validated['category_id'] ?? null,
-                    'week_start' => $validated['week_start'] ?? null,
-                    'matrix_category' => $matrixCategory,
-                ])
+                ->route('purchasing.prices.matrix.index', $this->buildRedirectParams($request, $validated))
                 ->with('warning', 'No matrix changes were submitted.');
         }
 

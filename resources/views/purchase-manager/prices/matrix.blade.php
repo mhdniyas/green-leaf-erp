@@ -14,6 +14,8 @@
         $nextDayWeekStart = $currentCarbonDate->copy()->addDay()->startOfWeek(\Illuminate\Support\Carbon::MONDAY)->toDateString();
         $categoryIds = $categoryIds ?? ($categoryId ? [(int)$categoryId] : []);
         $categoryParams = !empty($categoryIds) ? ['category_ids' => $categoryIds] : [];
+        $categoryJsData = $categories->map(fn($cat) => ['id' => (int) $cat->id, 'name' => $cat->name])->values()->all();
+        $selectedCategoryJsIds = array_values(array_map('intval', $categoryIds));
         $matrixExportParams = array_merge([
             'date' => $purchaseDate,
             'search' => $search,
@@ -30,7 +32,7 @@
                 <input type="hidden" name="week_start" id="filter-week-start" value="{{ $weekStartDate }}">
 
                 <!-- Primary Controls Grid -->
-                <div class="grid gap-2.5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-end">
+                <div class="grid gap-2.5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-end">
                     <!-- Product Search -->
                     <div>
                         <label for="search" class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Product Search</label>
@@ -46,104 +48,6 @@
                             <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                             </svg>
-                        </div>
-                    </div>
-
-                    <!-- Category Filter (Multi-Select Support) -->
-                    <div x-data="matrixMultiCategorySelect({
-                        categories: {{ json_encode($categories->map(fn($cat) => ['id' => (int) $cat->id, 'name' => $cat->name])) }},
-                        selected: {{ json_encode(array_values(array_map('intval', $categoryIds))) }}
-                    })" class="relative">
-                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Product Categories</label>
-
-                        <!-- Trigger Button -->
-                        <button
-                            type="button"
-                            @click="open = !open"
-                            @click.outside="open = false"
-                            class="w-full h-9 rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-xs font-bold text-slate-900 flex items-center justify-between gap-1.5 focus:border-cyan-500 focus:bg-white focus:ring-2 focus:ring-cyan-500/20 focus:outline-none transition touch-manipulation cursor-pointer"
-                        >
-                            <span class="truncate" x-text="buttonText()"></span>
-                            <svg class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                            </svg>
-                        </button>
-
-                        <!-- Hidden Inputs for Form Submission -->
-                        <template x-for="catId in selected" :key="catId">
-                            <input type="hidden" name="category_ids[]" :value="catId">
-                        </template>
-
-                        <!-- Popover Menu -->
-                        <div
-                            x-show="open"
-                            x-transition:enter="transition ease-out duration-100"
-                            x-transition:enter-start="opacity-0 scale-95"
-                            x-transition:enter-end="opacity-100 scale-100"
-                            x-transition:leave="transition ease-in duration-75"
-                            x-transition:leave-start="opacity-100 scale-100"
-                            x-transition:leave-end="opacity-0 scale-95"
-                            class="absolute left-0 right-0 z-40 mt-1 max-h-72 w-64 min-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl space-y-2"
-                            style="display: none;"
-                        >
-                            <!-- Search & Quick Toggles -->
-                            <div class="space-y-1.5 pb-1 border-b border-slate-100">
-                                <div class="relative">
-                                    <input
-                                        type="text"
-                                        x-model="searchCat"
-                                        placeholder="Search categories..."
-                                        class="w-full h-7 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 focus:outline-none focus:border-cyan-500 focus:bg-white"
-                                    >
-                                </div>
-                                <div class="flex items-center justify-between px-1">
-                                    <button
-                                        type="button"
-                                        @click="selectAll()"
-                                        class="text-[10px] font-black uppercase tracking-wider text-cyan-600 hover:text-cyan-800 cursor-pointer"
-                                    >
-                                        Select All
-                                    </button>
-                                    <button
-                                        type="button"
-                                        @click="clearAll()"
-                                        class="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-600 cursor-pointer"
-                                    >
-                                        Clear All
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Scrollable Category Checkboxes -->
-                            <div class="max-h-40 overflow-y-auto space-y-0.5 px-0.5">
-                                <template x-for="cat in filteredCategories()" :key="cat.id">
-                                    <label class="flex items-center gap-2 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer select-none">
-                                        <input
-                                            type="checkbox"
-                                            :value="cat.id"
-                                            :checked="selected.includes(cat.id)"
-                                            @change="toggleCategory(cat.id)"
-                                            class="h-3.5 w-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
-                                        >
-                                        <span class="truncate" x-text="cat.name"></span>
-                                    </label>
-                                </template>
-                                <div x-show="filteredCategories().length === 0" class="py-3 text-center text-[11px] font-semibold text-slate-400">
-                                    No matching categories
-                                </div>
-                            </div>
-
-                            <!-- Popover Footer Action -->
-                            <div class="pt-1.5 border-t border-slate-100 flex items-center justify-between px-1">
-                                <span class="text-[10px] font-bold text-slate-400" x-text="summaryText()"></span>
-                                <button
-                                    type="button"
-                                    @click="apply()"
-                                    class="rounded-lg bg-slate-900 px-3 py-1 text-[11px] font-black text-white hover:bg-slate-800 transition active:scale-95 cursor-pointer"
-                                >
-                                    Apply
-                                </button>
-                            </div>
                         </div>
                     </div>
 
@@ -207,22 +111,70 @@
                             </button>
                         @endif
 
-                        <form method="POST" action="{{ route('purchasing.prices.toggle-publish') }}" class="inline-flex items-center">
-                            @csrf
-                            <input type="hidden" name="date" value="{{ $purchaseDate }}">
-                            <input type="hidden" name="is_published" value="{{ $isPublished ? '0' : '1' }}">
-                            <button
-                                type="submit"
-                                class="h-9 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-xs font-black uppercase tracking-wider transition shadow-2xs {{ $isPublished ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-500 text-white hover:bg-amber-600' }}"
-                                title="{{ $isPublished ? 'Click to unpublish prices' : 'Click to publish daily prices to shop owners' }}"
-                            >
-                                <span class="h-2 w-2 rounded-full {{ $isPublished ? 'bg-white animate-pulse' : 'bg-amber-200' }}"></span>
-                                <span>{{ $isPublished ? 'Published' : 'Publish Prices' }}</span>
-                            </button>
-                        </form>
+                        <button
+                            type="submit"
+                            form="matrix-toggle-publish-form"
+                            class="h-9 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-xs font-black uppercase tracking-wider transition shadow-2xs {{ $isPublished ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-500 text-white hover:bg-amber-600' }}"
+                            title="{{ $isPublished ? 'Click to unpublish prices' : 'Click to publish daily prices to shop owners' }}"
+                        >
+                            <span class="h-2 w-2 rounded-full {{ $isPublished ? 'bg-white animate-pulse' : 'bg-amber-200' }}"></span>
+                            <span>{{ $isPublished ? 'Published' : 'Publish Prices' }}</span>
+                        </button>
                         <a href="{{ route('purchasing.prices.index', ['date' => $purchaseDate]) }}" class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50 transition active:scale-95 shadow-2xs touch-manipulation">
                             Proposal Board
                         </a>
+                    </div>
+                </div>
+
+                <!-- Category Tags Section (Clickable Pills / Tags) -->
+                <div class="pt-2.5 border-t border-slate-100 space-y-1.5">
+                    <div class="flex items-center justify-between">
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Categories Filter</label>
+                        <span class="text-[10px] font-bold text-slate-400">Click tags to filter</span>
+                    </div>
+
+                    <!-- Hidden Inputs Container -->
+                    <div id="category-tags-hidden-inputs">
+                        @foreach ($categoryIds as $cId)
+                            <input type="hidden" name="category_ids[]" value="{{ $cId }}">
+                        @endforeach
+                    </div>
+
+                    <!-- Clickable Category Tags / Pills -->
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        @php
+                            $isAllSelected = empty($categoryIds);
+                        @endphp
+
+                        <!-- All Categories Tag -->
+                        <button
+                            type="button"
+                            onclick="toggleCategoryTag('all')"
+                            class="h-7 inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-black transition active:scale-95 cursor-pointer touch-manipulation {{ $isAllSelected ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80 border border-slate-200/80' }}"
+                        >
+                            @if ($isAllSelected)
+                                <span class="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                            @endif
+                            <span>All Categories</span>
+                        </button>
+
+                        @foreach ($categories as $cat)
+                            @php
+                                $isSelected = in_array((int) $cat->id, array_map('intval', $categoryIds), true);
+                            @endphp
+                            <button
+                                type="button"
+                                onclick="toggleCategoryTag({{ $cat->id }})"
+                                class="h-7 inline-flex items-center gap-1.5 rounded-xl px-3 text-xs font-black transition active:scale-95 cursor-pointer touch-manipulation {{ $isSelected ? 'bg-cyan-700 text-white shadow-xs ring-1 ring-cyan-600' : 'bg-slate-100 text-slate-700 hover:bg-cyan-50 hover:text-cyan-900 border border-slate-200/80' }}"
+                            >
+                                @if ($isSelected)
+                                    <svg class="w-3.5 h-3.5 text-cyan-200 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                    </svg>
+                                @endif
+                                <span>{{ $cat->name }}</span>
+                            </button>
+                        @endforeach
                     </div>
                 </div>
 
@@ -354,6 +306,12 @@
                 @endforeach
             </div>
         @endif
+
+        <form method="POST" action="{{ route('purchasing.prices.toggle-publish') }}" id="matrix-toggle-publish-form" class="hidden">
+            @csrf
+            <input type="hidden" name="date" value="{{ $purchaseDate }}">
+            <input type="hidden" name="is_published" value="{{ $isPublished ? '0' : '1' }}">
+        </form>
 
         @if ($canEditPrices)
             <form method="POST" action="{{ route('purchasing.prices.matrix.fill-forward') }}" id="matrix-fill-forward-form">
@@ -703,56 +661,35 @@
     @once
         @push('scripts')
             <script>
-                function matrixMultiCategorySelect(config) {
-                    return {
-                        open: false,
-                        categories: config.categories || [],
-                        selected: (config.selected || []).map(id => Number(id)),
-                        searchCat: '',
-                        buttonText() {
-                            if (this.selected.length === 0 || this.selected.length === this.categories.length) {
-                                return 'All Categories';
-                            }
-                            if (this.selected.length === 1) {
-                                const cat = this.categories.find(c => Number(c.id) === Number(this.selected[0]));
-                                return cat ? cat.name : '1 Category';
-                            }
-                            return this.selected.length + ' Categories Selected';
-                        },
-                        summaryText() {
-                            if (this.selected.length === 0) return 'None selected (showing all)';
-                            if (this.selected.length === this.categories.length) return 'All selected';
-                            return this.selected.length + ' of ' + this.categories.length + ' selected';
-                        },
-                        filteredCategories() {
-                            if (!this.searchCat.trim()) {
-                                return this.categories;
-                            }
-                            const q = this.searchCat.toLowerCase();
-                            return this.categories.filter(c => c.name.toLowerCase().includes(q));
-                        },
-                        toggleCategory(id) {
-                            id = Number(id);
-                            if (this.selected.includes(id)) {
-                                this.selected = this.selected.filter(i => i !== id);
-                            } else {
-                                this.selected.push(id);
-                            }
-                        },
-                        selectAll() {
-                            this.selected = this.categories.map(c => Number(c.id));
-                        },
-                        clearAll() {
-                            this.selected = [];
-                        },
-                        apply() {
-                            this.open = false;
-                            const form = document.getElementById('matrix-filter-form');
-                            if (form) {
-                                form.submit();
-                            }
+                // Toggle selection of a category pill (multi-select enabled)
+                function toggleCategoryTag(catId) {
+                    const container = document.getElementById('category-tags-hidden-inputs');
+                    const form = document.getElementById('matrix-filter-form');
+                    if (!container || !form) return;
+
+                    // "All" pill clears all selections
+                    if (catId === 'all') {
+                        container.innerHTML = '';
+                    } else {
+                        const catIdNum = Number(catId);
+                        const currentInputs = container.querySelectorAll('input[name="category_ids[]"]');
+                        const selected = Array.from(currentInputs)
+                            .map(inp => Number(inp.value))
+                            .filter(id => Number.isInteger(id) && id > 0);
+
+                        let newSelected;
+                        if (selected.includes(catIdNum)) {
+                            newSelected = selected.filter(id => id !== catIdNum);
+                        } else {
+                            newSelected = [...selected, catIdNum];
                         }
-                    };
+
+                        container.innerHTML = newSelected
+                            .map(id => `<input type="hidden" name="category_ids[]" value="${id}">`)
+                            .join('');
+                    }
+
+                    form.submit();
                 }
 
                 let currentMatrixCategory = "{{ $matrixCategory }}";
@@ -920,7 +857,7 @@
                 });
 
                 document.getElementById('matrix-fill-forward-form')?.addEventListener('submit', function(event) {
-                    const confirmed = window.confirm('Fill all missing visible matrix prices from each product\\'s latest approved price? Existing positive prices will not be overwritten.');
+                    const confirmed = window.confirm("Fill all missing visible matrix prices from each product's latest approved price? Existing positive prices will not be overwritten.");
                     if (!confirmed) {
                         event.preventDefault();
                         return;
