@@ -3598,7 +3598,7 @@ final class CashbookController extends Controller
      */
     private function paymentMonthWindow(Request $request): array
     {
-        $selected = Carbon::parse((string) $request->input('month', today()->format('Y-m')) . '-01');
+        $selected = Carbon::parse((string) $request->input('month', today()->format('Y-m')).'-01');
         $end = $selected->isSameMonth(today()) ? today() : $selected->copy()->endOfMonth();
 
         return [
@@ -3750,12 +3750,13 @@ final class CashbookController extends Controller
     private function extractStatementTextFromPdf(string $path, ?string $password): string
     {
         $errors = [];
-        $pdftotextPath = (string) config('cashbook.pdftotext_path', env('PDFTOTEXT_PATH', 'pdftotext'));
 
-        try {
-            return $this->extractStatementTextWithPdftotext($pdftotextPath, $path, $password);
-        } catch (Throwable $exception) {
-            $errors[] = $exception->getMessage();
+        foreach ($this->pdftotextCandidates() as $binary) {
+            try {
+                return $this->extractStatementTextWithPdftotext($binary, $path, $password);
+            } catch (Throwable $exception) {
+                $errors[] = $exception->getMessage();
+            }
         }
 
         foreach ($this->pdfPythonCandidates() as $pythonPath) {
@@ -3766,35 +3767,64 @@ final class CashbookController extends Controller
             }
         }
 
-        throw new \RuntimeException('PDF could not be read. Check the password, then set PDFTOTEXT_PATH or PDF_PYTHON_PATH. Last error: '.end($errors));
+        $allErrors = implode(' | ', $errors);
+        if (stripos($allErrors, 'password') !== false || stripos($allErrors, 'encrypted') !== false || stripos($allErrors, 'Incorrect password') !== false) {
+            if (filled($password)) {
+                throw new \RuntimeException('The PDF password provided was incorrect. Please verify the statement password (case-sensitive) and try again.');
+            }
+
+            throw new \RuntimeException('This PDF statement is password-protected. Please enter the statement password and try again.');
+        }
+
+        throw new \RuntimeException('PDF could not be read. Check the file or password. Last error: '.end($errors));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function pdftotextCandidates(): array
+    {
+        $candidates = array_filter([
+            config('cashbook.pdftotext_path'),
+            env('PDFTOTEXT_PATH'),
+            '/opt/homebrew/bin/pdftotext',
+            '/usr/local/bin/pdftotext',
+            '/usr/bin/pdftotext',
+            'pdftotext',
+        ]);
+
+        return array_values(array_unique(array_map('strval', $candidates)));
     }
 
     private function extractStatementTextWithPdftotext(string $binary, string $path, ?string $password): string
     {
-        $command = [$binary, '-layout', '-nopgbrk'];
-
+        /** @var array<int, array<int, string>> $attempts */
+        $attempts = [[]];
         if (filled($password)) {
-            $command[] = '-opw';
-            $command[] = (string) $password;
+            $attempts = [
+                ['-upw', (string) $password],
+                ['-opw', (string) $password],
+            ];
         }
 
-        $command[] = $path;
-        $command[] = '-';
+        $lastError = '';
+        foreach ($attempts as $authFlags) {
+            $command = array_merge([$binary, '-layout', '-nopgbrk'], $authFlags, [$path, '-']);
+            $process = new Process($command);
+            $process->setTimeout(60);
+            $process->run();
 
-        $process = new Process($command);
-        $process->setTimeout(60);
-        $process->run();
-
-        if (! $process->isSuccessful()) {
-            throw new \RuntimeException(trim($process->getErrorOutput()) ?: 'pdftotext failed or is not installed.');
+            if ($process->isSuccessful()) {
+                $text = trim($process->getOutput());
+                if ($text !== '') {
+                    return $text;
+                }
+            } else {
+                $lastError = trim($process->getErrorOutput()) ?: 'pdftotext failed or is not installed.';
+            }
         }
 
-        $text = trim($process->getOutput());
-        if ($text === '') {
-            throw new \RuntimeException('pdftotext returned empty text.');
-        }
-
-        return $text;
+        throw new \RuntimeException($lastError ?: 'pdftotext returned empty text.');
     }
 
     private function extractStatementTextWithPython(string $pythonPath, string $path, ?string $password): string
@@ -3802,13 +3832,34 @@ final class CashbookController extends Controller
         $script = <<<'PY'
 import sys
 from pypdf import PdfReader
+from pypdf.errors import WrongPasswordError
 
 path = sys.argv[1]
 password = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
-reader = PdfReader(path, password=password)
-if reader.is_encrypted and password:
-    reader.decrypt(password)
-print("\n".join((page.extract_text() or "") for page in reader.pages))
+
+try:
+    reader = PdfReader(path)
+    if reader.is_encrypted:
+        if password:
+            decrypted = reader.decrypt(password)
+            if decrypted == 0:
+                print("Incorrect password for encrypted PDF", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print("PDF is encrypted but no password provided", file=sys.stderr)
+            sys.exit(1)
+
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    if not text.strip():
+        print("PDF extracted text is empty", file=sys.stderr)
+        sys.exit(1)
+    print(text)
+except WrongPasswordError:
+    print("Incorrect password for encrypted PDF", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    sys.exit(1)
 PY;
 
         $process = new Process([$pythonPath, '-c', $script, $path, (string) $password]);
@@ -3835,13 +3886,27 @@ PY;
         $candidates = array_filter([
             env('PDF_PYTHON_PATH'),
             env('PYTHON_PATH'),
-            'python',
             'python3',
+            'python',
+            '/opt/homebrew/bin/python3',
+            '/usr/local/bin/python3',
+            '/usr/bin/python3',
         ]);
 
-        $userProfile = getenv('USERPROFILE') ?: getenv('HOME');
+        $userProfile = getenv('USERPROFILE');
         if (is_string($userProfile) && $userProfile !== '') {
-            $candidates[] = $userProfile.'\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe';
+            $winPath = $userProfile.'\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe';
+            if (file_exists($winPath)) {
+                $candidates[] = $winPath;
+            }
+        }
+
+        $home = getenv('HOME');
+        if (is_string($home) && $home !== '') {
+            $macPath = $home.'/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3';
+            if (file_exists($macPath)) {
+                $candidates[] = $macPath;
+            }
         }
 
         return array_values(array_unique(array_map('strval', $candidates)));

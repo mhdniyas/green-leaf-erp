@@ -12,11 +12,11 @@ return new class extends Migration
     {
         Schema::table('cashbook_company_account_statement_entries', function (Blueprint $table): void {
             if (! Schema::hasColumn('cashbook_company_account_statement_entries', 'import_fingerprint')) {
-                $table->string('import_fingerprint', 80)->nullable()->after('statement_batch')->index();
+                $table->string('import_fingerprint', 80)->nullable()->after('statement_batch')->index('cb_stmt_import_fingerprint_idx');
             }
 
             if (! Schema::hasColumn('cashbook_company_account_statement_entries', 'imported_month')) {
-                $table->string('imported_month', 7)->nullable()->after('import_fingerprint')->index();
+                $table->string('imported_month', 7)->nullable()->after('import_fingerprint')->index('cb_stmt_imported_month_idx');
             }
 
             if (! Schema::hasColumn('cashbook_company_account_statement_entries', 'import_file_name')) {
@@ -24,7 +24,7 @@ return new class extends Migration
             }
 
             if (! Schema::hasColumn('cashbook_company_account_statement_entries', 'duplicate_status')) {
-                $table->string('duplicate_status', 30)->default('clear')->after('import_file_name')->index();
+                $table->string('duplicate_status', 30)->default('clear')->after('import_file_name')->index('cb_stmt_duplicate_status_idx');
             }
 
             if (! Schema::hasColumn('cashbook_company_account_statement_entries', 'duplicate_of_statement_entry_id')) {
