@@ -691,6 +691,8 @@ Route::middleware('auth')->group(function () {
             Route::post('bank-accounts', [CashbookController::class, 'storeBankAccount'])->name('bank-accounts.store');
             Route::get('bank-accounts/{account}', [CashbookController::class, 'showBankAccount'])->name('bank-accounts.show');
             Route::get('bank-accounts/{account}/statement', [CashbookController::class, 'showBankAccountStatement'])->name('bank-accounts.statement');
+            Route::post('bank-accounts/{account}/statement/import', [CashbookController::class, 'importBankAccountStatement'])->name('bank-accounts.statement.import');
+            Route::patch('bank-accounts/{account}/statement/duplicates/{statementRef}/clear', [CashbookController::class, 'clearStatementDuplicateFlag'])->name('bank-accounts.statement.duplicates.clear');
             Route::put('bank-accounts/{account}', [CashbookController::class, 'updateBankAccount'])->name('bank-accounts.update');
             Route::delete('bank-accounts/{account}', [CashbookController::class, 'deleteBankAccount'])->name('bank-accounts.delete');
 

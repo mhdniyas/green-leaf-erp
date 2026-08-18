@@ -46,11 +46,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\Process\Process;
 use Throwable;
 
 /**
@@ -799,9 +801,15 @@ final class CashbookController extends Controller
         $companyAccounts = CompanyAccount::orderBy('is_default', 'desc')->orderBy('name')->get();
         $company = config('greenleaf');
         $currentShop = $shops->first();
+        $statementMonth = preg_match('/^\d{4}-\d{2}$/', (string) $request->input('month'))
+            ? (string) $request->input('month')
+            : now()->format('Y-m');
+        $monthStart = Carbon::createFromFormat('Y-m-d', $statementMonth.'-01')->startOfMonth();
+        $monthEnd = $monthStart->copy()->endOfMonth();
 
         $statementEntries = $account->statementEntries()
             ->with(['reconciliations.paymentRequest.shop', 'reconciliations.reconciledBy'])
+            ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->latest('transaction_date')
             ->latest('id')
             ->paginate(25)
@@ -809,10 +817,17 @@ final class CashbookController extends Controller
 
         $statementSummary = CompanyAccountStatementEntry::query()
             ->where('company_account_id', $account->id)
+            ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->selectRaw("SUM(CASE WHEN direction = 'in' THEN amount ELSE 0 END) as money_in")
             ->selectRaw("SUM(CASE WHEN direction = 'out' THEN amount ELSE 0 END) as money_out")
             ->selectRaw('SUM(matched_amount) as matched_total')
             ->first();
+
+        $duplicateFlagCount = CompanyAccountStatementEntry::query()
+            ->where('company_account_id', $account->id)
+            ->where('duplicate_status', 'possible_duplicate')
+            ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+            ->count();
 
         return view('admin.cashbook.bank-accounts.statement', compact(
             'shops',
@@ -822,6 +837,10 @@ final class CashbookController extends Controller
             'account',
             'statementEntries',
             'statementSummary',
+            'statementMonth',
+            'monthStart',
+            'monthEnd',
+            'duplicateFlagCount',
         ));
     }
 
@@ -1192,6 +1211,154 @@ final class CashbookController extends Controller
 
         return redirect()->back()
             ->with('success', 'Statement entry added for reconciliation.');
+    }
+
+    public function importBankAccountStatement(Request $request, CompanyAccount $account): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'statement_pdf' => ['required', 'file', 'mimes:pdf', 'max:20480'],
+            'statement_month' => ['required', 'date_format:Y-m'],
+            'pdf_password' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $text = $this->extractStatementTextFromPdf(
+                $request->file('statement_pdf')->getRealPath(),
+                $validated['pdf_password'] ?? null,
+            );
+            $rows = $this->parseBankStatementRows($text, $validated['statement_month']);
+        } catch (Throwable $exception) {
+            return redirect()
+                ->route('admin.cashbook.bank-accounts.statement', ['account' => $account, 'month' => $validated['statement_month']])
+                ->withErrors(['statement_pdf' => $exception->getMessage()]);
+        }
+
+        if ($rows === []) {
+            return redirect()
+                ->route('admin.cashbook.bank-accounts.statement', ['account' => $account, 'month' => $validated['statement_month']])
+                ->withErrors(['statement_pdf' => 'No statement rows found for the selected month.']);
+        }
+
+        $batch = 'pdf:'.$account->id.':'.$validated['statement_month'].':'.now()->format('YmdHis');
+        $fileName = $request->file('statement_pdf')->getClientOriginalName();
+        $imported = 0;
+        $skipped = 0;
+        $flagged = 0;
+
+        foreach ($rows as $row) {
+            $fingerprint = $this->statementImportFingerprint($account, $row);
+
+            $exactDuplicate = CompanyAccountStatementEntry::query()
+                ->where('company_account_id', $account->id)
+                ->where('import_fingerprint', $fingerprint)
+                ->exists();
+
+            if ($exactDuplicate) {
+                $skipped++;
+
+                continue;
+            }
+
+            $possibleDuplicate = CompanyAccountStatementEntry::query()
+                ->where('company_account_id', $account->id)
+                ->whereDate('transaction_date', $row['transaction_date'])
+                ->where('direction', $row['direction'])
+                ->where('amount', $row['amount'])
+                ->where('status', '!=', 'duplicate_flagged')
+                ->oldest('id')
+                ->first();
+
+            if ($possibleDuplicate instanceof CompanyAccountStatementEntry) {
+                CompanyAccountStatementEntry::query()->create([
+                    'company_account_id' => $account->id,
+                    'transaction_date' => $row['transaction_date'],
+                    'value_date' => $row['transaction_date'],
+                    'direction' => $row['direction'],
+                    'amount' => $row['amount'],
+                    'reference' => $row['reference'],
+                    'narration' => $row['narration'],
+                    'source' => 'pdf_import',
+                    'status' => 'duplicate_flagged',
+                    'matched_amount' => 0,
+                    'statement_batch' => $batch,
+                    'import_fingerprint' => $fingerprint,
+                    'imported_month' => $validated['statement_month'],
+                    'import_file_name' => $fileName,
+                    'duplicate_status' => 'possible_duplicate',
+                    'duplicate_of_statement_entry_id' => $possibleDuplicate->id,
+                    'notes' => 'Possible duplicate from PDF import. Balance not applied until admin clears this flag.',
+                    'imported_by' => (int) $request->user()->id,
+                ]);
+                $flagged++;
+
+                continue;
+            }
+
+            $entry = $this->companyPaymentReconciliationService->createStatementEntry([
+                'company_account_id' => $account->id,
+                'transaction_date' => $row['transaction_date'],
+                'value_date' => $row['transaction_date'],
+                'direction' => $row['direction'],
+                'amount' => $row['amount'],
+                'reference' => $row['reference'],
+                'narration' => $row['narration'],
+                'source' => 'pdf_import',
+                'statement_batch' => $batch,
+                'notes' => 'Imported from bank PDF statement.',
+            ], (int) $request->user()->id);
+
+            $entry->update([
+                'import_fingerprint' => $fingerprint,
+                'imported_month' => $validated['statement_month'],
+                'import_file_name' => $fileName,
+                'duplicate_status' => 'clear',
+            ]);
+            $imported++;
+        }
+
+        return redirect()
+            ->route('admin.cashbook.bank-accounts.statement', ['account' => $account, 'month' => $validated['statement_month']])
+            ->with('success', "Statement import finished. New: {$imported}, duplicates skipped: {$skipped}, flagged: {$flagged}.");
+    }
+
+    public function clearStatementDuplicateFlag(Request $request, CompanyAccount $account, string $statementRef): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $entry = $this->resolveSecureStatementEntry($statementRef);
+        abort_unless((int) $entry->company_account_id === (int) $account->id, 404);
+
+        DB::transaction(function () use ($entry, $account, $request): void {
+            $lockedEntry = CompanyAccountStatementEntry::query()
+                ->whereKey($entry->id)
+                ->where('company_account_id', $account->id)
+                ->where('status', 'duplicate_flagged')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $lockedAccount = CompanyAccount::query()
+                ->whereKey($account->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $balanceChange = $lockedEntry->direction === 'out'
+                ? -round((float) $lockedEntry->amount, 2)
+                : round((float) $lockedEntry->amount, 2);
+
+            $lockedAccount->increment('current_balance', $balanceChange);
+            $lockedEntry->update([
+                'status' => 'unmatched',
+                'duplicate_status' => 'manual_cleared',
+                'duplicate_of_statement_entry_id' => null,
+                'notes' => trim(((string) $lockedEntry->notes)."\nDuplicate flag cleared by admin on ".now()->format('Y-m-d H:i:s').'.'),
+                'imported_by' => $lockedEntry->imported_by ?: (int) $request->user()->id,
+            ]);
+        });
+
+        return redirect()->back()
+            ->with('success', 'Duplicate flag cleared and statement balance applied.');
     }
 
     public function reconcileCompanyPayment(Request $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
@@ -3578,6 +3745,160 @@ final class CashbookController extends Controller
             'total' => round((float) $rows->sum('signed_amount'), 2),
             'count' => $rows->count(),
         ];
+    }
+
+    private function extractStatementTextFromPdf(string $path, ?string $password): string
+    {
+        $binary = (string) config('cashbook.pdftotext_path', env('PDFTOTEXT_PATH', 'pdftotext'));
+        $command = [$binary, '-layout', '-nopgbrk'];
+
+        if (filled($password)) {
+            $command[] = '-opw';
+            $command[] = (string) $password;
+        }
+
+        $command[] = $path;
+        $command[] = '-';
+
+        $process = new Process($command);
+        $process->setTimeout(60);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \RuntimeException('PDF could not be read. Check the password, or install Poppler pdftotext and set PDFTOTEXT_PATH.');
+        }
+
+        $text = trim($process->getOutput());
+        if ($text === '') {
+            throw new \RuntimeException('PDF text is empty. Check the password and statement file.');
+        }
+
+        return $text;
+    }
+
+    /**
+     * @return array<int, array{transaction_date: string, direction: string, amount: float, reference: ?string, narration: string}>
+     */
+    private function parseBankStatementRows(string $text, string $month): array
+    {
+        $rows = [];
+        $current = null;
+
+        foreach (preg_split('/\R/', $text) ?: [] as $line) {
+            $line = trim(preg_replace('/\s+/', ' ', (string) $line));
+            if ($line === '') {
+                continue;
+            }
+
+            if (preg_match('/^\d{2}-\d{2}-\d{2}\s+/', $line) === 1) {
+                if ($current !== null) {
+                    $rows[] = $current;
+                }
+
+                $current = $line;
+
+                continue;
+            }
+
+            if ($current !== null && ! str_contains(Str::lower($line), 'page total')) {
+                $current .= ' '.$line;
+            }
+        }
+
+        if ($current !== null) {
+            $rows[] = $current;
+        }
+
+        $parsed = [];
+        $previousBalance = null;
+
+        foreach ($rows as $rawRow) {
+            if (preg_match('/^(\d{2}-\d{2}-\d{2})\s+(.+)$/', $rawRow, $rowMatch) !== 1) {
+                continue;
+            }
+
+            $date = Carbon::createFromFormat('d-m-y', $rowMatch[1]);
+            if ($date->format('Y-m') !== $month) {
+                continue;
+            }
+
+            $body = trim($rowMatch[2]);
+            if (preg_match('/([\d,]+\.\d{2})\s*(Cr|Dr)\s*$/i', $body, $balanceMatch) !== 1) {
+                continue;
+            }
+
+            $balance = $this->statementMoneyToFloat($balanceMatch[1]);
+            if (Str::lower($balanceMatch[2]) === 'dr') {
+                $balance *= -1;
+            }
+
+            $beforeBalance = trim(substr($body, 0, -strlen($balanceMatch[0])));
+            preg_match_all('/(?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2}/', $beforeBalance, $amountMatches, PREG_OFFSET_CAPTURE);
+            if (empty($amountMatches[0])) {
+                continue;
+            }
+
+            $amountMatch = end($amountMatches[0]);
+            $amount = $this->statementMoneyToFloat($amountMatch[0]);
+            $narration = trim(substr($beforeBalance, 0, (int) $amountMatch[1]));
+            if ($narration === '') {
+                $narration = 'Imported bank statement row';
+            }
+
+            $parsed[] = [
+                'transaction_date' => $date->toDateString(),
+                'direction' => $this->inferStatementDirection($narration, $amount, $balance, $previousBalance),
+                'amount' => $amount,
+                'reference' => $this->statementReferenceFromNarration($narration),
+                'narration' => Str::limit($narration, 1800, ''),
+            ];
+
+            $previousBalance = $balance;
+        }
+
+        return $parsed;
+    }
+
+    private function inferStatementDirection(string $narration, float $amount, float $balance, ?float $previousBalance): string
+    {
+        if ($previousBalance !== null) {
+            $delta = round($balance - $previousBalance, 2);
+            if (abs(abs($delta) - $amount) <= 0.05) {
+                return $delta >= 0 ? 'in' : 'out';
+            }
+        }
+
+        return preg_match('/\b(TO:|NEFT TO|TRANSFER TO|WITHDRAW|DEBIT|CHQ PAID|CHARGES|FEE|TAX)\b/i', $narration) === 1
+            ? 'out'
+            : 'in';
+    }
+
+    private function statementReferenceFromNarration(string $narration): ?string
+    {
+        foreach (['/RRN-\d+/i', '/\bIMPS\/[A-Z0-9]+\/\d+/i', '/\bUPI\/[A-Z0-9]+\/(?:RRN-)?\d+/i', '/\bNEFT\s+TO:[A-Z0-9]+/i'] as $pattern) {
+            if (preg_match($pattern, $narration, $match) === 1) {
+                return Str::upper(Str::limit($match[0], 150, ''));
+            }
+        }
+
+        return null;
+    }
+
+    private function statementMoneyToFloat(string $value): float
+    {
+        return round((float) str_replace(',', '', $value), 2);
+    }
+
+    private function statementImportFingerprint(CompanyAccount $account, array $row): string
+    {
+        return hash('sha256', implode('|', [
+            $account->id,
+            $row['transaction_date'],
+            $row['direction'],
+            number_format((float) $row['amount'], 2, '.', ''),
+            Str::of((string) ($row['reference'] ?? ''))->lower()->squish()->toString(),
+            Str::of((string) $row['narration'])->lower()->squish()->toString(),
+        ]));
     }
 
     private function resolveSecurePaymentRequest(string $paymentRef): ShopInvoicePaymentRequest

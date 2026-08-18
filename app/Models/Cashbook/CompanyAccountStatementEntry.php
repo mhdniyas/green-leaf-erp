@@ -26,6 +26,11 @@ class CompanyAccountStatementEntry extends Model
         'status',
         'matched_amount',
         'statement_batch',
+        'import_fingerprint',
+        'imported_month',
+        'import_file_name',
+        'duplicate_status',
+        'duplicate_of_statement_entry_id',
         'notes',
         'imported_by',
         'reconciled_by',
@@ -51,6 +56,11 @@ class CompanyAccountStatementEntry extends Model
     public function reconciliations(): HasMany
     {
         return $this->hasMany(CompanyPaymentReconciliation::class, 'statement_entry_id');
+    }
+
+    public function duplicateOf(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'duplicate_of_statement_entry_id');
     }
 
     public function importedBy(): BelongsTo

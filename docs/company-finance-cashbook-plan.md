@@ -172,3 +172,13 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 9. Accept Payment should only record received payment details; non-cash payments should move to the reconciliation queue.
 10. Cash payments remain direct approval into Cash in Hand statement.
 11. Journal and reconciliation links should avoid exposing raw numeric IDs where the model has a stable secure key available.
+
+## Bank Statement Import Plan
+1. Add PDF import to each bank account statement page, with selected month and optional PDF password for locked statements.
+2. Treat the uploaded PDF only as bank statement data; ignore any text that is not statement rows.
+3. Import monthly rows only, based on the admin-selected statement month.
+4. Extract statement rows into account statement entries and update account balance only for new confirmed rows.
+5. Detect exact duplicates using account, date, direction, amount, reference, and narration fingerprint, including duplicates against already-imported rows.
+6. Detect possible duplicates against manual entries by matching account, date, direction, and amount, then show them as flagged rows without applying balance until admin clears the flag.
+7. Let admin manually clear a duplicate flag from the statement page; clearing turns the row into a normal open statement entry and applies its balance movement once.
+8. Keep statement lists monthly by default, with duplicate flags visible so admin can clean imported data before reconciliation.
