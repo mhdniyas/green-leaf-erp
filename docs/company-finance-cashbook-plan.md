@@ -182,3 +182,9 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 6. Detect possible duplicates against manual entries by matching account, date, direction, and amount, then show them as flagged rows without applying balance until admin clears the flag.
 7. Let admin manually clear a duplicate flag from the statement page; clearing turns the row into a normal open statement entry and applies its balance movement once.
 8. Keep statement lists monthly by default, with duplicate flags visible so admin can clean imported data before reconciliation.
+
+## PDF Import Extractor Fix Plan
+1. Keep Poppler pdftotext support when a server has it installed or configured.
+2. Add Python pypdf extraction fallback for password-protected PDFs when pdftotext is missing.
+3. Auto-detect common Python paths, including the local Codex bundled runtime path.
+4. Show a clearer import error only if both extraction methods fail.

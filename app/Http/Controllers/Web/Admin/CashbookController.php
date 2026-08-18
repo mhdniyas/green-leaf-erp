@@ -3749,7 +3749,28 @@ final class CashbookController extends Controller
 
     private function extractStatementTextFromPdf(string $path, ?string $password): string
     {
-        $binary = (string) config('cashbook.pdftotext_path', env('PDFTOTEXT_PATH', 'pdftotext'));
+        $errors = [];
+        $pdftotextPath = (string) config('cashbook.pdftotext_path', env('PDFTOTEXT_PATH', 'pdftotext'));
+
+        try {
+            return $this->extractStatementTextWithPdftotext($pdftotextPath, $path, $password);
+        } catch (Throwable $exception) {
+            $errors[] = $exception->getMessage();
+        }
+
+        foreach ($this->pdfPythonCandidates() as $pythonPath) {
+            try {
+                return $this->extractStatementTextWithPython($pythonPath, $path, $password);
+            } catch (Throwable $exception) {
+                $errors[] = $exception->getMessage();
+            }
+        }
+
+        throw new \RuntimeException('PDF could not be read. Check the password, then set PDFTOTEXT_PATH or PDF_PYTHON_PATH. Last error: '.end($errors));
+    }
+
+    private function extractStatementTextWithPdftotext(string $binary, string $path, ?string $password): string
+    {
         $command = [$binary, '-layout', '-nopgbrk'];
 
         if (filled($password)) {
@@ -3765,15 +3786,65 @@ final class CashbookController extends Controller
         $process->run();
 
         if (! $process->isSuccessful()) {
-            throw new \RuntimeException('PDF could not be read. Check the password, or install Poppler pdftotext and set PDFTOTEXT_PATH.');
+            throw new \RuntimeException(trim($process->getErrorOutput()) ?: 'pdftotext failed or is not installed.');
         }
 
         $text = trim($process->getOutput());
         if ($text === '') {
-            throw new \RuntimeException('PDF text is empty. Check the password and statement file.');
+            throw new \RuntimeException('pdftotext returned empty text.');
         }
 
         return $text;
+    }
+
+    private function extractStatementTextWithPython(string $pythonPath, string $path, ?string $password): string
+    {
+        $script = <<<'PY'
+import sys
+from pypdf import PdfReader
+
+path = sys.argv[1]
+password = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
+reader = PdfReader(path, password=password)
+if reader.is_encrypted and password:
+    reader.decrypt(password)
+print("\n".join((page.extract_text() or "") for page in reader.pages))
+PY;
+
+        $process = new Process([$pythonPath, '-c', $script, $path, (string) $password]);
+        $process->setTimeout(60);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \RuntimeException(trim($process->getErrorOutput()) ?: 'Python PDF extraction failed.');
+        }
+
+        $text = trim($process->getOutput());
+        if ($text === '') {
+            throw new \RuntimeException('Python PDF extraction returned empty text.');
+        }
+
+        return $text;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function pdfPythonCandidates(): array
+    {
+        $candidates = array_filter([
+            env('PDF_PYTHON_PATH'),
+            env('PYTHON_PATH'),
+            'python',
+            'python3',
+        ]);
+
+        $userProfile = getenv('USERPROFILE') ?: getenv('HOME');
+        if (is_string($userProfile) && $userProfile !== '') {
+            $candidates[] = $userProfile.'\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe';
+        }
+
+        return array_values(array_unique(array_map('strval', $candidates)));
     }
 
     /**
