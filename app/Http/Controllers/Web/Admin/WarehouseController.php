@@ -20,9 +20,87 @@ class WarehouseController extends Controller
     {
         Gate::authorize('admin.user.view');
 
-        $warehouses = Warehouse::orderBy('name')->get();
+        $tab = $request->query('tab', 'warehouses');
+        if (! in_array($tab, ['warehouses', 'unallocated'], true)) {
+            $tab = 'warehouses';
+        }
 
-        return view('admin.warehouses.index', compact('warehouses'));
+        $warehouses = Warehouse::withCount('products')->orderBy('name')->get();
+        $unallocatedCount = Product::whereNull('default_warehouse_id')->count();
+        $categories = Category::active()->orderBy('name')->get();
+        $activeWarehouses = Warehouse::active()->orderBy('name')->get();
+
+        $unallocatedProducts = null;
+        if ($tab === 'unallocated') {
+            $query = Product::whereNull('default_warehouse_id')
+                ->with('category:id,name');
+
+            if ($request->filled('search')) {
+                $search = $request->string('search')->toString();
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('sku', 'like', "%{$search}%");
+                });
+            }
+
+            if ($request->filled('category_id')) {
+                $query->where('category_id', $request->integer('category_id'));
+            }
+
+            if ($request->filled('status')) {
+                $status = $request->string('status')->toString();
+                if ($status === 'active') {
+                    $query->where('is_active', true);
+                } elseif ($status === 'inactive') {
+                    $query->where('is_active', false);
+                }
+            }
+
+            $unallocatedProducts = $query->ordered()->paginate(25)->withQueryString();
+        }
+
+        return view('admin.warehouses.index', compact(
+            'warehouses',
+            'unallocatedCount',
+            'unallocatedProducts',
+            'tab',
+            'categories',
+            'activeWarehouses'
+        ));
+    }
+
+    public function allocateProduct(Request $request): RedirectResponse
+    {
+        Gate::authorize('admin.user.view');
+
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', Rule::exists('products', 'id')],
+            'warehouse_id' => ['required', 'integer', Rule::exists('warehouses', 'id')],
+        ]);
+
+        $product = Product::findOrFail($validated['product_id']);
+        $warehouse = Warehouse::findOrFail($validated['warehouse_id']);
+
+        $product->update(['default_warehouse_id' => $warehouse->id]);
+
+        return back()->with('success', "Product '{$product->name}' allocated to {$warehouse->name} successfully.");
+    }
+
+    public function bulkAllocate(Request $request): RedirectResponse
+    {
+        Gate::authorize('admin.user.view');
+
+        $validated = $request->validate([
+            'product_ids' => ['required', 'array', 'min:1'],
+            'product_ids.*' => ['integer', Rule::exists('products', 'id')],
+            'warehouse_id' => ['required', 'integer', Rule::exists('warehouses', 'id')],
+        ]);
+
+        $warehouse = Warehouse::findOrFail($validated['warehouse_id']);
+        $count = Product::whereIn('id', $validated['product_ids'])
+            ->update(['default_warehouse_id' => $warehouse->id]);
+
+        return back()->with('success', "{$count} products allocated to {$warehouse->name} successfully.");
     }
 
     public function create(): View

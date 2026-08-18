@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminAutoLoadAllController;
@@ -20,7 +21,6 @@ use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserAccessController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
-use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\Auth\ShopOwnerRegistrationController;
 use App\Http\Controllers\Web\BusinessDaySettingsController;
@@ -253,14 +253,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/cashbook/create', [ShopOwnerController::class, 'cashbookCreate'])->name('cashbook.create');
         Route::get('/cashbook/settings', [ShopOwnerController::class, 'cashbookSettings'])->name('cashbook.settings');
         Route::get('/cashbook/reports', [ShopOwnerController::class, 'cashbookReports'])->name('cashbook.reports');
-            Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
-                Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
-                Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
-                Route::post('/bulk-record-entries', [ShopOwnerController::class, 'cashbookBulkRecordEntries'])->name('bulk-record-entries');
-                Route::post('/update-entry', [ShopOwnerController::class, 'cashbookUpdateEntry'])->name('update-entry');
-                Route::post('/delete-entry', [ShopOwnerController::class, 'cashbookDeleteEntry'])->name('delete-entry');
-                Route::post('/delete-collection', [ShopOwnerController::class, 'cashbookDeleteCollection'])->name('delete-collection');
-            });
+        Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
+            Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
+            Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
+            Route::post('/bulk-record-entries', [ShopOwnerController::class, 'cashbookBulkRecordEntries'])->name('bulk-record-entries');
+            Route::post('/update-entry', [ShopOwnerController::class, 'cashbookUpdateEntry'])->name('update-entry');
+            Route::post('/delete-entry', [ShopOwnerController::class, 'cashbookDeleteEntry'])->name('delete-entry');
+            Route::post('/delete-collection', [ShopOwnerController::class, 'cashbookDeleteCollection'])->name('delete-collection');
+        });
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
         Route::post('/staff/attendance', [ShopOwnerStaffController::class, 'storeAttendance'])->name('staff.attendance.store');
         Route::post('/staff/salary-payments', [ShopOwnerStaffController::class, 'storeSalaryPayment'])->name('staff.salary-payments.store');
@@ -291,60 +291,60 @@ Route::middleware('auth')->group(function () {
             Route::get('products/export/whatsapp', [ProductController::class, 'exportWhatsApp'])->name('products.export.whatsapp');
             Route::get('products/flags', [ProductController::class, 'flags'])->name('products.flags');
             Route::get('products-trash', [ProductController::class, 'trash'])->name('products.trash');
-        Route::patch('products-trash/{product}/restore', [ProductController::class, 'restore'])->name('products.restore');
-        Route::delete('products-trash/{product}/force-delete', [ProductController::class, 'forceDelete'])->name('products.force-delete');
-        Route::resource('products', ProductController::class);
-        Route::get('categories/export/pdf', [CategoryController::class, 'exportPdf'])->name('categories.export-pdf');
-        Route::get('categories/{category}/products', [CategoryController::class, 'products'])->name('categories.products');
-        Route::post('categories/{category}/products', [CategoryController::class, 'updateProducts'])->name('categories.products.update');
-        Route::resource('categories', CategoryController::class);
+            Route::patch('products-trash/{product}/restore', [ProductController::class, 'restore'])->name('products.restore');
+            Route::delete('products-trash/{product}/force-delete', [ProductController::class, 'forceDelete'])->name('products.force-delete');
+            Route::resource('products', ProductController::class);
+            Route::get('categories/export/pdf', [CategoryController::class, 'exportPdf'])->name('categories.export-pdf');
+            Route::get('categories/{category}/products', [CategoryController::class, 'products'])->name('categories.products');
+            Route::post('categories/{category}/products', [CategoryController::class, 'updateProducts'])->name('categories.products.update');
+            Route::resource('categories', CategoryController::class);
 
-        // Stock levels
-        Route::get('stock', [StockController::class, 'index'])->name('stock.index');
-        Route::post('stock/adjustments/{product}', [StockAdjustmentController::class, 'store'])
-            ->middleware('can:inventory.stock.adjust')
-            ->name('stock.adjustments.store');
-        Route::get('daily-close', [DailyInventoryCloseController::class, 'index'])->name('daily-close.index');
-        Route::post('daily-close', [DailyInventoryCloseController::class, 'store'])->name('daily-close.store');
+            // Stock levels
+            Route::get('stock', [StockController::class, 'index'])->name('stock.index');
+            Route::post('stock/adjustments/{product}', [StockAdjustmentController::class, 'store'])
+                ->middleware('can:inventory.stock.adjust')
+                ->name('stock.adjustments.store');
+            Route::get('daily-close', [DailyInventoryCloseController::class, 'index'])->name('daily-close.index');
+            Route::post('daily-close', [DailyInventoryCloseController::class, 'store'])->name('daily-close.store');
 
-        // Quantity Corrections (Admin Fix)
-        Route::get('quantity-corrections', [ShopOrderQuantityCorrectionController::class, 'index'])->name('quantity-corrections.index');
-        Route::patch('quantity-corrections/{item}', [ShopOrderQuantityCorrectionController::class, 'update'])->name('quantity-corrections.update');
-        Route::post('quantity-corrections/{item}/recalculate', [ShopOrderQuantityCorrectionController::class, 'recalculate'])->name('quantity-corrections.recalculate');
-        Route::post('quantity-corrections/{item}/copy-loaded', [ShopOrderQuantityCorrectionController::class, 'copyLoaded'])->name('quantity-corrections.copy-loaded');
-        Route::delete('quantity-corrections/{item}/soft-delete', [ShopOrderQuantityCorrectionController::class, 'softDeleteDuplicate'])->name('quantity-corrections.soft-delete');
+            // Quantity Corrections (Admin Fix)
+            Route::get('quantity-corrections', [ShopOrderQuantityCorrectionController::class, 'index'])->name('quantity-corrections.index');
+            Route::patch('quantity-corrections/{item}', [ShopOrderQuantityCorrectionController::class, 'update'])->name('quantity-corrections.update');
+            Route::post('quantity-corrections/{item}/recalculate', [ShopOrderQuantityCorrectionController::class, 'recalculate'])->name('quantity-corrections.recalculate');
+            Route::post('quantity-corrections/{item}/copy-loaded', [ShopOrderQuantityCorrectionController::class, 'copyLoaded'])->name('quantity-corrections.copy-loaded');
+            Route::delete('quantity-corrections/{item}/soft-delete', [ShopOrderQuantityCorrectionController::class, 'softDeleteDuplicate'])->name('quantity-corrections.soft-delete');
 
-        // Batches + Sorting
-        Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
-        Route::get('batches/create', [BatchController::class, 'create'])->name('batches.create');
-        Route::post('batches', [BatchController::class, 'store'])->name('batches.store');
-        Route::get('batches/{batch}', [BatchController::class, 'show'])->name('batches.show');
-        Route::get('batches/{batch}/sort', [BatchController::class, 'sort'])->name('batches.sort');
-        Route::post('batches/{batch}/sort', [BatchController::class, 'processSort'])->name('batches.sort.process');
-        Route::delete('batches/{batch}', [BatchController::class, 'destroy'])->name('batches.destroy');
+            // Batches + Sorting
+            Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
+            Route::get('batches/create', [BatchController::class, 'create'])->name('batches.create');
+            Route::post('batches', [BatchController::class, 'store'])->name('batches.store');
+            Route::get('batches/{batch}', [BatchController::class, 'show'])->name('batches.show');
+            Route::get('batches/{batch}/sort', [BatchController::class, 'sort'])->name('batches.sort');
+            Route::post('batches/{batch}/sort', [BatchController::class, 'processSort'])->name('batches.sort.process');
+            Route::delete('batches/{batch}', [BatchController::class, 'destroy'])->name('batches.destroy');
 
-        Route::get('settings', [InventorySettingsController::class, 'edit'])->name('settings.edit');
-        Route::patch('settings', [InventorySettingsController::class, 'update'])->name('settings.update');
+            Route::get('settings', [InventorySettingsController::class, 'edit'])->name('settings.edit');
+            Route::patch('settings', [InventorySettingsController::class, 'update'])->name('settings.update');
 
-        // Wastage
-        Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');
-        Route::get('wastage/create', [WastageController::class, 'create'])->name('wastage.create');
-        Route::post('wastage', [WastageController::class, 'store'])->name('wastage.store');
+            // Wastage
+            Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');
+            Route::get('wastage/create', [WastageController::class, 'create'])->name('wastage.create');
+            Route::post('wastage', [WastageController::class, 'store'])->name('wastage.store');
 
-        // Warehouse Sorting Checklist
-        Route::get('sorting-checklist', [WarehouseSortingController::class, 'index'])->name('sorting.checklist');
-        Route::get('sorting-checklist/shop-orders', [WarehouseSortingController::class, 'shopOrders'])->name('sorting.shop-orders');
-        Route::get('sorting-checklist/shop-sorting', [WarehouseSortingController::class, 'shopSortingIndex'])->name('sorting.shop-sorting');
-        Route::get('sorting-checklist/shop-sorting/{order:order_number}', [WarehouseSortingController::class, 'shopSortingShow'])->name('sorting.shop-sorting.show');
-        Route::patch('sorting-checklist/shops/{shop:code}/tag', [WarehouseSortingController::class, 'updateShopTag'])->name('sorting.shops.tag');
-        Route::post('sorting-checklist/toggle/{item}', [WarehouseSortingController::class, 'toggle'])->name('sorting.checklist.toggle');
-        Route::post('sorting-checklist/grn', [WarehouseSortingController::class, 'storeGrn'])->name('sorting.checklist.grn');
-        Route::post('sorting-checklist/carry-over/{batch}', [WarehouseSortingController::class, 'carryOver'])->name('sorting.checklist.carry-over');
-        Route::post('sorting-checklist/wastage/{batch}', [WarehouseSortingController::class, 'recordWastage'])->name('sorting.checklist.wastage');
-        Route::post('sorting-checklist/complete-order/{order}', [WarehouseSortingController::class, 'completeAllocation'])->name('sorting.checklist.complete-order');
-        Route::get('deliveries/dashboard', DeliveryDashboardController::class)->name('deliveries.dashboard');
-        Route::post('deliveries/dashboard/{shopOrder}/lock-invoice', [DeliveryDashboardOperationController::class, 'lockInvoice'])->name('deliveries.dashboard.lock-invoice');
-        Route::get('reports/fulfillment', FulfillmentReportController::class)->name('reports.fulfillment');
+            // Warehouse Sorting Checklist
+            Route::get('sorting-checklist', [WarehouseSortingController::class, 'index'])->name('sorting.checklist');
+            Route::get('sorting-checklist/shop-orders', [WarehouseSortingController::class, 'shopOrders'])->name('sorting.shop-orders');
+            Route::get('sorting-checklist/shop-sorting', [WarehouseSortingController::class, 'shopSortingIndex'])->name('sorting.shop-sorting');
+            Route::get('sorting-checklist/shop-sorting/{order:order_number}', [WarehouseSortingController::class, 'shopSortingShow'])->name('sorting.shop-sorting.show');
+            Route::patch('sorting-checklist/shops/{shop:code}/tag', [WarehouseSortingController::class, 'updateShopTag'])->name('sorting.shops.tag');
+            Route::post('sorting-checklist/toggle/{item}', [WarehouseSortingController::class, 'toggle'])->name('sorting.checklist.toggle');
+            Route::post('sorting-checklist/grn', [WarehouseSortingController::class, 'storeGrn'])->name('sorting.checklist.grn');
+            Route::post('sorting-checklist/carry-over/{batch}', [WarehouseSortingController::class, 'carryOver'])->name('sorting.checklist.carry-over');
+            Route::post('sorting-checklist/wastage/{batch}', [WarehouseSortingController::class, 'recordWastage'])->name('sorting.checklist.wastage');
+            Route::post('sorting-checklist/complete-order/{order}', [WarehouseSortingController::class, 'completeAllocation'])->name('sorting.checklist.complete-order');
+            Route::get('deliveries/dashboard', DeliveryDashboardController::class)->name('deliveries.dashboard');
+            Route::post('deliveries/dashboard/{shopOrder}/lock-invoice', [DeliveryDashboardOperationController::class, 'lockInvoice'])->name('deliveries.dashboard.lock-invoice');
+            Route::get('reports/fulfillment', FulfillmentReportController::class)->name('reports.fulfillment');
         });
     });
 
@@ -595,9 +595,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/loadout/order/{order}/dispatch-partial', [WarehouseReceiverController::class, 'dispatchPartialOrder'])->name('loadout.order.dispatch-partial');
         Route::post('/loadout/order/{order}/ship', [WarehouseReceiverController::class, 'shipOrder'])->name('loadout.order.ship');
         // ── Tab JSON endpoints (lazy-loaded by checklist.blade.php via fetch()) ──
-        Route::get('/tab/pending',    [WarehouseReceiverController::class, 'tabPending'])->name('tab.pending');
-        Route::get('/tab/inventory',  [WarehouseReceiverController::class, 'tabInventory'])->name('tab.inventory');
-        Route::get('/tab/loadout',    [WarehouseReceiverController::class, 'tabLoadout'])->name('tab.loadout');
+        Route::get('/tab/pending', [WarehouseReceiverController::class, 'tabPending'])->name('tab.pending');
+        Route::get('/tab/inventory', [WarehouseReceiverController::class, 'tabInventory'])->name('tab.inventory');
+        Route::get('/tab/loadout', [WarehouseReceiverController::class, 'tabLoadout'])->name('tab.loadout');
         Route::get('/tab/deliveries', [WarehouseReceiverController::class, 'tabDeliveries'])->name('tab.deliveries');
         Route::prefix('sort-sheet')->name('sort-sheet.')->middleware('can:sort.sheet.view')->group(function () {
             Route::get('/', [SortSheetController::class, 'index'])->name('index');
@@ -808,6 +808,8 @@ Route::middleware('auth')->group(function () {
             ->scoped(['user' => 'public_uuid'])
             ->where(['user' => '[0-9a-fA-F-]{36}'])
             ->middleware('can:admin.user.view');
+        Route::post('warehouses/allocate-product', [WarehouseController::class, 'allocateProduct'])->name('warehouses.allocate-product');
+        Route::post('warehouses/bulk-allocate', [WarehouseController::class, 'bulkAllocate'])->name('warehouses.bulk-allocate');
         Route::resource('warehouses', WarehouseController::class)->middleware('can:inventory.stock.adjust');
         Route::middleware('can:hr.employee.view')->group(function () {
             Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');

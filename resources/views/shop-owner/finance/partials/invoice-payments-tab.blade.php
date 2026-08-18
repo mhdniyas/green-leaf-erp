@@ -202,42 +202,55 @@
     @endunless
 
     @if ($isOwnedAccountingShop)
+        <script id="daily-payables-data" type="application/json">
+            {!! json_encode(($dailyPayableBalances instanceof \Illuminate\Contracts\Pagination\Paginator ? $dailyPayableBalances->items() : $dailyPayableBalances) ?? []) !!}
+        </script>
         <section class="overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-xs"
                  x-data="{
                     selectedDates: [],
-                    datesData: {{ json_encode(($dailyPayableBalances instanceof \Illuminate\Contracts\Pagination\Paginator ? $dailyPayableBalances->items() : $dailyPayableBalances) ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) }},
-                    paymentAmount: '{{ number_format($payableBalance > 0 ? $payableBalance : $shopBalancePayable, 2, '.', '') }}',
+                    datesData: [],
+                    paymentAmount: '{{ number_format((float) ($payableBalance > 0 ? $payableBalance : ($shopBalancePayable ?? 0)), 2, '.', '') }}',
                     paymentMethod: '{{ old('payment_method', 'cash') }}',
                     chequeNumber: '{{ old('cheque_number', '') }}',
                     chequeBank: '{{ old('cheque_bank', '') }}',
                     chequeDate: '{{ old('cheque_date', today()->toDateString()) }}',
                     upiRef: '{{ old('upi_ref', '') }}',
                     init() {
-                        this.$watch('selectedDates', () => this.recalculateTotal());
-                    },
-                    getItems() {
-                        if (Array.isArray(this.datesData)) return this.datesData;
-                        if (this.datesData && Array.isArray(this.datesData.data)) return this.datesData.data;
-                        return [];
+                        try {
+                            const raw = document.getElementById('daily-payables-data')?.textContent;
+                            this.datesData = raw ? JSON.parse(raw) : [];
+                        } catch (e) {
+                            this.datesData = [];
+                        }
+                        this.recalculateTotal();
                     },
                     recalculateTotal() {
-                        const items = this.getItems();
-                        if (this.selectedDates.length === 0) {
-                            this.paymentAmount = '{{ number_format($payableBalance > 0 ? $payableBalance : $shopBalancePayable, 2, '.', '') }}';
+                        if (!Array.isArray(this.datesData) || this.datesData.length === 0) {
                             return;
                         }
-                        const total = items
-                            .filter(d => this.selectedDates.includes(d.date))
-                            .reduce((sum, d) => sum + parseFloat(d.net_balance || 0), 0);
-                        this.paymentAmount = total >= 0 ? total.toFixed(2) : '0.00';
+                        if (this.selectedDates.length === 0) {
+                            this.paymentAmount = '{{ number_format((float) ($payableBalance > 0 ? $payableBalance : ($shopBalancePayable ?? 0)), 2, '.', '') }}';
+                            return;
+                        }
+                        const selectedSet = new Set(this.selectedDates.map(String));
+                        let sum = 0;
+                        for (const item of this.datesData) {
+                            if (selectedSet.has(String(item.date))) {
+                                const val = parseFloat(item.net_balance);
+                                if (!isNaN(val)) {
+                                    sum += val;
+                                }
+                            }
+                        }
+                        this.paymentAmount = sum.toFixed(2);
                     },
                     toggleAll(checked) {
-                        const items = this.getItems();
-                        if (checked) {
-                            this.selectedDates = items.map(d => d.date);
+                        if (checked && Array.isArray(this.datesData)) {
+                            this.selectedDates = this.datesData.map(d => d.date);
                         } else {
                             this.selectedDates = [];
                         }
+                        this.recalculateTotal();
                     },
                     get selectedTotalFormatted() {
                         const amt = parseFloat(this.paymentAmount || 0);
@@ -285,7 +298,7 @@
                             <span class="text-[9px] uppercase font-bold text-cyan-200 block">Total Selected</span>
                             <span class="text-sm sm:text-base font-black text-white font-mono" x-text="selectedTotalFormatted"></span>
                         </div>
-                        <button type="button" @click="selectedDates = []" class="rounded-lg bg-white/10 px-2 py-1 text-[10px] font-bold hover:bg-white/20 text-white transition">
+                        <button type="button" @click="selectedDates = []; recalculateTotal();" class="rounded-lg bg-white/10 px-2 py-1 text-[10px] font-bold hover:bg-white/20 text-white transition">
                             Clear
                         </button>
                     </div>
@@ -318,7 +331,7 @@
                                 @foreach ($dailyPayableBalances as $day)
                                     <tr class="hover:bg-cyan-50/30 transition-colors" :class="selectedDates.includes('{{ $day['date'] }}') ? 'bg-cyan-50/50' : ''">
                                         <td class="px-3 py-2.5 text-center">
-                                            <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                                            <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" @change="recalculateTotal()" class="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
                                         </td>
                                         <td class="px-3.5 py-2.5 font-sans font-bold text-slate-900">{{ $day['date_label'] }}</td>
                                         <td class="px-3.5 py-2.5 text-right font-semibold text-slate-900">Rs. {{ number_format($day['out_amount'], 2) }}</td>
@@ -354,7 +367,7 @@
                             <label class="flex items-center justify-between p-3 transition-colors cursor-pointer"
                                    :class="selectedDates.includes('{{ $day['date'] }}') ? 'bg-cyan-50/70' : 'bg-white'">
                                 <div class="flex items-center gap-2.5 min-w-0 pr-2">
-                                    <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 shrink-0">
+                                    <input type="checkbox" value="{{ $day['date'] }}" x-model="selectedDates" @change="recalculateTotal()" class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 shrink-0">
                                     <div class="min-w-0">
                                         <span class="font-sans text-xs font-bold text-slate-900 block truncate">{{ $day['date_label'] }}</span>
                                         <span class="text-[10px] text-slate-500 font-mono block mt-0.5">Coll: {{ number_format($day['out_amount']) }} · Recv: {{ number_format($day['in_amount']) }}</span>
@@ -401,7 +414,7 @@
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div>
                                     <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-600">Amount Paid (Rs.)</span>
-                                    <input type="number" step="0.01" min="0.01" name="amount" x-model="paymentAmount" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono font-black text-slate-900 focus:border-cyan-500 focus:outline-none">
+                                    <input type="text" inputmode="decimal" name="amount" x-model="paymentAmount" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono font-black text-slate-900 focus:border-cyan-500 focus:outline-none">
                                 </div>
                                 <div>
                                     <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-600">Payment Mode</span>
@@ -492,7 +505,7 @@
                             'admin_note' => $paymentRequest->admin_note ?: ($paymentRequest->rejection_reason ?: null),
                         ];
                     @endphp
-                    <div @click="activePaymentModal = {{ json_encode($paymentPayload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) }}"
+                    <div @click="activePaymentModal = @js($paymentPayload)"
                          class="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition-colors">
                         <div class="min-w-0 pr-2">
                             <span class="font-sans text-xs font-bold text-slate-900 block truncate">{{ $paymentPayload['title'] }}</span>
@@ -537,7 +550,7 @@
                                     'admin_note' => $paymentRequest->admin_note ?: ($paymentRequest->rejection_reason ?: null),
                                 ];
                             @endphp
-                            <tr @click="activePaymentModal = {{ json_encode($paymentPayload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) }}" class="hover:bg-slate-50 transition-colors cursor-pointer">
+                            <tr @click="activePaymentModal = @js($paymentPayload)" class="hover:bg-slate-50 transition-colors cursor-pointer">
                                 <td class="px-3.5 py-2.5 font-sans font-semibold text-slate-500">{{ $paymentPayload['date'] }}</td>
                                 <td class="px-3.5 py-2.5 font-sans font-bold text-slate-900">{{ $paymentPayload['title'] }}</td>
                                 <td class="px-3.5 py-2.5 font-sans font-medium text-slate-600">
@@ -548,7 +561,7 @@
                                 </td>
                                 <td class="px-3.5 py-2.5 text-right font-black text-slate-950">Rs. {{ $paymentPayload['amount'] }}</td>
                                 <td class="px-3.5 py-2.5 text-center font-sans">
-                                    <button type="button" @click.stop="activePaymentModal = {{ json_encode($paymentPayload, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) }}" class="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-200">
+                                    <button type="button" @click.stop="activePaymentModal = @js($paymentPayload)" class="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-200">
                                         View Details
                                     </button>
                                 </td>
