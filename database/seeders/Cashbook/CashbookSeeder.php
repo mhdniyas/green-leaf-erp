@@ -8,8 +8,8 @@ use Illuminate\Database\Seeder;
 
 /**
  * Master Cashbook Seeder.
- * Seeds entry types, company accounts, clients, config presets, and connects
- * all owned shops dynamically from Green Leaf ERP.
+ * Production-safe default: only seeds system catalog rows required by the
+ * cashbook engine. Run optional setup seeders manually for local/staging data.
  *
  * Run with: php artisan db:seed --class="Database\Seeders\Cashbook\CashbookSeeder"
  */
@@ -19,10 +19,6 @@ class CashbookSeeder extends Seeder
     {
         $this->call([
             LedgerEntryTypeSeeder::class,
-            CompanyAccountSeeder::class,
-            LedgerClientSeeder::class,
-            ShopConfigPresetSeeder::class,
-            GreenLeafOwnedShopsSeeder::class,
         ]);
     }
 }

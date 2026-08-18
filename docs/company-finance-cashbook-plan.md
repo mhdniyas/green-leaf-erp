@@ -188,3 +188,10 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 2. Add Python pypdf extraction fallback for password-protected PDFs when pdftotext is missing.
 3. Auto-detect common Python paths, including the local Codex bundled runtime path.
 4. Show a clearer import error only if both extraction methods fail.
+
+## Production Seeder Safety Plan
+1. Audit the default `DatabaseSeeder` path and list every cashbook seeder it runs.
+2. Keep only safe catalogue/permission seeders in the default production seed flow.
+3. Remove bank/company account seed data from default seeding because real balances and real bank accounts must be entered/imported by admin.
+4. Keep optional setup/demo seeders as direct manual seeders so they can be run intentionally in local or staging only.
+5. Update seeder comments so the production-safe default is clear to the next developer.
