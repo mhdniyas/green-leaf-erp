@@ -8,6 +8,8 @@ use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOwnerAssignment;
 use App\Models\User;
+use App\Services\ShopInvoices\ShopInvoiceService;
+use Illuminate\Support\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -78,5 +80,34 @@ class ShopOwnerPaymentsCompanyPayableTest extends TestCase
         $response->assertOk()
             ->assertSee('Daily Payable Balances')
             ->assertSee('Status of Last Payments');
+    }
+
+    public function test_owned_shop_can_submit_positive_payment_even_without_positive_closing_balance(): void
+    {
+        $user = User::factory()->create();
+        $user->assignRole('shop');
+        $user->givePermissionTo('sales.order.create');
+
+        $shop = Shop::factory()->create([
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        $paymentRequest = app(ShopInvoiceService::class)->requestShopBalancePayment(
+            $shop,
+            Carbon::parse('2026-08-18'),
+            0,
+            [
+                'amount' => 1500,
+                'payment_method' => 'online_upi',
+                'payment_reference' => 'UTR-FLOATING-1500',
+            ],
+            (int) $user->id,
+        );
+
+        $this->assertSame('pending', $paymentRequest->status);
+        $this->assertSame('floating', $paymentRequest->reconciliation_status);
+        $this->assertSame(1500.00, (float) $paymentRequest->requested_amount);
+        $this->assertSame(1500.00, (float) $paymentRequest->floating_amount);
     }
 }

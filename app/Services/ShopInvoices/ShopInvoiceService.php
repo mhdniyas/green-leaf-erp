@@ -460,11 +460,12 @@ class ShopInvoiceService
                 ]);
             }
 
-            $payableBalance = round(max(0, $closingBalance), 2);
+            $requestedAmount = round((float) ($payload['amount'] ?? 0), 2);
+            $payableBalance = round(max(0, $closingBalance, $requestedAmount), 2);
 
             if ($payableBalance <= 0.0) {
                 throw ValidationException::withMessages([
-                    'amount' => 'There is no positive closing balance pending for this shop.',
+                    'amount' => 'Enter an amount greater than zero to submit a payment for reconciliation.',
                 ]);
             }
 
@@ -479,7 +480,7 @@ class ShopInvoiceService
                 ]);
             }
 
-            $requestedAmount = round((float) ($payload['amount'] ?? $payableBalance), 2);
+            $requestedAmount = $requestedAmount > 0.0 ? $requestedAmount : $payableBalance;
 
             if ($requestedAmount <= 0.0) {
                 throw ValidationException::withMessages([

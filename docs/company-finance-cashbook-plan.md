@@ -82,3 +82,10 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 4. Add full Company Finance Dashboard cards.
 5. Add account ledger statement drill-down.
 6. Add selected-user finance access controls.
+
+## Bug Fix Plan: Shop Owner Payment Without Positive Closing Balance
+1. Keep the existing owned-shop payment flow.
+2. Stop blocking a shop payment only because raw closing balance is not positive.
+3. If shop owner enters a positive amount, create the payment request as floating for admin reconciliation.
+4. Keep blocking only when both calculated payable balance and entered payment amount are not positive.
+5. Cover the behavior with a focused feature test.
