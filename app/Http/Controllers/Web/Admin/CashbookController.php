@@ -3767,6 +3767,14 @@ final class CashbookController extends Controller
             }
         }
 
+        if (! filled($password)) {
+            try {
+                return $this->extractStatementTextWithPhp($path);
+            } catch (Throwable $exception) {
+                $errors[] = $exception->getMessage();
+            }
+        }
+
         $allErrors = implode(' | ', $errors);
         if (stripos($allErrors, 'password') !== false || stripos($allErrors, 'encrypted') !== false || stripos($allErrors, 'Incorrect password') !== false) {
             if (filled($password)) {
@@ -3776,7 +3784,56 @@ final class CashbookController extends Controller
             throw new \RuntimeException('This PDF statement is password-protected. Please enter the statement password and try again.');
         }
 
+        if (stripos($allErrors, 'No module named') !== false || stripos($allErrors, 'pdftotext failed or is not installed') !== false) {
+            throw new \RuntimeException('PDF tools are not installed on the server. On Linux, run: sudo apt-get install -y poppler-utils (or: pip install pypdf).');
+        }
+
         throw new \RuntimeException('PDF could not be read. Check the file or password. Last error: '.end($errors));
+    }
+
+    private function extractStatementTextWithPhp(string $path): string
+    {
+        $content = @file_get_contents($path);
+        if ($content === false || $content === '') {
+            throw new \RuntimeException('Unable to read PDF file.');
+        }
+
+        $text = '';
+        if (preg_match_all('/stream[\r\n]+(.*?)[\r\n]+endstream/s', $content, $matches)) {
+            foreach ($matches[1] as $stream) {
+                $decompressed = @gzuncompress($stream);
+                if ($decompressed === false) {
+                    $decompressed = @gzinflate($stream);
+                }
+                if ($decompressed === false) {
+                    $decompressed = $stream;
+                }
+
+                if (str_contains($decompressed, 'BT')) {
+                    if (preg_match_all('/\[(.*?)\]\s*TJ/s', $decompressed, $arrayMatches)) {
+                        foreach ($arrayMatches[1] as $arrayContent) {
+                            if (preg_match_all('/\((.*?)(?<!\\\\)\)/s', $arrayContent, $stringMatches)) {
+                                $text .= implode('', $stringMatches[1]).' ';
+                            }
+                        }
+                        $text .= "\n";
+                    }
+
+                    if (preg_match_all('/\((.*?)(?<!\\\\)\)\s*T[jJ]/s', $decompressed, $textMatches)) {
+                        $text .= implode(' ', $textMatches[1])."\n";
+                    }
+                }
+            }
+        }
+
+        $text = str_replace(['\\(', '\\)', '\\\\'], ['(', ')', '\\'], $text);
+        $cleaned = trim(preg_replace('/[ \t]+/', ' ', $text));
+
+        if ($cleaned === '') {
+            throw new \RuntimeException('PDF stream contains no readable unencrypted text.');
+        }
+
+        return $cleaned;
     }
 
     /**
