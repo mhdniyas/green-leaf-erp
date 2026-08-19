@@ -354,7 +354,8 @@ class SortSheetController extends Controller
         [$filteredShops, $matrix, $productMeta, $date] = $this->buildMatrixData($request);
 
         $filename = "sort-sheet-{$date}.xlsx";
-        $export = new SortSheetExport($matrix, $productMeta, $filteredShops, $date);
+        $filters = $this->filtersFromRequest($request);
+        $export = new SortSheetExport($matrix, $productMeta, $filteredShops, $date, $filters['showCode']);
 
         return Excel::download($export, $filename);
     }
@@ -769,6 +770,7 @@ class SortSheetController extends Controller
             'warehouseId' => $request->integer('warehouse_id') ?: null,
             'separateCategoryPages' => (bool) $request->boolean('separate_category_pages', false),
             'codeSort' => ! $request->has('code_sort') || (bool) $request->boolean('code_sort'),
+            'showCode' => ! $request->has('show_code') || (bool) $request->boolean('show_code'),
             'showCategoryTitles' => $request->has('show_category_titles')
                 ? (bool) $request->boolean('show_category_titles')
                 : (! $request->routeIs('*.grid*') && count($categoryIds) <= 1),

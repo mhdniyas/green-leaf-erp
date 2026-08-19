@@ -30,13 +30,14 @@ class SortSheetExport implements WithMultipleSheets
         private readonly array $productMeta,
         private readonly Collection $shops,
         private readonly string $date,
+        private readonly bool $showCode = true,
     ) {}
 
     /** @return array<int, SortSheetMainSheet> */
     public function sheets(): array
     {
         return [
-            new SortSheetMainSheet($this->matrix, $this->productMeta, $this->shops, $this->date),
+            new SortSheetMainSheet($this->matrix, $this->productMeta, $this->shops, $this->date, $this->showCode),
         ];
     }
 }
@@ -50,6 +51,7 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
         private readonly array $productMeta,
         private readonly Collection $shops,
         private readonly string $date,
+        private readonly bool $showCode = true,
     ) {}
 
     public function title(): string
@@ -87,14 +89,10 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
         $shopCount = $shops->count();
 
         // ── Column index mapping ──────────────────────────────────────────────
-        // Col A  = SL
-        // Col B  = Item
-        // Col C..C+shopCount-1 = shop quantities
-        // Col C+shopCount = Total
-        // Col C+shopCount+1 = Unit
-        $slCol = 1;  // A
-        $itemCol = 2;  // B
-        $firstShopCol = 3;  // C
+        // Col A = Code when visible, otherwise Item starts at A.
+        $codeCol = $this->showCode ? 1 : null;
+        $itemCol = $this->showCode ? 2 : 1;
+        $firstShopCol = $itemCol + 1;
         $totalCol = $firstShopCol + $shopCount;       // after all shops
         $unitCol = $totalCol + 1;
 
@@ -114,8 +112,10 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
 
         // ── Row 2: Header ─────────────────────────────────────────────────────
         $headerRow = 2;
-        $sheet->setCellValue('A2', 'Code');
-        $sheet->setCellValue('B2', 'Item');
+        if ($codeCol !== null) {
+            $sheet->setCellValueByColumnAndRow($codeCol, $headerRow, 'Code');
+        }
+        $sheet->setCellValueByColumnAndRow($itemCol, $headerRow, 'Item');
 
         foreach ($shops as $idx => $shop) {
             $col = $firstShopCol + $idx;
@@ -143,18 +143,21 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
             $tagRow = $currentRow + 1;
 
             // --- Quantity Row ---
-            // Code (merged over 2 rows)
-            $sheet->mergeCells("A{$qtyRow}:A{$tagRow}");
-            $sheet->setCellValue("A{$qtyRow}", $meta['sku']);
-            $sheet->getStyle("A{$qtyRow}:A{$tagRow}")->applyFromArray([
-                'font' => ['bold' => true, 'size' => 9],
-                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
-            ]);
+            if ($codeCol !== null) {
+                $codeColLetter = Coordinate::stringFromColumnIndex($codeCol);
+                $sheet->mergeCells("{$codeColLetter}{$qtyRow}:{$codeColLetter}{$tagRow}");
+                $sheet->setCellValueByColumnAndRow($codeCol, $qtyRow, $meta['sku']);
+                $sheet->getStyle("{$codeColLetter}{$qtyRow}:{$codeColLetter}{$tagRow}")->applyFromArray([
+                    'font' => ['bold' => true, 'size' => 9],
+                    'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+                ]);
+            }
 
             // Item (merged over 2 rows)
-            $sheet->mergeCells("B{$qtyRow}:B{$tagRow}");
-            $sheet->setCellValue("B{$qtyRow}", $meta['name']);
-            $sheet->getStyle("B{$qtyRow}:B{$tagRow}")->applyFromArray([
+            $itemColLetter = Coordinate::stringFromColumnIndex($itemCol);
+            $sheet->mergeCells("{$itemColLetter}{$qtyRow}:{$itemColLetter}{$tagRow}");
+            $sheet->setCellValueByColumnAndRow($itemCol, $qtyRow, $meta['name']);
+            $sheet->getStyle("{$itemColLetter}{$qtyRow}:{$itemColLetter}{$tagRow}")->applyFromArray([
                 'font' => ['bold' => false, 'size' => 10],
                 'alignment' => ['horizontal' => Alignment::HORIZONTAL_LEFT, 'vertical' => Alignment::VERTICAL_CENTER],
             ]);
@@ -236,8 +239,10 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
 
         // ── Grand totals row ─────────────────────────────────────────────────
         $grandRow = $currentRow;
-        $sheet->mergeCells("A{$grandRow}:B{$grandRow}");
-        $sheet->setCellValue("A{$grandRow}", 'Grand Total ('.count($this->matrix).' items)');
+        if ($this->showCode) {
+            $sheet->mergeCells("A{$grandRow}:B{$grandRow}");
+        }
+        $sheet->setCellValue('A'.$grandRow, 'Grand Total ('.count($this->matrix).' items)');
 
         $grandTotal = 0.0;
         foreach ($shops as $idx => $shop) {
@@ -260,8 +265,12 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
         $sheet->getRowDimension($grandRow)->setRowHeight(22);
 
         // ── Column widths ─────────────────────────────────────────────────────
-        $sheet->getColumnDimension('A')->setWidth(6);   // SL
-        $sheet->getColumnDimension('B')->setWidth(22);  // Item
+        if ($this->showCode) {
+            $sheet->getColumnDimension('A')->setWidth(6);
+            $sheet->getColumnDimension('B')->setWidth(22);
+        } else {
+            $sheet->getColumnDimension('A')->setWidth(22);
+        }
 
         foreach ($shops as $idx => $shop) {
             $colLetter = Coordinate::stringFromColumnIndex($firstShopCol + $idx);
@@ -271,7 +280,7 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
         $sheet->getColumnDimension($unitColLetter)->setWidth(6);   // Unit
 
         // ── Freeze SL + Item columns, keep header visible ─────────────────────
-        $sheet->freezePane('C3');
+        $sheet->freezePane($this->showCode ? 'C3' : 'B3');
 
         // ── Print settings ───────────────────────────────────────────────────
         $sheet->getPageSetup()->setOrientation(PageSetup::ORIENTATION_LANDSCAPE);

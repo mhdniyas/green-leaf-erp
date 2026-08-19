@@ -195,3 +195,17 @@ These make reconciliation usable immediately. Later, admin can choose a differen
 3. Remove bank/company account seed data from default seeding because real balances and real bank accounts must be entered/imported by admin.
 4. Keep optional setup/demo seeders as direct manual seeders so they can be run intentionally in local or staging only.
 5. Update seeder comments so the production-safe default is clear to the next developer.
+
+## Purchaser Bulk Qty Double Fix Plan
+1. Keep the purchaser bill and bulk purchase flow unchanged for normal use.
+2. Add a one-time submission key to the bulk purchase details form so browser resubmits do not add the same quantities again.
+3. Disable the bulk add button immediately after a valid submit to stop mobile double taps.
+4. Filter approved demand by purchase grade when building the purchaser daily summary.
+5. Leave purchase document creation unchanged because it already uses the saved cart quantities directly.
+
+## Sort Sheet Excel Code Visibility Plan
+1. Keep product code visible by default in admin sort sheet and Excel export.
+2. Add a Show Code / Hide Code radio option to the sort sheet filter form.
+3. Preserve the selected code visibility when generating, exporting Excel/PDF, and using print links.
+4. Update the Excel export so hiding code removes the Code column and shifts the item/shop columns cleanly.
+5. Leave code sorting unchanged unless admin separately changes the existing Code Sort option.

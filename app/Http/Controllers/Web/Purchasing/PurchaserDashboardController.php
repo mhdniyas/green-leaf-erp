@@ -1508,6 +1508,7 @@ class PurchaserDashboardController extends Controller
             'product_ids.*' => ['required', 'exists:products,id'],
             'cart_id' => ['nullable', 'integer'],
             'purchase_grade' => ['sometimes', 'string', 'in:A,B'],
+            'submission_key' => ['nullable', 'string', 'max:80'],
             'items' => ['required', 'array'],
             'items.*.quantity' => ['required', 'numeric', 'min:0'],
             'items.*.unit_price' => ['nullable', 'numeric'],
@@ -1538,6 +1539,16 @@ class PurchaserDashboardController extends Controller
         $destinationShopId = null;
         $user = $request->user();
         $cartId = filled($validated['cart_id'] ?? null) ? (int) $validated['cart_id'] : null;
+        $submissionKey = trim((string) ($validated['submission_key'] ?? ''));
+        $sessionSubmissionKey = $submissionKey !== ''
+            ? 'purchaser.bulk_store.processed.'.$user->id.'.'.$submissionKey
+            : '';
+
+        if ($sessionSubmissionKey !== '' && $request->session()->has($sessionSubmissionKey)) {
+            return redirect()
+                ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
+                ->with('success', 'This bulk purchase was already added to cart.');
+        }
 
         $cart = $cartId
             ? PurchaserCart::query()
@@ -1622,6 +1633,10 @@ class PurchaserDashboardController extends Controller
         }
 
         $productLabel = $addedCount === 1 ? 'product' : 'products';
+
+        if ($sessionSubmissionKey !== '') {
+            $request->session()->put($sessionSubmissionKey, true);
+        }
 
         return redirect()
             ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
@@ -2810,6 +2825,7 @@ class PurchaserDashboardController extends Controller
         $dateString = $date->toDateString();
 
         $approvedItems = ShopOrderItem::query()
+            ->where('product_grade', $purchaseGrade)
             ->whereHas('order', function ($query) use ($dateString): void {
                 $query->where('business_date', $dateString)->where('state', 'approved');
             })

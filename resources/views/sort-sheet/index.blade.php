@@ -74,6 +74,7 @@
         $currentPriceGroup = $filters['priceGroupId'] ?? '';
         $currentWarehouse = $filters['warehouseId'] ?? '';
         $currentCodeSort = ! array_key_exists('codeSort', $filters) || (bool) $filters['codeSort'];
+        $currentShowCode = ! array_key_exists('showCode', $filters) || (bool) $filters['showCode'];
         $currentShowCategoryTitles = array_key_exists('showCategoryTitles', $filters)
             ? (bool) $filters['showCategoryTitles']
             : ($surface !== 'grid');
@@ -85,6 +86,7 @@
             'separate_category_pages' => ! empty($filters['separateCategoryPages']) ? 1 : null,
         ]);
         $filterParams['code_sort'] = $currentCodeSort ? 1 : 0;
+        $filterParams['show_code'] = $currentShowCode ? 1 : 0;
         $filterParams['show_category_titles'] = $currentShowCategoryTitles ? 1 : 0;
         if (! empty($currentCategoryIds)) {
             $filterParams['category_ids'] = $currentCategoryIds;
@@ -481,6 +483,21 @@
                     </div>
 
                     <div class="flex items-center gap-3 shrink-0">
+                        <div class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 hover:bg-white">
+                                <input type="radio" name="show_code" value="1"
+                                       {{ $currentShowCode ? 'checked' : '' }}
+                                       class="border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                                <span>Show Code</span>
+                            </label>
+                            <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 hover:bg-white">
+                                <input type="radio" name="show_code" value="0"
+                                       {{ ! $currentShowCode ? 'checked' : '' }}
+                                       class="border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                                <span>Hide Code</span>
+                            </label>
+                        </div>
+
                         <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl hover:bg-slate-100 transition">
                             <input type="hidden" name="code_sort" value="0">
                             <input type="checkbox" name="code_sort" value="1"

@@ -24,6 +24,7 @@
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
             <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
+            <input type="hidden" name="submission_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
 
             {{-- Cart selector card --}}
             <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
@@ -745,7 +746,14 @@
             calculateGrandTotal();
             updateBulkPriceHints(document.querySelector('.custom-select-input')?.value || '');
 
+            let isBulkSubmitting = false;
             document.getElementById('bulk-buy-details-form')?.addEventListener('submit', (event) => {
+                if (isBulkSubmitting) {
+                    event.preventDefault();
+
+                    return;
+                }
+
                 calculateGrandTotal();
                 const selectedRows = Array.from(document.querySelectorAll('.product-row'))
                     .filter(row => Number(row.dataset.draftQty || 0) > 0);
@@ -780,6 +788,13 @@
 
                         return;
                     }
+                }
+
+                isBulkSubmitting = true;
+                const submitButton = document.getElementById('add-selected-button');
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.textContent = 'Adding...';
                 }
             });
         });
