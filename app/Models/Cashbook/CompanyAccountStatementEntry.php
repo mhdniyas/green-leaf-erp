@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Cashbook;
 
+use App\Models\JournalEntry;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,7 @@ class CompanyAccountStatementEntry extends Model
 
     protected $fillable = [
         'company_account_id',
+        'journal_entry_id',
         'transaction_date',
         'value_date',
         'direction',
@@ -24,6 +26,8 @@ class CompanyAccountStatementEntry extends Model
         'narration',
         'source',
         'status',
+        'is_finalized',
+        'finalized_at',
         'matched_amount',
         'statement_batch',
         'import_fingerprint',
@@ -44,8 +48,15 @@ class CompanyAccountStatementEntry extends Model
             'value_date' => 'date',
             'amount' => 'decimal:2',
             'matched_amount' => 'decimal:2',
+            'is_finalized' => 'boolean',
+            'finalized_at' => 'datetime',
             'reconciled_at' => 'datetime',
         ];
+    }
+
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'journal_entry_id');
     }
 
     public function companyAccount(): BelongsTo

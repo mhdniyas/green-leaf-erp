@@ -1108,6 +1108,7 @@ final class CashbookController extends Controller
         $statementEntry = $this->resolveSecureStatementEntry($statementRef);
         $validated = $request->validate([
             'payment_request_ref' => ['required', 'string'],
+            'journal_entry_id' => ['nullable', 'integer', 'exists:journal_entries,id'],
             'statement_amount' => ['nullable', 'numeric', 'min:0'],
             'cleared_amount' => ['required', 'numeric', 'min:0.01'],
             'difference_amount' => ['nullable', 'numeric', 'min:0'],
@@ -1125,6 +1126,7 @@ final class CashbookController extends Controller
             [
                 'company_account_id' => $statementEntry->company_account_id,
                 'statement_entry_id' => $statementEntry->id,
+                'journal_entry_id' => $validated['journal_entry_id'] ?? null,
                 'statement_amount' => (float) ($validated['statement_amount'] ?? $remainingStatementAmount),
                 'cleared_amount' => $validated['cleared_amount'],
                 'difference_amount' => $validated['difference_amount'] ?? 0,

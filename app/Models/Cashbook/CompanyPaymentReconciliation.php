@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Cashbook;
 
+use App\Models\JournalEntry;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
@@ -19,6 +20,7 @@ class CompanyPaymentReconciliation extends Model
         'shop_id',
         'company_account_id',
         'statement_entry_id',
+        'journal_entry_id',
         'statement_amount',
         'cleared_amount',
         'difference_amount',
@@ -26,6 +28,8 @@ class CompanyPaymentReconciliation extends Model
         'difference_entry_type_id',
         'difference_transaction_id',
         'status',
+        'is_finalized',
+        'finalized_at',
         'admin_note',
         'reconciled_by',
         'reconciled_at',
@@ -37,8 +41,15 @@ class CompanyPaymentReconciliation extends Model
             'statement_amount' => 'decimal:2',
             'cleared_amount' => 'decimal:2',
             'difference_amount' => 'decimal:2',
+            'is_finalized' => 'boolean',
+            'finalized_at' => 'datetime',
             'reconciled_at' => 'datetime',
         ];
+    }
+
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'journal_entry_id');
     }
 
     public function paymentRequest(): BelongsTo

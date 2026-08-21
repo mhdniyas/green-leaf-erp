@@ -10,6 +10,7 @@ use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\JournalEntry;
 use App\Models\ShopInvoicePaymentRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -134,6 +135,14 @@ class CompanyPaymentReconciliationService
                 $statementEntry = $this->createAutoStatementEntry($paymentRequest, $account, $input, $statementAmount, $userId);
             }
 
+            // Strict JournalEntry resolution & accounting validation
+            $journalEntry = $this->validateAndResolveJournalEntry(
+                isset($input['journal_entry_id']) ? (int) $input['journal_entry_id'] : null,
+                $paymentRequest,
+                $statementEntry,
+                $clearedAmount,
+            );
+
             $differenceTransaction = null;
             if (in_array($differenceAction, ['shop_expense', 'shop_income'], true) && $differenceAmount > 0.0) {
                 $differenceTransaction = $this->recordDifferenceAdjustment(
@@ -145,11 +154,14 @@ class CompanyPaymentReconciliationService
                 );
             }
 
+            $isFullyCleared = round((float) $paymentRequest->requested_amount - ($paymentRequest->reconciled_amount + $clearedAmount), 2) <= 0.0;
+
             $reconciliation = CompanyPaymentReconciliation::query()->create([
                 'payment_request_id' => $paymentRequest->id,
                 'shop_id' => $paymentRequest->shop_id,
                 'company_account_id' => $account->id,
                 'statement_entry_id' => $statementEntry->id,
+                'journal_entry_id' => $journalEntry?->id,
                 'statement_amount' => $statementAmount,
                 'cleared_amount' => $clearedAmount,
                 'difference_amount' => $differenceAmount,
@@ -157,6 +169,8 @@ class CompanyPaymentReconciliationService
                 'difference_entry_type_id' => $input['difference_entry_type_id'] ?? null,
                 'difference_transaction_id' => $differenceTransaction?->id,
                 'status' => 'approved',
+                'is_finalized' => $isFullyCleared,
+                'finalized_at' => $isFullyCleared ? now() : null,
                 'admin_note' => filled($input['admin_note'] ?? null) ? trim((string) $input['admin_note']) : null,
                 'reconciled_by' => $userId,
                 'reconciled_at' => now(),
@@ -165,9 +179,12 @@ class CompanyPaymentReconciliationService
             $statementEntry->increment('matched_amount', $statementAmount);
             $statementEntry->refresh();
             $statementEntry->update([
+                'journal_entry_id' => $journalEntry?->id,
                 'status' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount
                     ? 'reconciled'
                     : 'partially_matched',
+                'is_finalized' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount,
+                'finalized_at' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount ? now() : null,
                 'reconciled_by' => $userId,
                 'reconciled_at' => now(),
             ]);
@@ -179,10 +196,88 @@ class CompanyPaymentReconciliationService
                 'shop',
                 'companyAccount',
                 'statementEntry',
+                'journalEntry',
                 'differenceTransaction.entryType',
                 'reconciledBy',
             ]);
         });
+    }
+
+    private function validateAndResolveJournalEntry(
+        ?int $journalEntryId,
+        ShopInvoicePaymentRequest $paymentRequest,
+        CompanyAccountStatementEntry $statementEntry,
+        float $clearedAmount
+    ): ?JournalEntry {
+        $journalEntry = null;
+
+        if ($journalEntryId !== null && $journalEntryId > 0) {
+            $journalEntry = JournalEntry::query()->with('transactions.account')->find($journalEntryId);
+            if (! $journalEntry) {
+                throw ValidationException::withMessages([
+                    'journal_entry_id' => 'Selected Journal Entry does not exist.',
+                ]);
+            }
+        } else {
+            $journalEntry = JournalEntry::query()
+                ->with('transactions.account')
+                ->where('source_type', ShopInvoicePaymentRequest::class)
+                ->where('source_id', $paymentRequest->id)
+                ->first();
+        }
+
+        if (! $journalEntry instanceof JournalEntry) {
+            return null;
+        }
+
+        // 1. Balance check
+        $debits = round((float) $journalEntry->transactions->where('type', 'debit')->sum('amount'), 2);
+        $credits = round((float) $journalEntry->transactions->where('type', 'credit')->sum('amount'), 2);
+        if (abs($debits - $credits) > 0.01) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} is unbalanced (Debits: ₹{$debits}, Credits: ₹{$credits}).",
+            ]);
+        }
+
+        // 2. Conflict check: make sure this journal_entry_id is not already linked to another finalized statement entry
+        $conflict = CompanyAccountStatementEntry::query()
+            ->where('journal_entry_id', $journalEntry->id)
+            ->where('is_finalized', true)
+            ->where('id', '!=', $statementEntry->id)
+            ->exists();
+
+        if ($conflict) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} is already linked to another finalized statement entry.",
+            ]);
+        }
+
+        // 3. Direction check
+        $direction = $statementEntry->direction; // 'in' or 'out'
+        $matchingTxn = $journalEntry->transactions->first(function ($txn) use ($direction): bool {
+            $code = $txn->account?->code ?? '';
+            if ($direction === 'in') {
+                return $txn->type === 'debit' && in_array($code, ['1010', '1020'], true);
+            } else {
+                return $txn->type === 'credit' && in_array($code, ['1010', '1020'], true);
+            }
+        });
+
+        if (! $matchingTxn) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} does not contain a matching ".($direction === 'in' ? 'Debit' : 'Credit').' Bank/Cash line.',
+            ]);
+        }
+
+        // 4. Amount validation check
+        $txnAmount = round((float) $matchingTxn->amount, 2);
+        if (abs($txnAmount - $clearedAmount) > 0.01 && abs($debits - $clearedAmount) > 0.01) {
+            throw ValidationException::withMessages([
+                'cleared_amount' => "Cleared amount (₹{$clearedAmount}) does not match JournalEntry #{$journalEntry->id} amount (₹{$txnAmount}).",
+            ]);
+        }
+
+        return $journalEntry;
     }
 
     private function createAutoStatementEntry(
