@@ -64,7 +64,6 @@ class DashboardController extends Controller
             return redirect()->route('purchasing.dashboard');
         }
 
-
         if ($user->hasAnyPermission(['inventory.product.view', 'inventory.stock.view', 'inventory.sorting.view', 'inventory.wastage.view'])) {
             return redirect()->route('inventory.dashboard');
         }

@@ -17,13 +17,14 @@ use App\Http\Requests\Web\Admin\StoreShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\UpdateDailyBillPaymentRequest;
 use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\UpdateShopPettyCashSettingsRequest;
-use App\Models\CompanyAccountingEntry;
-use App\Models\Client;
 use App\Models\BusinessSetting;
+use App\Models\Client;
+use App\Models\CompanyAccountingEntry;
 use App\Models\OtherExpense;
 use App\Models\ProcurementExpense;
-use App\Models\PurchaserCredit;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCart;
+use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
@@ -34,18 +35,18 @@ use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopStaffPayment;
 use App\Models\User;
+use App\Services\Admin\UserImpersonationService;
 use App\Services\Finance\AdminFinancePillarService;
 use App\Services\Finance\CompanyMainAccountService;
 use App\Services\Finance\CompanySummaryReportService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
-use App\Services\Admin\UserImpersonationService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\AccountingAccess;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -1571,7 +1572,7 @@ class AdminAccountingController extends Controller
 
         $allCompanyBillTransactions = (clone $companyBillQuery)
             ->orderByDesc(
-                \App\Models\PurchaserCart::query()
+                PurchaserCart::query()
                     ->select('business_date')
                     ->whereColumn('purchaser_carts.id', 'purchase_invoices.purchaser_cart_id')
                     ->limit(1)

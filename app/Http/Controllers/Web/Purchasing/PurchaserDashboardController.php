@@ -143,6 +143,7 @@ class PurchaserDashboardController extends Controller
             ->get(['id', 'name']);
 
         $products = Product::query()
+            ->select(['id', 'category_id', 'name', 'sku', 'unit', 'is_active', 'image'])
             ->where('show_in_purchaser_order', true)
             ->with(['category:id,name', 'orderUnits'])
             ->when($assignedCategoryIds !== null, fn ($query) => $query->whereIn('category_id', $assignedCategoryIds))
@@ -672,11 +673,18 @@ class PurchaserDashboardController extends Controller
             ->where('purchase_grade', $purchaseGrade)
             ->values();
 
+        $uniqueSupplierIds = $draftCarts->pluck('supplier_id')->unique()->all();
+        $pricesBySupplier = [];
+        $selectedProductIds = $selectedSummary->pluck('product_id')->all();
+        foreach ($uniqueSupplierIds as $supId) {
+            $pricesBySupplier[$supId] = $this->vendorPriceService->previousPricesForSupplier(
+                $supId,
+                $selectedProductIds,
+            );
+        }
+
         $bulkPriceHintsByCart = $draftCarts->mapWithKeys(fn (PurchaserCart $cart): array => [
-            $cart->id => $this->vendorPriceService->previousPricesForSupplier(
-                $cart->supplier_id,
-                $selectedSummary->pluck('product_id')->all(),
-            ),
+            $cart->id => $pricesBySupplier[$cart->supplier_id] ?? [],
         ])->all();
 
         return view('purchasing.purchaser.bulk_buy_details', [
@@ -1212,9 +1220,9 @@ class PurchaserDashboardController extends Controller
             ->whereDate('business_date', $date)
             ->where('status', 'draft')
             ->whereNotNull('supplier_id')
+            ->whereHas('items')
             ->with('supplier')
-            ->get()
-            ->filter(fn (PurchaserCart $cart): bool => $cart->items()->exists());
+            ->get();
 
         $overdueCarts = $this->overdueCartsForUser($userId)->loadMissing(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived']);
         $overdueBatchState = $this->relatedBatchStateForCarts($overdueCarts);

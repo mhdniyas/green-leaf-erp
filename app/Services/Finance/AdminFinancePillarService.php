@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Models\CompanyAccountingEntry;
 use App\Models\JournalEntry;
 use App\Models\JournalTransaction;
-use App\Models\CompanyAccountingEntry;
 use App\Models\PayrollPayment;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;

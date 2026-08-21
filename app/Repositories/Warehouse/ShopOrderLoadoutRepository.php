@@ -17,7 +17,7 @@ class ShopOrderLoadoutRepository extends BaseRepository
     }
 
     /**
-     * @param array<int, int>|null $categoryIds
+     * @param  array<int, int>|null  $categoryIds
      * @return Collection<int, ShopOrder>
      */
     public function loadoutOrders(
@@ -62,7 +62,7 @@ class ShopOrderLoadoutRepository extends BaseRepository
     }
 
     /**
-     * @param array<int, int>|null $categoryIds
+     * @param  array<int, int>|null  $categoryIds
      */
     private function baseLoadoutQuery(
         ?string $date,

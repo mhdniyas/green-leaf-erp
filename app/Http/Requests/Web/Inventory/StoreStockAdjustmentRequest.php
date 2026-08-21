@@ -8,7 +8,10 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StoreStockAdjustmentRequest extends FormRequest
 {
-    public function authorize(): bool { return $this->user()?->can('inventory.stock.adjust') ?? false; }
+    public function authorize(): bool
+    {
+        return $this->user()?->can('inventory.stock.adjust') ?? false;
+    }
 
     public function rules(): array
     {

@@ -15,8 +15,8 @@ class GreenLeafOwnedShopsSeeder extends Seeder
     public function run(): void
     {
         $syncService = app(CashbookShopSyncService::class);
-        $profiles    = $syncService->syncAndGetProfiles();
+        $profiles = $syncService->syncAndGetProfiles();
 
-        $this->command->info('Connected ' . $profiles->count() . ' client-owned & direct shops from Green Leaf ERP into Cashbook.');
+        $this->command->info('Connected '.$profiles->count().' client-owned & direct shops from Green Leaf ERP into Cashbook.');
     }
 }

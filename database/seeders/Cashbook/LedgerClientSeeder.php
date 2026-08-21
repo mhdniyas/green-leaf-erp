@@ -15,12 +15,12 @@ class LedgerClientSeeder extends Seeder
         LedgerClient::updateOrCreate(
             ['slug' => 'aiswarya-veg'],
             [
-                'name'          => 'Aiswarya Veg',
-                'contact_name'  => 'Aiswarya',
+                'name' => 'Aiswarya Veg',
+                'contact_name' => 'Aiswarya',
                 'contact_phone' => null,
-                'gstin'         => null,
-                'address'       => 'Bengaluru, Karnataka',
-                'enabled'       => true,
+                'gstin' => null,
+                'address' => 'Bengaluru, Karnataka',
+                'enabled' => true,
             ]
         );
     }

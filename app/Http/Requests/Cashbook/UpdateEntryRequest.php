@@ -12,6 +12,7 @@ class UpdateEntryRequest extends FormRequest
     public function authorize(): bool
     {
         $user = $this->user();
+
         return $user instanceof User && $user->isMainAdmin();
     }
 
@@ -19,7 +20,7 @@ class UpdateEntryRequest extends FormRequest
     {
         return [
             'transaction_id' => 'required|integer|exists:shop_ledger_transactions,id',
-            'amount'         => 'required|numeric|min:0.01',
+            'amount' => 'required|numeric|min:0.01',
         ];
     }
 }

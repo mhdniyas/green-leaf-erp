@@ -15,11 +15,17 @@ use Spatie\Activitylog\Models\Activity;
 class UserImpersonationService
 {
     private const SESSION_ADMIN_ID = 'admin_impersonator_id';
+
     private const SESSION_ACTIVITY_ID = 'admin_impersonation_activity_id';
+
     private const SESSION_RETURN_URL = 'admin_impersonation_return_url';
+
     private const SESSION_STARTED_AT = 'admin_impersonation_started_at';
+
     private const SESSION_TARGET_ID = 'admin_impersonation_target_user_id';
+
     private const SESSION_TARGET_NAME = 'admin_impersonation_target_user_name';
+
     private const SESSION_TOKEN = 'admin_impersonation_token';
 
     public function start(Request $request, User $admin, User $target, ?string $returnUrl = null): void

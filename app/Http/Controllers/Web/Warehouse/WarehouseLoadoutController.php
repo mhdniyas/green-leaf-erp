@@ -15,11 +15,11 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Repositories\Warehouse\ShopOrderLoadoutRepository;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
-use App\Repositories\Warehouse\ShopOrderLoadoutRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -101,41 +101,41 @@ class WarehouseLoadoutController extends Controller
                 );
 
                 return $groups->map(function ($items) use ($availableByProduct) {
-                $productId = $items->first()->product_id;
-                $totalApproved = $this->loadoutApprovedQuantity($items);
-                $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
-                $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
-                $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
-                $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
-                $available = round((float) ($availableByProduct[$productId] ?? 0.0) + $totalLoaded, 3);
+                    $productId = $items->first()->product_id;
+                    $totalApproved = $this->loadoutApprovedQuantity($items);
+                    $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
+                    $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
+                    $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
+                    $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
+                    $available = round((float) ($availableByProduct[$productId] ?? 0.0) + $totalLoaded, 3);
 
-                $firstItem = $items->first();
-                $productBaseUnit = strtolower((string) ($firstItem->product->unit ?? 'kg'));
-                $requestedUnit = strtolower((string) ($firstItem->requested_unit ?? ''));
-                $hasSecondaryUnit = $requestedUnit !== '' && $requestedUnit !== $productBaseUnit;
-                $measurementCount = (int) ($firstItem->product?->orderUnits?->count() ?? 0);
+                    $firstItem = $items->first();
+                    $productBaseUnit = strtolower((string) ($firstItem->product->unit ?? 'kg'));
+                    $requestedUnit = strtolower((string) ($firstItem->requested_unit ?? ''));
+                    $hasSecondaryUnit = $requestedUnit !== '' && $requestedUnit !== $productBaseUnit;
+                    $measurementCount = (int) ($firstItem->product?->orderUnits?->count() ?? 0);
 
-                return [
-                    'product_id' => $productId,
-                    'product' => $firstItem->product,
-                    'unit' => $firstItem->product->unit ?? 'KG',
-                    'product_grade' => $firstItem->product_grade ?? 'A',
-                    'total_approved' => $totalApproved,
-                    'total_loaded' => $totalLoaded,
-                    'loaded_order_unit_qty' => $totalLoadedOrderUnit,
-                    'has_secondary_unit' => $hasSecondaryUnit,
-                    'measurement_count' => $measurementCount,
-                    'use_dual_measurement_inputs' => $hasSecondaryUnit && $measurementCount > 1,
-                    'requested_unit_total' => $totalRequestedOrderUnit,
-                    'requested_unit_quantity' => (float) ($firstItem->requested_unit_quantity ?? 1.0),
-                    'requested_unit_label' => $firstItem->requested_unit_label ?? strtoupper($firstItem->requested_unit ?? ''),
-                    'requested_unit_conversion_to_base' => (float) ($firstItem->requested_unit_conversion_to_base ?? 1.0),
-                    'total_balance' => $totalBalance,
-                    'available_stock' => $available,
-                    'is_fully_loaded' => $totalLoaded > 0.0 && $totalBalance <= 0.001,
-                    'is_partially_loaded' => $totalLoaded > 0.0 && $totalBalance > 0.001,
-                    'items' => $items,
-                ];
+                    return [
+                        'product_id' => $productId,
+                        'product' => $firstItem->product,
+                        'unit' => $firstItem->product->unit ?? 'KG',
+                        'product_grade' => $firstItem->product_grade ?? 'A',
+                        'total_approved' => $totalApproved,
+                        'total_loaded' => $totalLoaded,
+                        'loaded_order_unit_qty' => $totalLoadedOrderUnit,
+                        'has_secondary_unit' => $hasSecondaryUnit,
+                        'measurement_count' => $measurementCount,
+                        'use_dual_measurement_inputs' => $hasSecondaryUnit && $measurementCount > 1,
+                        'requested_unit_total' => $totalRequestedOrderUnit,
+                        'requested_unit_quantity' => (float) ($firstItem->requested_unit_quantity ?? 1.0),
+                        'requested_unit_label' => $firstItem->requested_unit_label ?? strtoupper($firstItem->requested_unit ?? ''),
+                        'requested_unit_conversion_to_base' => (float) ($firstItem->requested_unit_conversion_to_base ?? 1.0),
+                        'total_balance' => $totalBalance,
+                        'available_stock' => $available,
+                        'is_fully_loaded' => $totalLoaded > 0.0 && $totalBalance <= 0.001,
+                        'is_partially_loaded' => $totalLoaded > 0.0 && $totalBalance > 0.001,
+                        'items' => $items,
+                    ];
                 });
             })
             ->sortBy(fn (array $group) => Product::sortableSku((string) ($group['product']?->sku ?? '')))

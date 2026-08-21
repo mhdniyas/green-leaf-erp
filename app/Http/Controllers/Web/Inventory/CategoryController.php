@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Inventory\StoreCategoryRequest;
 use App\Http\Requests\Web\Inventory\UpdateCategoryRequest;
 use App\Models\Category;
+use App\Models\Product;
 use App\Services\Inventory\CategoryService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -69,7 +70,7 @@ class CategoryController extends Controller
 
         $query = Category::query();
 
-        if (!empty($categoryIds)) {
+        if (! empty($categoryIds)) {
             $query->whereIn('id', $categoryIds);
         } else {
             if ($search) {
@@ -141,7 +142,7 @@ class CategoryController extends Controller
     {
         abort_unless($request->user()?->can('inventory.category.update'), 403);
 
-        $products = \App\Models\Product::query()->orderBy('name')->get();
+        $products = Product::query()->orderBy('name')->get();
 
         return view('inventory.categories.products', compact('category', 'products'));
     }
@@ -151,13 +152,13 @@ class CategoryController extends Controller
         abort_unless($request->user()?->can('inventory.category.update'), 403);
 
         $productIds = $request->input('product_ids', []);
-        if (!is_array($productIds)) {
+        if (! is_array($productIds)) {
             $productIds = [];
         }
         $productIds = array_map('intval', $productIds);
 
-        if (!empty($productIds)) {
-            \App\Models\Product::query()
+        if (! empty($productIds)) {
+            Product::query()
                 ->whereIn('id', $productIds)
                 ->update(['category_id' => $category->id]);
         }

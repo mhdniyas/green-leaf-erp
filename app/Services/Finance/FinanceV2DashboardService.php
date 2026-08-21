@@ -11,7 +11,6 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaseInvoicePayment;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntryLine;
-use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopLoanEntry;
@@ -20,6 +19,7 @@ use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 class FinanceV2DashboardService
 {
@@ -196,7 +196,7 @@ class FinanceV2DashboardService
         $companyPayablePendingCount = 0;
         $companyPayables = [];
 
-        if (\Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+        if (Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
             $payableLines = app(CompanyPayableService::class)->openPayables($shop);
             $companyPayablePendingCount = $payableLines->where('company_payable_status', ShopAccountingEntryLine::PayablePending)->count();
             $companyPayableRemaining = round($payableLines->sum(
@@ -441,7 +441,7 @@ class FinanceV2DashboardService
 
     public function totalCompanyPayableOutstanding(): float
     {
-        if (! \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+        if (! Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
             return 0.0;
         }
 
@@ -462,7 +462,7 @@ class FinanceV2DashboardService
 
     public function pendingCompanyPayableCount(): int
     {
-        if (! \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+        if (! Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
             return 0;
         }
 
@@ -492,7 +492,7 @@ class FinanceV2DashboardService
         $pendingOver14 = 0;
         $pendingOver30 = 0;
 
-        if (\Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+        if (Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
             $pendingCompany = $this->pendingCompanyPayableCount();
             $pendingOver7 = ShopAccountingEntryLine::query()
                 ->where('funding_source', 'company')
@@ -536,7 +536,7 @@ class FinanceV2DashboardService
             'above_60' => 0.0,
         ];
 
-        if (! \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+        if (! Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
             return $buckets;
         }
 

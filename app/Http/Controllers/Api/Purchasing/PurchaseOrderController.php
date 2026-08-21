@@ -12,6 +12,7 @@ use App\Models\PurchaseOrder;
 use App\Services\Purchasing\PurchaseOrderService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 class PurchaseOrderController extends Controller
@@ -20,7 +21,7 @@ class PurchaseOrderController extends Controller
         private readonly PurchaseOrderService $service,
     ) {}
 
-    public function index(\Illuminate\Http\Request $request): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
 
@@ -37,7 +38,7 @@ class PurchaseOrderController extends Controller
             'filters' => $validated,
             'user' => $request->user()?->id,
             'total' => $orders->total(),
-            'items' => collect($orders->items())->map(fn($o) => ['po_number' => $o->po_number, 'status' => $o->status->value ?? $o->status])->toArray()
+            'items' => collect($orders->items())->map(fn ($o) => ['po_number' => $o->po_number, 'status' => $o->status->value ?? $o->status])->toArray(),
         ]);
 
         return ApiResponse::paginated(PurchaseOrderResource::collection($orders));

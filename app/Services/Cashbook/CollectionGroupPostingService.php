@@ -161,7 +161,6 @@ class CollectionGroupPostingService
         ];
     }
 
-
     private function ensureShopLedgerSettings(int $shopId, ShopLedgerCollectionGroup $group): void
     {
         foreach ($group->entryTypes as $line) {

@@ -8,7 +8,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\ShopOrderQuantityCorrectionRequest;
 use App\Models\Category;
 use App\Models\Shop;
-use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;

@@ -12,15 +12,16 @@ class CreatePresetRequest extends FormRequest
     public function authorize(): bool
     {
         $user = $this->user();
+
         return $user instanceof User && $user->isMainAdmin();
     }
 
     public function rules(): array
     {
         return [
-            'name'                => 'required|string|max:100',
-            'description'         => 'nullable|string|max:500',
-            'is_default'          => 'nullable|boolean',
+            'name' => 'required|string|max:100',
+            'description' => 'nullable|string|max:500',
+            'is_default' => 'nullable|boolean',
             'copy_from_preset_id' => 'nullable|integer|exists:cashbook_config_presets,id',
         ];
     }

@@ -38,7 +38,7 @@ class CategoryRepository extends BaseRepository
             ->when($search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('description', 'like', "%{$search}%");
+                        ->orWhere('description', 'like', "%{$search}%");
                 });
             })
             ->when($status, function ($query, $status) {
@@ -48,4 +48,3 @@ class CategoryRepository extends BaseRepository
             ->paginate($perPage);
     }
 }
-

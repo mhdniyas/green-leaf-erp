@@ -35,12 +35,12 @@ class ApiWarehouseLoadoutSettingsController extends Controller
             ->pluck('value', 'key');
 
         return response()->json([
-            'success'                         => true,
-            'auto_load_all_enabled'           => filter_var($settings->get('auto_load_all_enabled') ?? false, FILTER_VALIDATE_BOOLEAN),
-            'auto_load_all_time'              => $settings->get('auto_load_all_time') ?: '00:15',
+            'success' => true,
+            'auto_load_all_enabled' => filter_var($settings->get('auto_load_all_enabled') ?? false, FILTER_VALIDATE_BOOLEAN),
+            'auto_load_all_time' => $settings->get('auto_load_all_time') ?: '00:15',
             'auto_load_all_next_business_day' => filter_var($settings->get('auto_load_all_next_business_day') ?? false, FILTER_VALIDATE_BOOLEAN),
-            'auto_load_all_delay_seconds'     => (int) ($settings->get('auto_load_all_delay_seconds') ?: 3),
-            'auto_load_all_allow_manual'      => filter_var($settings->get('auto_load_all_allow_manual') ?? true, FILTER_VALIDATE_BOOLEAN),
+            'auto_load_all_delay_seconds' => (int) ($settings->get('auto_load_all_delay_seconds') ?: 3),
+            'auto_load_all_allow_manual' => filter_var($settings->get('auto_load_all_allow_manual') ?? true, FILTER_VALIDATE_BOOLEAN),
         ]);
     }
 }

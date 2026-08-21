@@ -18,8 +18,7 @@ class TransactionGenerator
     public function __construct(
         private readonly LedgerRuleResolver $ruleResolver,
         private readonly FundingSourceEffectResolver $effectResolver,
-    ) {
-    }
+    ) {}
 
     /**
      * Record a single operator-entered ledger line, plus any secondary entry
@@ -57,34 +56,34 @@ class TransactionGenerator
             $this->assertFundingSourceAllowed($fundingSource, $setting);
 
             $direction = LedgerDirection::tryFrom((string) $entryType->category) ?? LedgerDirection::Expense;
-            $amount    = round((float) $input['amount'], 2);
+            $amount = round((float) $input['amount'], 2);
 
             $effect = $this->effectResolver->resolve($direction, $fundingSource, $amount, $setting);
 
             $transaction = ShopLedgerTransaction::create([
-                'shop_id'                   => $input['shop_id'],
-                'business_date'             => $input['business_date'],
-                'entry_type_id'             => $entryType->id,
-                'amount'                    => $amount,
-                'direction'                 => $direction->value,
-                'funding_source'            => $fundingSource->value,
-                'affects_sales'             => (bool) $setting->include_in_sales,
-                'affects_income'            => (bool) $setting->include_in_income,
-                'affects_expense'           => (bool) $setting->include_in_expense,
-                'affects_pl'                => (bool) $setting->include_in_pl,
-                'pl_delta'                  => $effect->plDelta,
-                'settlement_delta'          => $effect->settlementDelta,
-                'settlement_direction'      => $effect->settlementDirection->value,
-                'petty_delta'               => $effect->pettyDelta,
-                'petty_direction'           => $effect->pettyDirection->value,
-                'company_pending_delta'     => $effect->companyPendingDelta,
+                'shop_id' => $input['shop_id'],
+                'business_date' => $input['business_date'],
+                'entry_type_id' => $entryType->id,
+                'amount' => $amount,
+                'direction' => $direction->value,
+                'funding_source' => $fundingSource->value,
+                'affects_sales' => (bool) $setting->include_in_sales,
+                'affects_income' => (bool) $setting->include_in_income,
+                'affects_expense' => (bool) $setting->include_in_expense,
+                'affects_pl' => (bool) $setting->include_in_pl,
+                'pl_delta' => $effect->plDelta,
+                'settlement_delta' => $effect->settlementDelta,
+                'settlement_direction' => $effect->settlementDirection->value,
+                'petty_delta' => $effect->pettyDelta,
+                'petty_direction' => $effect->pettyDirection->value,
+                'company_pending_delta' => $effect->companyPendingDelta,
                 'company_pending_direction' => $effect->companyPendingDirection->value,
-                'generated_by_rule'         => false,
-                'status'                    => TransactionStatus::Posted->value,
-                'reference_type'            => $input['reference_type'] ?? null,
-                'reference_id'              => $input['reference_id'] ?? null,
-                'notes'                     => $input['notes'] ?? null,
-                'entered_by'                => $input['entered_by'] ?? null,
+                'generated_by_rule' => false,
+                'status' => TransactionStatus::Posted->value,
+                'reference_type' => $input['reference_type'] ?? null,
+                'reference_id' => $input['reference_id'] ?? null,
+                'notes' => $input['notes'] ?? null,
+                'entered_by' => $input['entered_by'] ?? null,
             ]);
 
             if ($setting->generates_secondary_entry && $setting->secondary_entry_type_id) {
@@ -110,27 +109,27 @@ class TransactionGenerator
             : (float) $parent->amount;
 
         ShopLedgerTransaction::create([
-            'shop_id'                   => $parent->shop_id,
-            'business_date'             => $parent->business_date,
-            'entry_type_id'             => $secondaryType->id,
-            'amount'                    => $secondaryAmount,
-            'direction'                 => LedgerDirection::Expense->value,
-            'funding_source'            => FundingSource::None->value,
-            'affects_sales'             => false,
-            'affects_income'            => false,
-            'affects_expense'           => true,
-            'affects_pl'                => true,
-            'pl_delta'                  => -$secondaryAmount,
-            'settlement_delta'          => 0,
-            'settlement_direction'      => 'none',
-            'petty_delta'               => 0,
-            'petty_direction'           => 'none',
-            'company_pending_delta'     => 0,
+            'shop_id' => $parent->shop_id,
+            'business_date' => $parent->business_date,
+            'entry_type_id' => $secondaryType->id,
+            'amount' => $secondaryAmount,
+            'direction' => LedgerDirection::Expense->value,
+            'funding_source' => FundingSource::None->value,
+            'affects_sales' => false,
+            'affects_income' => false,
+            'affects_expense' => true,
+            'affects_pl' => true,
+            'pl_delta' => -$secondaryAmount,
+            'settlement_delta' => 0,
+            'settlement_direction' => 'none',
+            'petty_delta' => 0,
+            'petty_direction' => 'none',
+            'company_pending_delta' => 0,
             'company_pending_direction' => 'none',
-            'generated_by_rule'         => true,
-            'parent_transaction_id'     => $parent->id,
-            'status'                    => TransactionStatus::Posted->value,
-            'entered_by'                => $parent->entered_by,
+            'generated_by_rule' => true,
+            'parent_transaction_id' => $parent->id,
+            'status' => TransactionStatus::Posted->value,
+            'entered_by' => $parent->entered_by,
         ]);
     }
 
@@ -143,29 +142,29 @@ class TransactionGenerator
             throw new RuntimeException('Generated entries cannot be edited directly; edit the parent transaction instead.');
         }
 
-        return DB::transaction(function () use ($transaction, $newAmount, $newFundingSource, $notes, $updatedBy) {
-            $newAmount  = round($newAmount, 2);
-            $setting    = $this->ruleResolver->resolve($transaction->shop_id, $transaction->entry_type_id, $transaction->business_date->toDateString());
+        return DB::transaction(function () use ($transaction, $newAmount, $newFundingSource, $notes) {
+            $newAmount = round($newAmount, 2);
+            $setting = $this->ruleResolver->resolve($transaction->shop_id, $transaction->entry_type_id, $transaction->business_date->toDateString());
 
-            $sourceStr  = $newFundingSource && $newFundingSource !== 'none'
+            $sourceStr = $newFundingSource && $newFundingSource !== 'none'
                 ? $newFundingSource
                 : ($transaction->funding_source ?: ($setting->default_funding_source ?: 'none'));
 
-            $source     = FundingSource::tryFrom((string) $sourceStr) ?? FundingSource::None;
+            $source = FundingSource::tryFrom((string) $sourceStr) ?? FundingSource::None;
             $this->assertFundingSourceAllowed($source, $setting);
 
-            $direction  = LedgerDirection::tryFrom((string) $transaction->direction) ?? LedgerDirection::from($transaction->entryType?->category ?? 'expense');
-            $effect     = $this->effectResolver->resolve($direction, $source, $newAmount, $setting);
+            $direction = LedgerDirection::tryFrom((string) $transaction->direction) ?? LedgerDirection::from($transaction->entryType?->category ?? 'expense');
+            $effect = $this->effectResolver->resolve($direction, $source, $newAmount, $setting);
 
             $updatePayload = [
-                'amount'                    => $newAmount,
-                'funding_source'            => $source->value,
-                'pl_delta'                  => $effect->plDelta,
-                'settlement_delta'          => $effect->settlementDelta,
-                'settlement_direction'      => $effect->settlementDirection->value,
-                'petty_delta'               => $effect->pettyDelta,
-                'petty_direction'           => $effect->pettyDirection->value,
-                'company_pending_delta'     => $effect->companyPendingDelta,
+                'amount' => $newAmount,
+                'funding_source' => $source->value,
+                'pl_delta' => $effect->plDelta,
+                'settlement_delta' => $effect->settlementDelta,
+                'settlement_direction' => $effect->settlementDirection->value,
+                'petty_delta' => $effect->pettyDelta,
+                'petty_direction' => $effect->pettyDirection->value,
+                'company_pending_delta' => $effect->companyPendingDelta,
                 'company_pending_direction' => $effect->companyPendingDirection->value,
             ];
 
@@ -177,7 +176,7 @@ class TransactionGenerator
 
             foreach ($transaction->children as $child) {
                 $childSetting = $this->ruleResolver->resolve($child->shop_id, $child->entry_type_id, $child->business_date->toDateString());
-                $childAmount  = $childSetting->secondary_amount_mode === 'percentage'
+                $childAmount = $childSetting->secondary_amount_mode === 'percentage'
                     ? round($newAmount * ((float) $childSetting->secondary_amount_value / 100), 2)
                     : $newAmount;
 
@@ -204,9 +203,9 @@ class TransactionGenerator
     {
         return DB::transaction(function () use ($transaction, $voidedBy, $reason) {
             $transaction->update([
-                'status'      => TransactionStatus::Void->value,
-                'voided_by'   => $voidedBy,
-                'voided_at'   => now(),
+                'status' => TransactionStatus::Void->value,
+                'voided_by' => $voidedBy,
+                'voided_at' => now(),
                 'void_reason' => $reason,
             ]);
 

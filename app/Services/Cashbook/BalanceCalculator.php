@@ -17,8 +17,7 @@ class BalanceCalculator
 {
     public function __construct(
         private readonly FundingSourceEffectResolver $effectResolver,
-    ) {
-    }
+    ) {}
 
     /**
      * Recalculate and persist the snapshot for one shop/day, carrying
@@ -33,7 +32,7 @@ class BalanceCalculator
     public function recalculate(int $shopId, string $businessDate): ShopDailyLedgerSnapshot
     {
         return DB::transaction(function () use ($shopId, $businessDate) {
-            $date    = Carbon::parse($businessDate)->toDateString();
+            $date = Carbon::parse($businessDate)->toDateString();
             $opening = $this->openingBalances($shopId, $date);
 
             // Acquire lock on existing snapshot row if present
@@ -72,8 +71,8 @@ class BalanceCalculator
                 }
 
                 $direction = LedgerDirection::tryFrom((string) $tx->direction) ?? LedgerDirection::Expense;
-                $source    = FundingSource::tryFrom((string) $tx->funding_source) ?? FundingSource::None;
-                $amount    = (float) $tx->amount;
+                $source = FundingSource::tryFrom((string) $tx->funding_source) ?? FundingSource::None;
+                $amount = (float) $tx->amount;
 
                 $effect = $this->effectResolver->resolve($direction, $source, $amount, $setting);
 
@@ -83,15 +82,15 @@ class BalanceCalculator
                     $changes['pl_delta'] = $effect->plDelta;
                 }
                 if ((float) $tx->settlement_delta !== $effect->settlementDelta) {
-                    $changes['settlement_delta']     = $effect->settlementDelta;
+                    $changes['settlement_delta'] = $effect->settlementDelta;
                     $changes['settlement_direction'] = $effect->settlementDirection->value;
                 }
                 if ((float) $tx->petty_delta !== $effect->pettyDelta) {
-                    $changes['petty_delta']     = $effect->pettyDelta;
+                    $changes['petty_delta'] = $effect->pettyDelta;
                     $changes['petty_direction'] = $effect->pettyDirection->value;
                 }
                 if ((float) $tx->company_pending_delta !== $effect->companyPendingDelta) {
-                    $changes['company_pending_delta']     = $effect->companyPendingDelta;
+                    $changes['company_pending_delta'] = $effect->companyPendingDelta;
                     $changes['company_pending_direction'] = $effect->companyPendingDirection->value;
                 }
 
@@ -104,42 +103,42 @@ class BalanceCalculator
                 }
             }
 
-            $totalSales   = (float) $transactions->where('affects_sales', true)->sum('amount');
-            $totalIncome  = (float) $transactions->where('affects_income', true)->sum('amount');
+            $totalSales = (float) $transactions->where('affects_sales', true)->sum('amount');
+            $totalIncome = (float) $transactions->where('affects_income', true)->sum('amount');
             $totalExpense = (float) $transactions->where('affects_expense', true)->sum('amount');
-            $netPl        = (float) $transactions->sum('pl_delta');
+            $netPl = (float) $transactions->sum('pl_delta');
 
             $settlementIncrease = (float) $transactions->where('settlement_delta', '>', 0)->sum('settlement_delta');
             $settlementDecrease = abs((float) $transactions->where('settlement_delta', '<', 0)->sum('settlement_delta'));
 
-            $pettyIn  = (float) $transactions->where('petty_delta', '>', 0)->sum('petty_delta');
+            $pettyIn = (float) $transactions->where('petty_delta', '>', 0)->sum('petty_delta');
             $pettyOut = abs((float) $transactions->where('petty_delta', '<', 0)->sum('petty_delta'));
 
-            $companyPendingIn  = (float) $transactions->where('company_pending_delta', '>', 0)->sum('company_pending_delta');
+            $companyPendingIn = (float) $transactions->where('company_pending_delta', '>', 0)->sum('company_pending_delta');
             $companyPendingOut = abs((float) $transactions->where('company_pending_delta', '<', 0)->sum('company_pending_delta'));
 
             return ShopDailyLedgerSnapshot::updateOrCreate(
                 ['shop_id' => $shopId, 'business_date' => $date],
                 [
-                    'total_sales'   => $totalSales,
-                    'total_income'  => $totalIncome,
+                    'total_sales' => $totalSales,
+                    'total_income' => $totalIncome,
                     'total_expense' => $totalExpense,
-                    'net_pl'        => $netPl,
+                    'net_pl' => $netPl,
 
-                    'opening_petty'  => $opening['petty'],
-                    'petty_in'       => $pettyIn,
-                    'petty_out'      => $pettyOut,
-                    'closing_petty'  => $opening['petty'] + $pettyIn - $pettyOut,
+                    'opening_petty' => $opening['petty'],
+                    'petty_in' => $pettyIn,
+                    'petty_out' => $pettyOut,
+                    'closing_petty' => $opening['petty'] + $pettyIn - $pettyOut,
 
-                    'opening_shop_position'  => $opening['shop_position'],
-                    'settlement_increase'    => $settlementIncrease,
-                    'settlement_decrease'    => $settlementDecrease,
-                    'closing_shop_position'  => $opening['shop_position'] + $settlementIncrease - $settlementDecrease,
+                    'opening_shop_position' => $opening['shop_position'],
+                    'settlement_increase' => $settlementIncrease,
+                    'settlement_decrease' => $settlementDecrease,
+                    'closing_shop_position' => $opening['shop_position'] + $settlementIncrease - $settlementDecrease,
 
-                    'opening_company_pending'  => $opening['company_pending'],
-                    'company_pending_in'       => $companyPendingIn,
-                    'company_pending_out'      => $companyPendingOut,
-                    'closing_company_pending'  => $opening['company_pending'] + $companyPendingIn - $companyPendingOut,
+                    'opening_company_pending' => $opening['company_pending'],
+                    'company_pending_in' => $companyPendingIn,
+                    'company_pending_out' => $companyPendingOut,
+                    'closing_company_pending' => $opening['company_pending'] + $companyPendingIn - $companyPendingOut,
                 ]
             );
         });
@@ -158,8 +157,8 @@ class BalanceCalculator
             ->first();
 
         return [
-            'petty'           => (float) ($previous?->closing_petty ?? 0),
-            'shop_position'   => (float) ($previous?->closing_shop_position ?? 0),
+            'petty' => (float) ($previous?->closing_petty ?? 0),
+            'shop_position' => (float) ($previous?->closing_shop_position ?? 0),
             'company_pending' => (float) ($previous?->closing_company_pending ?? 0),
         ];
     }

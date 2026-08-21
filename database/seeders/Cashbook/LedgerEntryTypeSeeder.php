@@ -70,6 +70,6 @@ class LedgerEntryTypeSeeder extends Seeder
             );
         }
 
-        $this->command->info('Seeded ' . count($types) . ' cashbook ledger entry types.');
+        $this->command->info('Seeded '.count($types).' cashbook ledger entry types.');
     }
 }

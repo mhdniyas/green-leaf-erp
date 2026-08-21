@@ -25,8 +25,8 @@ class CompanyAccount extends Model
     protected $casts = [
         'opening_balance' => 'decimal:2',
         'current_balance' => 'decimal:2',
-        'is_default'      => 'boolean',
-        'enabled'         => 'boolean',
+        'is_default' => 'boolean',
+        'enabled' => 'boolean',
     ];
 
     public function transactions(): HasMany

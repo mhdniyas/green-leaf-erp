@@ -21,6 +21,5 @@ final class LedgerEffect
         public readonly BalanceMove $pettyDirection,
         public readonly float $companyPendingDelta,
         public readonly BalanceMove $companyPendingDirection,
-    ) {
-    }
+    ) {}
 }

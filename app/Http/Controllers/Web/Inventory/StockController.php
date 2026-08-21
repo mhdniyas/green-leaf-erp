@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Inventory;
 
 use App\Http\Controllers\Controller;
+use App\Models\Product;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
-use App\Models\Product;
 use App\Models\StockAdjustment;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\CategoryRepository;
@@ -16,8 +16,8 @@ use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 

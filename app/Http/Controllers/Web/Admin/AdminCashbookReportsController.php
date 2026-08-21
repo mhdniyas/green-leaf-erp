@@ -5,24 +5,23 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Cashbook\LedgerClient;
-use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
-use App\Models\Shop;
-use App\Models\ShopInvoice;
-use App\Models\User;
-use App\Services\Cashbook\CashbookShopSyncService;
-use App\Services\Reports\ShopProfitIntelligenceService;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
 use App\Models\Product;
+use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
+use App\Models\ShopInvoice;
+use App\Models\User;
+use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Reports\ShopProfitIntelligenceService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
@@ -141,12 +140,12 @@ class AdminCashbookReportsController extends Controller
 
         if ($mode === 'weekly') {
             $weekStartObj = today()->startOfWeek()->addWeeks($weekOffset);
-            $weekEndObj   = $weekStartObj->copy()->endOfWeek();
+            $weekEndObj = $weekStartObj->copy()->endOfWeek();
 
             $weekLabel = match (true) {
-                $weekOffset === 0  => 'This Week',
+                $weekOffset === 0 => 'This Week',
                 $weekOffset === -1 => 'Last Week',
-                default            => abs($weekOffset) . ' Weeks Ago',
+                default => abs($weekOffset).' Weeks Ago',
             };
 
             $intelligence = $selectedShop?->shop_id
@@ -154,7 +153,7 @@ class AdminCashbookReportsController extends Controller
                 : $this->profitIntelligence->analyse(0);
         } else {
             $weekStartObj = today()->startOfWeek();
-            $weekEndObj   = today()->endOfWeek();
+            $weekEndObj = today()->endOfWeek();
             $weekLabel = 'This Week';
 
             $intelligence = $selectedShop?->shop_id
@@ -163,15 +162,15 @@ class AdminCashbookReportsController extends Controller
         }
 
         return view('admin.cashbook.reports.analytics', [
-            'shops'        => $shops,
+            'shops' => $shops,
             'selectedShop' => $selectedShop,
             'intelligence' => $intelligence,
-            'mode'         => $mode,
-            'weekOffset'   => $weekOffset,
-            'weekStart'    => $weekStartObj->toDateString(),
-            'weekEnd'      => $weekEndObj->toDateString(),
-            'weekLabel'    => $weekLabel,
-            'activeTab'    => 'analytics',
+            'mode' => $mode,
+            'weekOffset' => $weekOffset,
+            'weekStart' => $weekStartObj->toDateString(),
+            'weekEnd' => $weekEndObj->toDateString(),
+            'weekLabel' => $weekLabel,
+            'activeTab' => 'analytics',
         ]);
     }
 
@@ -217,7 +216,7 @@ class AdminCashbookReportsController extends Controller
                 'total_balance' => 0.00,
                 'count' => 0,
             ];
-            $invoices = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 15);
+            $invoices = new LengthAwarePaginator([], 0, 15);
         }
 
         return view('admin.cashbook.reports.gl_bills', [
@@ -331,7 +330,7 @@ class AdminCashbookReportsController extends Controller
         $products->setCollection(
             $products->getCollection()->map(function (Product $product) use ($currentApprovals, $previousApprovals, $shopDailyPrices, $groupName, $activeShop, $targetBusinessDate): array {
                 $shopCustomPrice = $shopDailyPrices->get($product->id);
-                $priceKey = 'price_' . strtolower($groupName);
+                $priceKey = 'price_'.strtolower($groupName);
 
                 $candidatePrices = [];
                 $priceUnit = $product->unit ?: 'kg';
@@ -583,8 +582,9 @@ class AdminCashbookReportsController extends Controller
             foreach ($txByDate as $dateStr => $dayTxs) {
                 $hasNonGlBill = $dayTxs->contains(function ($t) {
                     $code = $t->entryType?->code ?: $t->entry_type_code;
+
                     return $t->reference_type !== 'App\Models\ShopInvoice'
-                        && $t->reference_type !== \App\Models\ShopInvoice::class
+                        && $t->reference_type !== ShopInvoice::class
                         && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
                 });
 
@@ -609,10 +609,11 @@ class AdminCashbookReportsController extends Controller
             $glBillTxs = $activeTx
                 ->filter(function ($t) {
                     $code = $t->entryType?->code ?: $t->entry_type_code;
+
                     return in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
                         || str_contains(strtolower((string) $t->notes), 'invoice')
                         || $t->reference_type === 'App\Models\ShopInvoice'
-                        || $t->reference_type === \App\Models\ShopInvoice::class;
+                        || $t->reference_type === ShopInvoice::class;
                 });
 
             $glBills = (float) $glBillTxs->sum('amount');
@@ -626,8 +627,8 @@ class AdminCashbookReportsController extends Controller
 
             return [
                 'shop_id' => $shop->shop_id,
-                'shop_name' => $shop->name ?: 'Shop #' . $shop->shop_id,
-                'shop_code' => $shop->code ?: ('SHP-' . $shop->shop_id),
+                'shop_name' => $shop->name ?: 'Shop #'.$shop->shop_id,
+                'shop_code' => $shop->code ?: ('SHP-'.$shop->shop_id),
                 'shop_slug' => $shop->slug ?: (string) $shop->shop_id,
                 'client_id' => $shop->client_id,
                 'is_client_owned' => $shop->client_id !== null,
@@ -670,8 +671,9 @@ class AdminCashbookReportsController extends Controller
         foreach ($txByDate as $dateStr => $dayTxs) {
             $hasNonGlBill = $dayTxs->contains(function ($t) {
                 $code = $t->entryType?->code ?: $t->entry_type_code;
+
                 return $t->reference_type !== 'App\Models\ShopInvoice'
-                    && $t->reference_type !== \App\Models\ShopInvoice::class
+                    && $t->reference_type !== ShopInvoice::class
                     && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
             });
 
@@ -696,7 +698,7 @@ class AdminCashbookReportsController extends Controller
 
         // Total GL bills for the period (including invoices on days pending sales submission)
         $glBillTxs = $transactions
-            ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice' || $t->reference_type === \App\Models\ShopInvoice::class);
+            ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice' || $t->reference_type === ShopInvoice::class);
 
         $glBills = (float) $glBillTxs->sum('amount');
         $glBillsCount = (int) $glBillTxs->count();
@@ -714,6 +716,7 @@ class AdminCashbookReportsController extends Controller
             if (in_array($t->direction, ['settlement', 'transfer'], true)) {
                 return false;
             }
+
             return true;
         });
 
@@ -722,11 +725,12 @@ class AdminCashbookReportsController extends Controller
             ->groupBy(function ($t) {
                 $isGlBill = in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
                     || $t->reference_type === 'App\Models\ShopInvoice'
-                    || $t->reference_type === \App\Models\ShopInvoice::class;
+                    || $t->reference_type === ShopInvoice::class;
 
                 $name = $isGlBill ? 'GL Bill' : ($t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry'));
                 $dir = $isGlBill ? 'expense' : ($t->entryType?->category ?: ($t->direction ?: 'expense'));
-                return $name . '___' . $dir;
+
+                return $name.'___'.$dir;
             })
             ->map(function ($group, $key) {
                 $parts = explode('___', $key);
@@ -738,7 +742,7 @@ class AdminCashbookReportsController extends Controller
                 $count = $group->count();
                 $isGlBill = in_array($first->entryType?->code ?: $first->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
                     || $first->reference_type === 'App\Models\ShopInvoice'
-                    || $first->reference_type === \App\Models\ShopInvoice::class;
+                    || $first->reference_type === ShopInvoice::class;
 
                 return [
                     'category_key' => $key,
@@ -762,19 +766,27 @@ class AdminCashbookReportsController extends Controller
                             'reference_id' => $t->reference_id,
                             'is_gl_bill' => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
                                 || $t->reference_type === 'App\Models\ShopInvoice'
-                                || $t->reference_type === \App\Models\ShopInvoice::class,
+                                || $t->reference_type === ShopInvoice::class,
                         ];
                     })->values()->all(),
                 ];
             })
             ->sort(function ($a, $b) {
                 // 1. GL Bill first
-                if ($a['is_gl_bill']) return -1;
-                if ($b['is_gl_bill']) return 1;
+                if ($a['is_gl_bill']) {
+                    return -1;
+                }
+                if ($b['is_gl_bill']) {
+                    return 1;
+                }
 
                 // 2. Expenses next (sorted by amount desc)
-                if ($a['direction'] === 'expense' && $b['direction'] !== 'expense') return -1;
-                if ($a['direction'] !== 'expense' && $b['direction'] === 'expense') return 1;
+                if ($a['direction'] === 'expense' && $b['direction'] !== 'expense') {
+                    return -1;
+                }
+                if ($a['direction'] !== 'expense' && $b['direction'] === 'expense') {
+                    return 1;
+                }
 
                 // 3. Amount desc within same direction group
                 return $b['amount'] <=> $a['amount'];
@@ -828,7 +840,7 @@ class AdminCashbookReportsController extends Controller
         foreach ($transactionsByDate as $dateStr => $dayTxs) {
             $hasNonGlBill = $dayTxs->contains(function ($tx) {
                 return $tx->reference_type !== 'App\Models\ShopInvoice'
-                    && $tx->reference_type !== \App\Models\ShopInvoice::class;
+                    && $tx->reference_type !== ShopInvoice::class;
             });
 
             if (! $hasNonGlBill) {
@@ -868,6 +880,7 @@ class AdminCashbookReportsController extends Controller
             // Skip days with only GL bills from continuous trend curve
             if (in_array($dateStr, $pendingGlOnlyDates, true)) {
                 $current->addDay();
+
                 continue;
             }
 
@@ -897,6 +910,7 @@ class AdminCashbookReportsController extends Controller
             ->groupBy(fn ($t) => $t->entryType?->name ?: 'Other Expense')
             ->map(function ($group, $name) use ($totalExp) {
                 $amount = (float) $group->sum('amount');
+
                 return [
                     'name' => $name,
                     'amount' => round($amount, 2),
@@ -1025,7 +1039,7 @@ class AdminCashbookReportsController extends Controller
                     'badge' => 'Growth Opportunity',
                     'badge_color' => 'emerald',
                     'title' => "Capitalize on {$day} Peak Volume",
-                    'description' => "{$day} averages ₹" . number_format($metrics['avg_sales'], 0) . " in gross sales. Ensure zero stock-outs on top moving vegetables and fruit lines.",
+                    'description' => "{$day} averages ₹".number_format($metrics['avg_sales'], 0).' in gross sales. Ensure zero stock-outs on top moving vegetables and fruit lines.',
                 ];
             }
         }
@@ -1036,7 +1050,7 @@ class AdminCashbookReportsController extends Controller
                 'badge' => 'Highest Net Profit',
                 'badge_color' => 'teal',
                 'title' => "{$bestProfitDay['day']} is your Most Profitable Day",
-                'description' => "Generates an average net profit of ₹" . number_format($bestProfitDay['avg_net'], 0) . " with a {$bestProfitDay['margin_pct']}% profit margin.",
+                'description' => 'Generates an average net profit of ₹'.number_format($bestProfitDay['avg_net'], 0)." with a {$bestProfitDay['margin_pct']}% profit margin.",
             ];
         }
 

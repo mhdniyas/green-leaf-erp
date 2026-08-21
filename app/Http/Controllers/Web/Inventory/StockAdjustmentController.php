@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Inventory;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Web\Inventory\StoreStockAdjustmentRequest;
 use App\Http\Requests\Web\Inventory\EmptyWarehouseStockRequest;
+use App\Http\Requests\Web\Inventory\StoreStockAdjustmentRequest;
 use App\Models\Product;
 use App\Models\Warehouse;
 use App\Services\Inventory\StockAdjustmentService;

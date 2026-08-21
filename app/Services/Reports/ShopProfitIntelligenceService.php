@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Reports;
 
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\ShopInvoice;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -34,6 +35,7 @@ final class ShopProfitIntelligenceService
 
     /** Health badge thresholds. */
     private const HEALTH_OPTIMAL = 90.0;
+
     private const HEALTH_ATTENTION = 75.0;
 
     /**
@@ -63,14 +65,14 @@ final class ShopProfitIntelligenceService
     public function analyse(int $shopId, ?string $startDate = null, ?string $endDate = null, int $minSampleDays = self::MIN_SAMPLE_DAYS): array
     {
         $historicalStart = $startDate ?? today()->subDays(30)->toDateString();
-        $historicalEnd   = $endDate ?? today()->toDateString();
+        $historicalEnd = $endDate ?? today()->toDateString();
 
         $transactions = ShopLedgerTransaction::query()
             ->where('shop_id', $shopId)
             ->whereBetween('business_date', [$historicalStart, $historicalEnd])
             ->whereIn('status', self::CONFIRMED_STATUSES)
             ->get(['business_date', 'affects_income', 'affects_expense', 'affects_pl',
-                   'pl_delta', 'amount', 'reference_type', 'entry_type_id']);
+                'pl_delta', 'amount', 'reference_type', 'entry_type_id']);
 
         if ($transactions->isEmpty()) {
             return $this->emptyResult();
@@ -86,7 +88,7 @@ final class ShopProfitIntelligenceService
         $activeTransactions = collect();
 
         foreach ($transactionsByDate as $dateStr => $dayTxs) {
-            $hasNonGlBill = $dayTxs->contains(fn ($tx) => !$this->isGlBillTransaction($tx));
+            $hasNonGlBill = $dayTxs->contains(fn ($tx) => ! $this->isGlBillTransaction($tx));
             if (! $hasNonGlBill) {
                 $pendingGlOnlyDates[] = $dateStr;
                 $excludedGlBillTotal += (float) $dayTxs->sum('amount');
@@ -100,9 +102,9 @@ final class ShopProfitIntelligenceService
         }
 
         // --- Period-level totals (uses purpose-built columns on active reported days) ---
-        $periodSales   = (float) $activeTransactions->where('affects_income', true)->sum('amount');
+        $periodSales = (float) $activeTransactions->where('affects_income', true)->sum('amount');
         $periodExpense = (float) $activeTransactions->where('affects_expense', true)->sum('amount');
-        $periodNet     = (float) $activeTransactions->where('affects_pl', true)->sum('pl_delta');
+        $periodNet = (float) $activeTransactions->where('affects_pl', true)->sum('pl_delta');
 
         // --- Weekday analysis (7 rows) ---
         $weekdayAnalysis = $this->buildWeekdayAnalysis($activeTransactions);
@@ -110,10 +112,10 @@ final class ShopProfitIntelligenceService
         // --- Leakage calculation ---
         $leakageResult = $this->calculateLeakage($weekdayAnalysis);
 
-        $capturedProfit  = max(0.0, $periodNet); // negative net = 0 captured
-        $totalLeakage    = $leakageResult['total_leakage'];
+        $capturedProfit = max(0.0, $periodNet); // negative net = 0 captured
+        $totalLeakage = $leakageResult['total_leakage'];
         $potentialProfit = $capturedProfit + $totalLeakage;
-        $capturedPct     = $potentialProfit > 0
+        $capturedPct = $potentialProfit > 0
             ? round(($capturedProfit / $potentialProfit) * 100, 1)
             : ($capturedProfit > 0 ? 100.0 : 0.0);
 
@@ -125,28 +127,28 @@ final class ShopProfitIntelligenceService
         );
 
         $bestProfitDay = $eligible->sortByDesc('avg_net')->first();
-        $highSalesDay  = $eligible->sortByDesc('avg_sales')->first();
-        $riskDay       = collect($leakageResult['flagged_days'])->sortByDesc('excess_ratio')->first();
+        $highSalesDay = $eligible->sortByDesc('avg_sales')->first();
+        $riskDay = collect($leakageResult['flagged_days'])->sortByDesc('excess_ratio')->first();
 
         return [
-            'captured_profit'        => round($capturedProfit, 2),
-            'potential_profit'       => round($potentialProfit, 2),
-            'captured_pct'           => $capturedPct,
-            'total_leakage'          => round($totalLeakage, 2),
-            'health_badge'           => $healthBadge,
-            'health_tone'            => $healthTone,
-            'period_sales'           => round($periodSales, 2),
-            'period_expense'         => round($periodExpense, 2),
-            'period_net'             => round($periodNet, 2),
-            'weekday_analysis'       => $weekdayAnalysis,
-            'best_profit_day'        => $bestProfitDay,
-            'risk_day'               => $riskDay,
-            'high_sales_day'         => $highSalesDay,
-            'leak_warnings'          => $leakageResult['flagged_days'],
-            'pending_days_count'     => count($pendingGlOnlyDates),
-            'pending_dates'          => $pendingGlOnlyDates,
+            'captured_profit' => round($capturedProfit, 2),
+            'potential_profit' => round($potentialProfit, 2),
+            'captured_pct' => $capturedPct,
+            'total_leakage' => round($totalLeakage, 2),
+            'health_badge' => $healthBadge,
+            'health_tone' => $healthTone,
+            'period_sales' => round($periodSales, 2),
+            'period_expense' => round($periodExpense, 2),
+            'period_net' => round($periodNet, 2),
+            'weekday_analysis' => $weekdayAnalysis,
+            'best_profit_day' => $bestProfitDay,
+            'risk_day' => $riskDay,
+            'high_sales_day' => $highSalesDay,
+            'leak_warnings' => $leakageResult['flagged_days'],
+            'pending_days_count' => count($pendingGlOnlyDates),
+            'pending_dates' => $pendingGlOnlyDates,
             'excluded_gl_bill_total' => round($excludedGlBillTotal, 2),
-            'has_data'               => true,
+            'has_data' => true,
         ];
     }
 
@@ -156,7 +158,7 @@ final class ShopProfitIntelligenceService
     private function isGlBillTransaction(ShopLedgerTransaction $tx): bool
     {
         return $tx->reference_type === 'App\Models\ShopInvoice'
-            || $tx->reference_type === \App\Models\ShopInvoice::class;
+            || $tx->reference_type === ShopInvoice::class;
     }
 
     /**
@@ -170,25 +172,25 @@ final class ShopProfitIntelligenceService
         $analysis = [];
 
         foreach ($dayNames as $isoDay => $dayName) {
-            $isoIndex  = $isoDay + 1; // Carbon dayOfWeekIso: Mon=1 ... Sun=7
-            $dayTx     = $transactions->filter(
+            $isoIndex = $isoDay + 1; // Carbon dayOfWeekIso: Mon=1 ... Sun=7
+            $dayTx = $transactions->filter(
                 fn ($tx) => Carbon::parse($tx->business_date)->dayOfWeekIso === $isoIndex
             );
 
             $sampleDays = max(1, $dayTx->pluck('business_date')->unique()->count());
 
-            $totalSales   = (float) $dayTx->where('affects_income', true)->sum('amount');
+            $totalSales = (float) $dayTx->where('affects_income', true)->sum('amount');
             $totalExpense = (float) $dayTx->where('affects_expense', true)->sum('amount');
-            $totalNet     = (float) $dayTx->where('affects_pl', true)->sum('pl_delta');
+            $totalNet = (float) $dayTx->where('affects_pl', true)->sum('pl_delta');
 
             $totalGlBills = (float) $dayTx->filter(
                 fn ($t) => $t->reference_type === 'App\Models\ShopInvoice'
-                    || $t->reference_type === \App\Models\ShopInvoice::class
+                    || $t->reference_type === ShopInvoice::class
             )->sum('amount');
 
-            $avgSales   = round($totalSales / $sampleDays, 2);
+            $avgSales = round($totalSales / $sampleDays, 2);
             $avgExpense = round($totalExpense / $sampleDays, 2);
-            $avgNet     = round($totalNet / $sampleDays, 2);
+            $avgNet = round($totalNet / $sampleDays, 2);
             $avgGlBills = round($totalGlBills / $sampleDays, 2);
 
             $purchaseRatio = $avgSales > 0
@@ -200,15 +202,15 @@ final class ShopProfitIntelligenceService
                 : 0.0;
 
             $analysis[$dayName] = [
-                'day'            => $dayName,
-                'avg_sales'      => $avgSales,
-                'avg_expense'    => $avgExpense,
-                'avg_gl_bills'   => $avgGlBills,
-                'avg_net'        => $avgNet,
+                'day' => $dayName,
+                'avg_sales' => $avgSales,
+                'avg_expense' => $avgExpense,
+                'avg_gl_bills' => $avgGlBills,
+                'avg_net' => $avgNet,
                 'purchase_ratio' => $purchaseRatio,
-                'margin_pct'     => $marginPct,
-                'sample_days'    => $sampleDays,
-                'has_data'       => $dayTx->isNotEmpty(),
+                'margin_pct' => $marginPct,
+                'sample_days' => $sampleDays,
+                'has_data' => $dayTx->isNotEmpty(),
             ];
         }
 
@@ -232,12 +234,12 @@ final class ShopProfitIntelligenceService
     {
         $ratios = array_column($weekdayAnalysis, 'purchase_ratio');
         sort($ratios);
-        $mid    = (int) floor(count($ratios) / 2);
+        $mid = (int) floor(count($ratios) / 2);
         $median = count($ratios) % 2 !== 0
             ? (float) $ratios[$mid]
             : ((float) ($ratios[$mid - 1] + $ratios[$mid]) / 2.0);
 
-        $flaggedDays  = [];
+        $flaggedDays = [];
         $totalLeakage = 0.0;
 
         foreach ($weekdayAnalysis as $dayName => $row) {
@@ -245,10 +247,10 @@ final class ShopProfitIntelligenceService
                 continue;
             }
 
-            $excessRatio     = round($row['purchase_ratio'] - $median, 1);
-            $dailyLeakage    = round(($excessRatio / 100.0) * $row['avg_sales'], 2);
-            $monthlyLeakage  = round($dailyLeakage * $row['sample_days'], 2);
-            $totalLeakage   += $monthlyLeakage;
+            $excessRatio = round($row['purchase_ratio'] - $median, 1);
+            $dailyLeakage = round(($excessRatio / 100.0) * $row['avg_sales'], 2);
+            $monthlyLeakage = round($dailyLeakage * $row['sample_days'], 2);
+            $totalLeakage += $monthlyLeakage;
 
             // Suggested cut percentage to bring ratio back to baseline
             $suggestedCut = $row['purchase_ratio'] > 0
@@ -256,23 +258,23 @@ final class ShopProfitIntelligenceService
                 : 0;
 
             $flaggedDays[] = [
-                'day'              => $dayName,
-                'purchase_ratio'   => $row['purchase_ratio'],
-                'baseline_ratio'   => round($median, 1),
-                'excess_ratio'     => $excessRatio,
-                'avg_sales'        => $row['avg_sales'],
-                'daily_leakage'    => $dailyLeakage,
-                'monthly_leakage'  => $monthlyLeakage,
-                'sample_days'      => $row['sample_days'],
+                'day' => $dayName,
+                'purchase_ratio' => $row['purchase_ratio'],
+                'baseline_ratio' => round($median, 1),
+                'excess_ratio' => $excessRatio,
+                'avg_sales' => $row['avg_sales'],
+                'daily_leakage' => $dailyLeakage,
+                'monthly_leakage' => $monthlyLeakage,
+                'sample_days' => $row['sample_days'],
                 'suggested_cut_pct' => (int) $suggestedCut,
-                'severity'         => $excessRatio > 25 ? 'danger' : 'warning',
+                'severity' => $excessRatio > 25 ? 'danger' : 'warning',
             ];
         }
 
         return [
-            'total_leakage'  => round($totalLeakage, 2),
+            'total_leakage' => round($totalLeakage, 2),
             'baseline_ratio' => round($median, 1),
-            'flagged_days'   => $flaggedDays,
+            'flagged_days' => $flaggedDays,
         ];
     }
 
@@ -298,24 +300,24 @@ final class ShopProfitIntelligenceService
     private function emptyResult(array $pendingDates = [], float $excludedGlBillTotal = 0.0): array
     {
         return [
-            'captured_profit'        => 0.0,
-            'potential_profit'       => 0.0,
-            'captured_pct'           => 0.0,
-            'total_leakage'          => 0.0,
-            'health_badge'           => 'No Data',
-            'health_tone'            => 'slate',
-            'period_sales'           => 0.0,
-            'period_expense'         => 0.0,
-            'period_net'             => 0.0,
-            'weekday_analysis'       => [],
-            'best_profit_day'        => null,
-            'risk_day'               => null,
-            'high_sales_day'         => null,
-            'leak_warnings'          => [],
-            'pending_days_count'     => count($pendingDates),
-            'pending_dates'          => $pendingDates,
+            'captured_profit' => 0.0,
+            'potential_profit' => 0.0,
+            'captured_pct' => 0.0,
+            'total_leakage' => 0.0,
+            'health_badge' => 'No Data',
+            'health_tone' => 'slate',
+            'period_sales' => 0.0,
+            'period_expense' => 0.0,
+            'period_net' => 0.0,
+            'weekday_analysis' => [],
+            'best_profit_day' => null,
+            'risk_day' => null,
+            'high_sales_day' => null,
+            'leak_warnings' => [],
+            'pending_days_count' => count($pendingDates),
+            'pending_dates' => $pendingDates,
             'excluded_gl_bill_total' => round($excludedGlBillTotal, 2),
-            'has_data'               => false,
+            'has_data' => false,
         ];
     }
 }

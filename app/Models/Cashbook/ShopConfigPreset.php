@@ -17,7 +17,7 @@ class ShopConfigPreset extends Model
 
     protected $casts = [
         'is_default' => 'boolean',
-        'enabled'    => 'boolean',
+        'enabled' => 'boolean',
     ];
 
     /** All entry-type rules belonging to this preset. */

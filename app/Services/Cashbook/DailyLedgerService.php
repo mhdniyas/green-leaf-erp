@@ -6,6 +6,7 @@ namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
@@ -20,15 +21,14 @@ class DailyLedgerService
     public function __construct(
         private readonly TransactionGenerator $generator,
         private readonly BalanceCalculator $calculator,
-    ) {
-    }
+    ) {}
 
     public function recordEntry(array $input): array
     {
         $this->assertDayOpen($input['shop_id'], $input['business_date']);
 
         $transaction = $this->generator->record($input);
-        $snapshot    = $this->calculator->recalculate($input['shop_id'], $input['business_date']);
+        $snapshot = $this->calculator->recalculate($input['shop_id'], $input['business_date']);
 
         return ['transaction' => $transaction, 'snapshot' => $snapshot];
     }
@@ -39,7 +39,7 @@ class DailyLedgerService
         $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
 
         $transaction = $this->generator->updateEntry($transaction, $newAmount, $fundingSource, $notes, $updatedBy);
-        $snapshot    = $this->calculator->recalculate($transaction->shop_id, $transaction->business_date->toDateString());
+        $snapshot = $this->calculator->recalculate($transaction->shop_id, $transaction->business_date->toDateString());
 
         return ['transaction' => $transaction, 'snapshot' => $snapshot];
     }
@@ -55,7 +55,7 @@ class DailyLedgerService
         $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
 
         $transaction = $this->generator->void($transaction, $voidedBy, $reason);
-        $snapshot    = $this->calculator->recalculate($transaction->shop_id, $transaction->business_date->toDateString());
+        $snapshot = $this->calculator->recalculate($transaction->shop_id, $transaction->business_date->toDateString());
 
         return ['transaction' => $transaction, 'snapshot' => $snapshot];
     }
@@ -70,9 +70,9 @@ class DailyLedgerService
         }
 
         $shopId = $transaction->shop_id;
-        $date   = $transaction->business_date->toDateString();
+        $date = $transaction->business_date->toDateString();
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($transaction) {
+        DB::transaction(function () use ($transaction) {
             $transaction->children()->delete();
             $transaction->delete();
         });
@@ -95,7 +95,7 @@ class DailyLedgerService
     {
         $snapshot = $this->calculator->recalculate($shopId, $businessDate);
         $snapshot->update([
-            'status'    => 'closed',
+            'status' => 'closed',
             'closed_at' => now(),
             'closed_by' => $closedBy,
         ]);

@@ -89,7 +89,7 @@ class LedgerRuleResolver
         }
 
         throw new RuntimeException(
-            "No ledger configuration found for shop {$shopId}, entry type {$entryTypeId} on {$date}. " .
+            "No ledger configuration found for shop {$shopId}, entry type {$entryTypeId} on {$date}. ".
             'Apply a profile template or add a shop_ledger_entry_settings row before posting this entry.'
         );
     }

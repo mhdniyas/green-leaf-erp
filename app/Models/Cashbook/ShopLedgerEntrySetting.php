@@ -23,17 +23,17 @@ class ShopLedgerEntrySetting extends Model
     ];
 
     protected $casts = [
-        'effective_from'            => 'date',
-        'effective_to'              => 'date',
-        'enabled'                   => 'boolean',
-        'allowed_funding_sources'   => 'array',
-        'include_in_sales'          => 'boolean',
-        'include_in_income'         => 'boolean',
-        'include_in_expense'        => 'boolean',
-        'include_in_pl'             => 'boolean',
-        'include_in_payable'        => 'boolean',
+        'effective_from' => 'date',
+        'effective_to' => 'date',
+        'enabled' => 'boolean',
+        'allowed_funding_sources' => 'array',
+        'include_in_sales' => 'boolean',
+        'include_in_income' => 'boolean',
+        'include_in_expense' => 'boolean',
+        'include_in_pl' => 'boolean',
+        'include_in_payable' => 'boolean',
         'generates_secondary_entry' => 'boolean',
-        'secondary_amount_value'    => 'decimal:4',
+        'secondary_amount_value' => 'decimal:4',
     ];
 
     public function entryType(): BelongsTo

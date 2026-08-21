@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Finance;
 
 use App\Models\Shop;
-use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopLoanCategorySetting;
 use App\Models\ShopLoanEntry;

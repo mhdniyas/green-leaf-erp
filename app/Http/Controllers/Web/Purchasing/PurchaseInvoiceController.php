@@ -9,7 +9,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseInvoiceRequest;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
-use App\Models\PurchaserCredit;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Purchasing\PurchaseInvoiceService;
@@ -317,10 +316,10 @@ class PurchaseInvoiceController extends Controller
         $after = $result['after'];
 
         return redirect()->back()->with('success',
-            "Bill calculation fixed: Gross ₹" . number_format($after['gross'], 2)
-            . " → Net ₹" . number_format($after['net'], 2)
-            . " | Paid ₹" . number_format($after['paid'], 2)
-            . " | Balance ₹" . number_format($after['balance'], 2)
+            'Bill calculation fixed: Gross ₹'.number_format($after['gross'], 2)
+            .' → Net ₹'.number_format($after['net'], 2)
+            .' | Paid ₹'.number_format($after['paid'], 2)
+            .' | Balance ₹'.number_format($after['balance'], 2)
         );
     }
 

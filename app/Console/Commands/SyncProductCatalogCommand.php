@@ -29,8 +29,8 @@ class SyncProductCatalogCommand extends Command
     public function handle(): int
     {
         $this->info('Starting product catalog synchronization...');
-        
-        $seeder = new ProductSeeder();
+
+        $seeder = new ProductSeeder;
         $seeder->setCommand($this);
         $seeder->run();
 

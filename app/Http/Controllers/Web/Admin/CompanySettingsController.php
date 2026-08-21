@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
 use App\Models\Shop;
 use App\Models\User;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -71,7 +72,7 @@ class CompanySettingsController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'code', 'warehouse_tag']);
 
-        $operationalDate = app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $operationalDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
         return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers', 'directSaleShops', 'allActiveShops', 'operationalDate'));
     }

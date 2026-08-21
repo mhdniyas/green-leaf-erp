@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\ShopOrders;
 
-use App\Models\DailyPriceApproval;
+use App\Models\DailyPricePublication;
 use App\Models\Product;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
@@ -31,7 +31,7 @@ class DeliveryPriceReadinessService
         $order->loadMissing(['items.product', 'shop.priceGroup']);
 
         $isDatePublished = $order->business_date
-            ? \App\Models\DailyPricePublication::isPublishedForDate($order->business_date)
+            ? DailyPricePublication::isPublishedForDate($order->business_date)
             : false;
 
         $published = [];

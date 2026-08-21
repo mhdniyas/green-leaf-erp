@@ -6,6 +6,7 @@ namespace App\Repositories\Purchasing;
 
 use App\Models\Supplier;
 use App\Repositories\BaseRepository;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class SupplierRepository extends BaseRepository
 {
@@ -14,7 +15,7 @@ class SupplierRepository extends BaseRepository
         return Supplier::class;
     }
 
-    public function paginate(int $perPage = 15): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    public function paginate(int $perPage = 15): LengthAwarePaginator
     {
         return $this->query()->with('purchaseInvoices')->paginate($perPage);
     }

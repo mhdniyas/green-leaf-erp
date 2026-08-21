@@ -282,7 +282,6 @@ class ProductSeeder extends Seeder
 312|Billing Roll
 DATA;
 
-
     private const MEASURE_LINES = <<<'DATA'
 Tomato H|kg|kg:KG:1:1:1:0;crate:CRATE:20:0:1:1
 Tomato N|kg|kg:KG:1:1:1:0;crate:CRATE:20:0:1:1

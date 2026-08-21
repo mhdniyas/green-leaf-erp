@@ -12,6 +12,7 @@ class VoidEntryRequest extends FormRequest
     public function authorize(): bool
     {
         $user = $this->user();
+
         return $user instanceof User && $user->isMainAdmin();
     }
 
@@ -19,7 +20,7 @@ class VoidEntryRequest extends FormRequest
     {
         return [
             'transaction_id' => 'required|integer|exists:shop_ledger_transactions,id',
-            'reason'         => 'nullable|string|max:255',
+            'reason' => 'nullable|string|max:255',
         ];
     }
 }

@@ -28,8 +28,7 @@ class StockLedgerService
      * Uses a single aggregated query instead of one per product.
      *
      * @param  array<int, int>  $productIds
-     * @param  int|null  $warehouseId
-     * @return array<int, float>  Keys are product IDs, values are total available sorted stock.
+     * @return array<int, float> Keys are product IDs, values are total available sorted stock.
      */
     public function availableSortedStockForProducts(array $productIds, ?int $warehouseId = null): array
     {

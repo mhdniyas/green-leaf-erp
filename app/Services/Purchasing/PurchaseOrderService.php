@@ -39,6 +39,7 @@ class PurchaseOrderService
                 if (str_contains($status, ',')) {
                     return $query->whereIn('status', explode(',', $status));
                 }
+
                 return $query->where('status', $status);
             })
             ->when($date, fn ($query) => $query->whereDate('order_date', $date))

@@ -7,14 +7,12 @@ namespace App\Http\Controllers\Web\Warehouse;
 use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\DTOs\Inventory\WastageEntryData;
 use App\Enums\Inventory\BatchStatus;
-use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Warehouse\ReceiveIndexRequest;
 use App\Models\Category;
 use App\Models\GoodsReceived;
-use App\Models\PurchaserCart;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
@@ -59,14 +57,14 @@ class WarehouseReceiverController extends Controller
         $this->authorizeReceiverAccess($request);
         $validated = $request->validated();
 
-        $date                = $validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+        $date = $validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
         $selectedWarehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
-        $receiveSearch       = trim((string) ($validated['receive_search'] ?? ''));
-        $receiveSource       = (string) ($validated['receive_source'] ?? 'all');
-        $receiveCategoryId   = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
+        $receiveSearch = trim((string) ($validated['receive_search'] ?? ''));
+        $receiveSource = (string) ($validated['receive_source'] ?? 'all');
+        $receiveCategoryId = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
 
-        $warehouses          = Warehouse::active()->orderBy('name')->get(['id', 'name', 'code']);
-        $receiveCategories   = Category::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $warehouses = Warehouse::active()->orderBy('name')->get(['id', 'name', 'code']);
+        $receiveCategories = Category::where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
         return view('warehouse-receiver.checklist', compact(
             'date',
@@ -88,45 +86,45 @@ class WarehouseReceiverController extends Controller
         $this->authorizeReceiverAccess($request);
         $validated = $request->validated();
 
-        $date        = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
-        $source      = (string) ($validated['receive_source'] ?? 'all');
-        $categoryId  = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
-        $search      = trim((string) ($validated['receive_search'] ?? ''));
+        $date = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+        $source = (string) ($validated['receive_source'] ?? 'all');
+        $categoryId = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
+        $search = trim((string) ($validated['receive_search'] ?? ''));
 
         $warehouses = Warehouse::active()->orderBy('name')->get(['id', 'name', 'code']);
 
         $pendingGrns = $this->warehouseReceiveRepository->pendingGrns($date, $source, $categoryId, $search)
             ->map(fn ($grn) => [
-                'id'            => $grn->id,
-                'grn_number'    => $grn->grn_number,
-                'status'        => $grn->status,
-                'received_at'   => $grn->received_at?->toDateTimeString(),
+                'id' => $grn->id,
+                'grn_number' => $grn->grn_number,
+                'status' => $grn->status,
+                'received_at' => $grn->received_at?->toDateTimeString(),
                 'supplier_name' => $grn->purchaseOrder?->supplier?->name ?? 'Vendor',
-                'purchaser_name'=> $grn->purchaseOrder?->purchaserCart?->user?->name ?? 'Purchaser',
-                'items_count'   => $grn->items->count(),
-                'total_kg'      => (float) $grn->items->sum('received_qty'),
-                'receive_url'   => route('warehouse.receiver.receive-grn', $grn->id),
-                'items'         => $grn->items->map(fn ($item) => [
-                    'product_name'  => $item->product?->name,
-                    'product_sku'   => $item->product?->sku,
+                'purchaser_name' => $grn->purchaseOrder?->purchaserCart?->user?->name ?? 'Purchaser',
+                'items_count' => $grn->items->count(),
+                'total_kg' => (float) $grn->items->sum('received_qty'),
+                'receive_url' => route('warehouse.receiver.receive-grn', $grn->id),
+                'items' => $grn->items->map(fn ($item) => [
+                    'product_name' => $item->product?->name,
+                    'product_sku' => $item->product?->sku,
                     'category_name' => $item->product?->category?->name,
-                    'received_qty'  => (float) $item->received_qty,
-                    'unit'          => $item->product?->unit,
+                    'received_qty' => (float) $item->received_qty,
+                    'unit' => $item->product?->unit,
                 ]),
             ]);
 
         $pendingBatches = $this->warehouseReceiveRepository->pendingBatches($date, $source, $categoryId, $search)
             ->map(fn ($batch) => [
-                'id'                   => $batch->id,
-                'reference'            => $batch->reference,
-                'total_kg'             => (float) $batch->total_kg,
-                'received_at'          => $batch->received_at?->toDateTimeString(),
-                'product_name'         => $batch->product?->name,
-                'product_sku'          => $batch->product?->sku,
-                'category_name'        => $batch->product?->category?->name,
-                'unit'                 => $batch->product?->unit,
+                'id' => $batch->id,
+                'reference' => $batch->reference,
+                'total_kg' => (float) $batch->total_kg,
+                'received_at' => $batch->received_at?->toDateTimeString(),
+                'product_name' => $batch->product?->name,
+                'product_sku' => $batch->product?->sku,
+                'category_name' => $batch->product?->category?->name,
+                'unit' => $batch->product?->unit,
                 'default_warehouse_id' => $batch->product?->default_warehouse_id ?? $warehouses->first()?->id,
-                'confirm_url'          => route('warehouse.receiver.confirm', $batch->id),
+                'confirm_url' => route('warehouse.receiver.confirm', $batch->id),
             ]);
 
         $directPurchaseGrns = $this->warehouseReceiveRepository->directPurchaseGrns($date);
@@ -138,30 +136,30 @@ class WarehouseReceiverController extends Controller
             ->filter(fn (ShopOrder $order) => $order->items->pluck('product_id')->intersect($directProductIds)->isEmpty())
             ->values()
             ->map(fn (ShopOrder $order) => [
-                'id'             => $order->id,
-                'order_number'   => $order->order_number,
-                'delivery_status'=> $order->delivery_status,
-                'receive_url'    => route('warehouse.receiver.direct-purchase.receive', $order->id),
-                'items'          => $order->items->map(fn ($item) => [
-                    'id'                  => $item->id,
-                    'product_name'        => $item->product?->name,
-                    'product_sku'         => $item->product?->sku,
-                    'category_name'       => $item->product?->category?->name,
-                    'approved_qty'        => (float) ($item->approved_qty ?: $item->requested_qty),
-                    'unit'                => $item->unit,
-                    'default_warehouse_id'=> $item->product?->default_warehouse_id ?? $warehouses->first()?->id,
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'delivery_status' => $order->delivery_status,
+                'receive_url' => route('warehouse.receiver.direct-purchase.receive', $order->id),
+                'items' => $order->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'product_name' => $item->product?->name,
+                    'product_sku' => $item->product?->sku,
+                    'category_name' => $item->product?->category?->name,
+                    'approved_qty' => (float) ($item->approved_qty ?: $item->requested_qty),
+                    'unit' => $item->unit,
+                    'default_warehouse_id' => $item->product?->default_warehouse_id ?? $warehouses->first()?->id,
                 ]),
             ]);
 
         return response()->json([
-            'success'                => true,
-            'date'                   => $date,
-            'warehouses'             => $warehouses,
-            'receive_all_grns_url'   => route('warehouse.receiver.process-receive-grns.all'),
-            'confirm_all_batches_url'=> route('warehouse.receiver.confirm-all'),
-            'pending_grns'           => $pendingGrns->values(),
-            'pending_batches'        => $pendingBatches->values(),
-            'pending_direct_orders'  => $pendingDirectOrders->values(),
+            'success' => true,
+            'date' => $date,
+            'warehouses' => $warehouses,
+            'receive_all_grns_url' => route('warehouse.receiver.process-receive-grns.all'),
+            'confirm_all_batches_url' => route('warehouse.receiver.confirm-all'),
+            'pending_grns' => $pendingGrns->values(),
+            'pending_batches' => $pendingBatches->values(),
+            'pending_direct_orders' => $pendingDirectOrders->values(),
         ]);
     }
 
@@ -170,7 +168,7 @@ class WarehouseReceiverController extends Controller
         $this->authorizeReceiverAccess($request);
         $validated = $request->validated();
 
-        $date        = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+        $date = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $warehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
 
         $inMovements = StockMovement::query()
@@ -189,53 +187,55 @@ class WarehouseReceiverController extends Controller
             ->take(20)
             ->get();
 
-        $stockLevels  = $this->stockMovementRepository->currentStockByProductAndGrade(null, $warehouseId);
+        $stockLevels = $this->stockMovementRepository->currentStockByProductAndGrade(null, $warehouseId);
         $latestActivity = $this->warehouseReceiveRepository->latestActivityByStockLevel($stockLevels, $warehouseId);
 
         $inflows = $inMovements->map(fn ($mov) => [
-            'product_name'  => $mov->product?->name,
+            'product_name' => $mov->product?->name,
             'category_name' => $mov->product?->category?->name ?? 'Other',
-            'reference'     => $mov->batch?->reference,
-            'quantity'      => (float) $mov->quantity,
-            'unit'          => $mov->product?->unit,
-            'time_formatted'=> $mov->created_at->format('H:i'),
+            'reference' => $mov->batch?->reference,
+            'quantity' => (float) $mov->quantity,
+            'unit' => $mov->product?->unit,
+            'time_formatted' => $mov->created_at->format('H:i'),
         ]);
 
         $outflows = $outMovements->map(fn ($mov) => [
-            'product_name'  => $mov->product?->name,
+            'product_name' => $mov->product?->name,
             'category_name' => $mov->product?->category?->name ?? 'Other',
-            'type_label'    => $mov->type instanceof StockMovementType ? $mov->type->label() : (string) $mov->type,
-            'quantity'      => (float) $mov->quantity,
-            'unit'          => $mov->product?->unit,
-            'time_formatted'=> $mov->created_at->format('H:i'),
+            'type_label' => $mov->type instanceof StockMovementType ? $mov->type->label() : (string) $mov->type,
+            'quantity' => (float) $mov->quantity,
+            'unit' => $mov->product?->unit,
+            'time_formatted' => $mov->created_at->format('H:i'),
         ]);
 
         $stockRows = $stockLevels
             ->sortByDesc(function ($item) use ($latestActivity) {
                 $gradeStr = ($item->grade instanceof \BackedEnum) ? $item->grade->value : (string) $item->grade;
-                $key      = ((int) $item->product_id).'|'.$gradeStr;
-                $rawTs    = $latestActivity[$key] ?? null;
+                $key = ((int) $item->product_id).'|'.$gradeStr;
+                $rawTs = $latestActivity[$key] ?? null;
+
                 return $rawTs ? Carbon::parse($rawTs)->timestamp : 0;
             })
             ->values()
             ->map(function ($level) use ($latestActivity) {
                 $gradeStr = ($level->grade instanceof \BackedEnum) ? $level->grade->value : (string) $level->grade;
-                $key      = ((int) $level->product_id).'|'.$gradeStr;
-                $rawTs    = $latestActivity[$key] ?? null;
+                $key = ((int) $level->product_id).'|'.$gradeStr;
+                $rawTs = $latestActivity[$key] ?? null;
+
                 return [
-                    'product_name'  => $level->product_name ?? '',
-                    'product_sku'   => $level->product_sku ?? '',
+                    'product_name' => $level->product_name ?? '',
+                    'product_sku' => $level->product_sku ?? '',
                     'category_name' => $level->category_name ?? 'Other',
                     'current_stock' => round((float) $level->current_stock, 2),
-                    'unit'          => 'kg',
-                    'latest_activity'=> $rawTs ? Carbon::parse($rawTs)->format('Y-m-d H:i') : null,
+                    'unit' => 'kg',
+                    'latest_activity' => $rawTs ? Carbon::parse($rawTs)->format('Y-m-d H:i') : null,
                 ];
             });
 
         return response()->json([
-            'success'      => true,
-            'inflows'      => $inflows->values(),
-            'outflows'     => $outflows->values(),
+            'success' => true,
+            'inflows' => $inflows->values(),
+            'outflows' => $outflows->values(),
             'stock_levels' => $stockRows,
         ]);
     }
@@ -257,27 +257,27 @@ class WarehouseReceiverController extends Controller
             ->orderBy('created_at')
             ->get(['id', 'shop_id', 'order_number', 'business_date', 'delivery_status', 'state', 'created_at'])
             ->map(function (ShopOrder $order) {
-                $total  = (int) $order->total_items_count;
+                $total = (int) $order->total_items_count;
                 $loaded = (int) $order->loaded_items_count;
 
                 return [
-                    'id'                => $order->id,
-                    'order_number'      => $order->order_number,
-                    'delivery_status'   => $order->delivery_status,
-                    'display_name'      => $order->loadoutDisplayName(),
-                    'loading_status'    => match (true) {
-                        $total === 0       => 'Pending',
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'delivery_status' => $order->delivery_status,
+                    'display_name' => $order->loadoutDisplayName(),
+                    'loading_status' => match (true) {
+                        $total === 0 => 'Pending',
                         $loaded === $total => 'Loaded',
-                        $loaded > 0        => 'Partially Loaded',
-                        default            => 'Pending',
+                        $loaded > 0 => 'Partially Loaded',
+                        default => 'Pending',
                     },
-                    'total_items_count'  => $total,
+                    'total_items_count' => $total,
                     'loaded_items_count' => $loaded,
                     'shop' => $order->shop ? [
                         'warehouse_tag' => $order->shop->warehouse_tag,
-                        'code'          => $order->shop->code,
+                        'code' => $order->shop->code,
                         'contact_phone' => $order->shop->contact_phone,
-                        'contact_name'  => $order->shop->contact_name,
+                        'contact_name' => $order->shop->contact_name,
                     ] : null,
                     'loadout_url' => route('warehouse.receiver.loadout.show', $order->id),
                 ];
@@ -285,8 +285,8 @@ class WarehouseReceiverController extends Controller
 
         return response()->json([
             'success' => true,
-            'date'    => $date,
-            'orders'  => $orders,
+            'date' => $date,
+            'orders' => $orders,
         ]);
     }
 
@@ -295,11 +295,11 @@ class WarehouseReceiverController extends Controller
         $this->authorizeReceiverAccess($request);
         $validated = $request->validated();
 
-        $date        = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+        $date = (string) ($validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $warehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
 
         $stockLevels = $this->stockMovementRepository->currentStockByProductAndGrade(null, $warehouseId);
-        $stockMap    = [];
+        $stockMap = [];
         foreach ($stockLevels as $level) {
             $stockMap[$level->product_id] = ($stockMap[$level->product_id] ?? 0.0) + (float) $level->current_stock;
         }
@@ -317,65 +317,65 @@ class WarehouseReceiverController extends Controller
             ->orderBy('created_at')
             ->get(['id', 'shop_id', 'order_number', 'business_date', 'delivery_status', 'state', 'created_at'])
             ->map(function (ShopOrder $order) use ($stockMap) {
-                $total  = (int) $order->total_items_count;
+                $total = (int) $order->total_items_count;
                 $loaded = (int) $order->loaded_items_count;
 
-                $totalReq  = 0.0;
+                $totalReq = 0.0;
                 $totalAvail = 0.0;
                 foreach ($order->items as $item) {
-                    $qty         = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
-                    $stock       = $stockMap[$item->product_id] ?? 0.0;
-                    $totalReq   += $qty;
+                    $qty = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
+                    $stock = $stockMap[$item->product_id] ?? 0.0;
+                    $totalReq += $qty;
                     $totalAvail += min($qty, max(0.0, $stock));
                 }
                 $fulfillmentPct = $totalReq > 0 ? (int) round(($totalAvail / $totalReq) * 100) : 100;
 
                 return [
-                    'id'                  => $order->id,
-                    'order_number'        => $order->order_number,
-                    'delivery_status'     => $order->delivery_status,
-                    'display_name'        => $order->loadoutDisplayName(),
-                    'loading_status'      => match (true) {
-                        $total === 0       => 'Pending',
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'delivery_status' => $order->delivery_status,
+                    'display_name' => $order->loadoutDisplayName(),
+                    'loading_status' => match (true) {
+                        $total === 0 => 'Pending',
                         $loaded === $total => 'Loaded',
-                        $loaded > 0        => 'Partially Loaded',
-                        default            => 'Pending',
+                        $loaded > 0 => 'Partially Loaded',
+                        default => 'Pending',
                     },
-                    'total_items_count'   => $total,
-                    'loaded_items_count'  => $loaded,
+                    'total_items_count' => $total,
+                    'loaded_items_count' => $loaded,
                     'fulfillment_percentage' => $fulfillmentPct,
                     'shop' => $order->shop ? [
                         'warehouse_tag' => $order->shop->warehouse_tag,
-                        'code'          => $order->shop->code,
-                        'name'          => $order->shop->name,
+                        'code' => $order->shop->code,
+                        'name' => $order->shop->name,
                     ] : null,
-                    'dispatch_url'         => route('warehouse.receiver.loadout.order.dispatch', $order->id),
+                    'dispatch_url' => route('warehouse.receiver.loadout.order.dispatch', $order->id),
                     'dispatch_partial_url' => route('warehouse.receiver.loadout.order.dispatch-partial', $order->id),
-                    'ship_url'             => route('warehouse.receiver.loadout.order.ship', $order->id),
+                    'ship_url' => route('warehouse.receiver.loadout.order.ship', $order->id),
                     'loaded_items' => $order->items
                         ->where('sorting_status', 'loaded')
                         ->map(fn ($item) => [
-                            'product_name'     => $item->product?->name,
-                            'product_grade'    => $item->product_grade ?? 'A',
-                            'loaded_qty'       => (float) $item->loaded_qty,
-                            'unit'             => $item->unit,
+                            'product_name' => $item->product?->name,
+                            'product_grade' => $item->product_grade ?? 'A',
+                            'loaded_qty' => (float) $item->loaded_qty,
+                            'unit' => $item->unit,
                             'discrepancy_type' => $item->loadout_discrepancy_type,
                             'discrepancy_note' => $item->loadout_discrepancy_note,
                         ])->values(),
                     'all_items' => $order->items->map(fn ($item) => [
-                        'product_name'  => $item->product?->name,
-                        'approved_qty'  => (float) ($item->approved_qty ?: $item->requested_qty),
-                        'loaded_qty'    => (float) $item->loaded_qty,
-                        'unit'          => $item->unit,
-                        'sorting_status'=> $item->sorting_status,
+                        'product_name' => $item->product?->name,
+                        'approved_qty' => (float) ($item->approved_qty ?: $item->requested_qty),
+                        'loaded_qty' => (float) $item->loaded_qty,
+                        'unit' => $item->unit,
+                        'sorting_status' => $item->sorting_status,
                     ])->values(),
                 ];
             });
 
         return response()->json([
             'success' => true,
-            'date'    => $date,
-            'orders'  => $orders,
+            'date' => $date,
+            'orders' => $orders,
         ]);
     }
 

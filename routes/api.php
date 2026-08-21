@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Inventory\StockController;
 use App\Http\Controllers\Api\Inventory\WastageController;
 use App\Http\Controllers\Api\Purchaser\BillPriceApiController;
 use App\Http\Controllers\Api\Purchaser\PurchaserReportController;
+use App\Http\Controllers\Api\Purchaser\PurchaserSettingsController;
 use App\Http\Controllers\Api\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
@@ -52,9 +53,9 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::get('/reports/item-summary', [PurchaserReportController::class, 'itemSummary'])
                 ->middleware('can:purchaser.reports.items.view')
                 ->name('reports.item-summary');
-            Route::get('/settings', [\App\Http\Controllers\Api\Purchaser\PurchaserSettingsController::class, 'show'])
+            Route::get('/settings', [PurchaserSettingsController::class, 'show'])
                 ->name('settings.show');
-            Route::post('/settings', [\App\Http\Controllers\Api\Purchaser\PurchaserSettingsController::class, 'update'])
+            Route::post('/settings', [PurchaserSettingsController::class, 'update'])
                 ->name('settings.update');
         });
 

@@ -18,7 +18,6 @@ class BulkPaymentService
     /**
      * Process bulk payment across multiple invoices for a supplier.
      *
-     * @param  Supplier  $supplier
      * @param  array{bill_ids: array<int>, amount_paid: float, payment_method: string, payment_paid_by?: string, discount_allocations?: array<int, float>, payment_note?: string}  $payload
      * @return array{success: bool, processed: int, total_paid: float, total_discount: float, invoices: Collection}
      */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Cashbook;
 
+use App\Models\ShopInvoice;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -24,18 +25,18 @@ class ShopLedgerTransaction extends Model
     ];
 
     protected $casts = [
-        'business_date'         => 'date:Y-m-d',
-        'amount'                => 'decimal:2',
-        'affects_sales'         => 'boolean',
-        'affects_income'        => 'boolean',
-        'affects_expense'       => 'boolean',
-        'affects_pl'            => 'boolean',
-        'pl_delta'              => 'decimal:2',
-        'settlement_delta'      => 'decimal:2',
-        'petty_delta'           => 'decimal:2',
+        'business_date' => 'date:Y-m-d',
+        'amount' => 'decimal:2',
+        'affects_sales' => 'boolean',
+        'affects_income' => 'boolean',
+        'affects_expense' => 'boolean',
+        'affects_pl' => 'boolean',
+        'pl_delta' => 'decimal:2',
+        'settlement_delta' => 'decimal:2',
+        'petty_delta' => 'decimal:2',
         'company_pending_delta' => 'decimal:2',
-        'generated_by_rule'     => 'boolean',
-        'voided_at'             => 'datetime',
+        'generated_by_rule' => 'boolean',
+        'voided_at' => 'datetime',
     ];
 
     public function entryType(): BelongsTo
@@ -85,7 +86,7 @@ class ShopLedgerTransaction extends Model
     {
         if (
             $this->reference_type === 'App\Models\ShopInvoice' ||
-            $this->reference_type === \App\Models\ShopInvoice::class ||
+            $this->reference_type === ShopInvoice::class ||
             $this->reference_type === 'ShopInvoice'
         ) {
             return false;

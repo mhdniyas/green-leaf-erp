@@ -38,7 +38,7 @@ class CatalogCleanupCommand extends Command
         }
 
         // Run catalog seeder to gather catalog SKUs
-        $seeder = new ProductSeeder();
+        $seeder = new ProductSeeder;
         $reflector = new \ReflectionClass($seeder);
         $method = $reflector->getMethod('catalog');
         $method->setAccessible(true);

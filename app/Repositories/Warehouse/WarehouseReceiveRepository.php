@@ -158,7 +158,7 @@ class WarehouseReceiveRepository
     }
 
     /**
-     * @param Collection<int, object> $stockLevels
+     * @param  Collection<int, object>  $stockLevels
      * @return array<string, string|null>
      */
     public function latestActivityByStockLevel(Collection $stockLevels, ?int $warehouseId): array

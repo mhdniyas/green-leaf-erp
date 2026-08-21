@@ -6,6 +6,7 @@ namespace App\Services\Reports;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class PurchaserReportService
@@ -51,9 +52,11 @@ class PurchaserReportService
     {
         $lines = $this->itemLinesQuery($filters);
         $aggregate = $this->itemRowsQuery($lines);
-        $distinctRows = DB::query()->fromSub(clone $aggregate, 'item_rows')->count();
-        $distinctProducts = (clone $lines)->distinct()->count('shop_invoice_items.product_id');
-        $invoiceLines = (clone $lines)->count();
+
+        $linesSummary = (clone $lines)
+            ->selectRaw('COUNT(*) as invoice_lines')
+            ->selectRaw('COUNT(DISTINCT shop_invoice_items.product_id) as distinct_products')
+            ->first();
 
         $rows = $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))
             ->paginate($filters['per_page'], ['*'], 'page', $filters['page']);
@@ -61,9 +64,9 @@ class PurchaserReportService
 
         return [
             'summary' => [
-                'distinct_products' => (int) $distinctProducts,
-                'product_unit_rows' => (int) $distinctRows,
-                'invoice_lines' => (int) $invoiceLines,
+                'distinct_products' => (int) ($linesSummary?->distinct_products ?? 0),
+                'product_unit_rows' => (int) $rows->total(),
+                'invoice_lines' => (int) ($linesSummary?->invoice_lines ?? 0),
             ],
             'items' => $this->enrichedItemRows($pageItems, $filters),
             'pagination' => $this->pagination($rows),
@@ -79,14 +82,20 @@ class PurchaserReportService
         $lines = $this->itemLinesQuery($filters);
         $aggregate = $this->itemRowsQuery($lines);
 
+        $linesSummary = (clone $lines)
+            ->selectRaw('COUNT(*) as invoice_lines')
+            ->selectRaw('COUNT(DISTINCT shop_invoice_items.product_id) as distinct_products')
+            ->first();
+
+        $sortedRows = $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))->get();
+
         return [
             'summary' => [
-                'distinct_products' => (int) (clone $lines)->distinct()->count('shop_invoice_items.product_id'),
-                'product_unit_rows' => (int) DB::query()->fromSub(clone $aggregate, 'item_rows')->count(),
-                'invoice_lines' => (int) (clone $lines)->count(),
+                'distinct_products' => (int) ($linesSummary?->distinct_products ?? 0),
+                'product_unit_rows' => $sortedRows->count(),
+                'invoice_lines' => (int) ($linesSummary?->invoice_lines ?? 0),
             ],
-            'items' => $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))
-                ->get()
+            'items' => $sortedRows
                 ->map(fn (object $row): array => $this->itemRow($row))
                 ->all(),
         ];
@@ -298,14 +307,14 @@ class PurchaserReportService
     /** @return array<string, mixed> */
     private function itemRow(object $row): array
     {
-        $imagePath = isset($row->product_image) && $row->product_image !== null && (string) $row->product_image !== "" ? (string) $row->product_image : null;
-        $imageUrl = $imagePath ? asset("storage/".$imagePath) : null;
+        $imagePath = isset($row->product_image) && $row->product_image !== null && (string) $row->product_image !== '' ? (string) $row->product_image : null;
+        $imageUrl = $imagePath ? asset('storage/'.$imagePath) : null;
 
         return [
-            "image" => $imagePath,
-            "image_url" => $imageUrl,
-            "product_image" => $imagePath,
-            "product_id" => (int) $row->product_id,
+            'image' => $imagePath,
+            'image_url' => $imageUrl,
+            'product_image' => $imagePath,
+            'product_id' => (int) $row->product_id,
             'product_name' => (string) $row->product_name,
             'product_sku' => $row->product_sku !== null ? (string) $row->product_sku : null,
             'category_name' => $row->category_name !== null ? (string) $row->category_name : null,
@@ -318,8 +327,8 @@ class PurchaserReportService
         ];
     }
 
-    /** @param \Illuminate\Support\Collection<int, object> $rows */
-    private function enrichedItemRows(\Illuminate\Support\Collection $rows, array $filters): array
+    /** @param Collection<int, object> $rows */
+    private function enrichedItemRows(Collection $rows, array $filters): array
     {
         if ($rows->isEmpty()) {
             return [];

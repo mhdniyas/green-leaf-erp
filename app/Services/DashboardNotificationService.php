@@ -15,6 +15,7 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 
 class DashboardNotificationService
 {
@@ -52,7 +53,7 @@ class DashboardNotificationService
             'supplier_invoices_pending' => PurchaseInvoice::query()
                 ->where('status', InvoiceStatus::Pending)
                 ->count(),
-            'company_payables_pending' => \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')
+            'company_payables_pending' => Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')
                 ? ShopAccountingEntryLine::query()
                     ->where('funding_source', 'company')
                     ->where('company_payable_status', 'pending')

@@ -11,10 +11,13 @@ use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopPriceGroup;
-use App\Models\Warehouse;
 use App\Models\SortSheetPreset;
+use App\Models\SortSheetPresetBatch;
+use App\Models\Warehouse;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -183,7 +186,7 @@ class SortSheetController extends Controller
         return redirect()->back()->with('success', 'Custom order preset deleted successfully.');
     }
 
-    public function reorderPresets(Request $request): \Illuminate\Http\JsonResponse
+    public function reorderPresets(Request $request): JsonResponse
     {
         $this->authorizeAccess($request);
 
@@ -261,7 +264,7 @@ class SortSheetController extends Controller
 
     private function userPresetBatches(Request $request): Collection
     {
-        return \App\Models\SortSheetPresetBatch::query()
+        return SortSheetPresetBatch::query()
             ->where(function ($query) use ($request) {
                 $query->where('user_id', $request->user()?->id)
                     ->orWhereNull('user_id');
@@ -394,7 +397,7 @@ class SortSheetController extends Controller
             'preset_ids' => 'required|array|min:1',
         ]);
 
-        \App\Models\SortSheetPresetBatch::create([
+        SortSheetPresetBatch::create([
             'user_id' => $request->user()?->id,
             'name' => $validated['name'],
             'preset_ids' => $validated['preset_ids'],
@@ -403,7 +406,7 @@ class SortSheetController extends Controller
         return redirect()->route('sort-sheet.presets.index')->with('success', "Preset Batch '{$validated['name']}' saved successfully!");
     }
 
-    public function destroyPresetBatch(Request $request, \App\Models\SortSheetPresetBatch $batch): RedirectResponse
+    public function destroyPresetBatch(Request $request, SortSheetPresetBatch $batch): RedirectResponse
     {
         $this->authorizeAccess($request);
 
@@ -422,7 +425,7 @@ class SortSheetController extends Controller
 
         $presetIds = (array) $request->input('preset_ids', []);
         if (empty($presetIds) && $request->filled('batch_id')) {
-            $batch = \App\Models\SortSheetPresetBatch::where('uuid', $request->input('batch_id'))
+            $batch = SortSheetPresetBatch::where('uuid', $request->input('batch_id'))
                 ->orWhere('id', $request->input('batch_id'))
                 ->first();
             if ($batch) {
@@ -803,7 +806,7 @@ class SortSheetController extends Controller
     {
         $lines = [
             '*Sort Sheet Summary*',
-            \Carbon\Carbon::parse($date)->format('d M Y'),
+            Carbon::parse($date)->format('d M Y'),
             '---',
             '',
         ];
@@ -826,5 +829,4 @@ class SortSheetController extends Controller
 
         return trim($formatted.' '.$unit);
     }
-
 }

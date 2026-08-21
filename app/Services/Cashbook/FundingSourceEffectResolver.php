@@ -42,8 +42,8 @@ class FundingSourceEffectResolver
 
         return match ($direction) {
             LedgerDirection::Expense => $this->resolveExpense($fundingSource, $amount),
-            LedgerDirection::Income  => $this->resolveIncome($amount, $setting),
-            default                  => $this->resolveFromOverrides($direction, $amount, $setting),
+            LedgerDirection::Income => $this->resolveIncome($amount, $setting),
+            default => $this->resolveFromOverrides($direction, $amount, $setting),
         };
     }
 
@@ -131,8 +131,8 @@ class FundingSourceEffectResolver
      */
     private function resolveFromOverrides(LedgerDirection $direction, float $amount, ShopLedgerEntrySetting $setting): LedgerEffect
     {
-        $settlementMove     = $setting->settlement_behavior ? BalanceMove::from($setting->settlement_behavior) : BalanceMove::None;
-        $pettyMove          = $setting->petty_behavior ? BalanceMove::from($setting->petty_behavior) : BalanceMove::None;
+        $settlementMove = $setting->settlement_behavior ? BalanceMove::from($setting->settlement_behavior) : BalanceMove::None;
+        $pettyMove = $setting->petty_behavior ? BalanceMove::from($setting->petty_behavior) : BalanceMove::None;
         $companyPendingMove = $setting->company_pending_behavior ? BalanceMove::from($setting->company_pending_behavior) : BalanceMove::None;
 
         return new LedgerEffect(
@@ -151,16 +151,16 @@ class FundingSourceEffectResolver
         return match ($move) {
             BalanceMove::Increase => $amount,
             BalanceMove::Decrease => -$amount,
-            BalanceMove::None     => 0.0,
+            BalanceMove::None => 0.0,
         };
     }
 
     private function signedByDirection(LedgerDirection $direction, float $amount): float
     {
         return match ($direction) {
-            LedgerDirection::Income  => $amount,
+            LedgerDirection::Income => $amount,
             LedgerDirection::Expense => -$amount,
-            default                  => 0.0,
+            default => 0.0,
         };
     }
 }
