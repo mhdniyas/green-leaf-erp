@@ -109,7 +109,7 @@
                         @endforeach
                     </div>
                 @endif
-                <button type="button" onclick="document.getElementById('info-product-{{ $summary['product_id'] }}').classList.remove('hidden'); document.body.classList.add('overflow-hidden')" class="mt-3 flex w-full items-center justify-between text-left text-[11px] font-black text-slate-500">
+                <button type="button" onclick="openDemandDetailsModal({{ $summary['product_id'] }})" class="mt-3 flex w-full items-center justify-between text-left text-[11px] font-black text-slate-500">
                     <span>Demand split</span>
                     <span class="rounded-full bg-white px-2.5 py-1 text-[10px] text-slate-700 shadow-sm">
                         {{ $directPurchaseCount > 0 ? 'Direct + ' : '' }}{{ $shopDemandCount }} shops
@@ -121,53 +121,3 @@
     @endunless
 </article>
 
-@unless ($isGradeBCatalog)
-<div id="info-product-{{ $summary['product_id'] }}" class="fixed inset-0 z-[90] hidden p-4" onclick="if (event.target === this) { this.classList.add('hidden'); document.body.classList.remove('overflow-hidden'); }">
-    <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
-    <div class="relative mx-auto flex min-h-full max-w-lg items-center justify-center">
-        <div class="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-xl lg:rounded-[2rem] lg:p-5">
-            <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Demand Details</p>
-                    <h3 class="mt-1 text-lg font-black text-slate-950">{{ $summary['product_name'] }}</h3>
-                    <p class="mt-1 text-sm font-semibold text-slate-600">{{ number_format($summary['total_approved_qty'], 2) }} {{ $summary['unit'] }} total needed</p>
-                </div>
-                <button type="button" onclick="document.getElementById('info-product-{{ $summary['product_id'] }}').classList.add('hidden'); document.body.classList.remove('overflow-hidden')" class="rounded-xl bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-700">Close</button>
-            </div>
-            <div class="mt-4 flex flex-wrap gap-2">
-                @foreach ($summary['quantity_buckets'] as $bucket)
-                    <span class="inline-flex rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-700">{{ $bucket['formatted'] }} x {{ $bucket['count'] }}</span>
-                @endforeach
-            </div>
-            @if(! empty($summary['measure_breakdown']))
-                <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Requested package summary</p>
-                    <div class="mt-2 flex flex-wrap gap-1.5">
-                        @foreach($summary['measure_breakdown'] as $measure)
-                            <span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 shadow-sm">
-                                {{ number_format((float) $measure['requested_qty'], 2) }} {{ $measure['label'] }} = {{ number_format((float) $measure['approved_qty'], 2) }} {{ $summary['unit'] }}
-                            </span>
-                        @endforeach
-                    </div>
-                </div>
-            @endif
-            <div class="mt-4 space-y-2">
-                @foreach ($summary['shop_details'] as $detail)
-                    <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl border {{ $detail['is_direct_purchase'] ?? false ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50' }} px-3 py-3 text-sm font-semibold text-slate-700 lg:rounded-2xl">
-                        <div class="min-w-0">
-                            <p class="truncate font-black {{ $detail['is_direct_purchase'] ?? false ? 'text-emerald-800' : 'text-slate-900' }}">{{ $detail['shop_name'] }}</p>
-                            <p class="truncate text-xs text-slate-500">{{ $detail['order_number'] }}</p>
-                        </div>
-                        <div class="shrink-0 text-right">
-                            <span class="block">{{ number_format($detail['approved_qty'], 2) }} {{ $detail['unit'] }}</span>
-                            @if(! empty($detail['requested_measure_label']))
-                                <span class="block text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{{ $detail['requested_measure_label'] }}</span>
-                            @endif
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-    </div>
-</div>
-@endunless

@@ -362,6 +362,93 @@
         </div>
     </div>
 
+    {{-- Product Demand Details Modal --}}
+    <div id="info-product-modal" class="fixed inset-0 z-[90] hidden p-4 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center" onclick="if (event.target === this) closeDemandDetailsModal()">
+        <div class="relative mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-xl lg:rounded-[2rem] lg:p-5">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Demand Details</p>
+                    <h3 class="mt-1 text-lg font-black text-slate-955 truncate" id="info-modal-product-name">Product Name</h3>
+                    <p class="mt-1 text-sm font-semibold text-slate-600" id="info-modal-needed-label">0.00 total needed</p>
+                </div>
+                <button type="button" onclick="closeDemandDetailsModal()" class="rounded-xl bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-700 hover:bg-slate-200 transition-colors">Close</button>
+            </div>
+            
+            {{-- Pending/In-Cart/Submitted Status Badges --}}
+            <div id="info-modal-status-badges" class="mt-3 flex flex-wrap items-center gap-2">
+                <span id="info-modal-pending-badge" class="rounded-full bg-rose-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-rose-700 hidden">
+                    Pending
+                </span>
+                <span id="info-modal-cart-qty-badge" class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800 hidden">
+                    0.00 in cart
+                </span>
+                <span id="info-modal-submitted-qty-badge" class="rounded-full bg-cyan-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-cyan-800 hidden">
+                    0.00 submitted today
+                </span>
+                <span id="info-modal-not-in-cart-badge" class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-700 hidden">
+                    Not in cart
+                </span>
+            </div>
+
+            {{-- Stat Cards --}}
+            <div class="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-semibold text-slate-600">
+                <div class="min-w-0 rounded-xl bg-slate-50 p-2">
+                    <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Need</span>
+                    <span class="mt-0.5 block truncate font-black text-slate-955" id="info-modal-need-qty">0.00</span>
+                </div>
+                <div class="min-w-0 rounded-xl bg-amber-50 p-2">
+                    <span class="block text-[10px] font-bold uppercase tracking-wider text-amber-600">Bought</span>
+                    <span class="mt-0.5 block truncate font-black text-amber-700" id="info-modal-bought-qty">0.00</span>
+                </div>
+                <div class="min-w-0 rounded-xl bg-emerald-50 p-2">
+                    <span class="block text-[10px] font-bold uppercase tracking-wider text-emerald-600">Left</span>
+                    <span class="mt-0.5 block truncate font-black text-emerald-700" id="info-modal-left-qty">0.00</span>
+                </div>
+            </div>
+
+            {{-- Buckets and breakdowns container --}}
+            <div id="info-modal-aggregates-container" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 hidden">
+                <div id="info-modal-buckets-container" class="flex flex-wrap items-center gap-2">
+                    {{-- Populated dynamically --}}
+                </div>
+                <div id="info-modal-breakdown-container" class="mt-2 flex flex-wrap gap-1.5 hidden">
+                    {{-- Populated dynamically --}}
+                </div>
+            </div>
+
+            {{-- Shop Details --}}
+            <div class="mt-4 space-y-2 max-h-60 overflow-y-auto" id="info-modal-shops-container">
+                {{-- Populated dynamically --}}
+            </div>
+        </div>
+    </div>
+
+    @php
+        $mappedDailySummary = $dailySummary->keyBy('product_id')->map(function ($item) use ($date) {
+            return [
+                'product_id' => (int) $item['product_id'],
+                'product_name' => (string) $item['product_name'],
+                'unit' => (string) $item['unit'],
+                'category_name' => (string) ($item['category_name'] ?? 'Other'),
+                'total_approved_qty' => (float) $item['total_approved_qty'],
+                'remaining_qty' => (float) $item['remaining_qty'],
+                'draft_qty' => (float) $item['draft_qty'],
+                'bought_qty' => (float) $item['bought_qty'],
+                'order_date_formatted' => \Illuminate\Support\Carbon::parse($item['order_date'])->format('d M Y'),
+                'order_date_ymd' => \Illuminate\Support\Carbon::parse($item['order_date'])->format('Y-m-d'),
+                'draft_purchasers' => $item['draft_purchasers'] ?? [],
+                'quantity_buckets' => $item['quantity_buckets'] ?? [],
+                'measure_breakdown' => $item['measure_breakdown'] ?? [],
+                'shop_details' => $item['shop_details'] ?? [],
+            ];
+        });
+    @endphp
+
+    <script>
+        // Store daily summary data for details modal populate
+        window.purchaserDailyDemandData = @json($mappedDailySummary);
+    </script>
+
     <script>
         let currentModalBasis = 'kg';
         let currentProductUnit = 'kg';
@@ -529,5 +616,142 @@
             const defaultTab = cachedTab || (hasPending ? 'pending' : 'completed');
             switchDailyTab(defaultTab);
         });
+
+        function openDemandDetailsModal(productId) {
+            const summary = window.purchaserDailyDemandData[productId];
+            if (!summary) return;
+
+            document.getElementById('info-modal-product-name').textContent = summary.product_name;
+            document.getElementById('info-modal-needed-label').textContent = `${formatQuantity(summary.total_approved_qty)} ${summary.unit.toUpperCase()} total needed`;
+            
+            document.getElementById('info-modal-need-qty').textContent = `${formatQuantity(summary.total_approved_qty)} ${summary.unit}`;
+            document.getElementById('info-modal-bought-qty').textContent = `${formatQuantity(summary.bought_qty)} ${summary.unit}`;
+            document.getElementById('info-modal-left-qty').textContent = `${formatQuantity(summary.remaining_qty)} ${summary.unit}`;
+
+            const pendingBadge = document.getElementById('info-modal-pending-badge');
+            const cartQtyBadge = document.getElementById('info-modal-cart-qty-badge');
+            const submittedQtyBadge = document.getElementById('info-modal-submitted-qty-badge');
+            const notInCartBadge = document.getElementById('info-modal-not-in-cart-badge');
+
+            pendingBadge.classList.add('hidden');
+            cartQtyBadge.classList.add('hidden');
+            submittedQtyBadge.classList.add('hidden');
+            notInCartBadge.classList.add('hidden');
+
+            const currentDate = @js($date);
+            if (summary.order_date_ymd && summary.order_date_ymd !== currentDate) {
+                pendingBadge.textContent = `Pending (${summary.order_date_formatted})`;
+                pendingBadge.classList.remove('hidden');
+            }
+
+            if (summary.draft_qty > 0) {
+                let label = `${formatQuantity(summary.draft_qty)} ${summary.unit} in cart`;
+                if (summary.draft_purchasers && summary.draft_purchasers.length > 0) {
+                    label += ` (by ${summary.draft_purchasers.join(', ')})`;
+                }
+                cartQtyBadge.textContent = label;
+                cartQtyBadge.classList.remove('hidden');
+            }
+
+            if (summary.bought_qty > 0 && summary.remaining_qty > 0) {
+                submittedQtyBadge.textContent = `${formatQuantity(summary.bought_qty)} ${summary.unit} submitted today`;
+                submittedQtyBadge.classList.remove('hidden');
+            }
+
+            if (summary.draft_qty <= 0 && summary.bought_qty <= 0) {
+                notInCartBadge.classList.remove('hidden');
+            }
+
+            // Populate Buckets
+            const bucketsContainer = document.getElementById('info-modal-buckets-container');
+            bucketsContainer.innerHTML = '';
+            if (summary.quantity_buckets && summary.quantity_buckets.length > 0) {
+                summary.quantity_buckets.forEach(bucket => {
+                    const span = document.createElement('span');
+                    span.className = 'inline-flex rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-700';
+                    span.textContent = `${bucket.formatted} x ${bucket.count}`;
+                    bucketsContainer.appendChild(span);
+                });
+            }
+
+            // Populate Breakdown
+            const breakdownContainer = document.getElementById('info-modal-breakdown-container');
+            breakdownContainer.innerHTML = '';
+            if (summary.measure_breakdown && summary.measure_breakdown.length > 0) {
+                summary.measure_breakdown.forEach(measure => {
+                    const span = document.createElement('span');
+                    span.className = 'inline-flex rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-600 shadow-sm';
+                    let label = `${formatQuantity(measure.requested_qty)} ${measure.label}`;
+                    if (measure.label.toUpperCase() !== summary.unit.toUpperCase()) {
+                        label += ` / ${formatQuantity(measure.approved_qty)} ${summary.unit}`;
+                    }
+                    span.textContent = label;
+                    breakdownContainer.appendChild(span);
+                });
+                breakdownContainer.classList.remove('hidden');
+            } else {
+                breakdownContainer.classList.add('hidden');
+            }
+
+            const aggregatesContainer = document.getElementById('info-modal-aggregates-container');
+            if ((summary.quantity_buckets && summary.quantity_buckets.length > 0) || (summary.measure_breakdown && summary.measure_breakdown.length > 0)) {
+                aggregatesContainer.classList.remove('hidden');
+            } else {
+                aggregatesContainer.classList.add('hidden');
+            }
+
+            // Populate Shop Details
+            const shopsContainer = document.getElementById('info-modal-shops-container');
+            shopsContainer.innerHTML = '';
+            if (summary.shop_details && summary.shop_details.length > 0) {
+                summary.shop_details.forEach(detail => {
+                    const div = document.createElement('div');
+                    const isDirect = detail.is_direct_purchase;
+                    div.className = `flex min-w-0 items-center justify-between gap-3 rounded-xl border ${isDirect ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'} px-3 py-3 text-sm font-semibold text-slate-700 lg:rounded-2xl`;
+                    
+                    const leftCol = document.createElement('div');
+                    leftCol.className = 'min-w-0';
+                    const namePara = document.createElement('p');
+                    namePara.className = `truncate font-black ${isDirect ? 'text-emerald-800' : 'text-slate-900'}`;
+                    namePara.textContent = detail.shop_name;
+                    const orderPara = document.createElement('p');
+                    orderPara.className = 'truncate text-xs text-slate-500';
+                    orderPara.textContent = detail.order_number;
+                    leftCol.appendChild(namePara);
+                    leftCol.appendChild(orderPara);
+
+                    const rightCol = document.createElement('div');
+                    rightCol.className = 'shrink-0 text-right';
+                    const qtySpan = document.createElement('span');
+                    qtySpan.className = 'block';
+                    qtySpan.textContent = `${formatQuantity(detail.approved_qty)} ${detail.unit}`;
+                    rightCol.appendChild(qtySpan);
+
+                    if (detail.requested_measure_label) {
+                        const measureSpan = document.createElement('span');
+                        measureSpan.className = 'block text-[10px] font-black uppercase tracking-[0.1em] text-slate-400';
+                        measureSpan.textContent = detail.requested_measure_label;
+                        rightCol.appendChild(measureSpan);
+                    }
+
+                    div.appendChild(leftCol);
+                    div.appendChild(rightCol);
+                    shopsContainer.appendChild(div);
+                });
+            }
+
+            document.getElementById('info-product-modal').classList.remove('hidden');
+            document.body.classList.add('overflow-hidden');
+        }
+
+        function formatQuantity(val) {
+            const num = parseFloat(val) || 0;
+            return num.toFixed(2);
+        }
+
+        function closeDemandDetailsModal() {
+            document.getElementById('info-product-modal').classList.add('hidden');
+            document.body.classList.remove('overflow-hidden');
+        }
     </script>
 </x-layouts.app>

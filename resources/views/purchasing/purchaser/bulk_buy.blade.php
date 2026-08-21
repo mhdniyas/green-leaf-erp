@@ -1,9 +1,25 @@
 <x-layouts.app title="Bulk Purchase" :show-mobile-nav="false">
+@php
+    $mappedAddOnProducts = $addOnProducts->map(function ($product) {
+        return [
+            'id' => (int) $product->id,
+            'name' => (string) $product->name,
+            'sku' => (string) $product->sku,
+            'category_name' => (string) ($product->category?->name ?? 'Other'),
+            'unit' => (string) $product->unit,
+        ];
+    })->values();
+@endphp
+
+<script>
+    window.bulkBuyAddOnProducts = @json($mappedAddOnProducts);
+</script>
+
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
 
-        <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] lg:rounded-[2rem]">
+        <section class="overflow-hidden rounded-2xl bg-slate-955 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] lg:rounded-[2rem]">
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
                 <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div class="min-w-0">
@@ -68,6 +84,7 @@
         <form action="{{ route('purchaser.bulk-buy.details') }}" method="GET" id="bulk-buy-form" class="pb-24">
             <input type="hidden" name="date" value="{{ $date }}">
             <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
+            <div id="hidden-selected-addons-container"></div>
             
             {{-- Professional Tabs switcher --}}
             <div class="mb-4 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">
@@ -152,31 +169,8 @@
                     </label>
                 @endforeach
 
-                {{-- Add-on Products --}}
-                @foreach ($addOnProducts as $product)
-                    <label class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer"
-                           data-tab="addons"
-                           data-name="{{ $product->name }}"
-                           data-sku="{{ $product->sku }}"
-                           data-category="{{ $product->category?->name }}"
-                           data-frequent="false">
-                        <div class="flex items-center gap-3">
-                            <div class="flex items-center shrink-0">
-                                <input type="checkbox" name="product_ids[]" value="{{ $product->id }}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer">
-                            </div>
-                            <div class="min-w-0 flex-1">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">{{ $product->name }}</h3>
-                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">{{ $product->category?->name ?: 'Other' }}</span>
-                                </div>
-                                <div class="mt-2 flex items-center gap-4 text-xs font-semibold text-slate-500">
-                                    <span>Unit: {{ $product->unit }}</span>
-                                    <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-teal-700">Add-on</span>
-                                </div>
-                            </div>
-                        </div>
-                    </label>
-                @endforeach
+                {{-- Dynamic Add-on Products Container --}}
+                <div id="addons-container" class="space-y-3"></div>
             </div>
             
             <div id="no-results-msg" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4 lg:py-12">
@@ -201,8 +195,11 @@
                 </div>
             </div>
         </form>
-    </div>    <script>
+    </div>
+
+    <script>
         let activeTab = 'pending';
+        const selectedProductIds = new Set();
 
         function switchTab(tab) {
             activeTab = tab;
@@ -219,21 +216,36 @@
                 }
             });
 
-            // Re-apply filters with the new active tab
             if (window.filterItems) {
                 window.filterItems();
             }
         }
 
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('search-input');
             const filterSelect = document.getElementById('filter-select');
-            const items = document.querySelectorAll('.product-item');
-            const checkboxes = document.querySelectorAll('.product-checkbox');
+            const staticItems = document.querySelectorAll('.product-item[data-tab="pending"], .product-item[data-tab="fulfilled"]');
+            const addonsContainer = document.getElementById('addons-container');
+            const hiddenAddonsContainer = document.getElementById('hidden-selected-addons-container');
             const selectionCount = document.getElementById('selection-count');
             const nextBtn = document.getElementById('next-btn');
             const noResultsMsg = document.getElementById('no-results-msg');
             const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+            // Initialize selectedProductIds from any pre-checked checkboxes
+            document.querySelectorAll('.product-checkbox:checked').forEach(cb => {
+                selectedProductIds.add(Number(cb.value));
+            });
 
             // Handle Custom Dropdown clicks
             document.addEventListener('click', (e) => {
@@ -326,12 +338,81 @@
                 }
             };
 
+            function createAddOnCard(product) {
+                const isChecked = selectedProductIds.has(product.id);
+                const label = document.createElement('label');
+                label.className = 'product-item addon-dynamic-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer';
+                label.dataset.tab = 'addons';
+                label.dataset.name = product.name;
+                label.dataset.sku = product.sku;
+                label.dataset.category = product.category_name;
+                label.dataset.frequent = 'false';
+
+                const catName = product.category_name || 'Other';
+                const checkedAttr = isChecked ? 'checked' : '';
+
+                label.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center shrink-0">
+                            <input type="checkbox" name="product_ids[]" value="${product.id}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer" ${checkedAttr}>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">${escapeHtml(product.name)}</h3>
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">${escapeHtml(catName)}</span>
+                            </div>
+                            <div class="mt-2 flex items-center gap-4 text-xs font-semibold text-slate-500">
+                                <span>Unit: ${escapeHtml(product.unit)}</span>
+                                <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-teal-700">Add-on</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                const cb = label.querySelector('.product-checkbox');
+                cb.addEventListener('change', () => {
+                    if (cb.checked) {
+                        selectedProductIds.add(product.id);
+                    } else {
+                        selectedProductIds.delete(product.id);
+                    }
+                    updateSelectionCount();
+                });
+
+                label.addEventListener('click', (e) => {
+                    if (e.target.closest('input[type="checkbox"]') || e.target.closest('a') || e.target.closest('button')) {
+                        return;
+                    }
+                    cb.checked = !cb.checked;
+                    cb.dispatchEvent(new Event('change'));
+                });
+
+                return label;
+            }
+
+            function syncHiddenAddonInputs(renderedCardIds) {
+                if (!hiddenAddonsContainer) return;
+                hiddenAddonsContainer.innerHTML = '';
+                
+                const allAddonProducts = window.bulkBuyAddOnProducts || [];
+                allAddonProducts.forEach(product => {
+                    if (selectedProductIds.has(product.id) && !renderedCardIds.has(product.id)) {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'product_ids[]';
+                        input.value = product.id;
+                        hiddenAddonsContainer.appendChild(input);
+                    }
+                });
+            }
+
             window.filterItems = function() {
                 const query = searchInput.value.toLowerCase().trim();
                 const category = filterSelect.value;
                 let visibleCount = 0;
 
-                items.forEach(item => {
+                // 1. Filter Static Items (Pending & Fulfilled)
+                staticItems.forEach(item => {
                     const name = item.dataset.name.toLowerCase();
                     const sku = item.dataset.sku.toLowerCase();
                     const itemCategory = item.dataset.category;
@@ -359,6 +440,43 @@
                     }
                 });
 
+                // 2. Filter & Render Bounded Add-ons (Max 30)
+                const renderedCardIds = new Set();
+                if (addonsContainer) {
+                    addonsContainer.innerHTML = '';
+                    if (activeTab === 'addons') {
+                        const allAddons = window.bulkBuyAddOnProducts || [];
+                        const matchingAddons = allAddons.filter(product => {
+                            const name = product.name.toLowerCase();
+                            const sku = product.sku.toLowerCase();
+                            const cat = product.category_name;
+
+                            const matchSearch = name.includes(query) || sku.includes(query);
+                            let matchFilter = false;
+
+                            if (category === 'All' || category === 'Frequent') {
+                                matchFilter = true;
+                            } else {
+                                matchFilter = (cat || '').toLowerCase() === (category || '').toLowerCase();
+                            }
+
+                            return matchSearch && matchFilter;
+                        });
+
+                        visibleCount += matchingAddons.length;
+
+                        // Render top 30 bounded cards
+                        const boundedSlice = matchingAddons.slice(0, 30);
+                        boundedSlice.forEach(product => {
+                            renderedCardIds.add(product.id);
+                            const card = createAddOnCard(product);
+                            addonsContainer.appendChild(card);
+                        });
+                    }
+                }
+
+                syncHiddenAddonInputs(renderedCardIds);
+
                 if (visibleCount === 0) {
                     noResultsMsg.classList.remove('hidden');
                     if (query === '' && category === 'All') {
@@ -373,18 +491,28 @@
                 }
 
                 updateSelectionCount();
-            }
+            };
 
             function updateSelectionCount() {
-                const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+                const checkedCount = selectedProductIds.size;
                 selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
                 nextBtn.disabled = checkedCount === 0;
 
                 // Update Select All checkbox state based on visible items
-                const visibleCheckboxes = Array.from(items)
-                    .filter(item => !item.classList.contains('hidden'))
-                    .map(item => item.querySelector('.product-checkbox'))
-                    .filter(Boolean);
+                const visibleCheckboxes = [];
+                
+                staticItems.forEach(item => {
+                    if (!item.classList.contains('hidden')) {
+                        const cb = item.querySelector('.product-checkbox');
+                        if (cb) visibleCheckboxes.push(cb);
+                    }
+                });
+
+                if (activeTab === 'addons' && addonsContainer) {
+                    addonsContainer.querySelectorAll('.product-checkbox').forEach(cb => {
+                        visibleCheckboxes.push(cb);
+                    });
+                }
 
                 if (visibleCheckboxes.length > 0) {
                     const allChecked = visibleCheckboxes.every(cb => cb.checked);
@@ -398,36 +526,64 @@
 
             selectAllCheckbox.addEventListener('change', () => {
                 const isChecked = selectAllCheckbox.checked;
-                items.forEach(item => {
+                
+                staticItems.forEach(item => {
                     if (!item.classList.contains('hidden')) {
                         const cb = item.querySelector('.product-checkbox');
                         if (cb) {
                             cb.checked = isChecked;
+                            if (isChecked) {
+                                selectedProductIds.add(Number(cb.value));
+                            } else {
+                                selectedProductIds.delete(Number(cb.value));
+                            }
                         }
                     }
                 });
-                updateSelectionCount();
+
+                if (activeTab === 'addons' && addonsContainer) {
+                    addonsContainer.querySelectorAll('.product-checkbox').forEach(cb => {
+                        cb.checked = isChecked;
+                        const id = Number(cb.value);
+                        if (isChecked) {
+                            selectedProductIds.add(id);
+                        } else {
+                            selectedProductIds.delete(id);
+                        }
+                    });
+                }
+
+                if (window.filterItems) {
+                    window.filterItems();
+                }
             });
 
-            searchInput.addEventListener('input', window.filterItems);
+            // Bind change events on static checkboxes
+            staticItems.forEach(item => {
+                const cb = item.querySelector('.product-checkbox');
+                if (cb) {
+                    cb.addEventListener('change', () => {
+                        if (cb.checked) {
+                            selectedProductIds.add(Number(cb.value));
+                        } else {
+                            selectedProductIds.delete(Number(cb.value));
+                        }
+                        updateSelectionCount();
+                    });
+                }
 
-            checkboxes.forEach(cb => {
-                cb.addEventListener('change', updateSelectionCount);
-            });
-
-            // Make whole card toggle the checkbox on click unless clicking checkbox itself
-            items.forEach(item => {
                 item.addEventListener('click', (e) => {
                     if (e.target.closest('input[type="checkbox"]') || e.target.closest('a') || e.target.closest('button')) {
                         return;
                     }
-                    const cb = item.querySelector('.product-checkbox');
                     if (cb) {
                         cb.checked = !cb.checked;
                         cb.dispatchEvent(new Event('change'));
                     }
                 });
             });
+
+            searchInput.addEventListener('input', window.filterItems);
 
             updateSelectionCount();
             window.filterItems();
