@@ -268,6 +268,25 @@
             return new Promise(resolve => setTimeout(resolve, seconds * 1000));
         }
 
+        async function reportRunSummary({ status, date, delaySeconds, selectedShops, notes = null }) {
+            try {
+                await apiPost('/runs', {
+                    trigger_mode: 'manual',
+                    status,
+                    business_date: date,
+                    delay_seconds: delaySeconds,
+                    selected_shops: selectedShops,
+                    processed_orders: loaded + skipped + failed,
+                    loaded_orders: loaded,
+                    skipped_orders: skipped,
+                    failed_orders: failed,
+                    notes,
+                });
+            } catch (error) {
+                // Run result remains visible even if activity logging is unavailable.
+            }
+        }
+
         // ── Main run logic ─────────────────────────────────────────────────
         async function run() {
             cancelled = false;
@@ -299,6 +318,7 @@
                 logFailed('Manifest', e.message ?? 'Network error', '');
                 statusDot.className = 'inline-flex h-2.5 w-2.5 rounded-full bg-rose-500 shrink-0';
                 runAgainFooter.classList.remove('hidden');
+                await reportRunSummary({ status: 'failed', date, delaySeconds, selectedShops: shopIds.length, notes: 'Could not fetch order manifest.' });
                 return;
             }
 
@@ -307,6 +327,7 @@
                 logFailed('Manifest', manifest.message ?? 'Could not fetch orders.', '');
                 statusDot.className = 'inline-flex h-2.5 w-2.5 rounded-full bg-rose-500 shrink-0';
                 runAgainFooter.classList.remove('hidden');
+                await reportRunSummary({ status: 'failed', date, delaySeconds, selectedShops: shopIds.length, notes: manifest.message ?? 'Could not fetch order manifest.' });
                 return;
             }
 
@@ -333,6 +354,7 @@
                 appendLog('ℹ️', 'bg-slate-50', 'border-slate-200', 'text-slate-600',
                     'No eligible orders', `No pending orders for ${date} in the selected shops.`, '');
                 runAgainFooter.classList.remove('hidden');
+                await reportRunSummary({ status: 'completed', date, delaySeconds, selectedShops: shopIds.length, notes: 'No eligible orders found.' });
                 return;
             }
 
@@ -462,6 +484,12 @@
 
             stopBtn.disabled = true;
             runAgainFooter.classList.remove('hidden');
+            await reportRunSummary({
+                status: wasStopped ? 'stopped' : (failed > 0 ? 'failed' : 'completed'),
+                date,
+                delaySeconds,
+                selectedShops: shopIds.length,
+            });
         }
 
         // ── Button listeners ───────────────────────────────────────────────

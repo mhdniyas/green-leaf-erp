@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\RunAutoLoadAllCommand;
 use App\Console\Commands\SeedDailyPriceMatrixNextDayCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -11,5 +12,10 @@ Artisan::command('inspire', function () {
 
 Schedule::command(SeedDailyPriceMatrixNextDayCommand::class)
     ->dailyAt('00:00')
+    ->timezone('Asia/Kolkata')
+    ->withoutOverlapping();
+
+Schedule::command(RunAutoLoadAllCommand::class)
+    ->everyMinute()
     ->timezone('Asia/Kolkata')
     ->withoutOverlapping();

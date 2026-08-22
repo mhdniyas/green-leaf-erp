@@ -12,6 +12,7 @@ use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Spatie\Activitylog\Models\Activity;
 
 class CompanySettingsController extends Controller
 {
@@ -74,7 +75,14 @@ class CompanySettingsController extends Controller
 
         $operationalDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
-        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers', 'directSaleShops', 'allActiveShops', 'operationalDate'));
+        $autoLoadAllRuns = Activity::query()
+            ->where('log_name', 'auto_load_all')
+            ->with('causer:id,name')
+            ->latest()
+            ->limit(8)
+            ->get();
+
+        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers', 'directSaleShops', 'allActiveShops', 'operationalDate', 'autoLoadAllRuns'));
     }
 
     public function update(Request $request): RedirectResponse

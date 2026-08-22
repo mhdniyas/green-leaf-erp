@@ -642,6 +642,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/manifest', [ApiWarehouseLoadoutController::class, 'index'])->name('manifest');
             Route::get('/orders/{shopOrder}', [ApiWarehouseLoadoutController::class, 'show'])->name('show');
             Route::post('/orders/{shopOrder}/save', [ApiWarehouseLoadoutController::class, 'save'])->name('save');
+            Route::post('/runs', [AdminAutoLoadAllController::class, 'storeRunSummary'])->name('runs.store');
         });
         // Cashbook admin dashboard — full port of the standalone ledger-app.
         // Completely isolated from the ShopOwner accounting screens.
