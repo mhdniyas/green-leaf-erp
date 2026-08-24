@@ -32,7 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->append(SecureHeaders::class);
-        $middleware->append(LogSlowPathPerformance::class);
+        $middleware->prepend(LogSlowPathPerformance::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $redirectUnauthorizedDashboardRequest = function (Request $request) {
