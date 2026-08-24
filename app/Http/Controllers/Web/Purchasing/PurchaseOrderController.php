@@ -14,7 +14,6 @@ use App\Models\PurchaserCart;
 use App\Models\ShopOrder;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Purchasing\PurchaseOrderService;
-use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\SupplierService;
 use App\Services\Purchasing\VendorPriceService;
 use Illuminate\Http\RedirectResponse;
@@ -35,9 +34,6 @@ class PurchaseOrderController extends Controller
     public function index(Request $request): View
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
-
-        $operationalDate = app(PurchaserBusinessDayService::class)->operationalDate();
-        PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
 
         $tomorrowDate = today()->addDay()->toDateString();
         $todayDate = today()->toDateString();

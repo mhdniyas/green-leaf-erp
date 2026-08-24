@@ -160,17 +160,13 @@ class PurchaserCart extends Model
 
     public static function cancelOverdueCartsAndOrders(Carbon $operationalDate): void
     {
-        if (request() && request()->hasSession() && (request()->session()->has('admin_impersonator_id') || request()->user()?->hasRole('admin'))) {
-            return;
-        }
-
         self::query()
-            ->whereDate('business_date', '<', $operationalDate)
+            ->where('business_date', '<', $operationalDate->toDateString())
             ->where('status', 'draft')
             ->update(['status' => 'cancelled']);
 
         PurchaseOrder::query()
-            ->whereDate('order_date', '<', $operationalDate)
+            ->where('order_date', '<', $operationalDate->toDateString())
             ->whereIn('status', [
                 POStatus::Draft,
                 POStatus::Approved,

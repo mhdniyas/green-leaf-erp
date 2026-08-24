@@ -3341,10 +3341,6 @@ class PurchaserDashboardController extends Controller
     private function resolveBusinessDate(Request $request): Carbon|RedirectResponse
     {
         $operationalDate = $this->businessDayService->operationalDate();
-        if (! $this->isAdminUserAccess($request)) {
-            PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
-        }
-
         $dateInput = $request->input('date');
 
         if ($dateInput) {
@@ -4953,10 +4949,6 @@ class PurchaserDashboardController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        if (! $this->isAdminUserAccess($request)) {
-            $operationalDate = $this->businessDayService->operationalDate();
-            PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
-        }
     }
 
     private function ensurePurchaseManager(Request $request): void

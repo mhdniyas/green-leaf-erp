@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Http\Controllers\Controller;
 use App\Models\ProcurementExpense;
-use App\Models\PurchaserCart;
 use App\Services\Finance\ProcurementExpensePostingService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
@@ -175,6 +174,5 @@ class ProcurementExpenseController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        PurchaserCart::cancelOverdueCartsAndOrders($this->businessDayService->operationalDate());
     }
 }
