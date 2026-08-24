@@ -642,7 +642,7 @@ class SortSheetController extends Controller
 
         $products = $orders
             ->flatMap->items
-            ->filter(fn ($item): bool => (float) $item->approved_qty > 0 && $item->product !== null)
+            ->filter(fn ($item): bool => (float) ($item->approved_qty ?? $item->requested_qty) > 0 && $item->product !== null)
             ->map(fn ($item): Product => $item->product)
             ->when($selectedWarehouseId !== null, fn ($products) => $products->filter(
                 fn (Product $product): bool => (int) $product->default_warehouse_id === $selectedWarehouseId,
@@ -706,6 +706,9 @@ class SortSheetController extends Controller
                 if (! $product) {
                     continue;
                 }
+
+                $approvedQuantity = (float) ($item->approved_qty ?? $item->requested_qty);
+
                 if (! empty($categoryIds) && ! in_array((int) $product->category_id, $categoryIds, true)) {
                     continue;
                 }
@@ -730,7 +733,7 @@ class SortSheetController extends Controller
                     ];
                 }
 
-                $matrix[$pid][$sid] = ($matrix[$pid][$sid] ?? 0) + (float) $item->approved_qty;
+                $matrix[$pid][$sid] = ($matrix[$pid][$sid] ?? 0) + $approvedQuantity;
             }
         }
 
