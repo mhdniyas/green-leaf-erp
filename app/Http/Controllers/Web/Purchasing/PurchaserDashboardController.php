@@ -30,7 +30,6 @@ use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPriceGroup;
-use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Finance\JournalService;
@@ -38,6 +37,7 @@ use App\Services\Purchasing\BulkPaymentService;
 use App\Services\Purchasing\PurchaseGradePriceResolver;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Purchasing\PurchaserCartBatchStateResolver;
 use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\PerformanceProbe;
@@ -70,6 +70,7 @@ class PurchaserDashboardController extends Controller
     public function __construct(
         private readonly VendorPriceService $vendorPriceService,
         private readonly PurchaserBusinessDayService $businessDayService,
+        private readonly PurchaserCartBatchStateResolver $purchaserCartBatchStateResolver,
         private readonly JournalService $journalService,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly PurchaseGradePriceResolver $purchaseGradePriceResolver,
@@ -3455,19 +3456,7 @@ class PurchaserDashboardController extends Controller
      */
     private function relatedBatchStateForCarts(Collection $carts): array
     {
-        return $carts->mapWithKeys(function (PurchaserCart $cart): array {
-            $batches = $this->relatedStockBatchesForCart($cart);
-            $totalBatches = $batches->count();
-            $confirmedBatches = $batches->where('warehouse_receive_pending', false)->count();
-
-            return [
-                (int) $cart->id => [
-                    'warehouse_confirmed' => $totalBatches > 0 && $confirmedBatches === $totalBatches,
-                    'total_batches' => $totalBatches,
-                    'confirmed_batches' => $confirmedBatches,
-                ],
-            ];
-        })->all();
+        return $this->purchaserCartBatchStateResolver->statesForCarts($carts);
     }
 
     /**
@@ -3781,26 +3770,6 @@ class PurchaserDashboardController extends Controller
         ];
     }
 
-    /**
-     * @return Collection<int, GoodsReceived>
-     */
-    private function relatedGoodsReceiptsForCart(PurchaserCart $cart): Collection
-    {
-        if ($cart->goods_received_id !== null) {
-            return GoodsReceived::query()
-                ->select(['id', 'grn_number', 'notes', 'received_at'])
-                ->whereKey($cart->goods_received_id)
-                ->orderByDesc('received_at')
-                ->get();
-        }
-
-        return GoodsReceived::query()
-            ->select(['id', 'grn_number', 'notes', 'received_at'])
-            ->where('notes', 'like', '%Cart: '.$cart->cart_number.'%')
-            ->orderByDesc('received_at')
-            ->get();
-    }
-
     private function buildReceiptDiscrepancySummary(?GoodsReceived $goodsReceived): ?string
     {
         if (! $goodsReceived) {
@@ -3828,30 +3797,6 @@ class PurchaserDashboardController extends Controller
         }
 
         return $lines->implode("\n");
-    }
-
-    /**
-     * @return Collection<int, StockBatch>
-     */
-    private function relatedStockBatchesForCart(PurchaserCart $cart): Collection
-    {
-        $grnNumbers = $this->relatedGoodsReceiptsForCart($cart)
-            ->pluck('grn_number')
-            ->filter()
-            ->values();
-
-        if ($grnNumbers->isEmpty()) {
-            return collect();
-        }
-
-        $query = StockBatch::query();
-
-        foreach ($grnNumbers as $index => $grnNumber) {
-            $method = $index === 0 ? 'where' : 'orWhere';
-            $query->{$method}('notes', 'like', '%Auto-created from GRN: '.$grnNumber.'%');
-        }
-
-        return $query->orderByDesc('received_at')->get();
     }
 
     /**
