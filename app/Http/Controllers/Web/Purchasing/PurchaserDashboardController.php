@@ -3519,6 +3519,26 @@ class PurchaserDashboardController extends Controller
     }
 
     /**
+     * @return Collection<int, GoodsReceived>
+     */
+    private function relatedGoodsReceiptsForCart(PurchaserCart $cart): Collection
+    {
+        if ($cart->goods_received_id !== null) {
+            return GoodsReceived::query()
+                ->select(['id', 'grn_number', 'notes', 'received_at'])
+                ->whereKey($cart->goods_received_id)
+                ->orderByDesc('received_at')
+                ->get();
+        }
+
+        return GoodsReceived::query()
+            ->select(['id', 'grn_number', 'notes', 'received_at'])
+            ->where('notes', 'like', '%Cart: '.$cart->cart_number.'%')
+            ->orderByDesc('received_at')
+            ->get();
+    }
+
+    /**
      * @return Collection<int, PurchaserCart>
      */
     private function overdueCartsForUser(int $userId): Collection
