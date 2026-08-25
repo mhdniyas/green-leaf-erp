@@ -168,4 +168,10 @@ class PurchaserBusinessDayService
 
         return strlen($cutoffTime) === 5 ? "{$cutoffTime}:00" : $cutoffTime;
     }
+
+    public function resetCache(): void
+    {
+        $this->cachedCutoffTime = null;
+        $this->cachedAutoApproveShopOrders = null;
+    }
 }

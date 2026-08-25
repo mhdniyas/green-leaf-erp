@@ -52,6 +52,15 @@ use Illuminate\View\View;
 
 class PurchaserDashboardController extends Controller
 {
+    /** @var array<int, Collection<int, PurchaserCart>> */
+    private array $memoizedOverdueCarts = [];
+
+    /** @var array<int, array<int, int>> */
+    private array $memoizedFrequentProductIds = [];
+
+    /** @var array<int, array<int, string>> */
+    private array $memoizedQuickFilters = [];
+
     private const array QUICK_FILTERS = [
         'Frequent',
         'All',
@@ -925,7 +934,7 @@ class PurchaserDashboardController extends Controller
             'statusBadges' => $this->statusBadgesForCarts($allCarts, $relatedBatchState),
             'relatedBatchState' => $relatedBatchState,
             'relatedReceiptNotes' => $this->relatedReceiptNotesForCarts($allCarts),
-            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date),
+            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date, $overdueCarts, $relatedBatchState),
         ]);
     }
 
@@ -1222,7 +1231,8 @@ class PurchaserDashboardController extends Controller
             ->where('status', 'draft')
             ->whereNotNull('supplier_id')
             ->whereHas('items')
-            ->with('supplier')
+            ->with(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived'])
+            ->orderByDesc('updated_at')
             ->get();
 
         $overdueCarts = $this->overdueCartsForUser($userId)->loadMissing(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived']);
@@ -1238,6 +1248,9 @@ class PurchaserDashboardController extends Controller
             selectedDate: $date,
             suppliers: $suppliers,
             selectedTab: $selectedTab,
+            sameDayAssignedDrafts: $sameDayAssignedDrafts,
+            overdueCarts: $overdueCarts,
+            overdueBatchState: $overdueBatchState,
         );
 
         $filteredSuppliers = $suppliers->filter(fn (Supplier $supplier): bool => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, $selectedTab) > 0)->values();
@@ -1281,7 +1294,7 @@ class PurchaserDashboardController extends Controller
             'issueSections' => $issueSections,
             'selectedTab' => $selectedTab,
             'tabCounts' => $tabCounts,
-            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date),
+            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date, $overdueCarts, $overdueBatchState),
         ]);
     }
 
@@ -3169,8 +3182,13 @@ class PurchaserDashboardController extends Controller
 
     private function quickFiltersForPurchaser(User $user): array
     {
+        $userId = (int) $user->id;
+        if (isset($this->memoizedQuickFilters[$userId])) {
+            return $this->memoizedQuickFilters[$userId];
+        }
+
         if (! $user->hasAssignedCategoryFilter()) {
-            return self::QUICK_FILTERS;
+            return $this->memoizedQuickFilters[$userId] = self::QUICK_FILTERS;
         }
 
         $assignedCatNames = Category::query()
@@ -3179,11 +3197,15 @@ class PurchaserDashboardController extends Controller
             ->pluck('name')
             ->all();
 
-        return array_values(array_unique(array_merge(['All', 'Frequent'], $assignedCatNames)));
+        return $this->memoizedQuickFilters[$userId] = array_values(array_unique(array_merge(['All', 'Frequent'], $assignedCatNames)));
     }
 
     private function frequentProductIds(int $userId): array
     {
+        if (isset($this->memoizedFrequentProductIds[$userId])) {
+            return $this->memoizedFrequentProductIds[$userId];
+        }
+
         $cartItems = PurchaserCartItem::query()
             ->selectRaw('product_id, COUNT(*) as usage_count')
             ->whereHas('cart', function ($query) use ($userId): void {
@@ -3201,10 +3223,10 @@ class PurchaserDashboardController extends Controller
             ->all();
 
         if ($cartItems !== []) {
-            return $cartItems;
+            return $this->memoizedFrequentProductIds[$userId] = $cartItems;
         }
 
-        return Product::query()
+        return $this->memoizedFrequentProductIds[$userId] = Product::query()
             ->active()
             ->where('show_in_purchaser_order', true)
             ->whereHas('category', function ($query): void {
@@ -3409,18 +3431,32 @@ class PurchaserDashboardController extends Controller
         });
     }
 
-    private function buildDeadlineAlert(int $userId, Carbon $selectedDate): array
-    {
+    /**
+     * @param  Collection<int, PurchaserCart>|null  $overdueCarts
+     * @param  array<int, array{warehouse_confirmed: bool, total_batches: int, confirmed_batches: int}>|null  $overdueBatchState
+     * @return array{show: bool, same_day: bool, overdue_count: int, credit_overdue_count: int, payment_overdue_count: int, vendor_missing_count: int, bill_pending_count: int, warehouse_pending_count: int, pending_total_count: int, overdue_carts: Collection<int, PurchaserCart>, operational_date: string}
+     */
+    private function buildDeadlineAlert(
+        int $userId,
+        Carbon $selectedDate,
+        ?Collection $overdueCarts = null,
+        ?array $overdueBatchState = null,
+    ): array {
         $operationalDate = $this->businessDayService->operationalDate();
         $calendarDate = $this->businessDayService->currentCalendarDate();
-        $sameDayCarts = PurchaserCart::query()
-            ->where('user_id', $userId)
-            ->whereDate('business_date', $calendarDate)
-            ->with(['supplier', 'items.product.category', 'goodsReceived', 'purchaseInvoice'])
-            ->orderByDesc('updated_at')
-            ->get();
-        $overdueCarts = $this->overdueCartsForUser($userId);
-        $overdueBatchState = $this->relatedBatchStateForCarts($overdueCarts);
+        $warningOpen = $this->businessDayService->isWarningWindowOpen($calendarDate) && $selectedDate->isSameDay($calendarDate);
+
+        $sameDayCarts = $warningOpen
+            ? PurchaserCart::query()
+                ->where('user_id', $userId)
+                ->whereDate('business_date', $calendarDate)
+                ->with(['supplier', 'items.product.category', 'goodsReceived', 'purchaseInvoice'])
+                ->orderByDesc('updated_at')
+                ->get()
+            : collect();
+
+        $overdueCarts = $overdueCarts ?? $this->overdueCartsForUser($userId);
+        $overdueBatchState = $overdueBatchState ?? $this->relatedBatchStateForCarts($overdueCarts);
         $overdueCarts = $this->filterOverdueCartsForPurchaser($overdueCarts, $overdueBatchState);
         $creditOverdueCount = $overdueCarts
             ->filter(fn (PurchaserCart $cart): bool => ($cart->purchaseInvoice?->payment_method ?: $cart->payment_method) === 'Credit')
@@ -3433,7 +3469,6 @@ class PurchaserDashboardController extends Controller
         $billPendingCount = $sameDayCarts
             ->filter(fn (PurchaserCart $cart): bool => $cart->status === 'draft' && $cart->items->isNotEmpty() && $cart->supplier_id !== null)
             ->count();
-        $warningOpen = $this->businessDayService->isWarningWindowOpen($calendarDate) && $selectedDate->isSameDay($calendarDate);
 
         return [
             'show' => $overdueCarts->isNotEmpty() || ($warningOpen && ($vendorMissingCount > 0 || $billPendingCount > 0)),
@@ -3543,6 +3578,10 @@ class PurchaserDashboardController extends Controller
      */
     private function overdueCartsForUser(int $userId): Collection
     {
+        if (isset($this->memoizedOverdueCarts[$userId])) {
+            return clone $this->memoizedOverdueCarts[$userId];
+        }
+
         $operationalDate = $this->businessDayService->operationalDate();
         $carts = PurchaserCart::query()
             ->where('user_id', $userId)
@@ -3553,9 +3592,13 @@ class PurchaserDashboardController extends Controller
             ->get();
         $batchState = $this->relatedBatchStateForCarts($carts);
 
-        return $carts
+        $unresolved = $carts
             ->filter(fn (PurchaserCart $cart): bool => $this->isCartOperationallyUnresolved($cart, $batchState[(int) $cart->id] ?? []))
             ->values();
+
+        $this->memoizedOverdueCarts[$userId] = $unresolved;
+
+        return clone $unresolved;
     }
 
     /**
@@ -3821,22 +3864,32 @@ class PurchaserDashboardController extends Controller
 
     /**
      * @param  Collection<int, Supplier>  $suppliers
+     * @param  Collection<int, PurchaserCart>|null  $sameDayAssignedDrafts
+     * @param  Collection<int, PurchaserCart>|null  $overdueCarts
+     * @param  array<int, array{warehouse_confirmed: bool, total_batches: int, confirmed_batches: int}>|null  $overdueBatchState
      * @return Collection<int, array{key:string,label:string,description:string,count:int,empty:string,rows:Collection<int, array{supplier:Supplier,cart:PurchaserCart,route:string,button:string,popup_title:string,popup_message:string}>}>
      */
-    private function buildSupplierIssueSections(int $userId, Carbon $selectedDate, Collection $suppliers, string $selectedTab): Collection
-    {
-        $sameDayAssignedDrafts = PurchaserCart::query()
+    private function buildSupplierIssueSections(
+        int $userId,
+        Carbon $selectedDate,
+        Collection $suppliers,
+        string $selectedTab,
+        ?Collection $sameDayAssignedDrafts = null,
+        ?Collection $overdueCarts = null,
+        ?array $overdueBatchState = null,
+    ): Collection {
+        $sameDayAssignedDrafts = ($sameDayAssignedDrafts ?? PurchaserCart::query()
             ->where('user_id', $userId)
             ->whereDate('business_date', $selectedDate)
             ->where('status', 'draft')
             ->whereNotNull('supplier_id')
             ->with(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived'])
             ->orderByDesc('updated_at')
-            ->get()
+            ->get())
             ->filter(fn (PurchaserCart $cart): bool => $cart->items->isNotEmpty());
 
-        $overdueCarts = $this->overdueCartsForUser($userId)->loadMissing(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived']);
-        $overdueBatchState = $this->relatedBatchStateForCarts($overdueCarts);
+        $overdueCarts = $overdueCarts ?? $this->overdueCartsForUser($userId)->loadMissing(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived']);
+        $overdueBatchState = $overdueBatchState ?? $this->relatedBatchStateForCarts($overdueCarts);
 
         $overdueDraftRows = $overdueCarts
             ->filter(fn (PurchaserCart $cart): bool => $cart->status === 'draft')

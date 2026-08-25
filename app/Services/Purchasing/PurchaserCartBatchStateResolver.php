@@ -11,6 +11,9 @@ use Illuminate\Support\Collection;
 
 class PurchaserCartBatchStateResolver
 {
+    /** @var array<string, array{warehouse_confirmed: bool, total_batches: int, confirmed_batches: int}> */
+    private array $resolvedStates = [];
+
     /** @param Collection<int, PurchaserCart> $carts @return array<int, array{warehouse_confirmed: bool, total_batches: int, confirmed_batches: int}> */
     public function statesForCarts(Collection $carts): array
     {
@@ -18,6 +21,56 @@ class PurchaserCartBatchStateResolver
             return [];
         }
 
+        $uncachedCarts = $carts->reject(fn (PurchaserCart $cart): bool => array_key_exists($this->cartCacheKey($cart), $this->resolvedStates));
+
+        if ($uncachedCarts->isNotEmpty()) {
+            $freshStates = $this->resolveStatesForCarts($uncachedCarts);
+            foreach ($uncachedCarts as $cart) {
+                $cartId = (int) $cart->id;
+                if (isset($freshStates[$cartId])) {
+                    $this->resolvedStates[$this->cartCacheKey($cart)] = $freshStates[$cartId];
+                }
+            }
+        }
+
+        return $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
+            (int) $cart->id => $this->resolvedStates[$this->cartCacheKey($cart)] ?? [
+                'warehouse_confirmed' => false,
+                'total_batches' => 0,
+                'confirmed_batches' => 0,
+            ],
+        ])->all();
+    }
+
+    public function clear(): void
+    {
+        $this->resolvedStates = [];
+    }
+
+    public function forget(PurchaserCart|int $cart): void
+    {
+        $cartId = $cart instanceof PurchaserCart ? (int) $cart->id : $cart;
+        foreach (array_keys($this->resolvedStates) as $key) {
+            if (str_starts_with($key, "cart:{$cartId}:")) {
+                unset($this->resolvedStates[$key]);
+            }
+        }
+    }
+
+    private function cartCacheKey(PurchaserCart $cart): string
+    {
+        return sprintf(
+            'cart:%d:grn:%s:num:%s:stat:%s',
+            (int) $cart->id,
+            (string) ($cart->goods_received_id ?? 'null'),
+            (string) ($cart->cart_number ?? 'null'),
+            (string) ($cart->status ?? 'null')
+        );
+    }
+
+    /** @param Collection<int, PurchaserCart> $carts @return array<int, array{warehouse_confirmed: bool, total_batches: int, confirmed_batches: int}> */
+    private function resolveStatesForCarts(Collection $carts): array
+    {
         $cartIds = $carts->pluck('id')->map(fn ($id): int => (int) $id)->values();
         $goodsReceivedIds = $carts->pluck('goods_received_id')->filter()->map(fn ($id): int => (int) $id)->values();
         $cartNumbers = $carts->pluck('cart_number')->filter()->values();

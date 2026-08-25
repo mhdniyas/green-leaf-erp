@@ -19,6 +19,8 @@ use App\Policies\SalesInvoicePolicy;
 use App\Policies\SalesOrderPolicy;
 use App\Policies\SupplierPolicy;
 use App\Policies\UserPolicy;
+use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Purchasing\PurchaserCartBatchStateResolver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -33,7 +35,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->scoped(PurchaserBusinessDayService::class);
+        $this->app->scoped(PurchaserCartBatchStateResolver::class);
     }
 
     /**
