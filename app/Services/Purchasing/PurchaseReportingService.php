@@ -226,8 +226,14 @@ final class PurchaseReportingService
         if (! empty($filters['grade'])) {
             $query->where('purchaser_cart_items.grade', $filters['grade']);
         }
-        if (! empty($filters['warehouse_code'])) {
-            $query->where('warehouses.code', $filters['warehouse_code']);
+        if (! empty($filters['purchase_product_filter_id'])) {
+            $filterId = (int) $filters['purchase_product_filter_id'];
+            $query->whereExists(function (Builder $sub) use ($filterId): void {
+                $sub->selectRaw('1')
+                    ->from('purchase_product_filter_items')
+                    ->whereColumn('purchase_product_filter_items.product_id', 'purchaser_cart_items.product_id')
+                    ->where('purchase_product_filter_items.filter_id', $filterId);
+            });
         }
         if (! empty($filters['search'])) {
             $search = '%'.$filters['search'].'%';

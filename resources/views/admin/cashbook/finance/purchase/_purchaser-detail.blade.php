@@ -182,7 +182,9 @@
             </div>
             <form method="GET" action="{{ route('admin.cashbook.finance.purchase.purchasers.show', $record->public_uuid).'#payment-history' }}" class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-[10rem_10rem_minmax(12rem,1fr)_auto] lg:items-end">
                 <input type="hidden" name="tab" value="finance">
-                <input type="hidden" name="produce_type" value="{{ $filters['warehouse_code'] === 'VEG-WH' ? 'vegetables' : ($filters['warehouse_code'] === 'FRT-WH' ? 'fruits' : 'all') }}">
+                @if(!empty($filters['product_filter']))
+                    <input type="hidden" name="product_filter" value="{{ $filters['product_filter'] }}">
+                @endif
                 <label class="text-[10px] font-black uppercase text-slate-500">Period
                     <select name="period" onchange="if(this.value !== 'custom') this.form.submit()" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                         @foreach(['today' => 'Today', 'yesterday' => 'Yesterday', 'week' => 'This Week', 'month' => 'This Month', 'custom' => 'Custom'] as $value => $label)

@@ -9,6 +9,7 @@ use App\Models\DailyPriceApproval;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseProductFilter;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\ShopPriceGroup;
@@ -80,7 +81,7 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchasers'));
 
         $response->assertOk()
-            ->assertSeeInOrder(['Period', 'Produce', 'Search', 'Apply', 'More Filters'])
+            ->assertSeeInOrder(['Period', 'Product Filter', 'Search', 'Apply', 'More Filters'])
             ->assertSee('Purchaser, invoice, vendor, product...')
             ->assertSee('All Purchasers')
             ->assertSee('All Vendors')
@@ -94,9 +95,9 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.credit-purchases'));
 
         $response->assertOk()
-            ->assertSeeInOrder(['Today', 'Yesterday', 'This Week', 'This Month', 'Custom', 'Produce', 'Status', 'Search', 'Apply', 'Total Credit Purchases'])
+            ->assertSeeInOrder(['Today', 'Yesterday', 'This Week', 'This Month', 'Custom', 'Product Filter', 'Status', 'Search', 'Apply', 'Total Credit Purchases'])
             ->assertSee('Vendor name or phone...')
-            ->assertSee('All Produce')
+            ->assertSee('All Products')
             ->assertSee('All Vendors')
             ->assertSee('Unpaid')
             ->assertSee('Partially Paid')
@@ -123,9 +124,15 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
             ]);
         }
 
+        $filter = PurchaseProductFilter::query()->create([
+            'name' => 'Vegetable Filter',
+            'created_by' => $this->admin->id,
+        ]);
+        $filter->products()->sync([$vegetable->id]);
+
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.credit-purchases', [
             'period' => 'today',
-            'produce_type' => 'vegetables',
+            'product_filter' => $filter->uuid,
         ]));
 
         $response->assertOk()->assertSee('Vegetable Vendor')->assertDontSee('Fruit Vendor');

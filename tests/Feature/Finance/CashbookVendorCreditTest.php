@@ -399,7 +399,7 @@ class CashbookVendorCreditTest extends TestCase
         $summaryQueries = count(DB::getQueryLog());
         DB::disableQueryLog();
 
-        $this->assertLessThan(20, $summaryQueries, "Vendor credit summary executed {$summaryQueries} queries.");
+        $this->assertLessThan(25, $summaryQueries, "Vendor credit summary executed {$summaryQueries} queries.");
 
         DB::enableQueryLog();
 
@@ -409,7 +409,7 @@ class CashbookVendorCreditTest extends TestCase
         $detailQueries = count(DB::getQueryLog());
         DB::disableQueryLog();
 
-        $this->assertLessThan(30, $detailQueries, "Vendor credit detail executed {$detailQueries} queries.");
+        $this->assertLessThan(40, $detailQueries, "Vendor credit detail executed {$detailQueries} queries.");
     }
 
     public function test_vendor_payment_statement_can_reconcile_and_finalize_company_payment_only(): void

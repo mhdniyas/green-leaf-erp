@@ -2,8 +2,11 @@
 @php
     $activePurchaseTab = $kind === 'purchaser' ? 'purchasers' : ($kind === 'vendor' ? 'vendors' : 'categories');
     $summary = $detail['summary'];
-    $produceType = $filters['warehouse_code'] === 'VEG-WH' ? 'vegetables' : ($filters['warehouse_code'] === 'FRT-WH' ? 'fruits' : 'all');
-    $detailContext = ['period' => $filters['period'], 'produce_type' => $produceType];
+    $selectedProductFilter = $filters['product_filter'] ?? null;
+    $detailContext = ['period' => $filters['period']];
+    if ($selectedProductFilter) {
+        $detailContext['product_filter'] = $selectedProductFilter;
+    }
     if (in_array($filters['period'], ['custom', 'between', 'range'], true)) { $detailContext += ['start_date' => $filters['start_date'], 'end_date' => $filters['end_date']]; }
     if (($filters['payment'] ?? 'all') !== 'all') { $detailContext['payment'] = $filters['payment']; }
     $listRoute = route('admin.cashbook.finance.purchase.'.$activePurchaseTab, $detailContext);

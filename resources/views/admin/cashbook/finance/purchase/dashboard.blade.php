@@ -1,9 +1,12 @@
 @extends('admin.cashbook.layouts.app')
 
 @php
-    $produceType = $filters['warehouse_code'] === 'VEG-WH' ? 'vegetables' : ($filters['warehouse_code'] === 'FRT-WH' ? 'fruits' : 'all');
+    $selectedProductFilter = $filters['product_filter'] ?? null;
     $activePurchaseTab = 'overview';
-    $purchaseContext = ['period' => $filters['period'], 'produce_type' => $produceType];
+    $purchaseContext = ['period' => $filters['period']];
+    if ($selectedProductFilter) {
+        $purchaseContext['product_filter'] = $selectedProductFilter;
+    }
     if (in_array($filters['period'], ['custom', 'between', 'range'], true)) {
         $purchaseContext += ['start_date' => $filters['start_date'], 'end_date' => $filters['end_date']];
     }
@@ -33,14 +36,19 @@
         <form method="GET" action="{{ route('admin.cashbook.finance.purchase') }}" class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end xl:justify-end">
             @include('admin.cashbook.finance.purchase._period-controls', [
                 'periodRoute' => 'admin.cashbook.finance.purchase',
-                'periodBaseQuery' => ['produce_type' => $produceType],
+                'periodBaseQuery' => $selectedProductFilter ? ['product_filter' => $selectedProductFilter] : [],
             ])
 
-            <select name="produce_type" onchange="this.form.submit()" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                <option value="all" @selected($produceType === 'all')>All produce</option>
-                <option value="vegetables" @selected($produceType === 'vegetables')>Vegetables</option>
-                <option value="fruits" @selected($produceType === 'fruits')>Fruits</option>
+            <select name="product_filter" onchange="this.form.submit()" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                <option value="">All Products</option>
+                @foreach($productFilters as $filter)
+                    <option value="{{ $filter->uuid }}" @selected($selectedProductFilter === $filter->uuid)>{{ $filter->name }}</option>
+                @endforeach
             </select>
+
+            <a href="{{ route('admin.cashbook.finance.purchase.product-filters.index') }}" class="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-emerald-700" title="Manage saved product filters">
+                <i data-lucide="sliders" class="h-3.5 w-3.5"></i> Manage Filters
+            </a>
         </form>
     </section>
 
@@ -76,7 +84,7 @@
         <section class="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
             <h2 class="font-black text-slate-900">No purchases recorded for this period</h2>
             <p class="mt-1 text-sm text-slate-500">This dashboard uses the purchase business date.</p>
-            <a href="{{ route('admin.cashbook.finance.purchase', ['period' => 'month', 'produce_type' => $produceType]) }}" class="mt-4 inline-flex rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white">View This Month</a>
+            <a href="{{ route('admin.cashbook.finance.purchase', ['period' => 'month'] + ($selectedProductFilter ? ['product_filter' => $selectedProductFilter] : [])) }}" class="mt-4 inline-flex rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white">View This Month</a>
         </section>
     @endif
 

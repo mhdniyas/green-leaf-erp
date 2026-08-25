@@ -31,7 +31,7 @@
     <div class="mx-auto max-w-[96rem] space-y-5">
         @include('admin.cashbook.finance.purchase.reports._header', ['reportName' => 'Credit Purchase Report', 'reportDescription' => 'Credit purchases, vendor position, paid and outstanding.'])
 
-        @php($produceType = $filters['warehouse_code'] === 'VEG-WH' ? 'vegetables' : ($filters['warehouse_code'] === 'FRT-WH' ? 'fruits' : 'all'))
+        @php($selectedProductFilter = $filters['product_filter'] ?? null)
         @php($usesCustomDates = in_array($filters['period'], ['custom', 'between', 'range'], true))
         <form method="GET" action="{{ route('admin.cashbook.finance.purchase.reports.credit-purchases') }}" class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
             <input type="hidden" name="period" value="{{ $filters['period'] }}">
@@ -48,11 +48,12 @@
                     </div>
                 </div>
 
-                <label class="w-full text-[10px] font-black uppercase text-slate-500 sm:w-44">Produce
-                    <select name="produce_type" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                        <option value="all" @selected($produceType === 'all')>All Produce</option>
-                        <option value="vegetables" @selected($produceType === 'vegetables')>Vegetables</option>
-                        <option value="fruits" @selected($produceType === 'fruits')>Fruits</option>
+                <label class="w-full text-[10px] font-black uppercase text-slate-500 sm:w-48">Product Filter
+                    <select name="product_filter" onchange="this.form.submit()" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                        <option value="">All Products</option>
+                        @foreach($productFilters as $filter)
+                            <option value="{{ $filter->uuid }}" @selected($selectedProductFilter === $filter->uuid)>{{ $filter->name }}</option>
+                        @endforeach
                     </select>
                 </label>
             </div>

@@ -11,6 +11,7 @@ use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseProductFilter;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCredit;
@@ -216,7 +217,8 @@ class CashbookPurchaseReportTest extends TestCase
             ->assertSee('This Week')
             ->assertSee('This Month')
             ->assertSee('Custom')
-            ->assertSee('All produce')
+            ->assertSee('All Products')
+            ->assertSee('Manage Filters')
             ->assertDontSee('All purchasers')
             ->assertDontSee('All vendors')
             ->assertDontSee('All grades')
@@ -257,7 +259,7 @@ class CashbookPurchaseReportTest extends TestCase
             ->assertSee(route('purchasing.invoices.show', $creditInvoice->public_uuid), false);
     }
 
-    public function test_dashboard_produce_selector_filters_every_section(): void
+    public function test_dashboard_product_filter_filters_every_section_and_old_produce_type_falls_back(): void
     {
         $vegetableInvoice = $this->invoiceWithItems('2026-08-25', 'Cash', [
             ['category' => 'Vegetable', 'product' => 'Tomato', 'line_total' => 100, 'warehouse_code' => 'VEG-WH'],
@@ -266,20 +268,36 @@ class CashbookPurchaseReportTest extends TestCase
             ['category' => 'Fruit', 'product' => 'Apple', 'line_total' => 200, 'warehouse_code' => 'FRT-WH'],
         ]);
 
+        $tomatoProduct = Product::query()->where('name', 'Tomato')->firstOrFail();
+        $filter = PurchaseProductFilter::query()->create([
+            'name' => 'Vegetable Filter',
+            'created_by' => $this->admin->id,
+        ]);
+        $filter->products()->sync([$tomatoProduct->id]);
+
+        // Using saved product_filter
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase', [
-            'produce_type' => 'vegetables',
+            'product_filter' => $filter->uuid,
         ]));
 
         $response->assertOk()
             ->assertSee('₹100.00')
             ->assertSee($vegetableInvoice->invoice_number)
-            ->assertSee('Vegetables')
             ->assertDontSee($fruitInvoice->invoice_number)
             ->assertDontSee('₹200.00');
         $this->assertCount(1, $response['dashboard']['recentPurchases']);
         $this->assertCount(1, $response['dashboard']['vendors']);
         $this->assertCount(1, $response['dashboard']['purchasers']);
         $this->assertCount(1, $response['dashboard']['categories']);
+
+        // Backward compatibility: old produce_type falls back to All Products without crashing or redirecting
+        $legacy = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase', [
+            'produce_type' => 'vegetables',
+        ]));
+        $legacy->assertOk()
+            ->assertSee('₹300.00')
+            ->assertSee($vegetableInvoice->invoice_number)
+            ->assertSee($fruitInvoice->invoice_number);
     }
 
     public function test_dashboard_overviews_are_bounded_and_vendor_category_tags_are_compact(): void
@@ -346,7 +364,7 @@ class CashbookPurchaseReportTest extends TestCase
         $invoice = $this->invoiceWithItems('2026-08-25', 'Cash', [
             ['category' => 'Tomato', 'product' => 'Tomato', 'line_total' => 100],
         ]);
-        $context = ['period' => 'month', 'produce_type' => 'vegetables'];
+        $context = ['period' => 'month'];
         $purchaser = $invoice->purchaserCart->user;
         $category = Category::query()->where('name', 'Tomato')->firstOrFail();
 
@@ -446,7 +464,7 @@ class CashbookPurchaseReportTest extends TestCase
             ['category' => 'Onion', 'product' => 'Onion', 'line_total' => 200],
         ]);
         $purchaser = $invoice->purchaserCart->user;
-        $context = ['period' => 'custom', 'produce_type' => 'vegetables', 'start_date' => '2026-08-25', 'end_date' => '2026-08-25'];
+        $context = ['period' => 'custom', 'start_date' => '2026-08-25', 'end_date' => '2026-08-25'];
         $base = ['purchaser' => $purchaser->public_uuid] + $context;
 
         $purchases = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', $base + ['tab' => 'purchases']));
@@ -478,7 +496,7 @@ class CashbookPurchaseReportTest extends TestCase
         $creditInvoice = $this->invoiceWithItems('2026-08-25', 'Credit', [
             ['category' => 'Onion', 'product' => 'Onion', 'line_total' => 200],
         ], $purchaser);
-        $base = ['purchaser' => $purchaser->public_uuid, 'period' => 'today', 'produce_type' => 'all'];
+        $base = ['purchaser' => $purchaser->public_uuid, 'period' => 'today'];
 
         $overview = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', $base));
         $cashUrl = route('admin.cashbook.finance.purchase.purchasers.show', $base + ['tab' => 'purchases', 'payment' => 'cash']);
@@ -626,7 +644,7 @@ class CashbookPurchaseReportTest extends TestCase
         $this->assertSame(1, substr_count($custom->getContent(), 'name="end_date"'));
     }
 
-    public function test_invoice_period_produce_and_search_filters_keep_existing_query_semantics(): void
+    public function test_invoice_period_product_filter_and_search_filters_keep_existing_query_semantics(): void
     {
         $yesterday = $this->invoiceWithItems('2026-08-24', 'Cash', [
             ['category' => 'Apple', 'product' => 'Apple', 'line_total' => 100, 'warehouse_code' => 'FRT-WH'],
@@ -634,6 +652,13 @@ class CashbookPurchaseReportTest extends TestCase
         $today = $this->invoiceWithItems('2026-08-25', 'Credit', [
             ['category' => 'Tomato', 'product' => 'Tomato', 'line_total' => 200],
         ]);
+
+        $appleProduct = Product::query()->where('name', 'Apple')->firstOrFail();
+        $filter = PurchaseProductFilter::query()->create([
+            'name' => 'Fruits Filter',
+            'created_by' => $this->admin->id,
+        ]);
+        $filter->products()->sync([$appleProduct->id]);
 
         $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', [
             'period' => 'today',
@@ -644,7 +669,7 @@ class CashbookPurchaseReportTest extends TestCase
         $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', ['period' => 'month']))
             ->assertOk()->assertSee($today->invoice_number)->assertSee($yesterday->invoice_number)->assertSee('₹300.00');
 
-        $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', ['period' => 'month', 'produce_type' => 'fruits']))
+        $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', ['period' => 'month', 'product_filter' => $filter->uuid]))
             ->assertOk()->assertSee($yesterday->invoice_number)->assertDontSee($today->invoice_number)->assertSee('₹100.00');
 
         $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', ['period' => 'month', 'search' => 'Tomato']))
@@ -658,9 +683,16 @@ class CashbookPurchaseReportTest extends TestCase
         ]);
         $purchaser = $invoice->purchaserCart->user;
         $category = Category::query()->where('name', 'Tomato')->firstOrFail();
+        $tomatoProduct = Product::query()->where('name', 'Tomato')->firstOrFail();
+        $filter = PurchaseProductFilter::query()->create([
+            'name' => 'Vegetable Filter',
+            'created_by' => $this->admin->id,
+        ]);
+        $filter->products()->sync([$tomatoProduct->id]);
+
         $query = [
             'period' => 'today',
-            'produce_type' => 'vegetables',
+            'product_filter' => $filter->uuid,
             'search' => 'Tomato',
             'purchaser_id' => $purchaser->id,
             'vendor_id' => $invoice->supplier_id,
@@ -672,6 +704,7 @@ class CashbookPurchaseReportTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', $query));
 
         $response->assertOk()
+            ->assertSee('Filter: Vegetable Filter')
             ->assertSee('Purchaser: '.$purchaser->name)
             ->assertSee('Vendor: '.$invoice->supplier->name)
             ->assertSee('Payment: Credit')

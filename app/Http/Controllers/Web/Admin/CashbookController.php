@@ -51,6 +51,7 @@ use App\Models\PayrollRunItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseProductFilter;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntryLine;
@@ -1747,19 +1748,11 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->purchaseDashboardFilters($request);
-        $shops = $this->shopSyncService->syncAndGetProfiles();
-        $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
-        $company = config('greenleaf');
-        $currentShop = $shops->first();
         $dashboard = $purchaseReportingService->dashboard($filters);
 
-        return view('admin.cashbook.finance.purchase.dashboard', compact(
-            'shops',
-            'companyAccounts',
-            'company',
-            'currentShop',
-            'filters',
-            'dashboard',
+        return view('admin.cashbook.finance.purchase.dashboard', array_merge(
+            $this->purchaseLayoutData(),
+            compact('filters', 'dashboard')
         ));
     }
 
@@ -1775,21 +1768,12 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $filters = $this->purchaseReportFilters($request, 'month');
-        $shops = $this->shopSyncService->syncAndGetProfiles();
-        $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
-        $company = config('greenleaf');
-        $currentShop = $shops->first();
         $report = $purchaseReportingService->report($filters);
         $options = $purchaseReportingService->options($filters);
 
-        return view('admin.cashbook.finance.purchase.reports.purchasers', compact(
-            'shops',
-            'companyAccounts',
-            'company',
-            'currentShop',
-            'filters',
-            'report',
-            'options',
+        return view('admin.cashbook.finance.purchase.reports.purchasers', array_merge(
+            $this->purchaseLayoutData(),
+            compact('filters', 'report', 'options')
         ));
     }
 
@@ -2078,28 +2062,53 @@ final class CashbookController extends Controller
             );
         }
 
-        if ($filters['warehouse_code'] !== null) {
-            $baseQuery->whereExists(function (QueryBuilder $produceQuery) use ($filters): void {
-                $produceQuery
+        if (! empty($filters['purchase_product_filter_id'])) {
+            $filterId = (int) $filters['purchase_product_filter_id'];
+            $baseQuery->whereExists(function (QueryBuilder $productQuery) use ($filterId): void {
+                $productQuery
+                    ->selectRaw('1')
+                    ->from('purchaser_cart_items')
+                    ->join('purchase_product_filter_items', 'purchase_product_filter_items.product_id', '=', 'purchaser_cart_items.product_id')
+                    ->whereColumn('purchaser_cart_items.purchaser_cart_id', 'purchase_invoices.purchaser_cart_id')
+                    ->where('purchase_product_filter_items.filter_id', $filterId);
+            });
+        }
+
+        if ($filters['purchaser_id'] !== null) {
+            $baseQuery->where('purchaser_carts.user_id', $filters['purchaser_id']);
+        }
+
+        if ($filters['vendor_id'] !== null) {
+            $baseQuery->where('purchase_invoices.supplier_id', $filters['vendor_id']);
+        }
+
+        if (! empty($filters['category_ids'])) {
+            $baseQuery->whereExists(function (QueryBuilder $categoryQuery) use ($filters): void {
+                $categoryQuery
                     ->selectRaw('1')
                     ->from('purchaser_cart_items')
                     ->join('products', 'products.id', '=', 'purchaser_cart_items.product_id')
-                    ->join('warehouses', 'warehouses.id', '=', 'products.default_warehouse_id')
                     ->whereColumn('purchaser_cart_items.purchaser_cart_id', 'purchase_invoices.purchaser_cart_id')
-                    ->where('warehouses.code', $filters['warehouse_code']);
+                    ->whereIn('products.category_id', $filters['category_ids']);
+            });
+        }
+
+        if ($filters['grade'] !== null) {
+            $baseQuery->whereExists(function (QueryBuilder $gradeQuery) use ($filters): void {
+                $gradeQuery
+                    ->selectRaw('1')
+                    ->from('purchaser_cart_items')
+                    ->whereColumn('purchaser_cart_items.purchaser_cart_id', 'purchase_invoices.purchaser_cart_id')
+                    ->where('purchaser_cart_items.grade', $filters['grade']);
             });
         }
 
         if ($search !== '') {
-            $baseQuery->where(function (Builder $query) use ($search): void {
-                $query->where('suppliers.name', 'like', '%'.$search.'%')
+            $baseQuery->where(function (Builder $searchQuery) use ($search): void {
+                $searchQuery
+                    ->where('suppliers.name', 'like', '%'.$search.'%')
                     ->orWhere('suppliers.mobile_number', 'like', '%'.$search.'%')
-                    ->orWhere('suppliers.contact', 'like', '%'.$search.'%')
-                    ->orWhere('purchase_invoices.invoice_number', 'like', '%'.$search.'%')
-                    ->orWhere('purchase_invoices.payment_note', 'like', '%'.$search.'%')
-                    ->orWhere('purchase_invoices.payment_details', 'like', '%'.$search.'%')
-                    ->orWhere('purchaser_carts.bill_number', 'like', '%'.$search.'%')
-                    ->orWhere('purchaser_carts.cart_number', 'like', '%'.$search.'%');
+                    ->orWhere('suppliers.contact', 'like', '%'.$search.'%');
             });
         }
 
@@ -2171,16 +2180,9 @@ final class CashbookController extends Controller
             })
             ->withQueryString();
 
-        return view('admin.cashbook.finance.vendor-credit.index', compact(
-            'shops',
-            'companyAccounts',
-            'company',
-            'currentShop',
-            'vendors',
-            'kpi',
-            'search',
-            'status',
-            'filters',
+        return view('admin.cashbook.finance.vendor-credit.index', array_merge(
+            $this->purchaseLayoutData(),
+            compact('vendors', 'kpi', 'search', 'status', 'filters')
         ));
     }
 
@@ -6813,7 +6815,7 @@ PY;
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
             'vendor_id' => ['nullable', 'integer', 'exists:suppliers,id'],
             'payment' => ['nullable', 'in:all,cash,credit'],
-            'produce_type' => ['nullable', 'in:all,vegetables,fruits'],
+            'product_filter' => ['nullable', 'string', 'exists:purchase_product_filters,uuid,deleted_at,NULL'],
             'category_ids' => ['nullable', 'array'],
             'category_ids.*' => ['integer', 'exists:categories,id'],
             'category_id' => ['nullable', 'integer', 'exists:categories,id'],
@@ -6837,6 +6839,11 @@ PY;
             [$startDate, $endDate] = [$endDate, $startDate];
         }
 
+        $productFilterUuid = $validated['product_filter'] ?? null;
+        $purchaseProductFilter = $productFilterUuid
+            ? PurchaseProductFilter::query()->where('uuid', $productFilterUuid)->firstOrFail()
+            : null;
+
         return [
             'period' => $period,
             'start_date' => $startDate->toDateString(),
@@ -6844,11 +6851,8 @@ PY;
             'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
             'vendor_id' => isset($validated['vendor_id']) ? (int) $validated['vendor_id'] : null,
             'payment' => $validated['payment'] ?? 'all',
-            'warehouse_code' => match ($validated['produce_type'] ?? 'all') {
-                'vegetables' => 'VEG-WH',
-                'fruits' => 'FRT-WH',
-                default => null,
-            },
+            'product_filter' => $productFilterUuid,
+            'purchase_product_filter_id' => $purchaseProductFilter?->id,
             'category_ids' => isset($validated['category_id']) ? [(int) $validated['category_id']] : array_map('intval', $validated['category_ids'] ?? []),
             'batch_ids' => [],
             'grade' => $validated['grade'] ?? null,
@@ -6856,14 +6860,13 @@ PY;
         ];
     }
 
-    /** @return array{period:string,start_date:string,end_date:string,purchaser_id:null,vendor_id:null,payment:string,warehouse_code:?string,category_ids:array<int, int>,batch_ids:array<int, int>,grade:null,search:string} */
     private function purchaseDashboardFilters(Request $request): array
     {
         $validated = $request->validate([
             'period' => ['nullable', 'in:today,yesterday,week,month,custom,between,range'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
-            'produce_type' => ['nullable', 'in:all,vegetables,fruits'],
+            'product_filter' => ['nullable', 'string', 'exists:purchase_product_filters,uuid,deleted_at,NULL'],
         ]);
 
         $period = $validated['period'] ?? 'today';
@@ -6882,6 +6885,11 @@ PY;
             [$startDate, $endDate] = [$endDate, $startDate];
         }
 
+        $productFilterUuid = $validated['product_filter'] ?? null;
+        $purchaseProductFilter = $productFilterUuid
+            ? PurchaseProductFilter::query()->where('uuid', $productFilterUuid)->firstOrFail()
+            : null;
+
         return [
             'period' => $period,
             'start_date' => $startDate->toDateString(),
@@ -6889,11 +6897,8 @@ PY;
             'purchaser_id' => null,
             'vendor_id' => null,
             'payment' => 'all',
-            'warehouse_code' => match ($validated['produce_type'] ?? 'all') {
-                'vegetables' => 'VEG-WH',
-                'fruits' => 'FRT-WH',
-                default => null,
-            },
+            'product_filter' => $productFilterUuid,
+            'purchase_product_filter_id' => $purchaseProductFilter?->id,
             'category_ids' => [],
             'batch_ids' => [],
             'grade' => null,
@@ -6940,6 +6945,7 @@ PY;
             'companyAccounts' => CompanyAccount::where('enabled', true)->orderBy('name')->get(),
             'company' => config('greenleaf'),
             'currentShop' => $shops->first(),
+            'productFilters' => PurchaseProductFilter::query()->orderBy('name')->get(['id', 'uuid', 'name']),
         ];
     }
 }

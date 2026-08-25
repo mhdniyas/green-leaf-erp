@@ -1,5 +1,9 @@
 @php
-    $context = ['period' => $filters['period'], 'produce_type' => $filters['warehouse_code'] === 'VEG-WH' ? 'vegetables' : ($filters['warehouse_code'] === 'FRT-WH' ? 'fruits' : 'all')];
+    $selectedProductFilter = $filters['product_filter'] ?? null;
+    $context = ['period' => $filters['period']];
+    if ($selectedProductFilter) {
+        $context['product_filter'] = $selectedProductFilter;
+    }
     if (in_array($filters['period'], ['custom', 'between', 'range'], true)) { $context += ['start_date' => $filters['start_date'], 'end_date' => $filters['end_date']]; }
     $detailUrl = match($section) { 'purchasers' => route('admin.cashbook.finance.purchase.purchasers.show', ['purchaser' => $row->purchaser_public_uuid] + $context), 'vendors' => route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $row->supplier_public_uuid] + $context), 'categories' => route('admin.cashbook.finance.purchase.categories.show', ['category' => $row->category_id] + $context), default => route('purchasing.invoices.show', $row->invoice_public_uuid) };
     $title = $section === 'purchasers' ? ($row->purchaser_name ?: 'Unassigned') : ($section === 'vendors' ? ($row->supplier_name ?: 'Unknown') : ($section === 'categories' ? ($row->category_name ?: 'Uncategorized') : ($row->invoice_number ?: 'Invoice')));

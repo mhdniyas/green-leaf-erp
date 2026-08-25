@@ -1,7 +1,10 @@
 @php
     $purchasePeriod = $filters['period'] ?? 'month';
-    $purchaseWarehouse = $filters['warehouse_code'] ?? null;
-    $purchaseContext = ['period' => $purchasePeriod, 'produce_type' => $purchaseWarehouse === 'VEG-WH' ? 'vegetables' : ($purchaseWarehouse === 'FRT-WH' ? 'fruits' : 'all')];
+    $selectedProductFilter = $filters['product_filter'] ?? null;
+    $purchaseContext = ['period' => $purchasePeriod];
+    if ($selectedProductFilter) {
+        $purchaseContext['product_filter'] = $selectedProductFilter;
+    }
     if (in_array($purchasePeriod, ['custom', 'between', 'range'], true)) {
         $purchaseContext += ['start_date' => $filters['start_date'] ?? null, 'end_date' => $filters['end_date'] ?? null];
     }

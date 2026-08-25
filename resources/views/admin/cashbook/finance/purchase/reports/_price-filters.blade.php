@@ -1,4 +1,4 @@
-@php($produceType = $filters['warehouse_code'] === 'VEG-WH' ? 'vegetables' : ($filters['warehouse_code'] === 'FRT-WH' ? 'fruits' : 'all'))
+@php($produceType = ($filters['warehouse_code'] ?? null) === 'VEG-WH' ? 'vegetables' : (($filters['warehouse_code'] ?? null) === 'FRT-WH' ? 'fruits' : 'all'))
 
 <form method="GET" action="{{ route($filterRoute) }}" class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
     <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[12rem_12rem_minmax(12rem,1fr)_auto_auto] lg:items-end">

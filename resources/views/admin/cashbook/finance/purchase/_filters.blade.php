@@ -1,11 +1,11 @@
 @php
-    $produceType = $filters['warehouse_code'] === 'VEG-WH' ? 'vegetables' : ($filters['warehouse_code'] === 'FRT-WH' ? 'fruits' : 'all');
+    $selectedProductFilter = $filters['product_filter'] ?? null;
     $usesCustomDates = in_array($filters['period'], ['custom', 'between', 'range'], true);
     $hasMoreFilters = $filters['purchaser_id'] || $filters['vendor_id'] || $filters['payment'] !== 'all' || $filters['category_ids'] || $filters['grade'] || $usesCustomDates;
 @endphp
 
 <form method="GET" action="{{ $filterRoute }}" class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm" data-purchase-filter-form data-today="{{ now('Asia/Kolkata')->toDateString() }}">
-    <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[10rem_10rem_minmax(16rem,1fr)_auto_auto] lg:items-end">
+    <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[10rem_12rem_minmax(16rem,1fr)_auto_auto] lg:items-end">
         <label class="text-[10px] font-black uppercase text-slate-500">Period
             <select name="period" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" data-purchase-period>
                 @foreach(['today' => 'Today', 'yesterday' => 'Yesterday', 'week' => 'This Week', 'month' => 'This Month', 'custom' => 'Custom'] as $value => $label)
@@ -14,11 +14,12 @@
             </select>
         </label>
 
-        <label class="text-[10px] font-black uppercase text-slate-500">Produce
-            <select name="produce_type" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                <option value="all" @selected($produceType === 'all')>All Produce</option>
-                <option value="vegetables" @selected($produceType === 'vegetables')>Vegetables</option>
-                <option value="fruits" @selected($produceType === 'fruits')>Fruits</option>
+        <label class="text-[10px] font-black uppercase text-slate-500">Product Filter
+            <select name="product_filter" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                <option value="">All Products</option>
+                @foreach($productFilters as $filter)
+                    <option value="{{ $filter->uuid }}" @selected($selectedProductFilter === $filter->uuid)>{{ $filter->name }}</option>
+                @endforeach
             </select>
         </label>
 

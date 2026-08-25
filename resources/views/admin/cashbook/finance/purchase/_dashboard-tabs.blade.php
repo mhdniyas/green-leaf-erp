@@ -1,7 +1,10 @@
 @php
     $dashboardPeriod = $filters['period'] ?? 'month';
-    $dashboardWarehouse = $filters['warehouse_code'] ?? null;
-    $dashboardContext = ['period' => $dashboardPeriod, 'produce_type' => $dashboardWarehouse === 'VEG-WH' ? 'vegetables' : ($dashboardWarehouse === 'FRT-WH' ? 'fruits' : 'all')];
+    $selectedProductFilter = $filters['product_filter'] ?? null;
+    $dashboardContext = ['period' => $dashboardPeriod];
+    if ($selectedProductFilter) {
+        $dashboardContext['product_filter'] = $selectedProductFilter;
+    }
     if (in_array($dashboardPeriod, ['custom', 'between', 'range'], true)) {
         $dashboardContext += ['start_date' => $filters['start_date'] ?? null, 'end_date' => $filters['end_date'] ?? null];
     }
