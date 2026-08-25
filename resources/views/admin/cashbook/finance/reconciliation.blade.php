@@ -1,24 +1,43 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', 'Statement Reconciliation - Cashbook')
+@section('title', 'Cashbook Action Center')
 
 @section('header_title')
-    <i data-lucide="git-compare-arrows" class="h-5 w-5 text-emerald-600"></i> Statement Reconciliation
+    <i data-lucide="workflow" class="h-5 w-5 text-emerald-600"></i> Cashbook Action Center
 @endsection
 
 @section('header_subtitle')
-    Select one bank or cash statement row, then approve matching shop payments without clutter.
+    Manage company cash and bank activity, classify statement movements, reconcile transactions, and finalize approved cash flow.
 @endsection
 
 @section('header_actions')
     <div class="flex items-center gap-2">
-        <a href="{{ route('admin.cashbook.finance.journal') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+        <details class="relative">
+            <summary class="inline-flex min-h-10 cursor-pointer list-none items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white shadow-sm hover:bg-emerald-500">
+                <i data-lucide="plus" class="h-4 w-4"></i>
+                <span class="hidden sm:inline">New Transaction</span>
+            </summary>
+            <div class="absolute right-0 z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
+                <p class="px-2 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Money In</p>
+                <div class="mt-2 grid gap-2">
+                    <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'income']) }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-emerald-50">Other Income</a>
+                    <a href="{{ route('admin.cashbook.finance.direct-sales') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-emerald-50">Direct Sale</a>
+                </div>
+                <p class="mt-4 px-2 text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Money Out</p>
+                <div class="mt-2 grid gap-2">
+                    <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'expense']) }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-rose-50">Other Expense</a>
+                    <a href="{{ route('admin.cashbook.finance.vendor-credit') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-rose-50">Vendor Payment</a>
+                    <a href="{{ route('admin.cashbook.payables') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-rose-50">Pay Payable</a>
+                    <a href="{{ route('admin.cashbook.finance.purchase.purchasers') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-rose-50">Purchasers</a>
+                    <a href="{{ route('admin.cashbook.index') }}#tab-payments" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-rose-50">Shop Petty</a>
+                    <a href="{{ route('admin.staff.payments.index') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-rose-50">Salary Payment</a>
+                    <a href="{{ route('admin.staff.advance-payments.index') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-800 hover:bg-rose-50">Salary Advance</a>
+                </div>
+            </div>
+        </details>
+        <a href="{{ route('admin.cashbook.finance.journal') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">
             <i data-lucide="book-open-check" class="h-4 w-4"></i>
-            <span class="hidden sm:inline">Journal</span>
-        </a>
-        <a href="{{ route('admin.cashbook.finance') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white shadow-sm hover:bg-slate-800">
-            <i data-lucide="badge-dollar-sign" class="h-4 w-4"></i>
-            <span class="hidden sm:inline">Finance</span>
+            <span class="hidden sm:inline">Approved Transactions</span>
         </a>
     </div>
 @endsection
@@ -28,6 +47,60 @@
         $remainingStatement = $selectedStatement
             ? max(0, (float) $selectedStatement->amount - (float) $selectedStatement->matched_amount)
             : 0;
+        $queueTabs = [
+            'needs_action' => 'Needs Action',
+            'unmatched' => 'Unmatched',
+            'pending' => 'Pending',
+            'partial' => 'Partial',
+            'finalized_today' => 'Finalized Today',
+        ];
+        $directionActions = [
+            'out' => [
+                ['key' => 'payable', 'label' => 'Payable'],
+                ['key' => 'vendor-payment', 'label' => 'Vendor Payment'],
+                ['key' => 'custom-expense', 'label' => 'Other Expense'],
+                ['key' => 'salary-payment', 'label' => 'Salary Payment'],
+                ['key' => 'salary-advance', 'label' => 'Salary Advance'],
+                ['key' => 'shop-petty', 'label' => 'Shop Petty'],
+                ['key' => 'purchaser-funding', 'label' => 'Purchaser Funding'],
+                ['key' => 'match-existing', 'label' => 'Match Existing Transaction'],
+            ],
+            'in' => [
+                ['key' => 'custom-income', 'label' => 'Other Income'],
+                ['key' => 'shop-payment', 'label' => 'Shop Payment'],
+                ['key' => 'direct-company-sale', 'label' => 'Direct Company Sale'],
+                ['key' => 'match-existing', 'label' => 'Match Existing Transaction'],
+            ],
+        ];
+        $classificationContext = $classifyStatement ? [
+            'statement_public_uuid' => $classifyStatement->public_uuid,
+            'direction' => $classifyStatement->direction,
+            'amount' => (float) $classifyStatement->amount,
+            'transaction_date' => $classifyStatement->transaction_date?->toDateString(),
+            'company_account_public_uuid' => $classifyStatement->companyAccount?->public_uuid,
+            'reference' => $classifyStatement->reference,
+            'narration' => $classifyStatement->narration,
+        ] : null;
+        $isCreateTransactionPage = $classifyStatement && request()->boolean('create_transaction');
+        $actionCenterUrl = route('admin.cashbook.finance.reconciliation', ['company_account_uuid' => $selectedAccountUuid, 'month' => $month, 'direction' => $direction, 'status' => $queueStatus, 'grace_days' => $graceDays, 'search' => $search]);
+        $matchTransactionUrl = $classifyStatement
+            ? route('admin.cashbook.finance.reconciliation', ['classify_statement' => $classifyStatement->public_uuid, 'company_account_uuid' => $selectedAccountUuid, 'month' => $month, 'direction' => $direction, 'status' => $queueStatus, 'grace_days' => $graceDays, 'search' => $search])
+            : $actionCenterUrl;
+        $createTransactionUrl = $classifyStatement
+            ? route('admin.cashbook.finance.reconciliation.create-transaction', $classifyStatement)
+            : $actionCenterUrl;
+        $createTabLabels = [
+            'expense' => 'Expense',
+            'payable' => 'Payable',
+            'vendor' => 'Vendor',
+            'salary' => 'Salary',
+            'advance' => 'Salary Advance',
+            'petty' => 'Shop Petty',
+            'purchaser' => 'Purchaser Funding',
+            'income' => 'Other Income',
+            'shop-payment' => 'Shop Payment',
+            'direct-sale' => 'Direct Sale',
+        ];
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-5">
@@ -43,145 +116,835 @@
             </div>
         @endif
 
-        <section class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-            <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto_1fr_auto]">
-                <select name="company_account_id" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+        @unless($classifyStatement)
+        <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <article class="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Awaiting Reconciliation</p>
+                <p class="mt-2 font-mono text-2xl font-black text-emerald-950">{{ number_format($summary['awaiting_count']) }} / ₹{{ number_format($summary['awaiting_amount'], 2) }}</p>
+            </article>
+            <article class="rounded-3xl border border-rose-200 bg-gradient-to-br from-rose-50 to-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Unmatched Statements</p>
+                <p class="mt-2 font-mono text-2xl font-black text-rose-950">{{ number_format($summary['unmatched_statements']) }} / ₹{{ number_format($summary['unmatched_amount'], 2) }}</p>
+            </article>
+            <article class="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">Partial</p>
+                <p class="mt-2 font-mono text-2xl font-black text-amber-950">{{ number_format($summary['partial_count']) }} / ₹{{ number_format($summary['partial_amount'], 2) }}</p>
+            </article>
+            <article class="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-100 to-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Finalized This Month</p>
+                <p class="mt-2 font-mono text-2xl font-black text-slate-950">{{ number_format($summary['finalized_month_count']) }} / ₹{{ number_format($summary['finalized_month_amount'], 2) }}</p>
+            </article>
+        </section>
+
+        <nav class="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="Reconciliation workspace">
+            @foreach(['needs_reconciliation' => 'Needs Reconciliation', 'statements' => 'Statement Movements', 'history' => 'Reconciled History'] as $tab => $label)
+                @php
+                    $workspaceQuery = array_merge(request()->query(), ['workspace' => $tab]);
+
+                    if ($tab !== 'statements') {
+                        unset($workspaceQuery['search']);
+                    }
+                @endphp
+                <a href="{{ route('admin.cashbook.finance.reconciliation', $workspaceQuery) }}" class="shrink-0 rounded-xl px-4 py-3 text-xs font-black {{ $workspaceTab === $tab ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100' }}">{{ $label }}</a>
+            @endforeach
+        </nav>
+
+        @if($workspaceTab === 'needs_reconciliation')
+            <section x-data="{ detail: null, reconcile: null, candidates: [], loading: false }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
+                <div class="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+                    <div><h2 class="text-base font-black text-slate-950">Needs Reconciliation</h2><p class="mt-1 text-xs font-semibold text-slate-500">ERP cash and bank activity waiting for real statement movement.</p></div>
+                    <span class="font-mono text-xs font-bold text-slate-400">{{ $pendingSources->total() }} rows</span>
+                </div>
+                <div class="mt-4 space-y-2">
+                    @forelse($pendingSources as $source)
+                        @php
+                            $candidateUrl = route('admin.cashbook.finance.reconciliation.pending-candidates', ['find_kind' => $source['kind'], 'find_ref' => $source['reference']]);
+                        @endphp
+                        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                            <div class="flex items-start justify-between gap-3"><div class="min-w-0"><p class="font-black text-slate-950">{{ $source['source'] }}</p><p class="mt-1 truncate text-xs font-bold text-slate-600">{{ $source['counterparty'] }}</p><p class="mt-1 text-[11px] font-bold text-slate-400">{{ $source['date'] }} / {{ $source['method'] }} / {{ $source['account'] }} / {{ $source['reference_label'] }}</p></div><strong class="shrink-0 font-mono text-lg text-slate-950">₹{{ number_format($source['amount'], 2) }}</strong></div>
+                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Pending Reconciliation</span><div class="flex gap-2"><button type="button" @click='detail = @json($source)' class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">View Details</button><button type="button" data-candidate-url="{{ $candidateUrl }}" @click='reconcile = @json($source); candidates = []; loading = true; fetch($el.dataset.candidateUrl).then(response => response.json()).then(data => candidates = data.candidates).finally(() => loading = false)' class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Reconcile</button></div></div>
+                        </article>
+                    @empty
+                        <p class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">No pending cash or bank transactions for this filter.</p>
+                    @endforelse
+                </div>
+                @if($pendingSources->hasPages())<div class="mt-4">{{ $pendingSources->links() }}</div>@endif
+                <div x-cloak x-show="detail" @keydown.escape.window="detail = null" class="fixed inset-0 z-50 flex items-end bg-slate-950/50 p-3 sm:items-center sm:justify-center" role="dialog" aria-modal="true">
+                    <div @click.outside="detail = null" class="w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+                        <div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Transaction Details</p><h2 class="mt-1 text-xl font-black text-slate-950" x-text="detail?.source"></h2></div><button type="button" @click="detail = null" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</button></div>
+                        <div class="mt-5 grid grid-cols-2 gap-2 text-xs"><template x-for="[label, value] in [['Counterparty', detail?.counterparty], ['Amount', '₹' + Number(detail?.amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})], ['Date', detail?.date], ['Method / Account', detail?.method + ' / ' + detail?.account], ['Reference', detail?.reference_label], ['Status', 'Pending Reconciliation']]" :key="label"><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400" x-text="label"></span><strong class="mt-1 block break-words text-slate-900" x-text="value"></strong></div></template></div>
+                        <div class="mt-3 rounded-xl bg-slate-50 p-3 text-xs"><span class="block font-bold text-slate-400">Description / Note</span><strong class="mt-1 block break-words text-slate-900" x-text="detail?.description"></strong></div>
+                    </div>
+                </div>
+                <div x-cloak x-show="reconcile" @keydown.escape.window="reconcile = null" class="fixed inset-0 z-50 flex items-end bg-slate-950/50 p-3 sm:items-center sm:justify-center" role="dialog" aria-modal="true">
+                    <div @click.outside="reconcile = null" class="max-h-full w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+                        <div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Reconcile Transaction</p><h2 class="mt-1 text-xl font-black text-slate-950">Transaction Summary</h2></div><button type="button" @click="reconcile = null" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</button></div>
+                        <div class="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3"><template x-for="[label, value] in [['Source', reconcile?.source], ['Counterparty', reconcile?.counterparty], ['Amount', '₹' + Number(reconcile?.amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})], ['Date', reconcile?.date], ['Method', reconcile?.method], ['Reference', reconcile?.reference_label]]" :key="label"><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400" x-text="label"></span><strong class="mt-1 block break-words text-slate-900" x-text="value"></strong></div></template></div><div class="mt-3 rounded-xl bg-slate-50 p-3 text-xs"><span class="block font-bold text-slate-400">Description / Note</span><strong class="mt-1 block break-words text-slate-900" x-text="reconcile?.description"></strong></div>
+                        <h3 class="mt-5 text-sm font-black text-slate-950">Matching Statement Movements</h3><p x-show="loading" class="mt-3 text-sm font-bold text-slate-500">Loading statement matches...</p><div x-show="!loading" class="mt-3 space-y-2"><template x-for="candidate in candidates" :key="candidate.match_url"><article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><p class="font-black text-slate-950" x-text="candidate.account"></p><p class="mt-1 text-xs font-semibold text-slate-600"><span x-text="candidate.date"></span> / <span x-text="candidate.reference || candidate.narration || 'No reference'"></span></p><p class="mt-1 text-xs text-slate-500" x-text="candidate.narration"></p></div><strong class="font-mono text-lg" x-text="'₹' + Number(candidate.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></strong></div><form method="POST" :action="candidate.match_url" class="mt-3">@csrf<input type="hidden" :name="reconcile.kind === 'shop_payment' ? 'payment_request_ref' : 'candidate_ref'" :value="reconcile.reference"><button class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Match &amp; Finalize</button></form></article></template><p x-show="candidates.length === 0" class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No matching statement found for selected amount.</p></div>
+                    </div>
+                </div>
+            </section>
+
+            @if($findPendingSource)
+                <section id="reconcile-panel" tabindex="-1" class="rounded-3xl border border-slate-200 bg-white p-4 shadow-xl sm:p-6"><div class="flex items-start justify-between gap-4"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">{{ $showPendingDetails ? 'Transaction Details' : 'Reconcile Transaction' }}</p><h2 class="mt-1 text-xl font-black text-slate-950">Transaction Summary</h2></div><a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['find_kind' => null, 'find_ref' => null, 'details' => null])) }}" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</a></div><div class="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3"><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Source</span><strong>{{ $findPendingSource['source'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Counterparty</span><strong>{{ $findPendingSource['counterparty'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Amount</span><strong class="font-mono">₹{{ number_format($findPendingSource['amount'], 2) }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Date</span><strong>{{ $findPendingSource['date'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Method</span><strong>{{ $findPendingSource['method'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Reference</span><strong>{{ $findPendingSource['reference_label'] }}</strong></div></div><p class="mt-3 text-xs font-semibold text-slate-600">{{ $findPendingSource['description'] }}</p>@if($showPendingDetails)<div class="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">@foreach($findPendingSource['details'] as $label => $value)<div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">{{ $label }}</span><strong class="break-words text-slate-900">{{ $value }}</strong></div>@endforeach</div><a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['details' => null])) }}#reconcile-panel" class="mt-4 inline-flex rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Reconcile</a>@else<h3 class="mt-5 text-sm font-black text-slate-950">Possible Statement Matches</h3><div class="mt-3 space-y-2">@forelse($findStatementCandidates as $statement)<article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><p class="font-black text-slate-950">{{ $statement->companyAccount?->name }}</p><p class="mt-1 text-xs font-semibold text-slate-600">{{ $statement->transaction_date?->format('Y-m-d') }} / {{ $statement->reference ?: $statement->narration ?: 'No reference' }}</p></div><strong class="font-mono text-lg">₹{{ number_format($statement->amount, 2) }}</strong></div><form method="POST" action="{{ $findPendingSource['kind'] === 'shop_payment' ? route('admin.cashbook.finance.reconciliation.classify-shop-payment', $statement) : route('admin.cashbook.finance.reconciliation.match-existing', $statement) }}" class="mt-3">@csrf<input type="hidden" name="{{ $findPendingSource['kind'] === 'shop_payment' ? 'payment_request_ref' : 'candidate_ref' }}" value="{{ $findPendingSource['reference'] }}"><button class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Match &amp; Finalize</button></form></article>@empty<p class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No matching bank/cash movement found yet.<span class="mt-1 block font-semibold text-slate-500">This transaction will remain pending until a matching statement movement is available.</span></p>@endforelse</div>@endif</section>
+            @endif
+        @elseif($workspaceTab === 'history')
+            <section class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5"><div class="border-b border-slate-200 pb-3"><h2 class="text-base font-black text-slate-950">Reconciled History</h2><p class="mt-1 text-xs font-semibold text-slate-500">Finalized cash and bank movements for {{ \Carbon\Carbon::parse($monthStart)->format('F Y') }}.</p></div><div class="mt-4 space-y-2">@forelse($historyEntries as $entry)<article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><p class="font-black text-slate-950">{{ $entry->source_label }}</p><p class="mt-1 text-xs font-semibold text-slate-600">{{ $entry->transaction_date?->format('Y-m-d') }} / {{ $entry->companyAccount?->name }} / {{ $entry->reference ?: 'No reference' }}</p><p class="mt-1 text-[10px] font-black uppercase text-emerald-700">Finalized {{ $entry->finalized_at?->format('Y-m-d H:i') }}</p></div><strong class="font-mono text-lg">₹{{ number_format($entry->amount, 2) }}</strong></div></article>@empty<p class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">No finalized movements this month.</p>@endforelse</div>@if($historyEntries->hasPages())<div class="mt-4">{{ $historyEntries->links() }}</div>@endif</section>
+        @endif
+        @endunless
+
+        @if(! $classifyStatement && $workspaceTab === 'statements')
+
+        <section class="white-card rounded-3xl border border-slate-200 p-4 shadow-sm">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <h2 class="text-base font-black text-slate-950">Quick Actions</h2>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">System-first actions use existing finance and HR modules. Shop Payment still originates from shop workflow.</p>
+                </div>
+                <a href="{{ route('admin.cashbook.finance.journal') }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">View Approved Transactions</a>
+            </div>
+            <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div class="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Money In</p>
+                    <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'income']) }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-emerald-700">Other Income</a>
+                        <a href="{{ route('admin.cashbook.finance.direct-sales') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-emerald-700">Direct Sale</a>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-rose-100 bg-rose-50/60 p-3">
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Money Out</p>
+                    <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'expense']) }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Other Expense</a>
+                        <a href="{{ route('admin.cashbook.payables') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Pay Payable</a>
+                        <a href="{{ route('admin.cashbook.finance.vendor-credit') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Vendor Payment</a>
+                        <a href="{{ route('admin.cashbook.finance.purchase.purchasers') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Purchasers</a>
+                        <a href="{{ route('admin.cashbook.index') }}#tab-payments" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Shop Petty</a>
+                        <a href="{{ route('admin.staff.payments.index') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Salary Payment</a>
+                        <a href="{{ route('admin.staff.advance-payments.index') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Salary Advance</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="white-card rounded-3xl border border-slate-200 p-4 shadow-sm">
+            <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto_auto_1fr_auto]">
+                <select name="company_account_uuid" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                     @foreach($companyAccounts as $account)
-                        <option value="{{ $account->id }}" @selected((int) $selectedAccountId === (int) $account->id)>
+                        <option value="{{ $account->public_uuid }}" @selected($selectedAccountUuid === $account->public_uuid)>
                             {{ $account->name }} / {{ strtoupper($account->account_type) }}
                         </option>
                     @endforeach
                 </select>
-                <input type="month" name="month" value="{{ $month }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                <input type="number" min="0" max="60" name="grace_days" value="{{ $graceDays }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Grace days">
-                <input type="search" name="search" value="{{ $search }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Search reference, narration, shop">
-                <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">
+                <input type="month" name="month" value="{{ $month }}" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                <select name="direction" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                    <option value="all" @selected($direction === 'all')>All Directions</option>
+                    <option value="in" @selected($direction === 'in')>IN</option>
+                    <option value="out" @selected($direction === 'out')>OUT</option>
+                </select>
+                <input type="number" min="0" max="60" name="grace_days" value="{{ $graceDays }}" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Grace days">
+                <input type="search" name="search" value="{{ $search }}" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Search reference, narration, amount">
+                <button type="submit" class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-4 text-xs font-black text-white hover:bg-slate-800">
                     <i data-lucide="filter" class="h-4 w-4"></i> Filter
                 </button>
+                <input type="hidden" name="status" value="{{ $queueStatus }}">
             </form>
         </section>
 
-        <section class="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
-                <div class="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
-                    <div>
-                        <h2 class="text-base font-extrabold text-slate-950">Statement Queue</h2>
-                        <p class="mt-0.5 text-xs font-semibold text-slate-500">{{ \Carbon\Carbon::parse($monthStart)->format('F Y') }} unmatched incoming rows.</p>
+        <section class="grid grid-cols-1 gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+            <div class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
+                <div class="mb-4 border-b border-slate-200 pb-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h2 class="text-base font-extrabold text-slate-950">Needs Action</h2>
+                            <p class="mt-0.5 text-xs font-semibold text-slate-500">{{ \Carbon\Carbon::parse($monthStart)->format('F Y') }} cash and bank queue.</p>
+                        </div>
+                        <span class="font-mono text-xs font-bold text-slate-400">{{ $statementEntries->total() }} rows</span>
                     </div>
-                    <span class="font-mono text-xs font-bold text-slate-400">{{ $statementEntries->count() }} rows</span>
+                    <div class="mt-4 flex gap-2 overflow-x-auto pb-1">
+                        @foreach($queueTabs as $tabKey => $tabLabel)
+                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['company_account_uuid' => $selectedAccountUuid, 'month' => $month, 'direction' => $direction, 'status' => $tabKey, 'grace_days' => $graceDays, 'search' => $search]) }}"
+                               class="shrink-0 rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] {{ $queueStatus === $tabKey ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                                {{ $tabLabel }}
+                            </a>
+                        @endforeach
+                    </div>
                 </div>
 
                 <div class="space-y-2">
                     @forelse($statementEntries as $entry)
-                        @php($remaining = max(0, (float) $entry->amount - (float) $entry->matched_amount))
-                        <a href="{{ route('admin.cashbook.finance.reconciliation', ['statementRef' => $entry->secureRouteKey(), 'company_account_id' => $entry->company_account_id, 'month' => $month, 'grace_days' => $graceDays, 'search' => $search]) }}"
+                        @php
+                            $remaining = max(0, (float) $entry->amount - (float) $entry->matched_amount);
+                            $primaryAction = $entry->is_finalized
+                                ? 'View'
+                                : ($entry->status === 'partially_matched'
+                                    ? 'Continue Reconciliation'
+                                    : ($entry->journal_entry_id ? 'Reconcile' : 'Classify / Match'));
+                        @endphp
+                        <a href="{{ $entry->status === 'unmatched' && ! $entry->journal_entry_id && ! $entry->is_finalized
+                            ? route('admin.cashbook.finance.reconciliation', ['classify_statement' => $entry->public_uuid, 'company_account_uuid' => $entry->companyAccount?->public_uuid, 'month' => $month, 'direction' => $direction, 'status' => $queueStatus, 'grace_days' => $graceDays, 'search' => $search])
+                            : route('admin.cashbook.finance.reconciliation', ['statementRef' => $entry->secureRouteKey(), 'company_account_uuid' => $entry->companyAccount?->public_uuid, 'month' => $month, 'direction' => $direction, 'status' => $queueStatus, 'grace_days' => $graceDays, 'search' => $search]) }}"
                            class="block rounded-2xl border p-3 transition {{ $selectedStatement && $selectedStatement->id === $entry->id ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:bg-white' }}">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0">
-                                    <div class="font-mono text-sm font-black text-slate-950">₹{{ number_format($entry->amount, 2) }}</div>
-                                    <p class="mt-1 truncate text-xs font-semibold text-slate-600">{{ $entry->narration ?: $entry->reference ?: 'Statement credit' }}</p>
-                                    <p class="mt-1 text-[11px] font-bold text-slate-400">{{ $entry->transaction_date?->format('Y-m-d') }} / {{ $entry->companyAccount?->name }}</p>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase {{ $entry->direction === 'in' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800' }}">{{ strtoupper($entry->direction) }}</span>
+                                        <div class="font-mono text-lg font-black text-slate-950">₹{{ number_format($entry->amount, 2) }}</div>
+                                        <span class="rounded-full bg-white px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">{{ $entry->source_label }}</span>
+                                    </div>
+                                    <p class="mt-1 truncate text-xs font-semibold text-slate-700">{{ $entry->narration ?: $entry->reference ?: 'No narration' }}</p>
+                                    <p class="mt-1 text-[11px] font-bold text-slate-400">{{ $entry->transaction_date?->format('Y-m-d') }} / {{ $entry->companyAccount?->name }} / {{ $entry->reference ?: 'No reference' }}</p>
                                 </div>
                                 <div class="shrink-0 text-right">
-                                    <span class="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ $entry->status }}</span>
+                                    <span class="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ $entry->is_finalized ? 'finalized' : $entry->status }}</span>
                                     <div class="mt-2 font-mono text-xs font-bold text-amber-700">Open ₹{{ number_format($remaining, 2) }}</div>
                                 </div>
+                            </div>
+                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-2">
+                                <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Action</span>
+                                <span class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">{{ $primaryAction }}</span>
                             </div>
                         </a>
                     @empty
                         <div class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">
-                            No unmatched statement credits for this filter.
+                            No cashbook action rows for this filter.
                         </div>
                     @endforelse
                 </div>
+
+                @if($statementEntries->hasPages())
+                    <div class="mt-4">
+                        {{ $statementEntries->links() }}
+                    </div>
+                @endif
             </div>
 
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
+            <div class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
                 @if($selectedStatement)
                     <div class="mb-4 border-b border-slate-200 pb-3">
                         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div class="min-w-0">
-                                <h2 class="text-base font-extrabold text-slate-950">Match This Statement Row</h2>
-                                <p class="mt-1 break-words text-xs font-semibold text-slate-500">{{ $selectedStatement->narration ?: $selectedStatement->reference ?: 'No narration' }}</p>
+                                <h2 class="text-base font-extrabold text-slate-950">Selected Statement</h2>
+                                <p class="mt-1 break-words text-xs font-semibold text-slate-600">{{ $selectedStatement->narration ?: $selectedStatement->reference ?: 'No narration' }}</p>
+                                <p class="mt-1 text-[11px] font-black uppercase text-slate-400">{{ strtoupper($selectedStatement->direction) }} / {{ $selectedStatement->source_label }} / {{ $selectedStatement->transaction_date?->format('Y-m-d') }}</p>
                             </div>
-                            <div class="shrink-0 rounded-xl bg-slate-50 px-3 py-2 text-right">
+                            <div class="shrink-0 rounded-2xl bg-slate-50 px-4 py-3 text-right">
                                 <span class="block text-[10px] font-black uppercase text-slate-400">Remaining</span>
-                                <strong class="font-mono text-lg font-extrabold text-emerald-700">₹{{ number_format($remainingStatement, 2) }}</strong>
+                                <strong class="font-mono text-xl font-extrabold text-emerald-700">₹{{ number_format($remainingStatement, 2) }}</strong>
                             </div>
                         </div>
+
+                        <div class="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                            <div class="rounded-xl bg-slate-50 p-3">
+                                <span class="block font-bold text-slate-400">Account</span>
+                                <strong class="text-slate-900">{{ $selectedStatement->companyAccount?->name }}</strong>
+                            </div>
+                            <div class="rounded-xl bg-slate-50 p-3">
+                                <span class="block font-bold text-slate-400">Reference</span>
+                                <strong class="break-words text-slate-900">{{ $selectedStatement->reference ?: '—' }}</strong>
+                            </div>
+                            <div class="rounded-xl bg-slate-50 p-3">
+                                <span class="block font-bold text-slate-400">Status</span>
+                                <strong class="uppercase text-slate-900">{{ $selectedStatement->is_finalized ? 'finalized' : $selectedStatement->status }}</strong>
+                            </div>
+                            <div class="rounded-xl bg-slate-50 p-3">
+                                <span class="block font-bold text-slate-400">Matched</span>
+                                <strong class="font-mono text-slate-900">₹{{ number_format((float) $selectedStatement->matched_amount, 2) }}</strong>
+                            </div>
+                        </div>
+
+                        @if(! $selectedStatement->is_finalized && ! $classifyStatement)
+                            <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">What is this transaction?</p>
+                                <div class="mt-3 flex flex-wrap gap-2">
+                                    @foreach($directionActions[$selectedStatement->direction] ?? ['Match Existing'] as $action)
+                                        <span class="rounded-full bg-slate-100 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">{{ $action['label'] }}</span>
+                                    @endforeach
+                                </div>
+                                <p class="mt-3 text-xs font-semibold text-slate-500">Use Classify / Match on unmatched rows to open drawer.</p>
+                            </div>
+                        @endif
                     </div>
 
                     <div class="space-y-3">
                         @forelse($possiblePayments as $candidate)
-                            @php($payment = $candidate['payment'])
-                            <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.match', ['statementRef' => $selectedStatement->secureRouteKey(), 'grace_days' => $graceDays]) }}" class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                                @csrf
-                                <input type="hidden" name="payment_request_ref" value="{{ $payment->secureRouteKey() }}">
-                                <input type="hidden" name="business_date" value="{{ $selectedStatement->transaction_date?->toDateString() }}">
-                                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                    <div class="min-w-0">
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <a href="{{ route('admin.cashbook.finance.journal.secure-show', $payment->secureRouteKey()) }}" class="text-sm font-black text-slate-950 hover:text-emerald-700">{{ $payment->shop?->name ?? 'Shop' }}</a>
-                                            <span class="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ $payment->paymentMethodLabel() }}</span>
-                                            <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase text-emerald-700">Score {{ $candidate['score'] }}</span>
-                                        </div>
-                                        <p class="mt-1 text-xs font-semibold text-slate-500">
-                                            {{ $payment->payment_date?->format('Y-m-d') ?: $payment->created_at?->format('Y-m-d') }}
-                                            @if($payment->payment_reference)
-                                                / {{ $payment->payment_reference }}
-                                            @endif
-                                        </p>
-                                        <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
-                                            <div class="rounded-xl bg-white p-2">
-                                                <span class="block font-bold text-slate-400">Submitted</span>
-                                                <strong class="font-mono text-slate-900">₹{{ number_format($payment->requested_amount, 2) }}</strong>
+                            @if(isset($candidate['journal_entry']))
+                                @php
+                                    $journalEntry = $candidate['journal_entry'];
+                                @endphp
+                                <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.match-journal', ['statementRef' => $selectedStatement->secureRouteKey(), 'grace_days' => $graceDays]) }}" class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                    @csrf
+                                    <input type="hidden" name="journal_entry_id" value="{{ $journalEntry->id }}">
+                                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                        <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <a href="{{ route('admin.cashbook.finance.journal.entry-show', $journalEntry) }}" class="text-sm font-black text-slate-950 hover:text-emerald-700">{{ $journalEntry->formatted_reference }}</a>
+                                                <span class="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ $journalEntry->source_label }}</span>
+                                                <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase text-emerald-700">Score {{ $candidate['score'] }}</span>
                                             </div>
-                                            <div class="rounded-xl bg-white p-2">
-                                                <span class="block font-bold text-slate-400">Approved</span>
-                                                <strong class="font-mono text-emerald-700">₹{{ number_format($payment->reconciled_amount, 2) }}</strong>
-                                            </div>
-                                            <div class="rounded-xl bg-white p-2">
-                                                <span class="block font-bold text-slate-400">Floating</span>
-                                                <strong class="font-mono text-amber-700">₹{{ number_format($candidate['floating_amount'], 2) }}</strong>
+                                            <p class="mt-1 text-xs font-semibold text-slate-500">{{ $journalEntry->description ?: $journalEntry->reference ?: 'Pending journal' }}</p>
+                                            <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                                                <div class="rounded-xl bg-white p-2">
+                                                    <span class="block font-bold text-slate-400">Date</span>
+                                                    <strong class="font-mono text-slate-900">{{ $journalEntry->entry_date?->format('Y-m-d') }}</strong>
+                                                </div>
+                                                <div class="rounded-xl bg-white p-2">
+                                                    <span class="block font-bold text-slate-400">Amount</span>
+                                                    <strong class="font-mono text-slate-900">₹{{ number_format($journalEntry->primary_amount, 2) }}</strong>
+                                                </div>
+                                                <div class="rounded-xl bg-white p-2">
+                                                    <span class="block font-bold text-slate-400">Open</span>
+                                                    <strong class="font-mono text-amber-700">₹{{ number_format($candidate['floating_amount'], 2) }}</strong>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    <div class="grid w-full grid-cols-1 gap-2 text-xs sm:grid-cols-2 lg:max-w-lg">
-                                        <input type="number" step="0.01" min="0.01" name="cleared_amount" value="{{ number_format(min($candidate['floating_amount'], $remainingStatement), 2, '.', '') }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-mono font-bold text-slate-800" placeholder="Cleared">
-                                        <input type="number" step="0.01" min="0.01" name="statement_amount" value="{{ number_format(min($candidate['floating_amount'], $remainingStatement), 2, '.', '') }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-mono font-bold text-slate-800" placeholder="Statement">
-                                        <select name="difference_action" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-bold text-slate-800">
-                                            <option value="none">No difference</option>
-                                            <option value="keep_floating">Keep floating</option>
-                                            <option value="shop_expense">Add shop expense</option>
-                                            <option value="shop_income">Add shop income</option>
-                                        </select>
-                                        <input type="number" step="0.01" min="0" name="difference_amount" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-mono font-bold text-slate-800" placeholder="Difference">
-                                        <select name="difference_entry_type_id" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-bold text-slate-800">
-                                            <option value="">Default category</option>
-                                            @foreach($reconciliationEntryTypes as $entryType)
-                                                <option value="{{ $entryType->id }}">{{ $entryType->name }}</option>
-                                            @endforeach
-                                        </select>
-                                        <input type="text" name="admin_note" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-800" placeholder="Admin note">
-                                        <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 font-bold text-white hover:bg-emerald-500 sm:col-span-2">
-                                            <i data-lucide="check-circle-2" class="h-4 w-4"></i> Approve Match
-                                        </button>
+                                        <div class="grid w-full grid-cols-1 gap-2 text-xs lg:max-w-xs">
+                                            <input type="number" step="0.01" min="0.01" name="cleared_amount" value="{{ number_format(min($candidate['floating_amount'], $remainingStatement), 2, '.', '') }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-mono font-bold text-slate-800" placeholder="Cleared">
+                                            <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 font-bold text-white hover:bg-emerald-500">
+                                                <i data-lucide="check-circle-2" class="h-4 w-4"></i> Reconcile
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            </form>
+                                </form>
+                            @else
+                                @php
+                                    $payment = $candidate['payment'];
+                                @endphp
+                                <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.match', ['statementRef' => $selectedStatement->secureRouteKey(), 'grace_days' => $graceDays]) }}" class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                    @csrf
+                                    <input type="hidden" name="payment_request_ref" value="{{ $payment->secureRouteKey() }}">
+                                    <input type="hidden" name="business_date" value="{{ $selectedStatement->transaction_date?->toDateString() }}">
+                                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                        <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <a href="{{ route('admin.cashbook.finance.journal.secure-show', $payment->secureRouteKey()) }}" class="text-sm font-black text-slate-950 hover:text-emerald-700">{{ $payment->shop?->name ?? 'Shop' }}</a>
+                                                <span class="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ $payment->paymentMethodLabel() }}</span>
+                                                <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase text-emerald-700">Score {{ $candidate['score'] }}</span>
+                                            </div>
+                                            <p class="mt-1 text-xs font-semibold text-slate-500">
+                                                {{ $payment->payment_date?->format('Y-m-d') ?: $payment->created_at?->format('Y-m-d') }}
+                                                @if($payment->payment_reference)
+                                                    / {{ $payment->payment_reference }}
+                                                @endif
+                                            </p>
+                                            <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                                                <div class="rounded-xl bg-white p-2">
+                                                    <span class="block font-bold text-slate-400">Submitted</span>
+                                                    <strong class="font-mono text-slate-900">₹{{ number_format($payment->requested_amount, 2) }}</strong>
+                                                </div>
+                                                <div class="rounded-xl bg-white p-2">
+                                                    <span class="block font-bold text-slate-400">Approved</span>
+                                                    <strong class="font-mono text-emerald-700">₹{{ number_format($payment->reconciled_amount, 2) }}</strong>
+                                                </div>
+                                                <div class="rounded-xl bg-white p-2">
+                                                    <span class="block font-bold text-slate-400">Floating</span>
+                                                    <strong class="font-mono text-amber-700">₹{{ number_format($candidate['floating_amount'], 2) }}</strong>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="grid w-full grid-cols-1 gap-2 text-xs sm:grid-cols-2 lg:max-w-lg">
+                                            <input type="number" step="0.01" min="0.01" name="cleared_amount" value="{{ number_format(min($candidate['floating_amount'], $remainingStatement), 2, '.', '') }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-mono font-bold text-slate-800" placeholder="Cleared">
+                                            <input type="number" step="0.01" min="0.01" name="statement_amount" value="{{ number_format(min($candidate['floating_amount'], $remainingStatement), 2, '.', '') }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-mono font-bold text-slate-800" placeholder="Statement">
+                                            <select name="difference_action" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-bold text-slate-800">
+                                                <option value="none">No difference</option>
+                                                <option value="keep_floating">Keep floating</option>
+                                                <option value="shop_expense">Add shop expense</option>
+                                                <option value="shop_income">Add shop income</option>
+                                            </select>
+                                            <input type="number" step="0.01" min="0" name="difference_amount" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-mono font-bold text-slate-800" placeholder="Difference">
+                                            <select name="difference_entry_type_id" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-bold text-slate-800">
+                                                <option value="">Default category</option>
+                                                @foreach($reconciliationEntryTypes as $entryType)
+                                                    <option value="{{ $entryType->id }}">{{ $entryType->name }}</option>
+                                                @endforeach
+                                            </select>
+                                            <input type="text" name="admin_note" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 font-semibold text-slate-800" placeholder="Admin note">
+                                            <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 font-bold text-white hover:bg-emerald-500 sm:col-span-2">
+                                                <i data-lucide="check-circle-2" class="h-4 w-4"></i> Approve Match
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            @endif
                         @empty
                             <div class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">
-                                No payment suggestions inside the {{ $graceDays }} day window. Try increasing grace days or search by reference.
+                                No compatible match inside current filters. Try wider grace days or use statement-first classification in next phase.
                             </div>
                         @endforelse
                     </div>
                 @else
                     <div class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">
-                        Select an unmatched statement row to start reconciliation.
+                        No statement row selected.
                     </div>
                 @endif
             </div>
         </section>
+        @endif
     </div>
+
+    @if($classifyStatement)
+        <section class="mx-auto max-w-5xl rounded-[2rem] border border-slate-200 bg-white shadow-xl" data-statement-context='@json($classificationContext)'>
+            <div class="sticky top-0 z-10 flex items-start justify-between gap-4 rounded-t-[2rem] border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">{{ $isCreateTransactionPage ? 'Create Transaction' : 'Match Transaction' }}</p>
+                    <h2 class="mt-1 text-2xl font-black text-slate-950">{{ $isCreateTransactionPage ? 'Classify this unmatched movement' : 'Find an existing transaction' }}</h2>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $isCreateTransactionPage ? 'Statement values are locked. Choose the business source below.' : 'Find an existing transaction for this bank/cash movement.' }}</p>
+                </div>
+                <a href="{{ $actionCenterUrl }}" class="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-100 px-3 text-xs font-black text-slate-700 hover:bg-slate-200" aria-label="Close classification page">
+                    <i data-lucide="x" class="h-4 w-4"></i>
+                    <span class="hidden sm:inline">Close</span>
+                </a>
+            </div>
+
+            <div class="space-y-5 p-4 sm:p-6">
+                <section class="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <span class="rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $classifyStatement->direction === 'in' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800' }}">{{ strtoupper($classifyStatement->direction) }}</span>
+                            <p class="mt-3 font-mono text-4xl font-black leading-none text-slate-950 sm:text-5xl">₹{{ number_format((float) $classifyStatement->amount, 2) }}</p>
+                            <p class="mt-2 text-xs font-black uppercase tracking-[0.14em] text-slate-400">Status: UNMATCHED</p>
+                        </div>
+                        <div class="rounded-2xl bg-white p-3 text-left shadow-sm sm:min-w-56 sm:text-right">
+                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Company Account</p>
+                            <p class="mt-1 font-black text-slate-950">{{ $classifyStatement->companyAccount?->name }}</p>
+                            <p class="mt-1 text-xs font-bold uppercase text-slate-500">{{ $classifyStatement->companyAccount?->account_type }}</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+                        <div class="rounded-2xl bg-white p-3">
+                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Date</p>
+                            <p class="mt-1 font-mono font-black text-slate-950">{{ $classifyStatement->transaction_date?->format('Y-m-d') }}</p>
+                        </div>
+                        <div class="rounded-2xl bg-white p-3 sm:col-span-2">
+                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Reference</p>
+                            <p class="mt-1 break-words font-black text-slate-950">{{ $classifyStatement->reference ?: '—' }}</p>
+                        </div>
+                        <div class="rounded-2xl bg-white p-3 sm:col-span-3">
+                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Narration</p>
+                            <p class="mt-1 break-words font-semibold text-slate-800">{{ $classifyStatement->narration ?: '—' }}</p>
+                        </div>
+                    </div>
+                </section>
+
+                @unless($isCreateTransactionPage)
+                    <section data-classification-action="match-existing" class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <h3 class="text-base font-black text-slate-950">Possible Matches</h3>
+                                <p class="mt-1 text-xs font-semibold text-slate-500">
+                                    {{ $matchExistingCandidates->count() }} possible {{ Str::plural('match', $matchExistingCandidates->count()) }} found for ₹{{ number_format((float) $classifyStatement->amount, 2) }}.
+                                </p>
+                            </div>
+                            <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Match Existing Transaction</span>
+                        </div>
+
+                        @if($matchExistingCandidates->isEmpty())
+                            <div class="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
+                                <p class="text-sm font-black text-slate-900">No existing transaction found for this movement.</p>
+                                <p class="mt-1 text-xs font-semibold text-slate-500">Create a new transaction from this same imported statement. No duplicate statement row will be created.</p>
+                            </div>
+                        @else
+                            <div class="mt-4 grid grid-cols-1 gap-3">
+                                @foreach($matchExistingCandidates as $candidate)
+                                    @php
+                                        $journalEntry = $candidate['journal_entry'];
+                                        $cashBankTransaction = $journalEntry->transactions->first(fn ($transaction) => in_array($transaction->account?->code, ['1010', '1020'], true));
+                                    @endphp
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.match-existing', $classifyStatement) }}" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                        @csrf
+                                        <input type="hidden" name="candidate_ref" value="{{ $candidate['candidate_ref'] }}">
+                                        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">{{ $journalEntry->source_label }}</span>
+                                                    @if($loop->first)
+                                                        <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">Best Match</span>
+                                                    @endif
+                                                </div>
+                                                <p class="mt-3 font-mono text-lg font-black text-slate-950">{{ $journalEntry->reference ?: $journalEntry->formatted_reference }}</p>
+                                                <p class="mt-1 break-words text-xs font-semibold text-slate-600">{{ $journalEntry->description ?: 'No description' }}</p>
+                                                <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Date</strong><br>{{ $journalEntry->entry_date?->format('Y-m-d') }}</span>
+                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Amount</strong><br>₹{{ number_format($candidate['floating_amount'], 2) }}</span>
+                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Account</strong><br>{{ $cashBankTransaction?->account?->name }}</span>
+                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Status</strong><br>{{ $journalEntry->reconciliation_status_label }}</span>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800 sm:w-auto">Match & Finalize</button>
+                                        </div>
+                                    </form>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        <div class="sticky bottom-0 -mx-4 -mb-4 mt-5 border-t border-slate-200 bg-white/95 p-4 backdrop-blur sm:static sm:mx-0 sm:mb-0 sm:rounded-2xl sm:border sm:bg-white">
+                            <a href="{{ $createTransactionUrl }}" class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50">
+                                <i data-lucide="plus" class="h-4 w-4"></i>
+                                Create New Transaction
+                            </a>
+                        </div>
+                    </section>
+                @else
+                    <section>
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h3 class="text-base font-black text-slate-950">Create Transaction</h3>
+                                <p class="mt-1 text-xs font-semibold text-slate-500">Assign this statement movement to a business transaction.</p>
+                            </div>
+                            <a href="{{ $matchTransactionUrl }}" class="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">← Back to Possible Matches</a>
+                        </div>
+
+                        <div class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900">
+                            ₹{{ number_format((float) $classifyStatement->amount, 2) }} from this statement will be assigned to the transaction below. No additional Cashbook movement will be created.
+                        </div>
+
+                        <div class="mt-4 flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                            @foreach($createTransactionTabs as $tabKey)
+                                <a href="{{ route('admin.cashbook.finance.reconciliation.create-transaction', ['statement' => $classifyStatement, 'type' => $tabKey]) }}"
+                                   class="shrink-0 rounded-xl px-3 py-2 text-xs font-black {{ $activeCreateTransactionTab === $tabKey ? 'bg-slate-950 text-white shadow-sm' : 'bg-white text-slate-600 hover:text-slate-950' }}">
+                                    {{ $createTabLabels[$tabKey] ?? str($tabKey)->headline() }}
+                                </a>
+                            @endforeach
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                            <aside class="space-y-3">
+                                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Locked Statement</p>
+                                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                        <div class="rounded-xl bg-white p-2">
+                                            <span class="block font-bold text-slate-400">Amount</span>
+                                            <strong class="font-mono text-slate-950">₹{{ number_format((float) $classifyStatement->amount, 2) }}</strong>
+                                        </div>
+                                        <div class="rounded-xl bg-white p-2">
+                                            <span class="block font-bold text-slate-400">Direction</span>
+                                            <strong class="text-slate-950">{{ strtoupper($classifyStatement->direction) }}</strong>
+                                        </div>
+                                        <div class="rounded-xl bg-white p-2">
+                                            <span class="block font-bold text-slate-400">Date</span>
+                                            <strong class="font-mono text-slate-950">{{ $classifyStatement->transaction_date?->format('Y-m-d') }}</strong>
+                                        </div>
+                                        <div class="rounded-xl bg-white p-2">
+                                            <span class="block font-bold text-slate-400">Account</span>
+                                            <strong class="text-slate-950">{{ $classifyStatement->companyAccount?->name }}</strong>
+                                        </div>
+                                        <div class="rounded-xl bg-white p-2 sm:col-span-2">
+                                            <span class="block font-bold text-slate-400">Reference</span>
+                                            <strong class="break-words text-slate-950">{{ $classifyStatement->reference ?: '—' }}</strong>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                                    <h4 class="text-sm font-black text-slate-950">Recent Transactions</h4>
+                                    <div class="mt-3 space-y-2">
+                                        @php
+                                            $recentRows = match ($activeCreateTransactionTab) {
+                                                'income', 'expense' => $recentCompanyAccountingEntries,
+                                                'payable' => $recentCompanyPayableSettlements,
+                                                'vendor' => $recentVendorSettlements,
+                                                'salary' => $recentSalaryPayments,
+                                                'advance' => $recentSalaryAdvances,
+                                                'shop-payment' => $recentShopPayments,
+                                                'petty' => $recentShopPettyFunding,
+                                                'purchaser' => $recentPurchaserFunding,
+                                                default => collect(),
+                                            };
+                                        @endphp
+                                        @forelse($recentRows as $recentRow)
+                                            <div class="rounded-xl bg-slate-50 p-3 text-xs">
+                                                @if($activeCreateTransactionTab === 'vendor')
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <span class="font-black text-slate-900">{{ $recentRow->supplier?->name ?? 'Vendor' }}</span>
+                                                        <span class="font-mono font-black text-slate-950">₹{{ number_format((float) $recentRow->actual_payment_amount, 2) }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-500">{{ $recentRow->payment_date?->format('Y-m-d') }} · {{ $recentRow->reference ?: 'No reference' }}</p>
+                                                @elseif($activeCreateTransactionTab === 'payable')
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <span class="font-black text-slate-900">{{ $recentRow->shop?->name ?? 'Shop payable' }}</span>
+                                                        <span class="font-mono font-black text-slate-950">₹{{ number_format((float) $recentRow->amount, 2) }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-500">{{ $recentRow->settlement_date?->format('Y-m-d') }} · {{ $recentRow->reference ?: 'No reference' }}</p>
+                                                @elseif(in_array($activeCreateTransactionTab, ['salary', 'advance'], true))
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <span class="font-black text-slate-900">{{ $recentRow->employee?->name ?? 'Employee' }}</span>
+                                                        <span class="font-mono font-black text-slate-950">₹{{ number_format((float) $recentRow->amount, 2) }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-500">{{ $recentRow->paid_on?->format('Y-m-d') }} · {{ $recentRow->reference ?: 'No reference' }}</p>
+                                                @elseif($activeCreateTransactionTab === 'petty')
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <span class="font-black text-slate-900">Shop Petty</span>
+                                                        <span class="font-mono font-black text-slate-950">₹{{ number_format((float) $recentRow->amount, 2) }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-500">{{ $recentRow->business_date?->format('Y-m-d') }} · {{ $recentRow->notes ?: 'No note' }}</p>
+                                                @elseif($activeCreateTransactionTab === 'purchaser')
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <span class="font-black text-slate-900">{{ $recentRow->purchaser?->name ?? 'Purchaser' }}</span>
+                                                        <span class="font-mono font-black text-slate-950">₹{{ number_format((float) $recentRow->amount, 2) }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-500">{{ $recentRow->business_date?->format('Y-m-d') }} · {{ $recentRow->reference ?: 'No reference' }}</p>
+                                                @elseif($activeCreateTransactionTab === 'shop-payment')
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <span class="font-black text-slate-900">{{ $recentRow->shop?->name ?? 'Shop' }}</span>
+                                                        <span class="font-mono font-black text-slate-950">₹{{ number_format((float) $recentRow->requested_amount, 2) }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-500">{{ $recentRow->payment_date?->format('Y-m-d') }} · {{ $recentRow->paymentMethodLabel() }} · {{ $recentRow->reconciliationStatusLabel() }}</p>
+                                                @else
+                                                    <div class="flex items-start justify-between gap-2">
+                                                        <span class="font-black text-slate-900">{{ $recentRow->category?->name ?? 'Category' }}</span>
+                                                        <span class="font-mono font-black text-slate-950">₹{{ number_format((float) $recentRow->amount, 2) }}</span>
+                                                    </div>
+                                                    <p class="mt-1 text-slate-500">{{ $recentRow->business_date?->format('Y-m-d') }} · {{ $recentRow->description ?: $recentRow->reference ?: 'No description' }}</p>
+                                                @endif
+                                            </div>
+                                        @empty
+                                            <div class="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs font-bold text-slate-400">No recent rows.</div>
+                                        @endforelse
+                                    </div>
+                                </div>
+                            </aside>
+
+                            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                @if($activeCreateTransactionTab === 'payable')
+                                    <h4 class="text-base font-black text-slate-950">Apply Company Payable</h4>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">Eligible approved payables only.</p>
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-company-payable', $classifyStatement) }}" data-classification-action="payable" class="mt-4">
+                                        @csrf
+                                        <label class="block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Approved Payable</span>
+                                            <select name="shop_accounting_entry_line_id" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                <option value="">Select payable</option>
+                                                @foreach($companyPayableTargets as $payableLine)
+                                                    <option value="{{ $payableLine->id }}">
+                                                        {{ $payableLine->entry?->shop?->name }} · {{ $payableLine->entry?->business_date?->format('Y-m-d') }} · Due ₹{{ number_format($payableLine->remainingCompanyPayableAmount(), 2) }} · {{ $payableLine->description ?: $payableLine->category?->name }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                        <textarea name="notes" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Optional note"></textarea>
+                                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-orange-600 text-xs font-black text-white hover:bg-orange-500">Finalize Payable</button>
+                                    </form>
+                                @elseif($activeCreateTransactionTab === 'vendor')
+                                    <h4 class="text-base font-black text-slate-950">Vendor Payment</h4>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">Select vendor first. Bills load only for selected vendor.</p>
+                                    <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation.create-transaction', $classifyStatement) }}" class="mt-4">
+                                        <input type="hidden" name="type" value="vendor">
+                                        <label class="block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Vendor</span>
+                                            <select name="supplier_id" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900" onchange="this.form.submit()">
+                                                <option value="">Select vendor</option>
+                                                @foreach($vendorPaymentTargets as $supplier)
+                                                    <option value="{{ $supplier->id }}" @selected((int) request('supplier_id') === (int) $supplier->id)>{{ $supplier->name }} · Advance ₹{{ number_format((float) $supplier->vendorAdvances->sum('amount_remaining'), 2) }}</option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                    </form>
+                                    @if($selectedVendorPaymentTarget)
+                                        @php
+                                            $selectedVendorOutstanding = 0.0;
+                                            foreach ($selectedVendorPaymentTarget->purchaseInvoices as $invoice) {
+                                                $selectedVendorOutstanding += max(0, ((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->vendorSettlementAllocations->sum('total_settled'));
+                                            }
+                                        @endphp
+                                        <div class="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                                            <div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Statement</span><strong class="font-mono">₹{{ number_format((float) $classifyStatement->amount, 2) }}</strong></div>
+                                            <div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Vendor outstanding</span><strong class="font-mono">₹{{ number_format($selectedVendorOutstanding, 2) }}</strong></div>
+                                            <div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Advance</span><strong class="font-mono">₹{{ number_format((float) $selectedVendorPaymentTarget->vendorAdvances->sum('amount_remaining'), 2) }}</strong></div>
+                                        </div>
+                                        <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-vendor-payment', $classifyStatement) }}" data-classification-action="vendor-payment" class="mt-4">
+                                            @csrf
+                                            <input type="hidden" name="supplier_id" value="{{ $selectedVendorPaymentTarget->id }}">
+                                            <div class="max-h-80 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                                @foreach($selectedVendorPaymentTarget->purchaseInvoices as $invoice)
+                                                    @php
+                                                        $invoiceOutstanding = max(0, ((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->vendorSettlementAllocations->sum('total_settled'));
+                                                    @endphp
+                                                    @if($invoiceOutstanding > 0.01)
+                                                        <label class="flex items-start justify-between gap-2 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-800">
+                                                            <span class="flex items-start gap-2">
+                                                            <input type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" class="mt-0.5 rounded border-slate-300">
+                                                                <span>{{ $invoice->invoice_number }} · {{ $invoice->invoice_date?->format('Y-m-d') }}</span>
+                                                            </span>
+                                                            <span class="font-mono">₹{{ number_format($invoiceOutstanding, 2) }}</span>
+                                                        </label>
+                                                    @endif
+                                                @endforeach
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                                <label class="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">
+                                                    <input type="checkbox" name="use_vendor_advance" value="1" class="rounded border-slate-300"> Use vendor advance
+                                                </label>
+                                                <select name="difference_treatment" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                    <option value="outstanding">Leave balance outstanding</option>
+                                                    <option value="discount">Treat difference as discount</option>
+                                                </select>
+                                            </div>
+                                            <input type="hidden" name="allocation_order" value="oldest">
+                                            <textarea name="note" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Optional note"></textarea>
+                                            <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-violet-600 text-xs font-black text-white hover:bg-violet-500">Finalize Vendor Settlement</button>
+                                        </form>
+                                    @endif
+                                @elseif($activeCreateTransactionTab === 'purchaser')
+                                    <h4 class="text-base font-black text-slate-950">Purchaser Funding</h4>
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-purchaser-funding', $classifyStatement) }}" data-classification-action="purchaser-funding" class="mt-4">
+                                        @csrf
+                                        <label class="block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Purchaser</span>
+                                            <select name="purchaser_uuid" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                <option value="">Select purchaser</option>
+                                                @foreach($purchaserFundingTargets as $purchaser)
+                                                    <option value="{{ $purchaser->public_uuid }}">{{ $purchaser->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                        <textarea name="description" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Optional description"></textarea>
+                                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-lime-600 text-xs font-black text-white hover:bg-lime-500">Finalize Purchaser Funding</button>
+                                    </form>
+                                @elseif($activeCreateTransactionTab === 'income')
+                                    <h4 class="text-base font-black text-slate-950">Other Income</h4>
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-company-accounting', $classifyStatement) }}" data-classification-action="custom-income" class="mt-4">
+                                        @csrf
+                                        <input type="hidden" name="type" value="income">
+                                        <label class="block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Income Category</span>
+                                            <select name="company_accounting_category_id" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                <option value="">Select category</option>
+                                                @foreach($incomeCategories as $category)
+                                                    <option value="{{ $category->id }}">{{ $category->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                        <textarea name="description" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Notes / Description (required for Other)"></textarea>
+                                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-emerald-600 text-xs font-black text-white hover:bg-emerald-500">Finalize Income</button>
+                                    </form>
+                                @elseif($activeCreateTransactionTab === 'shop-payment')
+                                    <h4 class="text-base font-black text-slate-950">Shop Payment</h4>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">Apply this imported IN statement to one existing Shop Payment. No new payment request or Cashbook movement is created.</p>
+                                    <div class="mt-4 rounded-2xl bg-emerald-50 p-4">
+                                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Statement Amount</p>
+                                        <p class="mt-1 font-mono text-2xl font-black text-emerald-950">₹{{ number_format((float) $classifyStatement->amount, 2) }}</p>
+                                    </div>
+                                    <div class="mt-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-black text-slate-950">Eligible Payments</p>
+                                            <p class="mt-1 text-xs font-semibold text-slate-500">Exact amount and matching cash/bank method only.</p>
+                                        </div>
+                                        <a href="{{ $actionCenterUrl }}" class="text-xs font-black text-slate-600 hover:text-slate-950">Back to Possible Matches</a>
+                                    </div>
+                                    <div class="mt-3 space-y-3">
+                                        @forelse($eligibleShopPayments as $candidate)
+                                            @php($payment = $candidate['payment'])
+                                            <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-shop-payment', $classifyStatement) }}" data-classification-action="shop-payment" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                                @csrf
+                                                <input type="hidden" name="payment_request_ref" value="{{ $payment->secureRouteKey() }}">
+                                                <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div class="min-w-0">
+                                                        <div class="flex flex-wrap items-center gap-2">
+                                                            <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">{{ $payment->shop?->name ?? 'Shop' }}</span>
+                                                            <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">{{ $payment->reconciliationStatusLabel() }}</span>
+                                                        </div>
+                                                        <p class="mt-3 font-mono text-sm font-black text-slate-950">{{ $payment->payment_reference ?: 'Shop Payment #'.$payment->id }}</p>
+                                                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ $payment->payment_date?->format('Y-m-d') ?: $payment->created_at?->format('Y-m-d') }} · {{ $payment->paymentMethodLabel() }}</p>
+                                                        <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                                                            <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Requested</strong><br>₹{{ number_format((float) $payment->requested_amount, 2) }}</span>
+                                                            <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Floating</strong><br>₹{{ number_format($candidate['floating_amount'], 2) }}</span>
+                                                            <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Status</strong><br>{{ $payment->statusLabel() }}</span>
+                                                        </div>
+                                                    </div>
+                                                    <button type="submit" class="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-black text-white hover:bg-emerald-500 sm:w-auto">Apply Statement &amp; Finalize</button>
+                                                </div>
+                                            </form>
+                                        @empty
+                                            <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                                                <p class="text-sm font-black text-slate-900">No matching Shop Payment found.</p>
+                                                <a href="{{ $actionCenterUrl }}" class="mt-3 inline-flex text-xs font-black text-emerald-700 hover:text-emerald-800">Back to Possible Matches</a>
+                                            </div>
+                                        @endforelse
+                                    </div>
+                                @elseif($activeCreateTransactionTab === 'expense')
+                                    <h4 class="text-base font-black text-slate-950">Other Expense</h4>
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-company-accounting', $classifyStatement) }}" data-classification-action="custom-expense" class="mt-4">
+                                        @csrf
+                                        <input type="hidden" name="type" value="expense">
+                                        <label class="block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Expense Category</span>
+                                            <select name="company_accounting_category_id" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                <option value="">Select category</option>
+                                                @foreach($expenseCategories as $category)
+                                                    <option value="{{ $category->id }}">{{ $category->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                        <textarea name="description" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Notes / Description (required for Other)"></textarea>
+                                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-rose-600 text-xs font-black text-white hover:bg-rose-500">Finalize Expense</button>
+                                    </form>
+                                @elseif($activeCreateTransactionTab === 'petty')
+                                    <h4 class="text-base font-black text-slate-950">Shop Petty</h4>
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-shop-petty', $classifyStatement) }}" data-classification-action="shop-petty" class="mt-4">
+                                        @csrf
+                                        <label class="block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Shop</span>
+                                            <select name="shop_uuid" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                <option value="">Select shop</option>
+                                                @foreach($shops as $shop)
+                                                    <option value="{{ $shop->public_uuid }}">{{ $shop->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                        <textarea name="notes" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Optional note"></textarea>
+                                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-amber-500 text-xs font-black text-slate-950 hover:bg-amber-400">Finalize Shop Petty</button>
+                                    </form>
+                                @elseif($activeCreateTransactionTab === 'salary')
+                                    <h4 class="text-base font-black text-slate-950">Salary Payment</h4>
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-salary-payment', $classifyStatement) }}" data-classification-action="salary-payment" class="mt-4">
+                                        @csrf
+                                        <p class="mt-1 text-[11px] font-semibold text-slate-500">Pays the selected finalized payroll item using this statement amount.</p>
+                                        <label class="mt-3 block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Payroll Item</span>
+                                            <select name="payroll_run_item_id" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                <option value="">Select salary payable</option>
+                                                @foreach($salaryPaymentTargets as $payrollItem)
+                                                    <option value="{{ $payrollItem->id }}">
+                                                        {{ $payrollItem->employee?->name }} · {{ $payrollItem->payrollRun?->period_start?->format('M Y') }} · Due ₹{{ number_format($payrollItem->remainingGreenLeafAmount(), 2) }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                        <textarea name="notes" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Optional note"></textarea>
+                                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-sky-600 text-xs font-black text-white hover:bg-sky-500">Finalize Salary Payment</button>
+                                    </form>
+                                @elseif($activeCreateTransactionTab === 'advance')
+                                    <h4 class="text-base font-black text-slate-950">Salary Advance</h4>
+                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-salary-advance', $classifyStatement) }}" data-classification-action="salary-advance" class="mt-4">
+                                        @csrf
+                                        <p class="mt-1 text-[11px] font-semibold text-slate-500">Pays an approved employee advance using this statement amount.</p>
+                                        <label class="mt-3 block">
+                                            <span class="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Advance Request</span>
+                                            <select name="employee_advance_request_id" required class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900">
+                                                <option value="">Select approved advance</option>
+                                                @foreach($salaryAdvanceTargets as $advanceRequest)
+                                                    <option value="{{ $advanceRequest->id }}">
+                                                        {{ $advanceRequest->employee?->name }} · {{ $advanceRequest->shop?->name }} · Due ₹{{ number_format((float) $advanceRequest->approved_amount, 2) }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </label>
+                                        <textarea name="notes" rows="2" class="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-900" placeholder="Optional note"></textarea>
+                                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-cyan-600 text-xs font-black text-white hover:bg-cyan-500">Finalize Salary Advance</button>
+                                    </form>
+                                @else
+                                    <div data-classification-action="{{ $activeCreateTransactionTab }}" class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
+                                        <p class="text-sm font-black text-slate-900">{{ $createTabLabels[$activeCreateTransactionTab] ?? 'Transaction' }}</p>
+                                        <p class="mt-1 text-xs font-semibold text-slate-500">Coming in next phase.</p>
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    </section>
+                @endunless
+            </div>
+        </section>
+    @endif
 @endsection

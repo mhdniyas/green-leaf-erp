@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\CompanyAccountingCategory;
 use App\Models\CompanyAccountingEntry;
 use App\Models\CompanyPayableSettlement;
@@ -12,6 +14,7 @@ use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
 use App\Notifications\CompanyExpenseRequestSubmitted;
+use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -21,6 +24,7 @@ class CompanyPayableService
 {
     public function __construct(
         private readonly JournalService $journalService,
+        private readonly CompanyPaymentReconciliationService $reconciliationService,
     ) {}
 
     public function markCompanyPayableOnLine(ShopAccountingEntryLine $line): ShopAccountingEntryLine
@@ -245,6 +249,72 @@ class CompanyPayableService
 
             return $settlement->fresh();
         });
+    }
+
+    public function settleDirectPaymentFromStatement(ShopAccountingEntryLine $line, CompanyAccountStatementEntry $statement, int $userId, ?string $notes = null): CompanyPayableSettlement
+    {
+        return DB::transaction(function () use ($line, $statement, $userId, $notes): CompanyPayableSettlement {
+            $statement = CompanyAccountStatementEntry::query()
+                ->with('companyAccount')
+                ->whereKey($statement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($statement->is_finalized || $statement->status !== 'unmatched' || $statement->journal_entry_id !== null || $statement->source_type !== null || $statement->direction !== 'out') {
+                throw ValidationException::withMessages(['statement' => 'This statement row cannot be classified as a company payable payment.']);
+            }
+
+            $companyAccount = $statement->companyAccount;
+            if (! $companyAccount instanceof CompanyAccount || ! $companyAccount->enabled || ! in_array($companyAccount->account_type, ['cash', 'bank'], true)) {
+                throw ValidationException::withMessages(['statement' => 'Statement company account is not valid for company payable payment.']);
+            }
+
+            $line = ShopAccountingEntryLine::query()
+                ->with('entry.shop')
+                ->whereKey($line->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $amount = round((float) $statement->amount, 2);
+            $this->assertSettleable($line, $amount);
+
+            $settlement = CompanyPayableSettlement::query()->create([
+                'shop_accounting_entry_line_id' => $line->id,
+                'shop_id' => (int) $line->entry?->shop_id,
+                'settlement_type' => CompanyPayableSettlement::TypeDirectCompanyPayment,
+                'amount' => $amount,
+                'settlement_date' => $statement->transaction_date?->toDateString() ?? now()->toDateString(),
+                'payment_account_id' => null,
+                'reference' => $statement->reference,
+                'notes' => $notes,
+                'created_by' => $userId,
+            ]);
+
+            $paymentMode = $companyAccount->account_type === 'cash' ? 'cash' : 'bank';
+            $journal = $this->journalService->recordCompanyPayableDirectPayment($settlement, $userId, $paymentMode);
+            $settlement->update(['journal_entry_id' => $journal->id]);
+
+            $statement->update([
+                'journal_entry_id' => $journal->id,
+                'source' => 'company_payable',
+                'source_type' => CompanyPayableSettlement::class,
+                'source_id' => $settlement->id,
+                'narration' => $statement->narration ?: 'Company payable payment for shop '.$line->entry?->shop?->name,
+                'notes' => $notes,
+            ]);
+
+            $this->reconciliationService->reconcileStatementJournal($statement, $journal, $amount, $userId);
+            $this->applySettlementAmount($line, $amount);
+
+            activity()
+                ->causedBy(User::query()->find($userId))
+                ->performedOn($line)
+                ->withProperties(['settlement_id' => $settlement->id, 'amount' => $amount, 'statement_entry_id' => $statement->id])
+                ->event('company_payable_settled_statement')
+                ->log('Company payable paid from statement');
+
+            return $settlement->fresh(['line.entry.shop', 'journalEntry.transactions.account']);
+        }, attempts: 3);
     }
 
     /**

@@ -6,8 +6,11 @@ namespace App\Services\Finance;
 
 use App\DTOs\Finance\JournalEntryData;
 use App\Models\Account;
+use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\CompanyAccountingEntry;
 use App\Models\CompanyPayableSettlement;
+use App\Models\DirectCompanySale;
 use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\Payment;
@@ -18,6 +21,7 @@ use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
+use App\Models\VendorSettlement;
 use App\Models\WastageEntry;
 use App\Repositories\Finance\JournalEntryRepository;
 use App\Support\ChartOfAccounts;
@@ -91,6 +95,28 @@ class JournalService
         );
 
         return $this->createEntry($data, $invoice->created_by);
+    }
+
+    /** Record a direct company receipt: debit cash/bank, credit sales revenue. */
+    public function recordDirectCompanySale(DirectCompanySale $sale, CompanyAccount $companyAccount, int $userId): JournalEntry
+    {
+        $amount = round((float) $sale->amount, 2);
+        if ($amount <= 0.0 || ! $companyAccount->enabled || ! in_array($companyAccount->account_type, ['cash', 'bank'], true)) {
+            throw new RuntimeException('Direct company sale requires a positive amount and enabled cash or bank account.');
+        }
+
+        return $this->createEntry(new JournalEntryData(
+            entryDate: $sale->business_date->toDateString(),
+            reference: $sale->reference ?: 'DIRECT-SALE-'.$sale->id,
+            description: 'Direct company sale'.($sale->customer_name ? ' to '.$sale->customer_name : ''),
+            lines: [
+                ['account_id' => $companyAccount->account_type === 'cash' ? $this->getAccountIdByCode('1010') : $this->getAccountIdByCode('1020'), 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $this->getAccountIdByCode('4100'), 'type' => 'credit', 'amount' => $amount],
+            ],
+            sourceType: DirectCompanySale::class,
+            sourceId: $sale->id,
+            sourceEvent: 'direct-company-sale',
+        ), $userId);
     }
 
     /**
@@ -217,6 +243,43 @@ class JournalService
         return $this->createEntry($data, $userId);
     }
 
+    public function recordShopPaymentRequest(ShopInvoicePaymentRequest $paymentRequest, int $userId): JournalEntry
+    {
+        $paymentRequest->loadMissing('shop');
+        $amount = round((float) $paymentRequest->requested_amount, 2);
+
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Shop payment request journal amount must be positive.');
+        }
+
+        $event = 'shop-payment-request:'.$paymentRequest->id;
+        $existingEntry = $this->entryForSource(ShopInvoicePaymentRequest::class, $paymentRequest->id, $event);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
+        $cashAccountId = $this->cashAccountIdForPaymentMode($paymentRequest->payment_method);
+        $arAccountId = $this->getAccountIdByCode('1100');
+        $businessDate = ($paymentRequest->payment_date ?? $paymentRequest->reviewed_at ?? now())->format('Y-m-d');
+
+        $lines = [
+            ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $arAccountId, 'type' => 'credit', 'amount' => $amount],
+        ];
+
+        $data = new JournalEntryData(
+            entryDate: $businessDate,
+            reference: 'SHOP-PAYMENT-'.$paymentRequest->id,
+            description: 'Shop payment received from '.($paymentRequest->shop?->name ?? 'shop'),
+            lines: $lines,
+            sourceType: ShopInvoicePaymentRequest::class,
+            sourceId: $paymentRequest->id,
+            sourceEvent: $event,
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
     public function recordCompanyAccountingEntry(CompanyAccountingEntry $entry, int $userId): JournalEntry
     {
         $entry->loadMissing('category.account');
@@ -295,19 +358,75 @@ class JournalService
 
     /**
      * Purchaser credit (cash advance given to purchaser).
-     * Tracked in purchaser cash ledger (purchaser_credits table) without posting
-     * a premature main cash-out journal entry until daily purchase is paid.
+     * Debit Purchaser Advances (1300), Credit Cash (1010) / Bank (1020).
      */
-    public function recordPurchaserCredit(PurchaserCredit $credit): ?JournalEntry
+    public function recordPurchaserCredit(PurchaserCredit $credit): JournalEntry
     {
-        // Cash advances handed to purchasers are tracked in the purchaser cash ledger
-        // and do not post a main journal cash-out entry until the purchaser makes a paid purchase.
-        return null;
+        $credit->loadMissing('purchaser');
+        $amount = round((float) $credit->amount, 2);
+
+        if ($amount <= 0.00 || $credit->type !== 'in') {
+            throw new RuntimeException('Purchaser funding journal amount must be a positive incoming credit.');
+        }
+
+        $advanceAccountId = $this->getAccountIdByCode('1300');
+        $cashAccountId = $this->cashAccountIdForPaymentMode($credit->payment_source);
+
+        $lines = [
+            ['account_id' => $advanceAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+        ];
+
+        $data = new JournalEntryData(
+            entryDate: $credit->business_date->format('Y-m-d'),
+            reference: $credit->reference ?: "PURCH-FUND-{$credit->id}",
+            description: 'Company funding given to purchaser '.($credit->purchaser?->name ?? '#'.$credit->purchaser_id),
+            lines: $lines,
+            sourceType: PurchaserCredit::class,
+            sourceId: $credit->id,
+            sourceEvent: 'purchaser_funding',
+        );
+
+        return $this->createEntry($data, (int) ($credit->created_by ?: 1));
+    }
+
+    /**
+     * Record company money given to a shop's petty cash as an advance, never an expense.
+     */
+    public function recordShopPettyFunding(ShopLedgerTransaction $transaction, CompanyAccount $companyAccount, int $userId): JournalEntry
+    {
+        $amount = round((float) $transaction->amount, 2);
+
+        if ($amount <= 0.0 || $transaction->funding_source !== 'company') {
+            throw new RuntimeException('Shop petty funding journal requires a positive company-funded petty transaction.');
+        }
+
+        if (! $companyAccount->enabled || ! in_array($companyAccount->account_type, ['cash', 'bank'], true)) {
+            throw new RuntimeException('Selected company account is not available for petty funding.');
+        }
+
+        $advanceAccountId = $this->getAccountIdByCode('1500');
+        $cashAccountId = $companyAccount->account_type === 'cash'
+            ? $this->getAccountIdByCode('1010')
+            : $this->getAccountIdByCode('1020');
+
+        return $this->createEntry(new JournalEntryData(
+            entryDate: $transaction->business_date->toDateString(),
+            reference: 'SHOP-PETTY-'.$transaction->id,
+            description: 'Company petty funding for shop #'.$transaction->shop_id,
+            lines: [
+                ['account_id' => $advanceAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ],
+            sourceType: ShopLedgerTransaction::class,
+            sourceId: $transaction->id,
+            sourceEvent: 'shop_petty_funding',
+        ), $userId);
     }
 
     /**
      * Record cash paid for purchaser daily purchase invoice.
-     * Debit Graded Inventory (1200), Credit Cash (1010).
+     * Debit Graded Inventory (1200), Credit Purchaser Advances (1300).
      */
     public function recordPurchaserDailyPurchasePayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null, ?string $paymentMode = null): JournalEntry
     {
@@ -320,7 +439,7 @@ class JournalService
         $invoice->loadMissing(['purchaserCart', 'supplier']);
 
         $inventoryAccountId = $this->getAccountIdByCode('1200');
-        $cashAccountId = $this->cashAccountIdForPaymentMode($paymentMode ?? $invoice->payment_method);
+        $advanceAccountId = $this->getAccountIdByCode('1300');
         $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
         $event = $sourceEvent ?? "purchaser_daily_purchase_payment:paid-{$paidAmountCents}";
         $businessDate = $invoice->purchaserCart?->business_date?->format('Y-m-d')
@@ -329,7 +448,7 @@ class JournalService
 
         $lines = [
             ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $amount],
-            ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ['account_id' => $advanceAccountId, 'type' => 'credit', 'amount' => $amount],
         ];
 
         $data = new JournalEntryData(
@@ -386,8 +505,8 @@ class JournalService
     }
 
     /**
-     * Record company cash paid to settle vendor credit.
-     * Debit Graded Inventory (1200), Credit Cash (1010).
+     * Record company cash/bank paid to settle vendor credit.
+     * Debit Accounts Payable (2100), Credit Cash (1010) / Bank (1020).
      */
     public function recordCompanyVendorCreditPayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null, ?string $paymentMode = null): JournalEntry
     {
@@ -399,7 +518,7 @@ class JournalService
 
         $invoice->loadMissing(['purchaserCart', 'supplier']);
 
-        $inventoryAccountId = $this->getAccountIdByCode('1200');
+        $payableAccountId = $this->getAccountIdByCode('2100');
         $cashAccountId = $this->cashAccountIdForPaymentMode($paymentMode ?? $invoice->payment_method);
         $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
         $event = $sourceEvent ?? "company_vendor_credit_payment:paid-{$paidAmountCents}";
@@ -408,7 +527,7 @@ class JournalService
             ?? now()->format('Y-m-d');
 
         $lines = [
-            ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $payableAccountId, 'type' => 'debit', 'amount' => $amount],
             ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
         ];
 
@@ -423,6 +542,46 @@ class JournalService
         );
 
         return $this->createEntry($data, $userId);
+    }
+
+    public function recordVendorSettlement(VendorSettlement $settlement, int $userId): JournalEntry
+    {
+        $settlement->loadMissing('supplier');
+        $cash = round((float) $settlement->actual_payment_amount, 2);
+        $discount = round((float) $settlement->settlement_discount_amount, 2);
+        $advanceUsed = round((float) $settlement->vendor_advance_used_amount, 2);
+        $newAdvance = round((float) $settlement->new_vendor_advance_amount, 2);
+        $payable = round($cash + $discount + $advanceUsed - $newAdvance, 2);
+
+        if ($payable <= 0.0) {
+            throw new RuntimeException('Vendor settlement must settle a positive payable amount.');
+        }
+
+        $lines = [
+            ['account_id' => $this->getAccountIdByCode('2100'), 'type' => 'debit', 'amount' => $payable],
+        ];
+        if ($newAdvance > 0.0) {
+            $lines[] = ['account_id' => $this->getAccountIdByCode('1400'), 'type' => 'debit', 'amount' => $newAdvance];
+        }
+        if ($cash > 0.0) {
+            $lines[] = ['account_id' => $this->cashAccountIdForPaymentMode($settlement->payment_method), 'type' => 'credit', 'amount' => $cash];
+        }
+        if ($discount > 0.0) {
+            $lines[] = ['account_id' => $this->getAccountIdByCode('4200'), 'type' => 'credit', 'amount' => $discount];
+        }
+        if ($advanceUsed > 0.0) {
+            $lines[] = ['account_id' => $this->getAccountIdByCode('1400'), 'type' => 'credit', 'amount' => $advanceUsed];
+        }
+
+        return $this->createEntry(new JournalEntryData(
+            entryDate: $settlement->payment_date->toDateString(),
+            reference: 'VENDOR-SETTLEMENT-'.$settlement->id,
+            description: 'Vendor settlement for '.($settlement->supplier?->name ?? 'supplier'),
+            lines: $lines,
+            sourceType: VendorSettlement::class,
+            sourceId: $settlement->id,
+            sourceEvent: 'vendor-settlement:'.$settlement->id,
+        ), $userId);
     }
 
     /**

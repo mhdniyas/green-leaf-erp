@@ -242,6 +242,56 @@
             </form>
         </section>
 
+        <section class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Category Management</p>
+                    <h2 class="mt-2 text-xl font-black text-slate-950">Company finance categories</h2>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">Disable categories no longer used. Historical entries remain linked.</p>
+                </div>
+                <span class="text-xs font-black text-slate-400">{{ $categories->count() }} categories</span>
+            </div>
+
+            <div class="mt-4 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                <table class="min-w-full text-left text-sm">
+                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                        <tr>
+                            <th class="px-4 py-3">Name</th>
+                            <th class="px-4 py-3">Type</th>
+                            <th class="px-4 py-3">Mapped Account</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach($categories as $category)
+                            <tr>
+                                <td class="px-4 py-3 font-black text-slate-950">{{ $category->name }}</td>
+                                <td class="px-4 py-3 font-black {{ $category->type === 'income' ? 'text-emerald-700' : 'text-rose-700' }}">{{ ucfirst($category->type) }}</td>
+                                <td class="px-4 py-3 font-semibold text-slate-600">{{ $category->account?->code }} - {{ $category->account?->name }}</td>
+                                <td class="px-4 py-3">
+                                    <span class="rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] {{ $category->is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500' }}">
+                                        {{ $category->is_active ? 'Active' : 'Disabled' }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-right">
+                                    <form method="POST" action="{{ route('admin.accounting.main-account.categories.update', $category) }}" class="inline-flex">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="date" value="{{ $date->toDateString() }}">
+                                        <input type="hidden" name="is_active" value="{{ $category->is_active ? 0 : 1 }}">
+                                        <button type="submit" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 transition hover:bg-slate-50">
+                                            {{ $category->is_active ? 'Disable' : 'Enable' }}
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <section class="grid gap-5 xl:grid-cols-2">
             <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 class="text-xl font-black text-slate-950">Monthly Daily Details</h2>

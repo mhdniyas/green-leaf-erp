@@ -57,6 +57,7 @@ class CompanyMainAccountService
      */
     public function createCategory(array $payload): CompanyAccountingCategory
     {
+        $name = trim((string) $payload['name']);
         $account = Account::query()
             ->whereKey((int) $payload['account_id'])
             ->where('is_active', true)
@@ -67,12 +68,28 @@ class CompanyMainAccountService
             throw new RuntimeException('Selected ledger account does not match the category type.');
         }
 
+        $duplicate = CompanyAccountingCategory::query()
+            ->where('type', (string) $payload['type'])
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+            ->exists();
+
+        if ($duplicate) {
+            throw new RuntimeException('A category with this name already exists for this type.');
+        }
+
         return CompanyAccountingCategory::query()->create([
             'type' => (string) $payload['type'],
-            'name' => trim((string) $payload['name']),
+            'name' => $name,
             'account_id' => $account->id,
             'is_active' => (bool) ($payload['is_active'] ?? true),
         ]);
+    }
+
+    public function setCategoryActive(CompanyAccountingCategory $category, bool $active): CompanyAccountingCategory
+    {
+        $category->update(['is_active' => $active]);
+
+        return $category->fresh('account');
     }
 
     /**
@@ -91,8 +108,13 @@ class CompanyMainAccountService
                 throw new RuntimeException('Selected category does not match the entry type.');
             }
 
+            if (mb_strtolower(trim($category->name)) === 'other' && blank($payload['description'] ?? null)) {
+                throw new RuntimeException('Notes / Description is required when category is Other.');
+            }
+
             $entry = CompanyAccountingEntry::query()->create([
                 'company_accounting_category_id' => $category->id,
+                'company_account_id' => $payload['company_account_id'] ?? null,
                 'type' => (string) $payload['type'],
                 'business_date' => Carbon::parse((string) $payload['business_date'])->toDateString(),
                 'payment_mode' => (string) $payload['payment_mode'],

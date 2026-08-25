@@ -169,3 +169,12 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - To filter on a particular test name: `php artisan test --compact --filter=testName` (recommended after making a change to a related file).
 
 </laravel-boost-guidelines>
+
+## Green Leaf ERP Project Rules
+
+- Keep changes narrowly scoped; preserve existing uncommitted work and do not change dependencies, environment configuration, or business rules without approval.
+- Scope every shop, warehouse, and role-bound read or mutation to the authorized tenant and actor. Verify authorization before resolving or changing records.
+- Treat purchases, invoices, payments, and stock movements as high-risk operations: validate inputs, preserve auditability, and use database transactions and locking where consistency depends on them.
+- Never expose secrets or sensitive financial, customer, or employee data in responses, logs, validation errors, exports, or API payloads.
+- Use `laravel-security-audit` only for explicit security reviews or security-sensitive changes. Audits report findings and recommendations; they do not modify application code unless separately requested.
+- Final responses state: files changed, rules added, skill trigger and scope, validation results, and remaining risk.

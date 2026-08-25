@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Str;
+use RuntimeException;
 
 class Shop extends Model
 {
@@ -19,6 +21,7 @@ class Shop extends Model
 
     protected $fillable = [
         'code',
+        'public_uuid',
         'name',
         'warehouse_tag',
         'shop_price_group_id',
@@ -44,6 +47,19 @@ class Shop extends Model
             'reserve_amount' => 'decimal:2',
             'default_petty_cash_amount' => 'decimal:2',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $shop): void {
+            $shop->public_uuid ??= (string) Str::uuid();
+        });
+
+        static::updating(function (self $shop): void {
+            if ($shop->isDirty('public_uuid')) {
+                throw new RuntimeException('Shop routing identity cannot be changed.');
+            }
+        });
     }
 
     public function priceGroup(): BelongsTo

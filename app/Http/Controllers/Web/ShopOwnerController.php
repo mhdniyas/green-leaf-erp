@@ -1893,47 +1893,11 @@ class ShopOwnerController extends Controller
             ->firstOrFail();
 
         try {
-            $amount = round((float) ($validated['amount'] ?? 0), 2);
-            $paymentMethod = $validated['payment_method'] ?? 'cash';
-            $fundingSource = 'sales';
-            $date = $validated['payment_date'] ?? today()->toDateString();
-
-            $notesArr = [];
-            $notesArr[] = 'Bill payment via '.strtoupper($paymentMethod);
-            if (! empty($validated['payment_reference'])) {
-                $notesArr[] = 'Ref: '.trim((string) $validated['payment_reference']);
-            }
-            if (! empty($validated['shop_note'])) {
-                $notesArr[] = 'Note: '.trim((string) $validated['shop_note']);
-            }
-            $notes = implode(' | ', $notesArr);
-
-            // 1. Record directly into Cashbook ledger (ShopLedgerTransaction)
-            $this->dailyLedgerService->recordEntry([
-                'shop_id' => (int) $shop->id,
-                'business_date' => $date,
-                'entry_type_code' => 'shop_paid_company',
-                'amount' => $amount,
-                'funding_source' => $fundingSource,
-                'notes' => $notes,
-                'entered_by' => (int) $user->id,
-            ]);
-
-            // 2. Record invoice payment request and mark approved
-            $paymentRequest = $this->shopInvoiceService->requestPayment(
+            $this->shopInvoiceService->requestPayment(
                 $invoice,
                 $validated,
                 (int) $user->id,
             );
-
-            if ($paymentRequest instanceof ShopInvoicePaymentRequest) {
-                $paymentRequest->update([
-                    'status' => 'approved',
-                    'reviewed_by' => (int) $user->id,
-                    'reviewed_at' => now(),
-                    'admin_note' => 'Recorded in Cashbook.',
-                ]);
-            }
         } catch (ValidationException $exception) {
             return back()->withErrors($exception->errors())->withInput();
         } catch (Throwable $exception) {
@@ -1948,7 +1912,7 @@ class ShopOwnerController extends Controller
         }
 
         return redirect()->to($redirectUrl)
-            ->with('success', 'Payment of ₹'.number_format($amount, 2).' recorded in Cashbook successfully.');
+            ->with('success', 'Payment request submitted for company reconciliation.');
     }
 
     /**

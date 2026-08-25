@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\CompanyAccountStatementEntry;
 use Database\Factories\PayrollPaymentFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
+use RuntimeException;
 
 class PayrollPayment extends Model
 {
@@ -20,7 +24,10 @@ class PayrollPayment extends Model
         'employee_id',
         'shop_id',
         'journal_entry_id',
+        'company_account_id',
         'employee_advance_request_id',
+        'request_uuid',
+        'reference',
         'paid_by',
         'paid_on',
         'amount',
@@ -42,6 +49,19 @@ class PayrollPayment extends Model
             'paid_on' => 'date',
             'amount' => 'decimal:2',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (self $payment): void {
+            if (! $payment->isDirty(['amount', 'company_account_id', 'payment_method', 'paid_on', 'reference'])) {
+                return;
+            }
+
+            if ($payment->cashbookMovement()->where('is_finalized', true)->exists()) {
+                throw new RuntimeException('Finalized payroll payments cannot change amount, company account, method, date, or reference.');
+            }
+        });
     }
 
     public function payrollRun(): BelongsTo
@@ -69,6 +89,11 @@ class PayrollPayment extends Model
         return $this->belongsTo(JournalEntry::class);
     }
 
+    public function companyAccount(): BelongsTo
+    {
+        return $this->belongsTo(CompanyAccount::class, 'company_account_id');
+    }
+
     public function paidBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'paid_by');
@@ -77,5 +102,10 @@ class PayrollPayment extends Model
     public function advanceRequest(): BelongsTo
     {
         return $this->belongsTo(EmployeeAdvanceRequest::class, 'employee_advance_request_id');
+    }
+
+    public function cashbookMovement(): MorphOne
+    {
+        return $this->morphOne(CompanyAccountStatementEntry::class, 'sourceRecord', 'source_type', 'source_id');
     }
 }

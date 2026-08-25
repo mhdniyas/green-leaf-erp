@@ -17,7 +17,7 @@
                     <div class="flex flex-wrap gap-2">
                         <a href="{{ route('admin.finance-v2.direct-payments.index', ['date' => $dateParam]) }}" class="inline-flex h-11 items-center rounded-[1rem] border border-white/20 bg-white/10 px-5 text-xs font-black uppercase tracking-[0.16em] text-white hover:bg-white/15">Direct Payments</a>
                         <a href="{{ route('admin.finance-v2.client-payments.index', ['date' => $dateParam]) }}" class="inline-flex h-11 items-center rounded-[1rem] border border-white/20 bg-white/10 px-5 text-xs font-black uppercase tracking-[0.16em] text-white hover:bg-white/15">Client Payments</a>
-                        <a href="{{ route('admin.finance-v2.payments.create', ['date' => $dateParam]) }}" class="inline-flex h-11 items-center rounded-[1rem] bg-orange-500 px-5 text-xs font-black uppercase tracking-[0.16em] text-white hover:bg-orange-600">Create Shop Payment</a>
+                        <a href="{{ route('admin.cashbook.all-shops') }}" class="inline-flex h-11 items-center rounded-[1rem] bg-orange-500 px-5 text-xs font-black uppercase tracking-[0.16em] text-white hover:bg-orange-600">Open Cashbook Shop</a>
                     </div>
                 </div>
             </div>

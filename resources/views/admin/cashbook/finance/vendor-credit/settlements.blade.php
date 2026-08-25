@@ -1,0 +1,21 @@
+@extends('admin.cashbook.layouts.app')
+
+@section('title', 'Vendor Settlement History')
+@section('header_title') Vendor Settlement History @endsection
+@section('header_actions')
+    <a href="{{ route('admin.cashbook.finance.vendor-credit') }}" class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Vendor Outstanding</a>
+@endsection
+@section('content')
+<div class="mx-auto max-w-[96rem] space-y-5">
+    <form class="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-5" method="GET">
+        <input name="month" type="month" value="{{ $month }}" class="rounded-lg border px-3 py-2 text-xs">
+        <select name="supplier_id" class="rounded-lg border px-3 py-2 text-xs"><option value="">All vendors</option>@foreach($suppliers as $supplier)<option value="{{ $supplier->id }}" @selected($supplierId === $supplier->id)>{{ $supplier->name }}</option>@endforeach</select>
+        <select name="company_account_id" class="rounded-lg border px-3 py-2 text-xs"><option value="">All accounts</option>@foreach($companyAccounts as $account)<option value="{{ $account->id }}" @selected($accountId === $account->id)>{{ $account->name }}</option>@endforeach</select>
+        <select name="status" class="rounded-lg border px-3 py-2 text-xs"><option value="all">All statuses</option><option value="finalized" @selected($status === 'finalized')>FINALIZED</option><option value="pending" @selected($status === 'pending')>PENDING</option></select>
+        <button class="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">Filter</button>
+    </form>
+    <section class="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">@foreach(['Cash Paid' => 'cash_paid', 'Discount' => 'discount_given', 'Advance Created' => 'advance_created', 'Advance Used' => 'advance_used', 'Invoices Settled' => 'total_settled', 'Settlements' => 'settlement_count'] as $label => $key)<div class="rounded-xl border border-slate-200 bg-white p-3"><span class="text-[10px] font-black uppercase text-slate-400">{{ $label }}</span><b class="mt-1 block font-mono text-lg">{{ $key === 'settlement_count' ? $summary[$key] : '₹'.number_format($summary[$key], 2) }}</b></div>@endforeach</section>
+    <section class="overflow-x-auto rounded-2xl border border-slate-200 bg-white"><table class="w-full text-left text-xs"><thead class="bg-slate-100 uppercase text-slate-500"><tr><th class="p-3">Date</th><th class="p-3">Vendor</th><th class="p-3">Reference</th><th class="p-3 text-right">Cash</th><th class="p-3 text-right">Discount</th><th class="p-3 text-right">Advance Used</th><th class="p-3 text-right">New Advance</th><th class="p-3">Status</th><th class="p-3">Action</th></tr></thead><tbody>@forelse($settlements as $settlement)<tr class="border-t"><td class="p-3 font-mono">{{ $settlement->payment_date?->format('Y-m-d') }}</td><td class="p-3 font-bold">{{ $settlement->supplier?->name }}</td><td class="p-3 font-mono font-bold">{{ $settlement->reference ?: ($settlement->journalEntry?->statementEntries->first()?->reference ?: ('VENDOR-SETTLEMENT-'.$settlement->id)) }}</td><td class="p-3 text-right font-mono">₹{{ number_format($settlement->actual_payment_amount, 2) }}</td><td class="p-3 text-right font-mono">₹{{ number_format($settlement->settlement_discount_amount, 2) }}</td><td class="p-3 text-right font-mono">₹{{ number_format($settlement->vendor_advance_used_amount, 2) }}</td><td class="p-3 text-right font-mono">₹{{ number_format($settlement->new_vendor_advance_amount, 2) }}</td><td class="p-3 font-black">{{ $settlement->is_finalized ? 'FINALIZED' : 'PENDING RECONCILIATION' }}</td><td class="p-3"><div class="flex flex-wrap gap-2">@unless($settlement->is_finalized)<a class="font-bold text-emerald-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $settlement) }}#reconcile">Reconcile Now</a>@endunless<a class="font-bold text-slate-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $settlement) }}">View Details</a></div></td></tr>@empty<tr><td colspan="9" class="p-8 text-center text-slate-400">No settlements.</td></tr>@endforelse</tbody></table></section>
+    {{ $settlements->links() }}
+</div>
+@endsection

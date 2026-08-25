@@ -568,86 +568,16 @@
                 <section id="tab-payments" class="tab-content space-y-6 hidden">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         
-                        <!-- Accept Payment Form -->
-                        <div class="lg:col-span-2 white-card p-8 rounded-3xl space-y-6 shadow-xl">
+                        <div class="lg:col-span-2 white-card p-8 rounded-3xl space-y-4 shadow-xl">
                             <div class="border-b border-slate-200 pb-4">
                                 <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-                                    <i data-lucide="wallet" class="w-5 h-5 text-brand-600"></i> Accept Payment (Coherent Money-In Flow)
+                                    <i data-lucide="wallet" class="w-5 h-5 text-brand-600"></i> Shop Payment Receiving
                                 </h2>
-                                <p class="text-xs text-slate-500 mt-1">Admin accepts money received from shop and decides allocation: settle company payable, fund petty cash, or both.</p>
+                                <p class="text-xs text-slate-500 mt-1">Select a shop, then record and reconcile its payment from that shop's ledger page.</p>
                             </div>
-
-                            <form id="accept-payment-form" onsubmit="handleAcceptPayment(event)" class="space-y-5">
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-xs font-semibold text-slate-700 mb-1.5">Shop</label>
-                                        <select id="payment-shop-id" onchange="handlePaymentShopChange(this.value)" class="w-full bg-white text-xs font-semibold text-slate-800 px-3.5 py-2.5 rounded-xl border border-slate-300">
-                                            @foreach($shops as $shop)
-                                                <option value="{{ $shop->shop_id }}">{{ $shop->name ? $shop->name . ' (' . $shop->code . ')' : 'Shop ID: #' . $shop->shop_id }}</option>
-                                            @endforeach
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-semibold text-slate-700 mb-1.5">Business Date</label>
-                                        <input type="date" id="payment-date" value="{{ today()->toDateString() }}" onchange="handlePaymentShopChange(document.getElementById('payment-shop-id').value)" required class="w-full bg-white text-xs font-mono font-semibold text-slate-800 px-3.5 py-2.5 rounded-xl border border-slate-300">
-                                    </div>
-                                </div>
-
-                                <!-- Live Shop Payable & Position Summary Banner -->
-                                <div id="payment-shop-summary-banner" class="bg-indigo-50/80 border border-indigo-200 p-4 rounded-2xl space-y-2">
-                                    <div class="text-xs font-extrabold text-indigo-900 flex items-center justify-between">
-                                        <span class="flex items-center gap-1.5"><i data-lucide="info" class="w-4 h-4 text-indigo-600"></i> Selected Shop Financial Summary</span>
-                                        <span class="text-[10px] uppercase px-2 py-0.5 rounded font-bold bg-white text-indigo-700 border border-indigo-200">Live Snapshot</span>
-                                    </div>
-                                    <div class="grid grid-cols-3 gap-3 pt-1 text-xs">
-                                        <div class="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-xs">
-                                            <span class="text-[10px] font-bold text-slate-500 block uppercase">1. Payable to Company</span>
-                                            <strong id="payment-banner-position" class="text-sm font-mono font-extrabold text-amber-600">₹0.00</strong>
-                                        </div>
-                                        <div class="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-xs">
-                                            <span class="text-[10px] font-bold text-slate-500 block uppercase">2. Company Pending</span>
-                                            <strong id="payment-banner-pending" class="text-sm font-mono font-extrabold text-purple-600">₹0.00</strong>
-                                        </div>
-                                        <div class="bg-white p-2.5 rounded-xl border border-indigo-100 shadow-xs">
-                                            <span class="text-[10px] font-bold text-slate-500 block uppercase">3. Petty Cash Float</span>
-                                            <strong id="payment-banner-petty" class="text-sm font-mono font-extrabold text-sky-600">₹0.00</strong>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                                    <div>
-                                        <label class="block text-xs font-bold text-amber-800 mb-1">1. Settle Company Payable (₹)</label>
-                                        <input type="number" step="0.01" min="0" id="payment-settle-amount" placeholder="0.00" class="w-full bg-white text-sm font-mono font-bold text-slate-900 px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-amber-500">
-                                        <span class="text-[10px] text-slate-500 mt-1 block">Reduces Payable to Company</span>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-sky-800 mb-1">2. Fund Petty Cash Float (₹)</label>
-                                        <input type="number" step="0.01" min="0" id="payment-petty-amount" placeholder="0.00" class="w-full bg-white text-sm font-mono font-bold text-slate-900 px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-sky-500">
-                                        <span class="text-[10px] text-slate-500 mt-1 block">Top-up shop's Petty Float</span>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Credited Company Account (Bank / Cash)</label>
-                                    <select id="payment-company-account" class="w-full bg-white text-xs font-semibold text-slate-800 px-3.5 py-2.5 rounded-xl border border-slate-300">
-                                        @foreach($companyAccounts as $acc)
-                                            <option value="{{ $acc->id }}" {{ $acc->is_default ? 'selected' : '' }}>
-                                                {{ $acc->name }} ({{ strtoupper($acc->account_type) }}) {{ $acc->is_default ? '— Default' : '' }}
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Payment Memo / Notes</label>
-                                    <input type="text" id="payment-notes" placeholder="e.g. Weekly settlement & petty top-up..." class="w-full bg-white text-xs text-slate-800 px-3.5 py-2.5 rounded-xl border border-slate-300">
-                                </div>
-
-                                <button type="submit" class="w-full py-3.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm transition-all shadow-lg shadow-brand-600/25 flex items-center justify-center gap-2">
-                                    <i data-lucide="check-circle" class="w-4 h-4"></i> Accept Payment & Credit Company Account
-                                </button>
-                            </form>
+                            <a href="{{ route('admin.cashbook.all-shops') }}" class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-brand-700">
+                                <i data-lucide="store" class="w-4 h-4"></i> Open a Shop
+                            </a>
                         </div>
 
                         <!-- Pay a Shop Form -->
@@ -665,7 +595,15 @@
                                         <label class="block text-xs font-semibold text-slate-700 mb-1">Target Shop</label>
                                         <select id="pay-shop-id" onchange="handlePaymentShopChange(this.value)" class="w-full bg-white text-xs font-semibold text-slate-800 px-3 py-2 rounded-xl border border-slate-300">
                                             @foreach($shops as $shop)
-                                                <option value="{{ $shop->shop_id }}">{{ $shop->name }} ({{ $shop->code }})</option>
+                                                <option value="{{ $shop->shop?->public_uuid }}">{{ $shop->name }} ({{ $shop->code }})</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-700 mb-1">Company Cash / Bank</label>
+                                        <select id="pay-shop-company-account" class="w-full bg-white text-xs font-semibold text-slate-800 px-3 py-2 rounded-xl border border-slate-300">
+                                            @foreach($companyAccounts as $companyAccount)
+                                                <option value="{{ $companyAccount->public_uuid }}">{{ $companyAccount->name }} ({{ strtoupper($companyAccount->account_type) }})</option>
                                             @endforeach
                                         </select>
                                     </div>
@@ -1513,7 +1451,7 @@
                                 <td class="py-3.5 px-4 text-center" onclick="event.stopPropagation()">
                                     <div class="flex items-center justify-center gap-1.5">
                                         <a href="/admin/cashbook/shops/${slug}" class="px-2 py-1 text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 rounded-lg">View</a>
-                                         <button onclick="quickRecordPayment(${shop.shop_id})" class="px-2 py-1 text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg shadow-sm transition flex items-center gap-1">
+                                         <button onclick="quickRecordPayment('${shop.uuid}')" class="px-2 py-1 text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg shadow-sm transition flex items-center gap-1">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg> Record Payment
                                         </button>
                                     </div>
@@ -1603,7 +1541,7 @@
                                 <td class="py-3.5 px-4 text-center" onclick="event.stopPropagation()">
                                     <div class="flex items-center justify-center gap-1.5">
                                         <a href="/admin/cashbook/shops/${slug}" class="px-2 py-1 text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 rounded-lg">View</a>
-                                        <button onclick="quickRecordPayment(${shop.shop_id})" class="px-2 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm transition flex items-center gap-1">
+                                        <button onclick="quickRecordPayment('${shop.uuid}')" class="px-2 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm transition flex items-center gap-1">
                                             <svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8'/><path d='M12 18V6'/></svg>
                                             Record Payment
                                         </button>
@@ -1699,21 +1637,9 @@
             }
         }
 
-        function prefillAcceptPayment(shopId, amount) {
-            document.getElementById('payment-shop-id').value = shopId;
-            document.getElementById('payment-settle-amount').value = amount;
-            document.getElementById('payment-petty-amount').value = '';
-            switchTab('payments');
-        }
-
-        // Quick Record Payment from All-Shops view — selects shop and loads live data
-        function quickRecordPayment(shopId) {
-            const shopSelect = document.getElementById('payment-shop-id');
-            if (shopSelect) shopSelect.value = shopId;
-            const payShopSelect = document.getElementById('pay-shop-id');
-            if (payShopSelect) payShopSelect.value = shopId;
-            switchTab('payments');
-            handlePaymentShopChange(shopId);
+        // Payment receipts are recorded only in the selected shop workspace.
+        function quickRecordPayment(shopUuid) {
+            window.location.href = `/admin/cashbook/shops/${encodeURIComponent(shopUuid)}/accept-payment`;
         }
 
         function prefillPayShop(shopId, amount) {
@@ -1722,50 +1648,14 @@
             switchTab('payments');
         }
 
-        async function handleAcceptPayment(e) {
-            e.preventDefault();
-            const shopId = document.getElementById('payment-shop-id').value;
-            const date = document.getElementById('payment-date').value;
-            const companyAccountId = document.getElementById('payment-company-account').value;
-            const settleAmount = document.getElementById('payment-settle-amount').value;
-            const pettyAmount = document.getElementById('payment-petty-amount').value;
-            const notes = document.getElementById('payment-notes').value;
-
-            try {
-                const res = await fetch('/admin/cashbook/api/accept-payment', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                    },
-                    body: JSON.stringify({
-                        shop_id: shopId,
-                        business_date: date,
-                        company_account_id: companyAccountId,
-                        settle_amount: settleAmount,
-                        petty_amount: pettyAmount,
-                        notes: notes
-                    })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    document.getElementById('accept-payment-form').reset();
-                    switchTab('payables');
-                } else {
-                    showToast(data.message || 'Failed to accept payment', 'error');
-                }
-            } catch (err) {
-                showToast('Server error while accepting payment', 'error');
-            }
-        }
-
         async function handlePayShop(e) {
             e.preventDefault();
+            const form = document.getElementById('pay-shop-form');
             const shopId = document.getElementById('pay-shop-id').value;
             const date = document.getElementById('pay-shop-date').value;
             const amount = document.getElementById('pay-shop-amount').value;
             const notes = document.getElementById('pay-shop-notes').value;
+            const companyAccountUuid = document.getElementById('pay-shop-company-account').value;
 
             try {
                 const res = await fetch('/admin/cashbook/api/pay-shop', {
@@ -1775,7 +1665,9 @@
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
                     },
                     body: JSON.stringify({
-                        shop_id: shopId,
+                        shop_uuid: shopId,
+                        company_account_uuid: companyAccountUuid,
+                        request_uuid: form.dataset.requestUuid || (form.dataset.requestUuid = crypto.randomUUID()),
                         business_date: date,
                         amount: amount,
                         notes: notes
@@ -1784,7 +1676,8 @@
                 const data = await res.json();
                 if (data.success) {
                     showToast(data.message, 'success');
-                    document.getElementById('pay-shop-form').reset();
+                    form.reset();
+                    delete form.dataset.requestUuid;
                     switchTab('payables');
                 } else {
                     showToast(data.message || 'Failed to pay shop', 'error');

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Services\Admin;
 
 use App\DTOs\Admin\UserData;
+use App\Models\BusinessSetting;
 use App\Models\User;
 use App\Repositories\Admin\UserRepository;
 use App\Services\HR\EmployeeSyncService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class UserService
 {
@@ -92,6 +94,10 @@ class UserService
 
     public function delete(User $user): void
     {
+        if ((int) BusinessSetting::query()->where('key', 'default_purchaser_user_id')->value('value') === (int) $user->id) {
+            throw ValidationException::withMessages(['user' => 'Replace the Company Default Purchaser in Company Settings before deleting this user.']);
+        }
+
         $this->repository->delete($user);
     }
 

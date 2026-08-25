@@ -1,3 +1,5 @@
+@php($cashbookSidebarShops = $shops ?? collect())
+
 <!-- Mobile Overlay Backdrop -->
 <div id="sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-30 hidden md:hidden transition-opacity"></div>
 
@@ -34,28 +36,29 @@
             <div class="flex items-center gap-1 text-[10px] text-slate-500 font-medium px-1 flex-wrap">
                 <span data-cashbook-sidebar-label class="font-bold text-emerald-700">{{ config('greenleaf.name', 'Green Leaf') }}</span>
                 <i data-lucide="chevron-right" class="w-3 h-3 text-slate-300"></i>
-                <span data-cashbook-sidebar-label class="text-slate-400">{{ $shops->count() }} shops</span>
+                <span data-cashbook-sidebar-label class="text-slate-400">{{ $cashbookSidebarShops->count() }} shops</span>
             </div>
         </div>
 
-        <!-- Active Shop Context Selector -->
-        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
-            <span data-cashbook-sidebar-label class="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider flex items-center gap-1">
-                <i data-lucide="store" class="w-3 h-3 text-slate-700"></i> Active Shop Context
-            </span>
-            <select
-                id="active-shop-selector"
-                onchange="window.location.href='/admin/cashbook/shops/' + this.options[this.selectedIndex].getAttribute('data-slug')"
-                class="w-full bg-white text-xs font-bold text-slate-900 px-2.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 cursor-pointer shadow-sm"
-            >
-                @foreach($shops as $s)
-                    <option value="{{ $s->shop_id }}" data-slug="{{ $s->slug ?: $s->shop_id }}"
-                        {{ isset($currentShop) && $currentShop->shop_id == $s->shop_id ? 'selected' : '' }}>
-                        {{ $s->name ? $s->name . ' (' . $s->code . ')' : 'Shop #' . $s->shop_id }}
-                    </option>
-                @endforeach
-            </select>
-        </div>
+        @if(request()->routeIs('admin.cashbook.shop.show'))
+            <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
+                <span data-cashbook-sidebar-label class="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider flex items-center gap-1">
+                    <i data-lucide="store" class="w-3 h-3 text-slate-700"></i> Active Shop Context
+                </span>
+                <select
+                    id="active-shop-selector"
+                    onchange="window.location.href='/admin/cashbook/shops/' + this.options[this.selectedIndex].getAttribute('data-slug')"
+                    class="w-full bg-white text-xs font-bold text-slate-900 px-2.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 cursor-pointer shadow-sm"
+                >
+                    @foreach($cashbookSidebarShops as $s)
+                        <option value="{{ $s->shop_id }}" data-slug="{{ $s->slug ?: $s->shop_id }}"
+                            {{ isset($currentShop) && $currentShop->shop_id == $s->shop_id ? 'selected' : '' }}>
+                            {{ $s->name ? $s->name . ' (' . $s->code . ')' : 'Shop #' . $s->shop_id }}
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+        @endif
 
         <!-- Navigation Sections -->
         <nav class="space-y-5">
@@ -81,13 +84,21 @@
                     <i data-lucide="git-compare-arrows" class="w-4 h-4"></i>
                     <span>Reconciliation</span>
                 </a>
-                <a href="{{ route('admin.cashbook.finance.journal') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.journal') || request()->routeIs('admin.cashbook.finance.journal.show') || request()->routeIs('admin.cashbook.finance.journal.secure-show') ? 'active-sidebar' : '' }}">
+                <a href="{{ route('admin.cashbook.finance.journal') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.journal*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="book-open-check" class="w-4 h-4"></i>
-                    <span>Payment Journal</span>
+                    <span>All Transactions</span>
                 </a>
-                <a href="{{ route('admin.cashbook.accept-payment') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.accept-payment') || request()->routeIs('admin.cashbook.shop.settlement') || request()->routeIs('admin.cashbook.shop.accept-payment') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="wallet" class="w-4 h-4"></i>
-                    <span>Accept Payment &amp; Settlement</span>
+                <a href="{{ route('admin.cashbook.finance.vendor-credit') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.vendor-credit*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="truck" class="w-4 h-4"></i>
+                    <span>Vendor Credit</span>
+                </a>
+                <a href="{{ route('admin.cashbook.finance.purchase') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.purchase*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="shopping-basket" class="w-4 h-4"></i>
+                    <span>Purchase</span>
+                </a>
+                <a href="{{ route('admin.cashbook.finance.direct-sales') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.direct-sales*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="circle-dollar-sign" class="w-4 h-4"></i>
+                    <span>Direct Company Sales</span>
                 </a>
                 <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bank-accounts.*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="landmark" class="w-4 h-4"></i>
@@ -102,7 +113,7 @@
                     <i data-lucide="layout-grid" class="w-4 h-4"></i>
                     <span>All Shops Overview</span>
                 </a>
-                <a href="{{ route('admin.cashbook.shop.show', isset($currentShop) ? ($currentShop->slug ?: $currentShop->shop_id) : ($shops->first()?->slug ?? 1)) }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.shop.show') ? 'active-sidebar' : '' }}">
+                <a href="{{ route('admin.cashbook.shop.show', isset($currentShop) ? ($currentShop->slug ?: $currentShop->shop_id) : ($cashbookSidebarShops->first()?->slug ?? 1)) }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.shop.show') ? 'active-sidebar' : '' }}">
                     <i data-lucide="store" class="w-4 h-4"></i>
                     <span>Single Shop Ledger</span>
                 </a>
@@ -125,7 +136,7 @@
                 </a>
                 <a href="{{ route('admin.cashbook.payables') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.payables') ? 'active-sidebar' : '' }}">
                     <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
-                    <span>Payables &amp; Pendings</span>
+                    <span>Shop Payables Report</span>
                 </a>
             </div>
 

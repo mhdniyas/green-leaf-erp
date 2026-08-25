@@ -25,7 +25,7 @@ class GoodsReceivedFactory extends Factory
     {
         return [
             'purchase_order_id' => PurchaseOrder::factory(),
-            'grn_number' => 'GRN-'.now()->format('Ymd').'-'.str_pad((string) rand(1, 9999), 4, '0', STR_PAD_LEFT),
+            'grn_number' => 'GRN-'.now()->format('Ymd').'-'.str_pad((string) $this->faker->unique()->numberBetween(1, 99999999), 8, '0', STR_PAD_LEFT),
             'received_by' => User::factory(),
             'received_at' => $this->faker->dateTimeBetween('-15 days', 'today')->format('Y-m-d'),
             'transport_cost' => $this->faker->randomFloat(2, 20, 200),

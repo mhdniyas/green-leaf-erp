@@ -466,7 +466,7 @@ class RequisitionController extends Controller
 
         $businessDate = Carbon::parse($validated['business_date']);
         $user = $request->user();
-        $purchaserUser = $this->defaultDirectPurchasePurchaser() ?? $user;
+        $purchaserUser = $this->defaultDirectPurchasePurchaser();
 
         $order = DB::transaction(function () use ($businessDate, $user, $purchaserUser, $items, $managerNote): ShopOrder {
             $shopOrder = ShopOrder::query()->create([
@@ -496,25 +496,20 @@ class RequisitionController extends Controller
             ->with('success', $successPrefix.' '.$order->order_number.' added to purchaser demand.');
     }
 
-    private function defaultDirectPurchasePurchaser(): ?User
+    private function defaultDirectPurchasePurchaser(): User
     {
         $setting = BusinessSetting::query()
             ->where('key', 'default_purchaser_user_id')
             ->first();
 
-        if (! $setting?->value) {
-            return null;
-        }
-
-        $user = User::query()->find((int) $setting->value);
-
-        if ($user) {
+        $user = $setting?->value ? User::query()->find((int) $setting->value) : null;
+        if ($user instanceof User && $user->hasRole('purchaser')) {
             return $user;
         }
 
-        $setting->delete();
-
-        return null;
+        throw ValidationException::withMessages([
+            'default_purchaser' => 'Configure a valid Company Default Purchaser before creating a direct company purchase.',
+        ]);
     }
 
     /**

@@ -59,7 +59,7 @@ class CompanySettingsController extends Controller
         ];
 
         $purchaserUsers = User::query()
-            ->whereHas('roles', fn ($query) => $query->whereIn('name', ['purchaser', 'admin']))
+            ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
             ->orderBy('name')
             ->get(['id', 'name', 'email']);
 
@@ -95,7 +95,11 @@ class CompanySettingsController extends Controller
             'company_phone' => ['nullable', 'string', 'max:50'],
             'company_email' => ['nullable', 'email', 'max:120'],
             'allow_historical_invoice_repricing' => ['nullable', 'boolean'],
-            'default_purchaser_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'default_purchaser_user_id' => ['required', 'integer', 'exists:users,id', function (string $attribute, mixed $value, \Closure $fail): void {
+                if (! User::query()->whereKey($value)->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))->exists()) {
+                    $fail('The Company Default Purchaser must have the purchaser role.');
+                }
+            }],
             'default_direct_sale_shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'auto_load_all_enabled' => ['nullable', 'boolean'],
             'auto_load_all_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],

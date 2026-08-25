@@ -149,6 +149,21 @@ class PurchaseInvoice extends Model
         return $this->hasMany(PurchaseInvoicePayment::class);
     }
 
+    public function vendorSettlementAllocations(): HasMany
+    {
+        return $this->hasMany(VendorSettlementAllocation::class);
+    }
+
+    public function settlementTotal(): float
+    {
+        return round((float) $this->vendorSettlementAllocations()->sum('total_settled'), 2);
+    }
+
+    public function settlementOutstanding(): float
+    {
+        return round(max(0, ((float) $this->amount - (float) $this->discount_amount) - $this->settlementTotal()), 2);
+    }
+
     public function purchaserSubmittedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'purchaser_submitted_by');

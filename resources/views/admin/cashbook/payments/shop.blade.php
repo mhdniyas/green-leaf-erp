@@ -1,305 +1,234 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', ($currentShop->name ?: 'Shop #'.$currentShop->shop_id).' - Accept Payment')
+@section('title', 'Shop Payment Reconciliation')
 
 @section('header_title')
-    <i data-lucide="store" class="h-5 w-5 text-emerald-600"></i> {{ $currentShop->name ?: 'Shop #'.$currentShop->shop_id }}
+    <i data-lucide="handshake" class="h-5 w-5 text-emerald-600"></i> Shop Payment Reconciliation
 @endsection
 
 @section('header_subtitle')
-    Record received cash or cheque details, then apply approved balance against monthly shop relations.
-@endsection
-
-@section('header_actions')
-    <a href="{{ route('admin.cashbook.accept-payment', ['month' => $month]) }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-bold text-white shadow-sm hover:bg-slate-800">
-        <i data-lucide="arrow-left" class="h-4 w-4"></i> Shops
-    </a>
+    Reconcile a real shop receipt with the shop ledger relations it settles.
 @endsection
 
 @section('content')
-    <div x-data="acceptShopPaymentPage()" class="mx-auto max-w-[96rem] space-y-5">
-        @if($errors->any())
-            <div class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">
-                {{ $errors->first() }}
+    @php
+        $selectedReconciliation = $selectedPayment?->reconciliations->firstWhere('is_finalized', true);
+        $transactionPayload = $openTransactions->map(fn ($transaction) => [
+            'ref' => $transaction->secureRouteKey(),
+            'date' => $transaction->business_date?->format('d M Y'),
+            'type' => $transaction->entryType?->name ?? 'Shop transaction',
+            'description' => $transaction->notes ?: ($transaction->entryType?->code ?? '-'),
+            'side' => $transaction->settlement_side,
+            'open' => (float) $transaction->open_amount,
+            'reconciled' => (float) $transaction->reconciled_amount,
+        ])->values();
+    @endphp
+
+    <div class="mx-auto max-w-7xl space-y-5" x-data="shopPaymentWorkspace(@js($transactionPayload), {{ $selectedPayment ? (float) $selectedPayment->reconciled_amount : 0 }})">
+        <section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 bg-gradient-to-r from-emerald-50 via-white to-sky-50 px-5 py-5 sm:px-6">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-800">Shop settlement</span>
+                            <span class="text-xs font-bold text-slate-500">{{ $month }}</span>
+                        </div>
+                        <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">{{ $currentShop->name }}</h1>
+                        <p class="mt-1 text-sm font-medium text-slate-600">Select the open ledger relations covered by one finalized company receipt.</p>
+                    </div>
+                    <a href="{{ route('admin.cashbook.shop.show', $currentShop->uuid) }}" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">
+                        <i data-lucide="book-open" class="h-4 w-4"></i> View Shop Ledger
+                    </a>
+                </div>
             </div>
+            <div class="grid grid-cols-2 divide-x divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0">
+                <div class="p-4 sm:px-5">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Shop Position</p>
+                    <p class="mt-1 font-mono text-xl font-black {{ (float) $shopPosition->closing_shop_position >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">₹{{ number_format((float) $shopPosition->closing_shop_position, 2) }}</p>
+                    <p class="mt-1 text-[11px] font-semibold text-slate-500">Current remittance position</p>
+                </div>
+                <div class="p-4 sm:px-5">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Petty Position</p>
+                    <p class="mt-1 font-mono text-xl font-black text-sky-700">₹{{ number_format((float) $shopPosition->closing_petty, 2) }}</p>
+                    <p class="mt-1 text-[11px] font-semibold text-slate-500">Existing petty ledger balance</p>
+                </div>
+                <div class="p-4 sm:px-5">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Company Pending</p>
+                    <p class="mt-1 font-mono text-xl font-black text-amber-700">₹{{ number_format((float) $shopPosition->closing_company_pending, 2) }}</p>
+                    <p class="mt-1 text-[11px] font-semibold text-slate-500">Company-side pending relations</p>
+                </div>
+                <div class="p-4 sm:px-5">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Open Relations</p>
+                    <p class="mt-1 font-mono text-xl font-black text-slate-900">{{ $openTransactions->count() }}</p>
+                    <p class="mt-1 text-[11px] font-semibold text-slate-500">Rows with settlement effect</p>
+                </div>
+            </div>
+        </section>
+
+        @if (session('success'))
+            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{{ session('success') }}</div>
+        @endif
+        @if ($errors->any())
+            <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">{{ $errors->first() }}</div>
         @endif
 
-        <section class="grid grid-cols-2 gap-3 xl:grid-cols-6">
-            @foreach([
-                ['label' => 'Received', 'value' => $shopCard['received_amount'], 'tone' => 'text-slate-950'],
-                ['label' => 'Approved', 'value' => $shopCard['approved_amount'], 'tone' => 'text-emerald-700'],
-                ['label' => 'Floating', 'value' => $shopCard['floating_amount'], 'tone' => 'text-amber-700'],
-                ['label' => 'Pending', 'value' => $shopCard['pending_amount'], 'tone' => 'text-orange-700'],
-                ['label' => 'Payable', 'value' => $shopCard['payable_balance'], 'tone' => 'text-sky-700'],
-                ['label' => 'After Balance', 'value' => $shopCard['after_balance'], 'tone' => 'text-rose-700'],
-            ] as $total)
-                <div class="white-card rounded-lg border border-slate-200 p-3 shadow-sm">
-                    <span class="block text-[10px] font-black uppercase tracking-wider text-slate-400">{{ $total['label'] }}</span>
-                    <strong class="mt-2 block break-words font-mono text-lg font-extrabold {{ $total['tone'] }}">₹{{ number_format($total['value'], 2) }}</strong>
-                </div>
-            @endforeach
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Record Payment</p>
+            <h2 class="mt-1 text-lg font-black text-slate-950">Receive payment from {{ $currentShop->name }}</h2>
+            <p class="mt-1 text-sm font-medium text-slate-600">This records a payment submission only. It remains pending until matched to an actual company Cash/Bank statement. No shop ledger position changes until finalization.</p>
+            <form method="POST" action="{{ route('admin.cashbook.shop.accept-payment.store', $currentShop->uuid) }}" class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                @csrf
+                <input type="hidden" name="request_uuid" value="{{ (string) str()->uuid() }}">
+                <input type="hidden" name="month" value="{{ $month }}">
+                <label class="text-xs font-black text-slate-700">Amount Received
+                    <input required name="amount" type="number" min="0.01" step="0.01" value="{{ old('amount') }}" class="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-mono text-sm font-black text-slate-900">
+                </label>
+                <label class="text-xs font-black text-slate-700">Payment Method
+                    <select required name="payment_method" class="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900">
+                        <option value="cash" @selected(old('payment_method') === 'cash')>Cash</option>
+                        <option value="online_upi" @selected(old('payment_method', 'online_upi') === 'online_upi')>Bank</option>
+                        <option value="cheque" @selected(old('payment_method') === 'cheque')>Cheque</option>
+                    </select>
+                </label>
+                <label class="text-xs font-black text-slate-700">Payment Date
+                    <input required name="payment_date" type="date" value="{{ old('payment_date', today()->toDateString()) }}" class="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900">
+                </label>
+                <label class="text-xs font-black text-slate-700 md:col-span-2">Reference / Cheque No.
+                    <input name="payment_reference" value="{{ old('payment_reference') }}" class="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900">
+                </label>
+                <label class="text-xs font-black text-slate-700">Cheque Bank
+                    <input name="cheque_bank_name" value="{{ old('cheque_bank_name') }}" class="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900">
+                </label>
+                <label class="text-xs font-black text-slate-700">Cheque Date
+                    <input name="cheque_date" type="date" value="{{ old('cheque_date') }}" class="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900">
+                </label>
+                <label class="text-xs font-black text-slate-700 md:col-span-2">Notes
+                    <input name="notes" value="{{ old('notes') }}" class="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900">
+                </label>
+                <button type="submit" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-black text-white hover:bg-emerald-800 xl:self-end"><i data-lucide="wallet" class="h-4 w-4"></i> Record Payment</button>
+            </form>
         </section>
 
-        <section class="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-            <div class="white-card rounded-lg border border-slate-200 p-4 shadow-xl sm:p-5">
-                <div class="mb-4 border-b border-slate-200 pb-3">
-                    <h2 class="text-base font-extrabold text-slate-950">Accept Payment</h2>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">Cash approves directly into Cash in Hand. Cheque, UPI, bank transfer, and other methods go to reconciliation as floating.</p>
-                </div>
-
-                <form data-no-loader @submit.prevent="submitPayment" class="space-y-3">
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-slate-500">Payment Date</span>
-                            <input type="date" x-model="form.business_date" class="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                        </label>
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-slate-500">Method</span>
-                            <select x-model="form.payment_method" class="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                                <option value="cash">Cash</option>
-                                <option value="cheque">Cheque</option>
-                                <option value="bank_transfer">Bank Transfer</option>
-                                <option value="online_upi">UPI</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </label>
+        <section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 px-5 py-4 sm:px-6"><p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Pending Payments</p><h2 class="mt-1 text-lg font-black text-slate-950">Awaiting actual company Cash/Bank statement</h2></div>
+            <div class="divide-y divide-slate-100">
+                @forelse ($pendingPayments as $paymentRequest)
+                    @php($statement = $paymentRequest->reconciliations->first()?->statementEntry)
+                    @php($paymentStatus = $paymentRequest->reconciliation_status === 'partially_reconciled' ? 'Partially Reconciled' : 'Awaiting Reconciliation')
+                    <div class="grid gap-3 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:px-6">
+                        <div class="grid gap-2 text-sm sm:grid-cols-4"><span class="font-mono font-black text-slate-900">₹{{ number_format((float) $paymentRequest->requested_amount, 2) }}</span><span class="font-bold text-slate-700">{{ $paymentRequest->paymentMethodLabel() }} · {{ $paymentRequest->payment_date?->format('d M Y') }}</span><span class="text-xs font-semibold text-slate-500">{{ $statement?->companyAccount?->name ?: 'Awaiting statement' }} · {{ $paymentRequest->payment_reference ?: 'No reference' }}</span><span class="text-xs font-black text-amber-700">{{ $paymentStatus }}</span></div>
+                        @if ($statement)
+                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['classify_statement' => $statement->public_uuid, 'company_account_uuid' => $statement->companyAccount?->public_uuid, 'month' => $statement->transaction_date?->format('Y-m')]) }}" class="inline-flex min-h-10 items-center justify-center rounded-xl bg-amber-100 px-4 text-xs font-black text-amber-900 hover:bg-amber-200">Reconcile</a>
+                        @else
+                            <span class="inline-flex min-h-10 items-center justify-center rounded-xl bg-slate-100 px-4 text-xs font-black text-slate-500">Awaiting Statement</span>
+                        @endif
                     </div>
-
-                    <label class="block">
-                        <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-slate-500">Amount Received</span>
-                        <input type="number" step="0.01" min="0.01" x-model="form.settle_amount" class="min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-base font-extrabold text-slate-900" placeholder="0.00">
-                    </label>
-
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <label class="block" x-show="form.payment_method === 'cash'">
-                            <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-slate-500">Cash In Hand</span>
-                            <select x-model="form.company_account_id" class="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                                <option value="">Select cash account</option>
-                                @foreach($cashAccounts as $account)
-                                    <option value="{{ $account->id }}">{{ $account->name }} / ₹{{ number_format($account->current_balance, 2) }}</option>
-                                @endforeach
-                            </select>
-                        </label>
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-slate-500">Reference</span>
-                            <input type="text" x-model="form.payment_reference" class="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Cheque no, UPI id, bank ref">
-                        </label>
-                    </div>
-
-                    <div x-show="form.payment_method === 'cheque'" class="grid grid-cols-1 gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:grid-cols-2">
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-amber-700">Cheque Bank</span>
-                            <input type="text" x-model="form.cheque_bank_name" class="min-h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-slate-800">
-                        </label>
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-amber-700">Cheque Date</span>
-                            <input type="date" x-model="form.cheque_date" class="min-h-10 w-full rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-slate-800">
-                        </label>
-                    </div>
-
-                    <label class="block">
-                        <span class="mb-1 block text-[11px] font-black uppercase tracking-wider text-slate-500">Note</span>
-                        <textarea rows="3" x-model="form.notes" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800" placeholder="Payment details"></textarea>
-                    </label>
-
-                    <button type="submit" :disabled="submitting" class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-extrabold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-60">
-                        <i data-lucide="check-circle-2" class="h-4 w-4"></i>
-                        <span x-text="submitting ? 'Saving...' : 'Save Payment'"></span>
-                    </button>
-                </form>
-            </div>
-
-            <div class="white-card rounded-lg border border-slate-200 p-4 shadow-xl sm:p-5">
-                <div class="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <h2 class="text-base font-extrabold text-slate-950">Recent Payment Flow</h2>
-                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ \Carbon\Carbon::parse($monthStart)->format('F Y') }} shop payment requests.</p>
-                    </div>
-                    <a href="{{ route('admin.cashbook.finance.journal', ['payment_method' => 'all']) }}" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">
-                        <i data-lucide="book-open-check" class="h-4 w-4"></i> Journal
-                    </a>
-                </div>
-
-                <div class="space-y-2">
-                    @forelse($paymentRequests as $payment)
-                        <a href="{{ route('admin.cashbook.finance.journal.secure-show', $payment->secureRouteKey()) }}" class="block rounded-lg border border-slate-200 bg-slate-50 p-3 hover:bg-white">
-                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <div class="min-w-0">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <strong class="font-mono text-sm text-slate-950">₹{{ number_format($payment->requested_amount, 2) }}</strong>
-                                        <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase text-slate-600">{{ $payment->paymentMethodLabel() }}</span>
-                                        <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase text-amber-700">{{ $payment->reconciliationStatusLabel() }}</span>
-                                    </div>
-                                    <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $payment->payment_reference ?: $payment->shop_note ?: 'No reference' }}</p>
-                                </div>
-                                <div class="text-left text-[11px] font-bold text-slate-400 sm:text-right">
-                                    {{ $payment->payment_date?->format('Y-m-d') ?: $payment->created_at?->format('Y-m-d') }}
-                                    <div class="font-mono text-emerald-700">Approved ₹{{ number_format($payment->reconciled_amount, 2) }}</div>
-                                    <div class="font-mono text-amber-700">Floating ₹{{ number_format($payment->floating_amount, 2) }}</div>
-                                </div>
-                            </div>
-                        </a>
-                    @empty
-                        <div class="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No payments recorded this month.</div>
-                    @endforelse
-                </div>
-            </div>
-        </section>
-
-        <section class="white-card rounded-lg border border-slate-200 p-4 shadow-xl sm:p-5">
-            <div class="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 xl:flex-row xl:items-end xl:justify-between">
-                <div>
-                    <h2 class="text-base font-extrabold text-slate-950">Apply Approved Balance To Bills & Expenses</h2>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">Oldest rows first. Use search and date filters when there are many entries.</p>
-                </div>
-                <form method="GET" action="{{ route('admin.cashbook.shop.accept-payment', ['shop' => $currentShop->slug ?: $currentShop->shop_id]) }}" class="grid grid-cols-1 gap-2 sm:grid-cols-[auto_auto_1fr_auto]">
-                    <input type="hidden" name="month" value="{{ $month }}">
-                    <input type="date" name="date_from" value="{{ $dateFrom }}" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                    <input type="date" name="date_to" value="{{ $dateTo }}" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
-                    <input type="search" name="search" value="{{ $search }}" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Search entries">
-                    <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">
-                        <i data-lucide="filter" class="h-4 w-4"></i> Filter
-                    </button>
-                </form>
-            </div>
-
-            <div class="mb-4 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-                @forelse($payableDetails['groups'] as $group)
-                    <a href="{{ route('admin.cashbook.reports.shop', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'date' => $group['first_date'] ?: $dateFrom]) }}" class="rounded-lg border border-slate-200 bg-slate-50 p-3 hover:bg-white">
-                        <span class="block truncate text-xs font-extrabold text-slate-950">{{ $group['name'] }}</span>
-                        <span class="mt-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">{{ $group['count'] }} entries / {{ $group['first_date'] ?: '-' }} to {{ $group['last_date'] ?: '-' }}</span>
-                        <strong class="mt-2 block font-mono text-sm font-extrabold {{ $group['total'] < 0 ? 'text-rose-700' : 'text-sky-700' }}">₹{{ number_format($group['total'], 2) }}</strong>
-                    </a>
                 @empty
-                    <div class="rounded-lg border border-dashed border-slate-200 p-5 text-center text-xs font-bold text-slate-400 md:col-span-2 xl:col-span-4">No grouped payable rows in this filter.</div>
+                    <p class="px-5 py-8 text-sm font-semibold text-slate-500 sm:px-6">No pending payments for this shop.</p>
                 @endforelse
             </div>
-
-            <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div class="text-xs font-bold text-slate-500">
-                    Selected <span class="font-mono text-slate-900" x-text="selectedIds.length"></span> rows /
-                    <span class="font-mono text-emerald-700" x-text="'₹' + selectedTotal().toFixed(2)"></span>
-                </div>
-                <button type="button" @click="toggleAll" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50">
-                    <i data-lucide="list-checks" class="h-4 w-4"></i> Select All
-                </button>
-            </div>
-
-            <div class="overflow-x-auto custom-scrollbar">
-                <table class="w-full min-w-[760px] text-left text-xs">
-                    <thead>
-                        <tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                            <th class="w-12 px-3 py-3">Pick</th>
-                            <th class="px-3 py-3">Date</th>
-                            <th class="px-3 py-3">Entry</th>
-                            <th class="px-3 py-3">Note</th>
-                            <th class="px-3 py-3 text-right">Amount</th>
-                            <th class="px-3 py-3 text-right">Payable Effect</th>
-                            <th class="px-3 py-3 text-right">Link</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @forelse($payableDetails['rows'] as $row)
-                            <tr class="hover:bg-slate-50">
-                                <td class="px-3 py-3">
-                                    <input type="checkbox" value="{{ $row->id }}" data-amount="{{ $row->signed_amount }}" x-model="selectedIds" class="h-4 w-4 rounded border-slate-300 text-emerald-600">
-                                </td>
-                                <td class="px-3 py-3 font-mono font-bold text-slate-700">{{ $row->business_date?->format('Y-m-d') }}</td>
-                                <td class="px-3 py-3">
-                                    <div class="font-extrabold text-slate-900">{{ $row->entryType?->name ?: $row->entry_type_code }}</div>
-                                    <div class="text-[10px] font-bold uppercase text-slate-400">{{ $row->entryType?->code ?: 'entry' }}</div>
-                                </td>
-                                <td class="max-w-md px-3 py-3">
-                                    <div class="truncate font-semibold text-slate-500">{{ $row->notes ?: '-' }}</div>
-                                </td>
-                                <td class="px-3 py-3 text-right font-mono font-bold text-slate-900">₹{{ number_format($row->amount, 2) }}</td>
-                                <td class="px-3 py-3 text-right font-mono font-extrabold {{ $row->signed_amount < 0 ? 'text-rose-700' : 'text-sky-700' }}">₹{{ number_format($row->signed_amount, 2) }}</td>
-                                <td class="px-3 py-3 text-right">
-                                    <a href="{{ route('admin.cashbook.shop.show', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex min-h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-2 font-bold text-slate-700 hover:bg-slate-50">
-                                        Open
-                                    </a>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="7" class="px-3 py-8 text-center text-sm font-bold text-slate-400">No payable rows found for this filter.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
         </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Reconcile Shop Ledger</p><h2 class="mt-1 text-lg font-black text-slate-950">Recent finalized payments</h2></div><form method="GET" action="{{ route('admin.cashbook.shop.accept-payment', $currentShop->uuid) }}"><input type="hidden" name="month" value="{{ $month }}"><select name="payment_ref" onchange="this.form.submit()" class="min-h-11 max-w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800"><option value="">Select finalized payment</option>@foreach ($finalizedPayments as $paymentRequest)<option value="{{ $paymentRequest->secureRouteKey() }}" @selected($selectedPayment?->is($paymentRequest))>₹{{ number_format((float) $paymentRequest->reconciled_amount, 2) }} · {{ $paymentRequest->payment_date?->format('d M Y') }}</option>@endforeach</select></form></div>
+            <div class="mt-4 divide-y divide-slate-100">@forelse ($recentFinalizedPayments as $paymentRequest)<div class="grid gap-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center"><div class="text-sm font-bold text-slate-700"><span class="font-mono text-slate-950">₹{{ number_format((float) $paymentRequest->reconciled_amount, 2) }}</span> · {{ $paymentRequest->paymentMethodLabel() }} · {{ $paymentRequest->payment_reference ?: 'No reference' }} <span class="ml-1 text-xs font-black {{ $paymentRequest->ledger_allocations_exists ? 'text-slate-600' : 'text-emerald-700' }}">{{ $paymentRequest->ledger_allocations_exists ? 'Applied to Shop Ledger' : 'Finalized' }}</span></div><a href="{{ route('admin.cashbook.shop.accept-payment', ['shop' => $currentShop->uuid, 'month' => $month, 'payment_ref' => $paymentRequest->secureRouteKey()]) }}" class="inline-flex min-h-10 items-center justify-center rounded-xl px-4 text-xs font-black {{ $paymentRequest->ledger_allocations_exists ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-900' }}">{{ $paymentRequest->ledger_allocations_exists ? 'View Settlement' : 'Reconcile Shop Transactions' }}</a></div>@empty<p class="py-4 text-sm font-semibold text-slate-500">No finalized payments yet.</p>@endforelse</div>
+        </section>
+
+        @if ($selectedPayment)
+            <form method="POST" action="{{ route('admin.cashbook.shop.accept-payment.reconcile', $currentShop->uuid) }}" class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+                @csrf
+                <input type="hidden" name="payment_ref" value="{{ $selectedPayment->secureRouteKey() }}">
+                <input type="hidden" name="month" value="{{ $month }}">
+                <section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                    <div class="border-b border-slate-100 px-5 py-4 sm:px-6">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Step 2</p>
+                        <h2 class="mt-1 text-lg font-black text-slate-950">Select Shop Transactions Covered By This Payment</h2>
+                        <p class="mt-1 text-sm font-medium text-slate-600">Credits increase what the shop must remit. Debits reduce it. Fully settled rows are hidden.</p>
+                    </div>
+                    <div class="border-b border-slate-100 px-5 py-3 sm:px-6">
+                        <div class="flex gap-2 overflow-x-auto pb-1">
+                            <button type="button" @click="activeTab = 'all'" :class="activeTab === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'" class="shrink-0 rounded-xl px-3 py-2 text-xs font-black">All</button>
+                            <button type="button" @click="activeTab = 'credit'" :class="activeTab === 'credit' ? 'bg-emerald-700 text-white' : 'bg-emerald-50 text-emerald-700'" class="shrink-0 rounded-xl px-3 py-2 text-xs font-black">Income / Credits</button>
+                            <button type="button" @click="activeTab = 'debit'" :class="activeTab === 'debit' ? 'bg-rose-700 text-white' : 'bg-rose-50 text-rose-700'" class="shrink-0 rounded-xl px-3 py-2 text-xs font-black">Expenses / Debits</button>
+                        </div>
+                    </div>
+                    <div class="divide-y divide-slate-100">
+                        <template x-for="row in filteredRows" :key="row.ref">
+                            <div class="p-4 sm:px-6" :class="selected[row.ref] ? 'bg-slate-50' : ''">
+                                <div class="flex gap-3">
+                                    <input type="checkbox" class="mt-1 h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" :checked="selected[row.ref] !== undefined" @change="toggle(row)">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <span class="text-sm font-black text-slate-950" x-text="row.type"></span>
+                                                    <span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase" :class="row.side === 'credit' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'" x-text="row.side === 'credit' ? 'Credit' : 'Debit'"></span>
+                                                </div>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500"><span x-text="row.date"></span> · <span x-text="row.description"></span></p>
+                                            </div>
+                                            <div class="text-left sm:text-right">
+                                                <p class="font-mono text-base font-black" :class="row.side === 'credit' ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(row.open)"></p>
+                                                <p class="text-[10px] font-bold text-slate-400">Open amount</p>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 grid gap-2 sm:grid-cols-2" x-show="selected[row.ref] !== undefined" x-cloak>
+                                            <label class="text-xs font-bold text-slate-600">Allocate
+                                                <input type="number" min="0.01" step="0.01" :max="row.open" x-model.number="selected[row.ref]" class="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-mono font-black text-slate-900">
+                                            </label>
+                                            <p class="self-end pb-2 text-xs font-semibold text-slate-500">Previously reconciled: <span class="font-mono font-black" x-text="currency(row.reconciled)"></span></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="filteredRows.length === 0" class="p-10 text-center text-sm font-bold text-slate-500">No open shop ledger relations in this view.</div>
+                    </div>
+                </section>
+
+                <aside class="lg:sticky lg:top-5 lg:self-start">
+                    <div class="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-xl sm:p-6">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Settlement Summary</p>
+                        <div class="mt-5 space-y-3 text-sm font-semibold">
+                            <div class="flex justify-between"><span class="text-slate-300">Payment Received</span><strong class="font-mono text-white" x-text="currency(paymentAmount)"></strong></div>
+                            <div class="flex justify-between"><span class="text-emerald-300">Selected Credits</span><strong class="font-mono text-emerald-200" x-text="currency(selectedCredits)"></strong></div>
+                            <div class="flex justify-between"><span class="text-rose-300">Selected Debits</span><strong class="font-mono text-rose-200" x-text="currency(selectedDebits)"></strong></div>
+                            <div class="border-t border-slate-700 pt-3"><div class="flex justify-between"><span class="font-black text-white">Net Shop Amount</span><strong class="font-mono text-base text-white" x-text="currency(netAmount)"></strong></div></div>
+                            <div class="flex justify-between rounded-xl px-3 py-2" :class="Math.abs(difference) < 0.005 ? 'bg-emerald-500/20 text-emerald-100' : 'bg-amber-500/20 text-amber-100'"><span class="font-black">Difference</span><strong class="font-mono" x-text="currency(difference)"></strong></div>
+                        </div>
+                        <p class="mt-5 text-xs font-semibold leading-5 text-slate-300" x-show="Math.abs(difference) >= 0.005">Select credits and debits whose net equals the finalized receipt before continuing.</p>
+                        <p class="mt-5 text-xs font-semibold leading-5 text-emerald-200" x-show="Math.abs(difference) < 0.005 && Object.keys(selected).length">The company receipt stays one Cash/Bank movement and one JournalEntry. This only records shop settlement detail.</p>
+                        <template x-for="(amount, ref) in selected" :key="ref">
+                            <div>
+                                <input type="hidden" :name="`allocations[${ref}][ledger_ref]`" :value="ref">
+                                <input type="hidden" :name="`allocations[${ref}][amount]`" :value="amount">
+                            </div>
+                        </template>
+                        <button type="submit" :disabled="Math.abs(difference) >= 0.005 || !Object.keys(selected).length" class="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-black text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400">
+                            <i data-lucide="check-circle-2" class="h-4 w-4"></i> Finalize Shop Reconciliation
+                        </button>
+                    </div>
+                </aside>
+            </form>
+        @endif
     </div>
 @endsection
 
 @push('scripts')
 <script>
-    function acceptShopPaymentPage() {
-        return {
-            submitting: false,
-            selectedIds: [],
-            form: {
-                shop_id: {{ (int) $currentShop->shop_id }},
-                business_date: '{{ today()->toDateString() }}',
-                payment_method: 'cash',
-                company_account_id: '{{ $cashAccounts->first()?->id ?? '' }}',
-                settle_amount: '',
-                petty_amount: 0,
-                payment_reference: '',
-                cheque_bank_name: '',
-                cheque_date: '{{ today()->toDateString() }}',
-                notes: '',
-            },
-            selectedTotal() {
-                return Array.from(document.querySelectorAll('input[type="checkbox"][data-amount]:checked'))
-                    .reduce((sum, input) => sum + Math.abs(parseFloat(input.dataset.amount || '0')), 0);
-            },
-            toggleAll() {
-                const boxes = Array.from(document.querySelectorAll('input[type="checkbox"][data-amount]'));
-                if (this.selectedIds.length === boxes.length) {
-                    this.selectedIds = [];
-                } else {
-                    this.selectedIds = boxes.map(box => box.value);
-                }
-            },
-            async submitPayment() {
-                if (!parseFloat(this.form.settle_amount || 0)) {
-                    showToast('Enter payment amount', 'error');
-                    return;
-                }
-
-                if (this.form.payment_method === 'cash' && !this.form.company_account_id) {
-                    showToast('Select Cash in Hand account', 'error');
-                    return;
-                }
-
-                this.submitting = true;
-
-                try {
-                    const response = await fetch('{{ route('admin.cashbook.api.accept-payment') }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        },
-                        body: JSON.stringify(this.form),
-                    });
-                    const data = await response.json();
-
-                    if (!data.success) {
-                        showToast(data.message || 'Payment could not be saved', 'error');
-                        return;
-                    }
-
-                    showToast(data.message || 'Payment saved', 'success');
-                    window.setTimeout(() => window.location.reload(), 650);
-                } catch (error) {
-                    showToast('Server error saving payment', 'error');
-                } finally {
-                    this.submitting = false;
-                }
-            },
-        };
-    }
+function shopPaymentWorkspace(rows, paymentAmount) {
+    return {
+        rows,
+        paymentAmount: Number(paymentAmount || 0),
+        selected: {},
+        activeTab: 'all',
+        get filteredRows() { return this.activeTab === 'all' ? this.rows : this.rows.filter((row) => row.side === this.activeTab); },
+        get selectedCredits() { return this.rows.filter((row) => row.side === 'credit').reduce((total, row) => total + Number(this.selected[row.ref] || 0), 0); },
+        get selectedDebits() { return this.rows.filter((row) => row.side === 'debit').reduce((total, row) => total + Number(this.selected[row.ref] || 0), 0); },
+        get netAmount() { return this.selectedCredits - this.selectedDebits; },
+        get difference() { return this.paymentAmount - this.netAmount; },
+        toggle(row) { if (this.selected[row.ref] === undefined) { this.selected[row.ref] = row.open; return; } delete this.selected[row.ref]; },
+        currency(amount) { return '₹' + Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+    };
+}
 </script>
 @endpush

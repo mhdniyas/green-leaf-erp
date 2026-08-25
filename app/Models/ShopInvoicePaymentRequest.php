@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Cashbook\CompanyPaymentReconciliation;
+use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use Database\Factories\ShopInvoicePaymentRequestFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Crypt;
+use RuntimeException;
 
 class ShopInvoicePaymentRequest extends Model
 {
@@ -21,6 +23,7 @@ class ShopInvoicePaymentRequest extends Model
         'shop_invoice_id',
         'shop_id',
         'requested_by',
+        'submission_uuid',
         'request_type',
         'payment_method',
         'payment_reference',
@@ -65,6 +68,28 @@ class ShopInvoicePaymentRequest extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::updating(function (ShopInvoicePaymentRequest $paymentRequest): void {
+            $moneyFields = [
+                'requested_amount',
+                'admin_verified_amount',
+                'approved_amount',
+                'applied_amount',
+                'credit_amount',
+            ];
+
+            if (! $paymentRequest->isDirty($moneyFields)) {
+                return;
+            }
+
+            if ($paymentRequest->getOriginal('reconciliation_status') === 'reconciled'
+                && $paymentRequest->reconciliations()->where('is_finalized', true)->exists()) {
+                throw new RuntimeException('Finalized shop payment amounts cannot be changed.');
+            }
+        });
+    }
+
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(ShopInvoice::class, 'shop_invoice_id');
@@ -93,6 +118,11 @@ class ShopInvoicePaymentRequest extends Model
     public function reconciliations(): HasMany
     {
         return $this->hasMany(CompanyPaymentReconciliation::class, 'payment_request_id');
+    }
+
+    public function ledgerAllocations(): HasMany
+    {
+        return $this->hasMany(ShopPaymentLedgerAllocation::class, 'payment_request_id');
     }
 
     public function allocatedAmount(): float

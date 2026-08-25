@@ -162,6 +162,7 @@
                             <form method="POST" action="{{ route('admin.staff.payments.store') }}" class="max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 sm:p-6">
                                 @csrf
                                 <input type="hidden" name="payroll_run_item_id" value="{{ $item->id }}">
+                                <input type="hidden" name="request_uuid" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
 
                                 <div class="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
                                     <div class="min-w-0">
@@ -188,6 +189,15 @@
                                             <option value="bank">Office bank</option>
                                         </select>
                                     </label>
+                                    <label class="block sm:col-span-2">
+                                        <span class="mb-2 block text-sm font-black text-slate-700">Company cash/bank account</span>
+                                        <select name="company_account_uuid" class="h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100" required>
+                                            <option value="">Select account</option>
+                                            @foreach($companyAccounts as $companyAccount)
+                                                <option value="{{ $companyAccount->public_uuid }}">{{ $companyAccount->name }} · {{ strtoupper($companyAccount->account_type) }} · Rs. {{ number_format((float) $companyAccount->current_balance, 2) }}</option>
+                                            @endforeach
+                                        </select>
+                                    </label>
                                     <label class="block">
                                         <span class="mb-2 block text-sm font-black text-slate-700">Amount</span>
                                         <input type="number" step="0.01" min="0.01" max="{{ $remainingAmount }}" name="amount" value="{{ $remainingAmount }}" class="h-12 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100" data-payroll-payment-amount required>
@@ -197,6 +207,10 @@
                                         <input type="date" name="paid_on" value="{{ today()->toDateString() }}" class="h-12 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100" required>
                                     </label>
                                     <label class="block sm:col-span-2">
+                                        <span class="mb-2 block text-sm font-black text-slate-700">Reference</span>
+                                        <input type="text" name="reference" maxlength="160" class="h-12 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100" placeholder="Bank ref / cash voucher">
+                                    </label>
+                                    <label class="block sm:col-span-2">
                                         <span class="mb-2 block text-sm font-black text-slate-700">Notes</span>
                                         <textarea name="notes" rows="3" class="w-full resize-none rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100" placeholder="Optional payment note"></textarea>
                                     </label>
@@ -204,7 +218,7 @@
 
                                 <div class="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                                     <button type="button" class="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-slate-200" data-payroll-payment-close>Cancel</button>
-                                    <button type="submit" class="rounded-xl bg-cyan-500 px-5 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-400">Save office payment and post journal</button>
+                                    <button type="submit" class="rounded-xl bg-cyan-500 px-5 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-400">Save payment for reconciliation</button>
                                 </div>
                             </form>
                         </dialog>

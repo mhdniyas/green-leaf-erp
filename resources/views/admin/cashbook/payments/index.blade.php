@@ -46,7 +46,7 @@
         <section class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
             @forelse($shopCards as $card)
                 @php($shop = $card['shop'])
-                <a href="{{ route('admin.cashbook.shop.accept-payment', ['shop' => $shop->slug ?: $shop->shop_id, 'month' => $month]) }}" class="white-card white-card-hover block rounded-lg border border-slate-200 p-4 shadow-sm transition">
+                <a href="{{ route('admin.cashbook.shop.accept-payment', ['shop' => $shop->uuid, 'month' => $month]) }}" class="white-card white-card-hover block rounded-lg border border-slate-200 p-4 shadow-sm transition">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <h3 class="truncate text-base font-extrabold text-slate-950">{{ $shop->name ?: 'Shop #'.$shop->shop_id }}</h3>

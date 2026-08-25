@@ -10,8 +10,15 @@ use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\CompanyAccountingEntry;
+use App\Models\CompanyPayableSettlement;
+use App\Models\DirectCompanySale;
 use App\Models\JournalEntry;
+use App\Models\PayrollPayment;
+use App\Models\PurchaserCredit;
 use App\Models\ShopInvoicePaymentRequest;
+use App\Models\VendorSettlement;
+use App\Services\Finance\JournalService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -19,6 +26,7 @@ class CompanyPaymentReconciliationService
 {
     public function __construct(
         private readonly DailyLedgerService $dailyLedgerService,
+        private readonly JournalService $journalService,
     ) {}
 
     public function createStatementEntry(array $input, int $userId): CompanyAccountStatementEntry
@@ -31,6 +39,7 @@ class CompanyPaymentReconciliationService
 
             $entry = CompanyAccountStatementEntry::query()->create([
                 'company_account_id' => $account->id,
+                'journal_entry_id' => $input['journal_entry_id'] ?? null,
                 'transaction_date' => $input['transaction_date'],
                 'value_date' => $input['value_date'] ?? null,
                 'direction' => $input['direction'] ?? 'in',
@@ -38,6 +47,11 @@ class CompanyPaymentReconciliationService
                 'reference' => filled($input['reference'] ?? null) ? trim((string) $input['reference']) : null,
                 'narration' => filled($input['narration'] ?? null) ? trim((string) $input['narration']) : null,
                 'source' => $input['source'] ?? 'manual',
+                'source_type' => $input['source_type'] ?? null,
+                'source_id' => $input['source_id'] ?? null,
+                'counterpart_type' => $input['counterpart_type'] ?? null,
+                'counterpart_id' => $input['counterpart_id'] ?? null,
+                'request_uuid' => $input['request_uuid'] ?? null,
                 'status' => 'unmatched',
                 'matched_amount' => 0,
                 'statement_batch' => $input['statement_batch'] ?? null,
@@ -49,6 +63,179 @@ class CompanyPaymentReconciliationService
 
             return $entry;
         });
+    }
+
+    public function reconcileStatementJournal(CompanyAccountStatementEntry $statementEntry, JournalEntry $journalEntry, float $clearedAmount, int $userId): CompanyAccountStatementEntry
+    {
+        return DB::transaction(function () use ($statementEntry, $journalEntry, $clearedAmount, $userId): CompanyAccountStatementEntry {
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->with('companyAccount')
+                ->whereKey($statementEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $journalEntry = JournalEntry::query()
+                ->with(['transactions.account', 'statementEntries'])
+                ->whereKey($journalEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($statementEntry->is_finalized) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'This statement entry is already finalized and cannot be modified.',
+                ]);
+            }
+
+            $remainingStatementAmount = round((float) $statementEntry->amount - (float) $statementEntry->matched_amount, 2);
+            if ($remainingStatementAmount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'This statement entry has no open balance left to reconcile.',
+                ]);
+            }
+
+            if ($clearedAmount <= 0.0 || $clearedAmount > $remainingStatementAmount) {
+                throw ValidationException::withMessages([
+                    'cleared_amount' => 'Cleared amount must fit within the remaining statement balance.',
+                ]);
+            }
+
+            $primaryAmount = round((float) $journalEntry->primary_amount, 2);
+            if ($primaryAmount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'journal_entry_id' => 'Selected journal entry has no reconcilable amount.',
+                ]);
+            }
+
+            $matchedToJournal = round((float) $journalEntry->statementEntries()->sum('matched_amount'), 2);
+            $remainingJournalAmount = round($primaryAmount - $matchedToJournal, 2);
+
+            if ($remainingJournalAmount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'journal_entry_id' => 'Selected journal entry is already fully reconciled.',
+                ]);
+            }
+
+            if ($clearedAmount > $remainingJournalAmount) {
+                throw ValidationException::withMessages([
+                    'cleared_amount' => 'Cleared amount is greater than the remaining journal balance.',
+                ]);
+            }
+
+            $this->validateJournalAgainstStatement($journalEntry, $statementEntry, $clearedAmount);
+
+            $statementEntry->matched_amount = round((float) $statementEntry->matched_amount + $clearedAmount, 2);
+            $statementEntry->journal_entry_id = $journalEntry->id;
+            $statementEntry->source = $this->cashbookSourceForJournal($journalEntry) ?? $statementEntry->source;
+            $statementEntry->source_type = $journalEntry->source_type ?: $statementEntry->source_type;
+            $statementEntry->source_id = $journalEntry->source_id ?: $statementEntry->source_id;
+            $statementEntry->status = $statementEntry->matched_amount >= ((float) $statementEntry->amount - 0.01)
+                ? 'reconciled'
+                : 'partially_matched';
+            $statementEntry->is_finalized = $statementEntry->status === 'reconciled';
+            $statementEntry->finalized_at = $statementEntry->is_finalized ? now() : null;
+            $statementEntry->reconciled_by = $userId;
+            $statementEntry->reconciled_at = now();
+            $statementEntry->save();
+
+            if ($journalEntry->source_type === VendorSettlement::class && $statementEntry->is_finalized) {
+                VendorSettlement::query()->whereKey($journalEntry->source_id)->update([
+                    'reconciliation_status' => 'finalized',
+                    'is_finalized' => true,
+                    'finalized_at' => now(),
+                ]);
+            }
+
+            if ($journalEntry->source_type === DirectCompanySale::class && $statementEntry->is_finalized) {
+                DirectCompanySale::query()->whereKey($journalEntry->source_id)->update([
+                    'reconciliation_status' => 'finalized',
+                    'is_finalized' => true,
+                    'finalized_at' => now(),
+                ]);
+            }
+
+            if ($statementEntry->is_finalized) {
+                CompanyAccountStatementEntry::query()
+                    ->where('journal_entry_id', $journalEntry->id)
+                    ->where('id', '!=', $statementEntry->id)
+                    ->where('is_finalized', false)
+                    ->where('status', 'unmatched')
+                    ->where('matched_amount', '<=', 0)
+                    ->update([
+                        'status' => 'superseded',
+                        'duplicate_status' => 'manual_cleared',
+                        'duplicate_of_statement_entry_id' => $statementEntry->id,
+                    ]);
+            }
+
+            return $statementEntry->fresh(['companyAccount', 'journalEntry.transactions.account']);
+        });
+    }
+
+    /** @param array{company_account_id:int,statement_entry_id?:int,transaction_date:string,reference?:string|null,narration?:string|null,notes?:string|null} $input */
+    public function finalizeVendorSettlementMovement(VendorSettlement $settlement, JournalEntry $journalEntry, array $input, int $userId): CompanyAccountStatementEntry
+    {
+        return DB::transaction(function () use ($settlement, $journalEntry, $input, $userId): CompanyAccountStatementEntry {
+            $settlement = VendorSettlement::query()->whereKey($settlement->id)->lockForUpdate()->firstOrFail();
+            $journalEntry = JournalEntry::query()->whereKey($journalEntry->id)->lockForUpdate()->firstOrFail();
+            $amount = round((float) $settlement->actual_payment_amount, 2);
+
+            if ($settlement->is_finalized || $amount <= 0.0) {
+                throw ValidationException::withMessages(['vendor_settlement' => 'Vendor settlement is already finalized or has no cash movement.']);
+            }
+
+            if (! empty($input['statement_entry_id'])) {
+                $entry = CompanyAccountStatementEntry::query()
+                    ->whereKey((int) $input['statement_entry_id'])
+                    ->where('company_account_id', (int) $input['company_account_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if ($entry->direction !== 'out' || $entry->is_finalized || $entry->journal_entry_id !== null || abs((float) $entry->amount - $amount) > 0.01) {
+                    throw ValidationException::withMessages(['statement_entry_id' => 'Statement transaction cannot be used for this vendor settlement.']);
+                }
+            } else {
+                $account = CompanyAccount::query()->whereKey((int) $input['company_account_id'])->where('enabled', true)->lockForUpdate()->firstOrFail();
+                $entry = CompanyAccountStatementEntry::query()->create([
+                    'company_account_id' => $account->id,
+                    'journal_entry_id' => $journalEntry->id,
+                    'transaction_date' => $input['transaction_date'],
+                    'value_date' => $input['transaction_date'],
+                    'direction' => 'out',
+                    'amount' => $amount,
+                    'reference' => filled($input['reference'] ?? null) ? trim((string) $input['reference']) : 'VENDOR-SETTLEMENT-'.$settlement->id,
+                    'narration' => $input['narration'] ?? 'Vendor settlement',
+                    'source' => 'vendor_settlement',
+                    'source_type' => VendorSettlement::class,
+                    'source_id' => $settlement->id,
+                    'status' => 'reconciled',
+                    'matched_amount' => $amount,
+                    'is_finalized' => true,
+                    'finalized_at' => now(),
+                    'duplicate_status' => 'clear',
+                    'notes' => $input['notes'] ?? null,
+                    'imported_by' => $userId,
+                    'reconciled_by' => $userId,
+                    'reconciled_at' => now(),
+                ]);
+                $this->applyStatementBalanceMovement($account, $entry);
+            }
+
+            $entry->update([
+                'journal_entry_id' => $journalEntry->id,
+                'source' => 'vendor_settlement',
+                'source_type' => VendorSettlement::class,
+                'source_id' => $settlement->id,
+                'matched_amount' => $amount,
+                'status' => 'reconciled',
+                'is_finalized' => true,
+                'finalized_at' => now(),
+                'reconciled_by' => $userId,
+                'reconciled_at' => now(),
+            ]);
+            $settlement->update(['reconciliation_status' => 'finalized', 'is_finalized' => true, 'finalized_at' => now()]);
+
+            return $entry->fresh(['companyAccount', 'journalEntry.transactions.account']);
+        }, attempts: 3);
     }
 
     public function reconcilePayment(ShopInvoicePaymentRequest $paymentRequest, array $input, int $userId): CompanyPaymentReconciliation
@@ -75,10 +262,17 @@ class CompanyPaymentReconciliationService
 
             if (! empty($input['statement_entry_id'])) {
                 $statementEntry = CompanyAccountStatementEntry::query()
+                    ->with('companyAccount')
                     ->whereKey((int) $input['statement_entry_id'])
                     ->where('company_account_id', $account->id)
                     ->lockForUpdate()
                     ->firstOrFail();
+
+                if ($statementEntry->is_finalized) {
+                    throw ValidationException::withMessages([
+                        'statement_entry_id' => 'This statement entry is already finalized and cannot be modified.',
+                    ]);
+                }
 
                 if ($statementEntry->direction !== 'in') {
                     throw ValidationException::withMessages([
@@ -135,9 +329,10 @@ class CompanyPaymentReconciliationService
                 $statementEntry = $this->createAutoStatementEntry($paymentRequest, $account, $input, $statementAmount, $userId);
             }
 
-            // Strict JournalEntry resolution & accounting validation
+            $journalEntry = $this->journalService->recordShopPaymentRequest($paymentRequest, $userId);
+
             $journalEntry = $this->validateAndResolveJournalEntry(
-                isset($input['journal_entry_id']) ? (int) $input['journal_entry_id'] : null,
+                isset($input['journal_entry_id']) ? (int) $input['journal_entry_id'] : $journalEntry->id,
                 $paymentRequest,
                 $statementEntry,
                 $clearedAmount,
@@ -155,6 +350,8 @@ class CompanyPaymentReconciliationService
             }
 
             $isFullyCleared = round((float) $paymentRequest->requested_amount - ($paymentRequest->reconciled_amount + $clearedAmount), 2) <= 0.0;
+            $isStatementFullyMatched = round((float) $statementEntry->amount - ($statementEntry->matched_amount + $statementAmount), 2) <= 0.0;
+            $isFinalized = $isFullyCleared && $isStatementFullyMatched;
 
             $reconciliation = CompanyPaymentReconciliation::query()->create([
                 'payment_request_id' => $paymentRequest->id,
@@ -169,8 +366,8 @@ class CompanyPaymentReconciliationService
                 'difference_entry_type_id' => $input['difference_entry_type_id'] ?? null,
                 'difference_transaction_id' => $differenceTransaction?->id,
                 'status' => 'approved',
-                'is_finalized' => $isFullyCleared,
-                'finalized_at' => $isFullyCleared ? now() : null,
+                'is_finalized' => $isFinalized,
+                'finalized_at' => $isFinalized ? now() : null,
                 'admin_note' => filled($input['admin_note'] ?? null) ? trim((string) $input['admin_note']) : null,
                 'reconciled_by' => $userId,
                 'reconciled_at' => now(),
@@ -183,13 +380,22 @@ class CompanyPaymentReconciliationService
                 'status' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount
                     ? 'reconciled'
                     : 'partially_matched',
-                'is_finalized' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount,
-                'finalized_at' => (float) $statementEntry->matched_amount >= (float) $statementEntry->amount ? now() : null,
+                'is_finalized' => $isFinalized,
+                'finalized_at' => $isFinalized ? now() : null,
                 'reconciled_by' => $userId,
                 'reconciled_at' => now(),
             ]);
 
             $this->refreshPaymentReconciliationTotals($paymentRequest);
+
+            if ($isFinalized) {
+                CompanyPaymentReconciliation::query()
+                    ->where('payment_request_id', $paymentRequest->id)
+                    ->update([
+                        'is_finalized' => true,
+                        'finalized_at' => now(),
+                    ]);
+            }
 
             return $reconciliation->fresh([
                 'paymentRequest',
@@ -201,6 +407,81 @@ class CompanyPaymentReconciliationService
                 'reconciledBy',
             ]);
         });
+    }
+
+    private function validateJournalAgainstStatement(JournalEntry $journalEntry, CompanyAccountStatementEntry $statementEntry, float $clearedAmount): void
+    {
+        $debits = round((float) $journalEntry->transactions->where('type', 'debit')->sum('amount'), 2);
+        $credits = round((float) $journalEntry->transactions->where('type', 'credit')->sum('amount'), 2);
+
+        if (abs($debits - $credits) > 0.01) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} is unbalanced (Debits: ₹{$debits}, Credits: ₹{$credits}).",
+            ]);
+        }
+
+        $conflict = CompanyAccountStatementEntry::query()
+            ->where('journal_entry_id', $journalEntry->id)
+            ->where('is_finalized', true)
+            ->where('id', '!=', $statementEntry->id)
+            ->exists();
+
+        if ($conflict) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} is already linked to another finalized statement entry.",
+            ]);
+        }
+
+        $matchingTransaction = $journalEntry->transactions->first(function ($transaction) use ($statementEntry): bool {
+            $code = $transaction->account?->code ?? '';
+
+            if ($statementEntry->direction === 'in') {
+                return $transaction->type === 'debit' && in_array($code, ['1010', '1020'], true);
+            }
+
+            return $transaction->type === 'credit' && in_array($code, ['1010', '1020'], true);
+        });
+
+        if (! $matchingTransaction) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} does not contain a matching ".($statementEntry->direction === 'in' ? 'Debit' : 'Credit').' Bank/Cash line.',
+            ]);
+        }
+
+        $expectedCode = match ($statementEntry->companyAccount?->account_type) {
+            'cash' => '1010',
+            'bank' => '1020',
+            default => null,
+        };
+
+        if ($expectedCode !== null && $matchingTransaction->account?->code !== $expectedCode) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} uses account {$matchingTransaction->account?->code} ({$matchingTransaction->account?->name}), but statement account is a ".strtoupper((string) $statementEntry->companyAccount?->account_type)." account (expected {$expectedCode}).",
+            ]);
+        }
+
+        $transactionAmount = round((float) $matchingTransaction->amount, 2);
+
+        if ($clearedAmount > $transactionAmount + 0.01) {
+            throw ValidationException::withMessages([
+                'cleared_amount' => "Cleared amount (₹{$clearedAmount}) exceeds JournalEntry #{$journalEntry->id} amount (₹{$transactionAmount}).",
+            ]);
+        }
+    }
+
+    private function cashbookSourceForJournal(JournalEntry $journalEntry): ?string
+    {
+        return match ($journalEntry->source_type) {
+            ShopInvoicePaymentRequest::class => 'shop_payment',
+            DirectCompanySale::class => 'direct_company_sale',
+            CompanyAccountingEntry::class => 'company_accounting_entry',
+            VendorSettlement::class => 'vendor_settlement',
+            PurchaserCredit::class => 'purchaser_funding',
+            ShopLedgerTransaction::class => 'shop_petty_funding',
+            PayrollPayment::class => $journalEntry->source_event === 'salary_advance' ? 'salary_advance' : 'salary_payment',
+            CompanyPayableSettlement::class => 'company_payable',
+            default => $journalEntry->source_event,
+        };
     }
 
     private function validateAndResolveJournalEntry(
@@ -228,6 +509,12 @@ class CompanyPaymentReconciliationService
 
         if (! $journalEntry instanceof JournalEntry) {
             return null;
+        }
+
+        if ($journalEntry->source_type !== ShopInvoicePaymentRequest::class || (int) $journalEntry->source_id !== (int) $paymentRequest->id) {
+            throw ValidationException::withMessages([
+                'journal_entry_id' => 'Selected Journal Entry does not belong to this shop payment.',
+            ]);
         }
 
         // 1. Balance check
@@ -269,11 +556,24 @@ class CompanyPaymentReconciliationService
             ]);
         }
 
-        // 4. Amount validation check
-        $txnAmount = round((float) $matchingTxn->amount, 2);
-        if (abs($txnAmount - $clearedAmount) > 0.01 && abs($debits - $clearedAmount) > 0.01) {
+        // 4. Account Type validation (Bank vs Cash mapping)
+        $expectedCode = match ($statementEntry->companyAccount?->account_type) {
+            'cash' => '1010',
+            'bank' => '1020',
+            default => null,
+        };
+
+        if ($expectedCode !== null && $matchingTxn->account?->code !== $expectedCode) {
             throw ValidationException::withMessages([
-                'cleared_amount' => "Cleared amount (₹{$clearedAmount}) does not match JournalEntry #{$journalEntry->id} amount (₹{$txnAmount}).",
+                'journal_entry_id' => "JournalEntry #{$journalEntry->id} uses account {$matchingTxn->account?->code} ({$matchingTxn->account?->name}), but statement account is a ".strtoupper((string) $statementEntry->companyAccount?->account_type)." account (expected {$expectedCode}).",
+            ]);
+        }
+
+        // 5. Amount validation check: cleared amount cannot exceed the journal transaction amount
+        $txnAmount = round((float) $matchingTxn->amount, 2);
+        if ($clearedAmount > $txnAmount + 0.01) {
+            throw ValidationException::withMessages([
+                'cleared_amount' => "Cleared amount (₹{$clearedAmount}) exceeds JournalEntry #{$journalEntry->id} amount (₹{$txnAmount}).",
             ]);
         }
 

@@ -73,6 +73,31 @@
                         <input id="description" type="text" name="description" placeholder="e.g. Cash Advance for daily buying" class="mt-2 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">
                     </div>
 
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div>
+                            <label for="payment_source" class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Source</label>
+                            <select id="payment_source" name="payment_source" class="mt-2 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">
+                                <option value="Cash">Cash</option>
+                                <option value="Bank">Bank</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label for="company_account_id" class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Company Account</label>
+                            <select id="company_account_id" name="company_account_id" class="mt-2 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">
+                                <option value="">No statement row</option>
+                                @foreach($companyAccounts as $account)
+                                    <option value="{{ $account->id }}">{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="reference" class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Reference</label>
+                        <input id="reference" type="text" name="reference" placeholder="UTR, voucher, or cash ref" class="mt-2 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">
+                    </div>
+
                     <div>
                         <label for="business_date" class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Business Date</label>
                         <input id="business_date" type="date" name="business_date" value="{{ today()->toDateString() }}" required class="mt-2 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">

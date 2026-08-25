@@ -389,11 +389,11 @@ class PayrollService
                 'parent_id' => null,
             ],
         );
-        $bankAccount = Account::query()->firstOrCreate(
-            ['code' => '1020'],
+        $salaryPayableAccount = Account::query()->firstOrCreate(
+            ['code' => '2300'],
             [
-                'name' => 'Bank Account',
-                'type' => 'asset',
+                'name' => 'Salary Payable',
+                'type' => 'liability',
                 'is_active' => true,
                 'parent_id' => null,
             ],
@@ -411,11 +411,14 @@ class PayrollService
                         'amount' => (float) $payrollRun->gross_amount,
                     ],
                     [
-                        'account_id' => (int) $bankAccount->id,
+                        'account_id' => (int) $salaryPayableAccount->id,
                         'type' => 'credit',
                         'amount' => (float) $payrollRun->gross_amount,
                     ],
                 ],
+                sourceType: PayrollRun::class,
+                sourceId: $payrollRun->id,
+                sourceEvent: 'payroll_accrual',
             ),
             $userId,
         );

@@ -6,6 +6,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Support\Str;
+use RuntimeException;
 
 class CompanyAccountingEntry extends Model
 {
@@ -15,6 +18,8 @@ class CompanyAccountingEntry extends Model
 
     protected $fillable = [
         'company_accounting_category_id',
+        'public_uuid',
+        'company_account_id',
         'journal_entry_id',
         'reversal_journal_entry_id',
         'type',
@@ -39,6 +44,21 @@ class CompanyAccountingEntry extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (self $entry): void {
+            $entry->public_uuid ??= (string) Str::uuid();
+        });
+
+        static::updating(function (self $entry): void {
+            if ($entry->getOriginal('company_account_id') !== null && $entry->getOriginal('status') === self::StatusFinal && $entry->isDirty([
+                'company_accounting_category_id', 'company_account_id', 'type', 'business_date', 'payment_mode', 'amount', 'reference', 'description',
+            ])) {
+                throw new RuntimeException('Finalized company accounting entries cannot be changed. Create a reversal instead.');
+            }
+        });
+    }
+
     public function category(): BelongsTo
     {
         return $this->belongsTo(CompanyAccountingCategory::class, 'company_accounting_category_id');
@@ -47,6 +67,16 @@ class CompanyAccountingEntry extends Model
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);
+    }
+
+    public function companyAccount(): BelongsTo
+    {
+        return $this->belongsTo(Cashbook\CompanyAccount::class, 'company_account_id');
+    }
+
+    public function cashbookMovement(): MorphOne
+    {
+        return $this->morphOne(Cashbook\CompanyAccountStatementEntry::class, 'sourceRecord', 'source_type', 'source_id');
     }
 
     public function reversalJournalEntry(): BelongsTo

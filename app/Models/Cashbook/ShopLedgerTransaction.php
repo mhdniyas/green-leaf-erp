@@ -8,6 +8,7 @@ use App\Models\ShopInvoice;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Crypt;
 
 class ShopLedgerTransaction extends Model
 {
@@ -57,6 +58,16 @@ class ShopLedgerTransaction extends Model
     public function children(): HasMany
     {
         return $this->hasMany(self::class, 'parent_transaction_id');
+    }
+
+    public function paymentLedgerAllocations(): HasMany
+    {
+        return $this->hasMany(ShopPaymentLedgerAllocation::class, 'shop_ledger_transaction_id');
+    }
+
+    public function secureRouteKey(): string
+    {
+        return rtrim(strtr(base64_encode(Crypt::encryptString('shop-ledger:'.$this->getKey())), '+/', '-_'), '=');
     }
 
     public function statusLabel(): string

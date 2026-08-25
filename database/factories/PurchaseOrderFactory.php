@@ -26,7 +26,7 @@ class PurchaseOrderFactory extends Factory
     {
         return [
             'supplier_id' => Supplier::factory(),
-            'po_number' => 'PO-'.now()->format('Ymd').'-'.str_pad((string) rand(1, 9999), 4, '0', STR_PAD_LEFT),
+            'po_number' => 'PO-'.now()->format('Ymd').'-'.str_pad((string) $this->faker->unique()->numberBetween(1, 99999999), 8, '0', STR_PAD_LEFT),
             'status' => $this->faker->randomElement(POStatus::cases()),
             'order_date' => $this->faker->dateTimeBetween('-30 days', 'today')->format('Y-m-d'),
             'created_by' => User::factory(),

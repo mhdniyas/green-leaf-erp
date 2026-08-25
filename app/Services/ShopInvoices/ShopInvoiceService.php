@@ -348,8 +348,6 @@ class ShopInvoiceService
     public function approvePayment(ShopInvoice $invoice, array $payload, int $userId): ShopInvoice
     {
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoice {
-            $previousPaidAmount = round((float) $invoice->paid_amount, 2);
-
             $invoice->update([
                 'discount_total' => round((float) ($payload['discount_total'] ?? 0), 2),
                 'paid_amount' => round((float) ($payload['paid_amount'] ?? 0), 2),
@@ -363,19 +361,6 @@ class ShopInvoiceService
                 ->findOrFail($invoice->id);
 
             $invoice = $this->recalculate($invoice);
-            $approvedPaymentIncrease = round((float) $invoice->paid_amount - $previousPaidAmount, 2);
-
-            if ($approvedPaymentIncrease > 0.00 && $this->shouldPostPaymentToJournal($invoice)) {
-                $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
-
-                $this->journalService->recordShopInvoicePaymentForMode(
-                    $invoice,
-                    $approvedPaymentIncrease,
-                    $userId,
-                    "payment:paid-{$paidAmountCents}",
-                    $payload['payment_method'] ?? null,
-                );
-            }
 
             if ($invoice->order) {
                 $invoice->order->update([
@@ -565,7 +550,6 @@ class ShopInvoiceService
 
                     $paymentRequest = $paymentRequest->fresh(['shop', 'invoice', 'requestedBy', 'reviewedBy', 'allocations.invoice']);
                     $this->recordApprovedShopBalanceCashMovement($paymentRequest, $userId);
-                    $this->journalService->recordShopClientBalancePayment($paymentRequest, $userId);
 
                     return $paymentRequest;
                 }
@@ -578,16 +562,6 @@ class ShopInvoiceService
 
                 $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
                 $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
-
-                if ($this->shouldPostPaymentToJournal($invoice)) {
-                    $this->journalService->recordShopInvoicePaymentForMode(
-                        $invoice,
-                        $approvedAmount,
-                        $userId,
-                        'shop-payment-request:'.$paymentRequest->id,
-                        $paymentRequest->payment_method,
-                    );
-                }
 
                 $paymentRequest->update([
                     'status' => 'approved',
@@ -748,23 +722,12 @@ class ShopInvoiceService
             if ($paymentApplication === 'client_balance') {
                 $paymentRequest->load('shop');
                 $this->recordApprovedShopBalanceCashMovement($paymentRequest, $userId);
-                $this->journalService->recordShopClientBalancePayment($paymentRequest, $invoice, $userId);
 
                 return $paymentRequest->fresh(['invoice', 'requestedBy', 'reviewedBy', 'allocations.invoice']);
             }
 
             $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
             $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
-
-            if ($this->shouldPostPaymentToJournal($invoice)) {
-                $this->journalService->recordShopInvoicePaymentForMode(
-                    $invoice,
-                    $approvedAmount,
-                    $userId,
-                    'admin-shop-payment:'.$paymentRequest->id,
-                    $paymentRequest->payment_method,
-                );
-            }
 
             $paymentRequest->update([
                 'applied_amount' => $appliedAmount,

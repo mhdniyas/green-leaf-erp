@@ -78,6 +78,7 @@ class TransactionGenerator
                 'petty_direction' => $effect->pettyDirection->value,
                 'company_pending_delta' => $effect->companyPendingDelta,
                 'company_pending_direction' => $effect->companyPendingDirection->value,
+                'company_account_id' => $input['company_account_id'] ?? null,
                 'generated_by_rule' => false,
                 'status' => TransactionStatus::Posted->value,
                 'reference_type' => $input['reference_type'] ?? null,

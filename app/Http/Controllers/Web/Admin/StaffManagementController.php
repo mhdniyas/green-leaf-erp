@@ -23,6 +23,7 @@ use App\Http\Requests\Web\Admin\UpdateEmployeeRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeStatusRequest;
 use App\Http\Requests\Web\Admin\UpdatePayrollRunItemRequest;
 use App\Http\Requests\Web\Admin\UpsertEmployeeAttendanceRequest;
+use App\Models\Cashbook\CompanyAccount;
 use App\Models\ContractWorkerPayment;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRequest;
@@ -800,6 +801,12 @@ class StaffManagementController extends Controller
                 ->latest('id')
                 ->get(),
             'shops' => Shop::query()->ownedForStaff()->orderBy('name')->get(),
+            'companyAccounts' => CompanyAccount::query()
+                ->where('enabled', true)
+                ->whereIn('account_type', ['cash', 'bank'])
+                ->orderBy('account_type')
+                ->orderBy('name')
+                ->get(),
         ]);
     }
 
@@ -852,6 +859,11 @@ class StaffManagementController extends Controller
     {
         $validated = $request->validated();
         $payrollRunItem = PayrollRunItem::query()->with(['payrollRun', 'employee', 'payments'])->findOrFail((int) $validated['payroll_run_item_id']);
+        $companyAccount = CompanyAccount::query()
+            ->where('public_uuid', (string) $validated['company_account_uuid'])
+            ->where('enabled', true)
+            ->whereIn('account_type', ['cash', 'bank'])
+            ->firstOrFail();
 
         $payment = $this->payrollPaymentService->record(
             $payrollRunItem,
@@ -861,6 +873,9 @@ class StaffManagementController extends Controller
             Carbon::parse((string) $validated['paid_on']),
             $request->user(),
             $validated['notes'] ?? null,
+            companyAccountId: (int) $companyAccount->id,
+            reference: $validated['reference'] ?? null,
+            requestUuid: (string) $validated['request_uuid'],
         );
 
         return redirect()->route('admin.staff.payments.index', [

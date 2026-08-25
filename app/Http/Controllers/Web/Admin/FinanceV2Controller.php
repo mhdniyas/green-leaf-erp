@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\Shop;
-use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Services\Finance\FinanceV2DashboardService;
 use App\Services\ShopInvoices\ShopInvoiceService;
@@ -120,16 +119,20 @@ class FinanceV2Controller extends Controller
         return view('admin.finance-v2.payments.index', $this->financeV2->payments($this->date($request)));
     }
 
-    public function createPayment(Request $request): View
+    public function createPayment(Request $request): RedirectResponse
     {
         abort_unless(FinanceAccess::canCreatePayments($request->user()), 403);
 
-        return view('admin.finance-v2.payments.create', [
-            ...$this->financeV2->createPayment($this->date($request)),
-            'prefill_shop_id' => $request->integer('shop_id') ?: null,
-            'prefill_requested_amount' => $request->input('requested_amount'),
-            'prefill_payment_method' => $request->input('payment_method', 'cash'),
-        ]);
+        $shop = Shop::query()->find($request->integer('shop_id'));
+        if (! $shop instanceof Shop) {
+            return redirect()
+                ->route('admin.cashbook.all-shops')
+                ->with('warning', 'Select a shop, then use Accept Payment from its Cashbook ledger page.');
+        }
+
+        return redirect()
+            ->route('admin.cashbook.shop.accept-payment', ['shop' => $shop->public_uuid])
+            ->with('warning', 'Shop payments are now recorded from the Cashbook shop workspace.');
     }
 
     public function shopPaymentContext(Request $request, Shop $shop): JsonResponse
@@ -147,53 +150,12 @@ class FinanceV2Controller extends Controller
     {
         abort_unless(FinanceAccess::canCreatePayments($request->user()), 403);
 
-        $validated = $request->validate([
-            'shop_id' => ['required', 'integer', 'exists:shops,id'],
-            'requested_amount' => ['required', 'numeric', 'gt:0'],
-            'payment_method' => ['required', 'string', Rule::in(['cash', 'online_upi', 'cheque'])],
-            'payment_reference' => ['nullable', 'string', 'max:120'],
-            'payment_date' => ['required', 'date'],
-            'cheque_bank_name' => ['nullable', 'required_if:payment_method,cheque', 'string', 'max:120'],
-            'cheque_date' => ['nullable', 'required_if:payment_method,cheque', 'date'],
-            'shop_note' => ['nullable', 'string', 'max:1000'],
-        ]);
-
+        $validated = $request->validate(['shop_id' => ['required', 'integer', 'exists:shops,id']]);
         $shop = Shop::query()->findOrFail((int) $validated['shop_id']);
-        $invoice = ShopInvoice::query()
-            ->where('shop_id', $shop->id)
-            ->where('balance_amount', '>', 0)
-            ->oldest('business_date')
-            ->oldest('id')
-            ->first();
-
-        $paymentRequest = ShopInvoicePaymentRequest::query()->create([
-            'shop_invoice_id' => $invoice?->id,
-            'shop_id' => $shop->id,
-            'requested_by' => $request->user()?->id,
-            'request_type' => $invoice instanceof ShopInvoice ? 'admin_v2' : 'shop_balance',
-            'payment_method' => $validated['payment_method'],
-            'payment_reference' => filled($validated['payment_reference'] ?? null) ? trim((string) $validated['payment_reference']) : null,
-            'payment_date' => $validated['payment_date'],
-            'cheque_status' => $validated['payment_method'] === 'cheque' ? 'pending' : null,
-            'cheque_bank_name' => $validated['cheque_bank_name'] ?? null,
-            'cheque_date' => $validated['cheque_date'] ?? null,
-            'requested_amount' => round((float) $validated['requested_amount'], 2),
-            'applied_amount' => 0,
-            'credit_amount' => 0,
-            'status' => 'pending',
-            'reconciliation_status' => 'floating',
-            'reconciled_amount' => 0,
-            'floating_amount' => round((float) $validated['requested_amount'], 2),
-            'shop_advance_amount' => 0,
-            'shop_note' => filled($validated['shop_note'] ?? null) ? trim((string) $validated['shop_note']) : 'Admin entered Finance V2 payment.',
-        ]);
 
         return redirect()
-            ->route('admin.finance-v2.payments.show', [
-                'paymentRequest' => $paymentRequest,
-                'date' => $paymentRequest->payment_date?->toDateString(),
-            ])
-            ->with('success', 'Payment created. Review pending bills before approval.');
+            ->route('admin.cashbook.shop.accept-payment', ['shop' => $shop->public_uuid])
+            ->with('warning', 'Shop payments are now recorded from the Cashbook shop workspace.');
     }
 
     public function showPayment(Request $request, ShopInvoicePaymentRequest $paymentRequest): View

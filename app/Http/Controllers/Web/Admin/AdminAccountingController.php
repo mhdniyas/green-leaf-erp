@@ -18,7 +18,9 @@ use App\Http\Requests\Web\Admin\UpdateDailyBillPaymentRequest;
 use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\UpdateShopPettyCashSettingsRequest;
 use App\Models\BusinessSetting;
+use App\Models\Cashbook\CompanyAccount;
 use App\Models\Client;
+use App\Models\CompanyAccountingCategory;
 use App\Models\CompanyAccountingEntry;
 use App\Models\OtherExpense;
 use App\Models\ProcurementExpense;
@@ -36,6 +38,7 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopStaffPayment;
 use App\Models\User;
 use App\Services\Admin\UserImpersonationService;
+use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Finance\AdminFinancePillarService;
 use App\Services\Finance\CompanyMainAccountService;
 use App\Services\Finance\CompanySummaryReportService;
@@ -60,6 +63,7 @@ class AdminAccountingController extends Controller
 {
     public function __construct(
         private readonly AdminFinancePillarService $financePillars,
+        private readonly CompanyPaymentReconciliationService $companyPaymentReconciliationService,
         private readonly CompanyMainAccountService $companyMainAccounts,
         private readonly CompanySummaryReportService $companySummaryReports,
         private readonly JournalService $journalService,
@@ -328,6 +332,21 @@ class AdminAccountingController extends Controller
 
         return redirect()->route('admin.accounting.main-account.index', ['date' => $request->input('date', today()->toDateString())])
             ->with('success', 'Main account category created.');
+    }
+
+    public function updateMainAccountCategoryStatus(Request $request, CompanyAccountingCategory $category): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::EntryCreate);
+
+        $validated = $request->validate([
+            'is_active' => ['required', 'boolean'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $this->companyMainAccounts->setCategoryActive($category, (bool) $validated['is_active']);
+
+        return redirect()->route('admin.accounting.main-account.index', ['date' => $validated['date'] ?? today()->toDateString()])
+            ->with('success', 'Main account category updated.');
     }
 
     public function storeMainAccountEntry(Request $request): RedirectResponse
@@ -1831,8 +1850,9 @@ class AdminAccountingController extends Controller
         $totalIn = (float) $allCredits->where('type', 'in')->sum('amount');
         $totalOut = (float) $allCredits->where('type', 'out')->sum('amount');
         $balance = $totalIn - $totalOut;
+        $companyAccounts = CompanyAccount::query()->where('enabled', true)->orderBy('name')->get();
 
-        return view('admin.accounting.purchasers.show', compact('user', 'credits', 'totalIn', 'totalOut', 'balance', 'isConfiguredDefaultPurchaser'));
+        return view('admin.accounting.purchasers.show', compact('user', 'credits', 'totalIn', 'totalOut', 'balance', 'isConfiguredDefaultPurchaser', 'companyAccounts'));
     }
 
     public function storePurchaserCredit(Request $request, User $user): RedirectResponse
@@ -1846,6 +1866,9 @@ class AdminAccountingController extends Controller
             'amount' => ['required', 'numeric', 'gt:0'],
             'description' => ['nullable', 'string', 'max:255'],
             'business_date' => ['required', 'date'],
+            'payment_source' => ['nullable', 'string', 'in:Bank,Cash'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'reference' => ['nullable', 'string', 'max:160'],
         ]);
 
         $credit = PurchaserCredit::create([
@@ -1853,11 +1876,28 @@ class AdminAccountingController extends Controller
             'type' => 'in',
             'amount' => (float) $validated['amount'],
             'description' => $validated['description'] ?: 'Cash / Credit from Green Leaf',
+            'payment_source' => $validated['payment_source'] ?? 'Cash',
+            'company_account_id' => $validated['company_account_id'] ?? null,
+            'reference' => $validated['reference'] ?? null,
             'created_by' => auth()->id(),
             'business_date' => $validated['business_date'],
         ]);
 
-        $this->journalService->recordPurchaserCredit($credit);
+        $journalEntry = $this->journalService->recordPurchaserCredit($credit);
+
+        if (! empty($validated['company_account_id'])) {
+            $this->companyPaymentReconciliationService->createStatementEntry([
+                'company_account_id' => (int) $validated['company_account_id'],
+                'journal_entry_id' => $journalEntry->id,
+                'transaction_date' => $validated['business_date'],
+                'direction' => 'out',
+                'amount' => round((float) $validated['amount'], 2),
+                'reference' => $validated['reference'] ?? "PURCH-FUND-{$credit->id}",
+                'narration' => 'Company funding to purchaser '.$user->name,
+                'source' => 'purchaser_funding',
+                'notes' => $validated['description'] ?? null,
+            ], (int) $request->user()->id);
+        }
 
         return redirect()->route('admin.accounting.purchasers.show', $user->public_uuid)
             ->with('success', 'Credit added successfully.');

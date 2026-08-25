@@ -178,6 +178,18 @@
             </div>
         </section>
 
+        <template x-if="metrics.settled_amount > 0">
+            <section class="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 shadow-xs">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-emerald-700">Shop Payments Reconciled</p>
+                        <p class="mt-0.5 text-xs font-bold text-emerald-900">Finalized company receipts reflected in this period.</p>
+                    </div>
+                    <p class="shrink-0 font-mono text-sm font-black text-emerald-800" x-text="currency(metrics.settled_amount)">₹{{ number_format($metrics['settled_amount'], 2) }}</p>
+                </div>
+            </section>
+        </template>
+
         <!-- Search Bar & Accordion Controls -->
         <section class="space-y-2">
             <div class="relative">

@@ -707,6 +707,10 @@ class AdminCashbookReportsController extends Controller
             ->filter(fn ($t) => $t->funding_source === 'petty')
             ->sum('amount');
 
+        $settledAmount = (float) $allTransactions
+            ->filter(fn ($t) => $t->entryType?->code === 'shop_paid_company')
+            ->sum('amount');
+
         // Filter out system settlement transfers for category breakdown (include rule child expense entries)
         $userCategoriesTxs = $transactions->filter(function ($t) {
             $code = $t->entryType?->code ?: $t->entry_type_code;
@@ -801,6 +805,7 @@ class AdminCashbookReportsController extends Controller
             'gl_bills_count' => $glBillsCount,
             'gl_bills_pct' => $sales > 0 ? round(($glBills / $sales) * 100, 1) : 0,
             'petty' => round($petty, 2),
+            'settled_amount' => round($settledAmount, 2),
             'margin_pct' => $sales > 0 ? round(($net / $sales) * 100, 1) : 0,
             'categories' => $categoryBreakdown,
             'transactions' => $transactions,
