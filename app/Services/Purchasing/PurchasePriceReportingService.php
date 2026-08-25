@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 final class PurchasePriceReportingService
 {
+    private const PRODUCT_ORDER_EXPRESSION = "CASE WHEN products.sku IS NULL OR products.sku = '' THEN 1 ELSE 0 END ASC, products.sku ASC, products.name ASC";
+
     /** @return Collection<int, ShopPriceGroup> */
     public function activePriceGroups(): Collection
     {
@@ -42,7 +44,7 @@ final class PurchasePriceReportingService
 
         $this->applyProductFilters($query, $filters);
 
-        return $query->orderBy('products.name')->paginate(30)->withQueryString();
+        return $query->orderByRaw(self::PRODUCT_ORDER_EXPRESSION)->paginate(30)->withQueryString();
     }
 
     /** @param array<string, mixed> $filters */
@@ -52,7 +54,7 @@ final class PurchasePriceReportingService
         $query = $this->comparisonQuery($filters)
             ->selectRaw("previous.purchase_price as previous_purchase_price, current.purchase_price as current_purchase_price, previous.{$priceColumn} as previous_price, current.{$priceColumn} as current_price, current.price_unit")
             ->whereRaw("ABS(current.{$priceColumn} - previous.{$priceColumn}) > 0.001")
-            ->orderBy('products.name');
+            ->orderByRaw(self::PRODUCT_ORDER_EXPRESSION);
 
         return $paginate
             ? $query->paginate(30)->withQueryString()
@@ -62,9 +64,15 @@ final class PurchasePriceReportingService
     /** @param array<string, mixed> $filters */
     public function purchaserPriceComparison(array $filters): LengthAwarePaginator
     {
-        return $this->comparisonQuery($filters)
-            ->selectRaw('previous.purchase_price as previous_price, current.purchase_price as current_price, current.price_unit')
-            ->orderBy('products.name')
+        $query = $this->comparisonQuery($filters)
+            ->selectRaw('previous.purchase_price as previous_price, current.purchase_price as current_price, current.price_unit');
+
+        if (! empty($filters['changed_only'])) {
+            $query->whereRaw('ABS(current.purchase_price - previous.purchase_price) > 0.001');
+        }
+
+        return $query
+            ->orderByRaw(self::PRODUCT_ORDER_EXPRESSION)
             ->paginate(30)
             ->withQueryString();
     }
@@ -75,7 +83,7 @@ final class PurchasePriceReportingService
         return $this->comparisonQuery($filters)
             ->selectRaw('previous.purchase_price as previous_price, current.purchase_price as current_price, current.price_unit')
             ->whereRaw('ABS(current.purchase_price - previous.purchase_price) > 0.001')
-            ->orderBy('products.name')
+            ->orderByRaw(self::PRODUCT_ORDER_EXPRESSION)
             ->limit(500)
             ->get();
     }
@@ -136,7 +144,7 @@ final class PurchasePriceReportingService
             ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
             ->whereNull('purchase_invoices.deleted_at')
             ->whereDate('purchaser_carts.business_date', $filters['date'])
-            ->selectRaw('purchaser_cart_items.product_id, SUM(purchaser_cart_items.quantity * purchaser_cart_items.unit_price) / NULLIF(SUM(purchaser_cart_items.quantity), 0) as actual_purchase_price, COUNT(DISTINCT purchase_invoices.id) as purchase_count')
+            ->selectRaw('purchaser_cart_items.product_id, (1.0 * SUM(purchaser_cart_items.quantity * purchaser_cart_items.unit_price)) / NULLIF(SUM(purchaser_cart_items.quantity), 0) as actual_purchase_price, COUNT(DISTINCT purchase_invoices.id) as purchase_count')
             ->groupBy('purchaser_cart_items.product_id');
 
         $this->applyPurchaseFilters($query, $filters);
@@ -158,7 +166,8 @@ final class PurchasePriceReportingService
             ->leftJoin('warehouses', 'warehouses.id', '=', 'products.default_warehouse_id')
             ->whereDate('current.business_date', $filters['date_b'])
             ->where('current.status', 'approved')
-            ->selectRaw('products.public_uuid as product_id, products.name as product_name, products.unit as product_unit, categories.name as category_name, warehouses.code as warehouse_code');
+            ->whereRaw('previous.purchase_price < 9998.99 AND current.purchase_price < 9998.99')
+            ->selectRaw('products.public_uuid as product_id, products.sku as product_sku, products.name as product_name, products.unit as product_unit, categories.name as category_name, warehouses.code as warehouse_code');
 
         $this->applyProductFilters($query, $filters);
 
@@ -185,7 +194,7 @@ final class PurchasePriceReportingService
             ->join('products', 'products.id', '=', $table.'.product_id')
             ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
             ->leftJoin('warehouses', 'warehouses.id', '=', 'products.default_warehouse_id')
-            ->selectRaw('products.public_uuid as product_id, products.name as product_name, products.unit as product_unit, categories.name as category_name, warehouses.code as warehouse_code');
+            ->selectRaw('products.public_uuid as product_id, products.sku as product_sku, products.name as product_name, products.unit as product_unit, categories.name as category_name, warehouses.code as warehouse_code');
     }
 
     /** @param array<string, mixed> $filters */
@@ -199,6 +208,13 @@ final class PurchasePriceReportingService
         }
         if (! empty($filters['product_id'])) {
             $query->where('products.id', (int) $filters['product_id']);
+        }
+        if (! empty($filters['search'])) {
+            $search = '%'.str_replace(['%', '_'], ['\%', '\_'], (string) $filters['search']).'%';
+            $query->where(function (Builder $q) use ($search): void {
+                $q->where('products.name', 'like', $search)
+                    ->orWhere('products.sku', 'like', $search);
+            });
         }
     }
 

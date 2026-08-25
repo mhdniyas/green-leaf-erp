@@ -48,7 +48,12 @@
                             @php($margin = $difference !== null && (float) $row->approved_purchase_price > 0 ? $difference / (float) $row->approved_purchase_price * 100 : null)
                             <tr class="hover:bg-slate-50">
                                 <td class="p-3">
-                                    <a href="{{ route('admin.cashbook.finance.purchase.reports.prices.product', array_merge(request()->query(), ['product' => $row->product_id])) }}" class="font-black text-emerald-700 hover:underline">{{ $row->product_name }}</a>
+                                    <div class="flex items-center gap-1.5">
+                                        @if(!empty($row->product_sku))
+                                            <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-600">{{ $row->product_sku }}</span>
+                                        @endif
+                                        <a href="{{ route('admin.cashbook.finance.purchase.reports.prices.product', array_merge(request()->query(), ['product' => $row->product_id])) }}" class="font-black text-emerald-700 hover:underline">{{ $row->product_name }}</a>
+                                    </div>
                                     <div class="text-[10px] text-slate-400">{{ $row->category_name }}</div>
                                 </td>
                                 <td class="p-3 font-bold text-slate-500">{{ strtoupper($row->price_unit ?: $row->product_unit) }}</td>
@@ -65,7 +70,15 @@
                                 <td class="p-3 text-right">{{ (int) $row->special_price_count > 0 ? $row->special_price_count.' shop(s)' : '—' }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="{{ $columnCount }}" class="p-8 text-center text-slate-400">No approved prices match the selected filters.</td></tr>
+                            <tr>
+                                <td colspan="{{ $columnCount }}" class="p-8 text-center text-slate-400">
+                                    @if(!empty($filters['search']))
+                                        No products match your search.
+                                    @else
+                                        No approved prices match the selected filters.
+                                    @endif
+                                </td>
+                            </tr>
                         @endforelse
                     </tbody>
                 </table>

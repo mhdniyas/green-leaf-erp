@@ -96,6 +96,7 @@ class AppServiceProvider extends ServiceProvider
         ShopOrderItem::observe($purchaserObserver);
         PurchaserCart::observe($purchaserObserver);
         PurchaserCartItem::observe($purchaserObserver);
+        PurchaseInvoice::observe($purchaserObserver);
         DailyProductPrice::observe($purchaserObserver);
         DailyProductPriceRevision::observe($purchaserObserver);
         DailyPriceApproval::observe($purchaserObserver);

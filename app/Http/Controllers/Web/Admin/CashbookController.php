@@ -1864,26 +1864,41 @@ final class CashbookController extends Controller
 
         $dateA = Carbon::parse($filters['date_a'])->format('d M Y');
         $dateB = Carbon::parse($filters['date_b'])->format('d M Y');
+        $totalChanges = count($rows);
 
-        $header = "*GREEN LEAF*\n*PURCHASER PRICE CHANGES*\n{$dateA} → {$dateB}\n";
-
-        $col1Width = 18;
-        $col2Width = 8;
-        $col3Width = 8;
+        $col1Width = 10;
+        $col2Width = 7;
+        $col3Width = 7;
 
         $tableLines = [];
-        $tableLines[] = str_pad('PRODUCT', $col1Width).' '.str_pad("Y'DAY", $col2Width, ' ', STR_PAD_LEFT).' '.str_pad('TODAY', $col3Width, ' ', STR_PAD_LEFT);
-        $tableLines[] = str_repeat('-', $col1Width + $col2Width + $col3Width + 2);
+        $tableLines[] = str_pad('PRODUCT', $col1Width).' '.str_pad("Y'DAY", $col2Width, ' ', STR_PAD_LEFT).' → '.str_pad('TODAY', $col3Width, ' ', STR_PAD_LEFT);
+        $tableLines[] = str_repeat('-', $col1Width + $col2Width + $col3Width + 4);
 
-        foreach ($rows as $row) {
-            $name = Str::limit((string) $row->product_name, $col1Width, '');
-            $prev = number_format((float) $row->previous_price, 2);
-            $curr = number_format((float) $row->current_price, 2);
+        $lastIndex = count($rows) - 1;
+        foreach ($rows as $index => $row) {
+            $name = (string) $row->product_name;
+            $prevVal = (float) $row->previous_price;
+            $currVal = (float) $row->current_price;
 
-            $tableLines[] = str_pad($name, $col1Width).' '.str_pad($prev, $col2Width, ' ', STR_PAD_LEFT).' '.str_pad($curr, $col3Width, ' ', STR_PAD_LEFT);
+            $prevStr = number_format($prevVal, 2, '.', '');
+            $currStr = number_format($currVal, 2, '.', '');
+
+            $isLargePrice = $prevVal > 999.99 || $currVal > 999.99;
+            $isLongName = mb_strlen($name) > $col1Width;
+
+            if ($isLongName || $isLargePrice) {
+                $tableLines[] = $name;
+                $tableLines[] = str_repeat(' ', $col1Width).' '.str_pad($prevStr, $col2Width, ' ', STR_PAD_LEFT).' → '.str_pad($currStr, $col3Width, ' ', STR_PAD_LEFT);
+            } else {
+                $tableLines[] = str_pad($name, $col1Width).' '.str_pad($prevStr, $col2Width, ' ', STR_PAD_LEFT).' → '.str_pad($currStr, $col3Width, ' ', STR_PAD_LEFT);
+            }
+
+            if ($index < $lastIndex) {
+                $tableLines[] = '';
+            }
         }
 
-        $message = $header."\n```\n".implode("\n", $tableLines)."\n```";
+        $message = "*GREEN LEAF*\n*PURCHASER PRICE CHANGES*\n{$dateA} → {$dateB}\nTotal Changes: {$totalChanges}\n\n```\n".implode("\n", $tableLines)."\n```";
 
         return redirect()->away('https://api.whatsapp.com/send?text='.rawurlencode($message));
     }

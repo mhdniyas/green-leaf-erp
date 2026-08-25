@@ -30,6 +30,8 @@ final class PurchasePriceReportRequest extends FormRequest
             'vendor_id' => ['nullable', 'integer', 'exists:suppliers,id'],
             'grade' => ['nullable', 'in:A,B'],
             'price_group' => ['nullable', 'in:A,B,C'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'view' => ['nullable', 'in:all,changed'],
         ];
     }
 
@@ -41,6 +43,7 @@ final class PurchasePriceReportRequest extends FormRequest
 
         return $this->commonFilters($validated) + [
             'date' => $date,
+            'search' => ! empty($validated['search']) ? trim((string) $validated['search']) : null,
         ];
     }
 
@@ -54,6 +57,9 @@ final class PurchasePriceReportRequest extends FormRequest
             'date_a' => Carbon::parse($validated['date_a'] ?? $today->copy()->subDay())->toDateString(),
             'date_b' => Carbon::parse($validated['date_b'] ?? $today)->toDateString(),
             'price_group' => $validated['price_group'] ?? 'A',
+            'search' => ! empty($validated['search']) ? trim((string) $validated['search']) : null,
+            'view' => ($validated['view'] ?? 'all') === 'changed' ? 'changed' : 'all',
+            'changed_only' => ($validated['view'] ?? 'all') === 'changed',
         ];
     }
 
