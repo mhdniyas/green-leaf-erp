@@ -1844,8 +1844,48 @@ final class CashbookController extends Controller
         $filters = $request->comparisonFilters();
         $rows = $priceReportingService->purchaserPriceComparison($filters);
         $options = $priceReportingService->options();
+        $changedCount = $priceReportingService->changedPurchaserPrices($filters)->count();
 
-        return view('admin.cashbook.finance.purchase.reports.purchaser-prices', array_merge($this->purchaseLayoutData(), compact('filters', 'rows', 'options')));
+        return view('admin.cashbook.finance.purchase.reports.purchaser-prices', array_merge($this->purchaseLayoutData(), compact('filters', 'rows', 'options', 'changedCount')));
+    }
+
+    public function companyFinancePurchaserPriceWhatsApp(PurchasePriceReportRequest $request, PurchasePriceReportingService $priceReportingService): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->comparisonFilters();
+        $rows = $priceReportingService->changedPurchaserPrices($filters);
+
+        if ($rows->isEmpty()) {
+            return redirect()
+                ->route('admin.cashbook.finance.purchase.reports.purchaser-prices', $request->query())
+                ->with('error', 'No changed purchaser prices to share.');
+        }
+
+        $dateA = Carbon::parse($filters['date_a'])->format('d M Y');
+        $dateB = Carbon::parse($filters['date_b'])->format('d M Y');
+
+        $header = "*GREEN LEAF*\n*PURCHASER PRICE CHANGES*\n{$dateA} → {$dateB}\n";
+
+        $col1Width = 18;
+        $col2Width = 8;
+        $col3Width = 8;
+
+        $tableLines = [];
+        $tableLines[] = str_pad('PRODUCT', $col1Width).' '.str_pad("Y'DAY", $col2Width, ' ', STR_PAD_LEFT).' '.str_pad('TODAY', $col3Width, ' ', STR_PAD_LEFT);
+        $tableLines[] = str_repeat('-', $col1Width + $col2Width + $col3Width + 2);
+
+        foreach ($rows as $row) {
+            $name = Str::limit((string) $row->product_name, $col1Width, '');
+            $prev = number_format((float) $row->previous_price, 2);
+            $curr = number_format((float) $row->current_price, 2);
+
+            $tableLines[] = str_pad($name, $col1Width).' '.str_pad($prev, $col2Width, ' ', STR_PAD_LEFT).' '.str_pad($curr, $col3Width, ' ', STR_PAD_LEFT);
+        }
+
+        $message = $header."\n```\n".implode("\n", $tableLines)."\n```";
+
+        return redirect()->away('https://api.whatsapp.com/send?text='.rawurlencode($message));
     }
 
     public function companyFinancePurchaseSection(Request $request, PurchaseReportingService $purchaseReportingService, string $section): View

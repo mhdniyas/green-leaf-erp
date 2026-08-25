@@ -712,6 +712,7 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/purchase/reports/changed-items', [CashbookController::class, 'companyFinancePurchaseChangedItems'])->name('finance.purchase.reports.changed-items');
             Route::get('finance/purchase/reports/changed-items/whatsapp', [CashbookController::class, 'companyFinancePurchaseChangedItemsWhatsApp'])->name('finance.purchase.reports.changed-items.whatsapp');
             Route::get('finance/purchase/reports/purchaser-prices', [CashbookController::class, 'companyFinancePurchaserPriceReport'])->name('finance.purchase.reports.purchaser-prices');
+            Route::get('finance/purchase/reports/purchaser-prices/whatsapp', [CashbookController::class, 'companyFinancePurchaserPriceWhatsApp'])->name('finance.purchase.reports.purchaser-prices.whatsapp');
             Route::get('finance/purchase/report', [CashbookController::class, 'companyFinancePurchaseReport'])->name('finance.purchase.report');
             Route::get('finance/journal-entry/{journalEntry}', [CashbookController::class, 'companyFinanceJournalEntryShow'])->name('finance.journal.entry-show');
             Route::get('finance/journal-ref/{paymentRef}', [CashbookController::class, 'companyFinanceJournalShowSecure'])->name('finance.journal.secure-show');

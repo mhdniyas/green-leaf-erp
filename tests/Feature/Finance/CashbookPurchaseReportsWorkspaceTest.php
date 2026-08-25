@@ -282,6 +282,117 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
         }
     }
 
+    public function test_purchaser_prices_whatsapp_share_generates_monospace_table_with_changed_rows_only(): void
+    {
+        $tomato = $this->product('Tomato', 'VEG-WH');
+        $onion = $this->product('Onion', 'FRT-WH');
+        $carrot = $this->product('Carrot', 'VEG-WH');
+
+        // Tomato: changed 30 -> 34
+        $this->approval($tomato, '2026-08-24', 30, 38, 40, 42);
+        $this->approval($tomato, '2026-08-25', 34, 42, 44, 46);
+
+        // Onion: changed 28 -> 26
+        $this->approval($onion, '2026-08-24', 28, 36, 38, 40);
+        $this->approval($onion, '2026-08-25', 26, 34, 36, 38);
+
+        // Carrot: unchanged 40 -> 40
+        $this->approval($carrot, '2026-08-24', 40, 48, 50, 52);
+        $this->approval($carrot, '2026-08-25', 40, 48, 50, 52);
+
+        // Report page shows share button with changedCount = 2
+        $pageResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchaser-prices', [
+            'date_a' => '2026-08-24',
+            'date_b' => '2026-08-25',
+        ]));
+        $pageResponse->assertOk()
+            ->assertSee('Share Price Changes')
+            ->assertSee('Price Changes')
+            ->assertSee('2');
+
+        // WhatsApp share endpoint redirects to api.whatsapp.com
+        $shareResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchaser-prices.whatsapp', [
+            'date_a' => '2026-08-24',
+            'date_b' => '2026-08-25',
+        ]));
+
+        $shareResponse->assertRedirect();
+        $targetUrl = $shareResponse->headers->get('Location');
+        $this->assertStringStartsWith('https://api.whatsapp.com/send?text=', $targetUrl);
+
+        $decodedText = rawurldecode(explode('text=', $targetUrl, 2)[1]);
+
+        $this->assertStringContainsString('*GREEN LEAF*', $decodedText);
+        $this->assertStringContainsString('*PURCHASER PRICE CHANGES*', $decodedText);
+        $this->assertStringContainsString('24 Aug 2026', $decodedText);
+        $this->assertStringContainsString('25 Aug 2026', $decodedText);
+        $this->assertStringContainsString("Y'DAY", $decodedText);
+        $this->assertStringContainsString('TODAY', $decodedText);
+        $this->assertStringContainsString('```', $decodedText);
+
+        // Changed products included
+        $this->assertStringContainsString('Tomato', $decodedText);
+        $this->assertStringContainsString('30.00', $decodedText);
+        $this->assertStringContainsString('34.00', $decodedText);
+        $this->assertStringContainsString('Onion', $decodedText);
+        $this->assertStringContainsString('28.00', $decodedText);
+        $this->assertStringContainsString('26.00', $decodedText);
+
+        // Unchanged product excluded
+        $this->assertStringNotContainsString('Carrot', $decodedText);
+    }
+
+    public function test_purchaser_prices_whatsapp_share_respects_filters(): void
+    {
+        $tomato = $this->product('Tomato', 'VEG-WH');
+        $onion = $this->product('Onion', 'FRT-WH');
+        $purchaser = User::factory()->create();
+        $vendor = Supplier::factory()->create();
+
+        $this->purchase($tomato, '2026-08-25', 1, 34, $purchaser, $vendor);
+        $this->approval($tomato, '2026-08-24', 30, 38, 40, 42);
+        $this->approval($tomato, '2026-08-25', 34, 42, 44, 46);
+
+        $this->approval($onion, '2026-08-24', 28, 36, 38, 40);
+        $this->approval($onion, '2026-08-25', 26, 34, 36, 38);
+
+        $shareResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchaser-prices.whatsapp', [
+            'date_a' => '2026-08-24',
+            'date_b' => '2026-08-25',
+            'produce_type' => 'vegetables',
+        ]));
+
+        $shareResponse->assertRedirect();
+        $decodedText = rawurldecode(explode('text=', $shareResponse->headers->get('Location'), 2)[1]);
+
+        $this->assertStringContainsString('Tomato', $decodedText);
+        $this->assertStringNotContainsString('Onion', $decodedText);
+    }
+
+    public function test_purchaser_prices_whatsapp_share_handles_no_changes(): void
+    {
+        $carrot = $this->product('Carrot', 'VEG-WH');
+        $this->approval($carrot, '2026-08-24', 40, 48, 50, 52);
+        $this->approval($carrot, '2026-08-25', 40, 48, 50, 52);
+
+        $pageResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchaser-prices', [
+            'date_a' => '2026-08-24',
+            'date_b' => '2026-08-25',
+        ]));
+        $pageResponse->assertOk()->assertSee('No Price Changes');
+
+        $shareResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchaser-prices.whatsapp', [
+            'date_a' => '2026-08-24',
+            'date_b' => '2026-08-25',
+        ]));
+
+        $shareResponse->assertRedirect(route('admin.cashbook.finance.purchase.reports.purchaser-prices', [
+            'date_a' => '2026-08-24',
+            'date_b' => '2026-08-25',
+        ]));
+        $shareResponse->assertSessionHas('error', 'No changed purchaser prices to share.');
+    }
+
     private function product(string $name, string $warehouseCode): Product
     {
         $warehouse = Warehouse::query()->firstOrCreate(['code' => $warehouseCode], ['name' => $warehouseCode, 'is_active' => true]);

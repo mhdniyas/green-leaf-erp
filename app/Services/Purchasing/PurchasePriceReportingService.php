@@ -70,6 +70,17 @@ final class PurchasePriceReportingService
     }
 
     /** @param array<string, mixed> $filters */
+    public function changedPurchaserPrices(array $filters): Collection
+    {
+        return $this->comparisonQuery($filters)
+            ->selectRaw('previous.purchase_price as previous_price, current.purchase_price as current_price, current.price_unit')
+            ->whereRaw('ABS(current.purchase_price - previous.purchase_price) > 0.001')
+            ->orderBy('products.name')
+            ->limit(500)
+            ->get();
+    }
+
+    /** @param array<string, mixed> $filters */
     public function productDetail(Product $product, array $filters): array
     {
         $approvals = DB::table('daily_price_approvals')
