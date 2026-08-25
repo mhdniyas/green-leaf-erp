@@ -20,22 +20,24 @@ class VendorPriceService
             ->whereKey($productId)
             ->update(['vendor_price' => round($price, 4)]);
 
-        if ($supplierId === null) {
-            return;
+        if ($supplierId !== null) {
+            DB::table('product_supplier')->updateOrInsert(
+                [
+                    'product_id' => $productId,
+                    'supplier_id' => $supplierId,
+                ],
+                [
+                    'last_price' => round($price, 4),
+                    'last_purchased_at' => now(),
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ],
+            );
         }
 
-        DB::table('product_supplier')->updateOrInsert(
-            [
-                'product_id' => $productId,
-                'supplier_id' => $supplierId,
-            ],
-            [
-                'last_price' => round($price, 4),
-                'last_purchased_at' => now(),
-                'updated_at' => now(),
-                'created_at' => now(),
-            ],
-        );
+        DB::afterCommit(function (): void {
+            app(PurchaserReadCacheService::class)->invalidate(['products', 'prices']);
+        });
     }
 
     /**

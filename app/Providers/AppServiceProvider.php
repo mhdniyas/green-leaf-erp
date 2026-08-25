@@ -2,14 +2,28 @@
 
 namespace App\Providers;
 
+use App\Models\BusinessSetting;
+use App\Models\Category;
 use App\Models\Customer;
+use App\Models\DailyPriceApproval;
+use App\Models\DailyPricePublication;
+use App\Models\DailyProductPrice;
+use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceived;
+use App\Models\Product;
+use App\Models\ProductUnit;
+use App\Models\PurchaseGradePrice;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaserCart;
+use App\Models\PurchaserCartItem;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
+use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Observers\PurchaserCacheInvalidationObserver;
 use App\Observers\UserObserver;
 use App\Policies\CustomerPolicy;
 use App\Policies\GoodsReceivedPolicy;
@@ -76,6 +90,21 @@ class AppServiceProvider extends ServiceProvider
         });
 
         User::observe(UserObserver::class);
+
+        $purchaserObserver = PurchaserCacheInvalidationObserver::class;
+        ShopOrder::observe($purchaserObserver);
+        ShopOrderItem::observe($purchaserObserver);
+        PurchaserCart::observe($purchaserObserver);
+        PurchaserCartItem::observe($purchaserObserver);
+        DailyProductPrice::observe($purchaserObserver);
+        DailyProductPriceRevision::observe($purchaserObserver);
+        DailyPriceApproval::observe($purchaserObserver);
+        DailyPricePublication::observe($purchaserObserver);
+        PurchaseGradePrice::observe($purchaserObserver);
+        Product::observe($purchaserObserver);
+        Category::observe($purchaserObserver);
+        ProductUnit::observe($purchaserObserver);
+        BusinessSetting::observe($purchaserObserver);
 
         Activity::creating(function (Activity $activity): void {
             if (app()->runningInConsole() && ! app()->environment('testing')) {

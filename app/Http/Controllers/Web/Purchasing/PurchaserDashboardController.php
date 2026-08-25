@@ -38,6 +38,7 @@ use App\Services\Purchasing\PurchaseGradePriceResolver;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\PurchaserCartBatchStateResolver;
+use App\Services\Purchasing\PurchaserReadCacheService;
 use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\PerformanceProbe;
@@ -83,6 +84,7 @@ class PurchaserDashboardController extends Controller
         private readonly JournalService $journalService,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly PurchaseGradePriceResolver $purchaseGradePriceResolver,
+        private readonly PurchaserReadCacheService $readCacheService,
     ) {}
 
     public function index(): RedirectResponse
@@ -2845,186 +2847,242 @@ class PurchaserDashboardController extends Controller
     private function buildDailySummary(Carbon $date, array $frequentProductIds, bool $includeDetails = true, string $purchaseGrade = 'A'): Collection
     {
         $dateString = $date->toDateString();
-
-        $approvedItems = ShopOrderItem::query()
-            ->where('product_grade', $purchaseGrade)
-            ->whereHas('order', function ($query) use ($dateString): void {
-                $query->where('business_date', $dateString)->where('state', 'approved');
-            })
-            ->with($this->dailySummaryRelations($includeDetails))
-            ->get();
-
         $authUser = auth()->user();
-        if ($authUser && $authUser->hasAssignedCategoryFilter()) {
-            $assignedCatIds = $authUser->assignedCategoryIds();
-            $approvedItems = $approvedItems->filter(fn (ShopOrderItem $item): bool => in_array((int) $item->product?->category_id, $assignedCatIds, true));
-        }
+        $hasCategoryFilter = $authUser && $authUser->hasAssignedCategoryFilter();
+        $userId = $authUser ? (int) $authUser->id : null;
+        $filters = [
+            'details' => $includeDetails,
+            'frequent' => $frequentProductIds,
+            'assigned_cats' => $hasCategoryFilter ? $authUser->assignedCategoryIds() : null,
+        ];
 
-        $draftCartItems = PurchaserCartItem::query()
-            ->where('grade', $purchaseGrade)
-            ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
-                $query->where('business_date', $dateString)
-                    ->where('status', 'draft')
-                    ->where('purchase_grade', $purchaseGrade);
-            })
-            ->with('cart.user')
-            ->get()
-            ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'));
+        /** @var array<int, array<string, mixed>> $rawArray */
+        $rawArray = $this->readCacheService->remember(
+            scopes: ['orders', 'carts', 'products', 'settings'],
+            dataset: $includeDetails ? 'daily_summary_detailed' : 'daily_summary_compact',
+            ttlSeconds: 45,
+            callback: function () use ($date, $dateString, $frequentProductIds, $includeDetails, $purchaseGrade, $hasCategoryFilter, $authUser): array {
+                $approvedItems = ShopOrderItem::query()
+                    ->where('product_grade', $purchaseGrade)
+                    ->whereHas('order', function ($query) use ($dateString): void {
+                        $query->where('business_date', $dateString)->where('state', 'approved');
+                    })
+                    ->with($this->dailySummaryRelations($includeDetails))
+                    ->get();
 
-        $submittedQuantities = PurchaserCartItem::query()
-            ->where('grade', $purchaseGrade)
-            ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
-                $query->where('business_date', $dateString)
-                    ->where('status', 'submitted')
-                    ->where('purchase_grade', $purchaseGrade);
-            })
-            ->with('cart')
-            ->get()
-            ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
-            ->map(fn ($group) => (float) $group->sum('quantity'));
+                if ($hasCategoryFilter && $authUser) {
+                    $assignedCatIds = $authUser->assignedCategoryIds();
+                    $approvedItems = $approvedItems->filter(fn (ShopOrderItem $item): bool => in_array((int) $item->product?->category_id, $assignedCatIds, true));
+                }
 
-        return $approvedItems
-            ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'_'.$item->order->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
-            ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedQuantities, $frequentProductIds, $date, $includeDetails): ?array {
-                [$productId, $itemDateStr] = explode('_', $key);
-                $itemDate = Carbon::parse($itemDateStr);
+                $draftCartItems = PurchaserCartItem::query()
+                    ->where('grade', $purchaseGrade)
+                    ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
+                        $query->where('business_date', $dateString)
+                            ->where('status', 'draft')
+                            ->where('purchase_grade', $purchaseGrade);
+                    })
+                    ->with('cart.user')
+                    ->get()
+                    ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'));
 
-                /** @var ShopOrderItem $firstItem */
-                $firstItem = $items->first();
-                $product = $firstItem->product;
+                $submittedQuantities = PurchaserCartItem::query()
+                    ->where('grade', $purchaseGrade)
+                    ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
+                        $query->where('business_date', $dateString)
+                            ->where('status', 'submitted')
+                            ->where('purchase_grade', $purchaseGrade);
+                    })
+                    ->with('cart')
+                    ->get()
+                    ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
+                    ->map(fn ($group) => (float) $group->sum('quantity'));
 
-                $productDraftItems = $draftCartItems->get($key) ?? collect();
-                $draftQty = (float) $productDraftItems->sum('quantity');
-                $draftPurchasers = $productDraftItems
-                    ->groupBy('cart.user_id')
-                    ->map(function ($itemsByPurchaser) use ($product) {
-                        $user = $itemsByPurchaser->first()->cart->user;
-                        $purchaserQty = (float) $itemsByPurchaser->sum('quantity');
-                        $formattedQty = $product->unit === 'kg' ? number_format($purchaserQty, 1) : number_format($purchaserQty, 0);
+                return $approvedItems
+                    ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'_'.$item->order->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
+                    ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedQuantities, $frequentProductIds, $date, $includeDetails): ?array {
+                        [$productId, $itemDateStr] = explode('_', $key);
+                        $itemDate = Carbon::parse($itemDateStr);
 
-                        return $user ? "{$user->name} ({$formattedQty} {$product->unit})" : null;
+                        /** @var ShopOrderItem $firstItem */
+                        $firstItem = $items->first();
+                        $product = $firstItem->product;
+
+                        $productDraftItems = $draftCartItems->get($key) ?? collect();
+                        $draftQty = (float) $productDraftItems->sum('quantity');
+                        $draftPurchasers = $productDraftItems
+                            ->groupBy('cart.user_id')
+                            ->map(function ($itemsByPurchaser) use ($product) {
+                                $user = $itemsByPurchaser->first()->cart->user;
+                                $purchaserQty = (float) $itemsByPurchaser->sum('quantity');
+                                $formattedQty = $product->unit === 'kg' ? number_format($purchaserQty, 1) : number_format($purchaserQty, 0);
+
+                                return $user ? "{$user->name} ({$formattedQty} {$product->unit})" : null;
+                            })
+                            ->filter()
+                            ->values()
+                            ->all();
+
+                        $boughtQty = (float) ($submittedQuantities->get($key) ?? 0);
+                        $totalApprovedQty = (float) $items->sum('approved_qty');
+                        $remainingQty = max(0, $totalApprovedQty - $boughtQty);
+
+                        if ($itemDate->lt($date) && $remainingQty <= 0) {
+                            return null;
+                        }
+
+                        $categoryName = (string) ($product->category?->name ?? '');
+
+                        $summary = [
+                            'product_id' => (int) $productId,
+                            'product_name' => $product->name,
+                            'sku' => $product->sku,
+                            'unit' => $product->unit,
+                            'category_name' => $categoryName,
+                            'is_frequent' => in_array((int) $productId, $frequentProductIds, true),
+                            'total_approved_qty' => $totalApprovedQty,
+                            'bought_qty' => $boughtQty,
+                            'draft_qty' => $draftQty,
+                            'draft_purchasers' => $draftPurchasers,
+                            'remaining_qty' => $remainingQty,
+                            'order_date' => $itemDate->format('Y-m-d'),
+                            'search_index' => strtolower(implode(' ', [
+                                $product->name,
+                                $product->sku,
+                                $categoryName,
+                            ])),
+                        ];
+
+                        if (! $includeDetails) {
+                            return $summary;
+                        }
+
+                        $summary['orderable_units'] = $this->orderableUnitOptions($product);
+                        $summary['quantity_buckets'] = $this->dailySummaryQuantityBuckets($items, $firstItem);
+                        $summary['measure_breakdown'] = $this->dailySummaryMeasureBreakdown($items);
+                        $summary['shop_details'] = $items->map(fn (ShopOrderItem $item): array => [
+                            'shop_order_item_id' => $item->id,
+                            'shop_name' => $item->order->demandSourceLabel(),
+                            'is_direct_purchase' => $item->order->isAdminDirectPurchase(),
+                            'approved_qty' => (float) $item->approved_qty,
+                            'unit' => $item->unit,
+                            'requested_measure_label' => $item->requestedMeasureBreakdownLabel(),
+                            'order_number' => $item->order->order_number,
+                            'notes' => $item->notes,
+                        ])->sortBy('shop_name')->values()->all();
+
+                        return $summary;
                     })
                     ->filter()
+                    ->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date'])
                     ->values()
                     ->all();
+            },
+            userId: $userId,
+            businessDate: $date,
+            grade: $purchaseGrade,
+            filters: $filters,
+        );
 
-                $boughtQty = (float) ($submittedQuantities->get($key) ?? 0);
-                $totalApprovedQty = (float) $items->sum('approved_qty');
-                $remainingQty = max(0, $totalApprovedQty - $boughtQty);
+        return collect($rawArray)->map(function (array $item): array {
+            if (isset($item['order_date']) && is_string($item['order_date'])) {
+                $item['order_date'] = Carbon::parse($item['order_date']);
+            }
 
-                if ($itemDate->lt($date) && $remainingQty <= 0) {
-                    return null;
-                }
-
-                $categoryName = (string) ($product->category?->name ?? '');
-
-                $summary = [
-                    'product_id' => (int) $productId,
-                    'product_name' => $product->name,
-                    'sku' => $product->sku,
-                    'unit' => $product->unit,
-                    'category_name' => $categoryName,
-                    'is_frequent' => in_array((int) $productId, $frequentProductIds, true),
-                    'total_approved_qty' => $totalApprovedQty,
-                    'bought_qty' => $boughtQty,
-                    'draft_qty' => $draftQty,
-                    'draft_purchasers' => $draftPurchasers,
-                    'remaining_qty' => $remainingQty,
-                    'order_date' => $itemDate,
-                    'search_index' => strtolower(implode(' ', [
-                        $product->name,
-                        $product->sku,
-                        $categoryName,
-                    ])),
-                ];
-
-                if (! $includeDetails) {
-                    return $summary;
-                }
-
-                $summary['orderable_units'] = $this->orderableUnitOptions($product);
-                $summary['quantity_buckets'] = $this->dailySummaryQuantityBuckets($items, $firstItem);
-                $summary['measure_breakdown'] = $this->dailySummaryMeasureBreakdown($items);
-                $summary['shop_details'] = $items->map(fn (ShopOrderItem $item): array => [
-                    'shop_order_item_id' => $item->id,
-                    'shop_name' => $item->order->demandSourceLabel(),
-                    'is_direct_purchase' => $item->order->isAdminDirectPurchase(),
-                    'approved_qty' => (float) $item->approved_qty,
-                    'unit' => $item->unit,
-                    'requested_measure_label' => $item->requestedMeasureBreakdownLabel(),
-                    'order_number' => $item->order->order_number,
-                    'notes' => $item->notes,
-                ])->sortBy('shop_name')->values()->all();
-
-                return $summary;
-            })
-            ->filter()
-            ->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date']->format('Y-m-d'))
-            ->values();
+            return $item;
+        });
     }
 
     private function buildGradeBPurchaseCatalog(Carbon $date, int $userId): Collection
     {
         $dateString = $date->toDateString();
-        $products = Product::query()
-            ->active()
-            ->where('show_in_purchaser_order', true)
-            ->with('category:id,name')
-            ->ordered()
-            ->get(['id', 'name', 'sku', 'unit', 'category_id']);
+        $authUser = auth()->user();
+        $hasCategoryFilter = $authUser && $authUser->hasAssignedCategoryFilter();
+        $filters = [
+            'assigned_cats' => $hasCategoryFilter ? $authUser->assignedCategoryIds() : null,
+        ];
 
-        $user = auth()->user();
-        if ($user && $user->hasAssignedCategoryFilter()) {
-            $products = $products->whereIn('category_id', $user->assignedCategoryIds())->values();
-        }
+        /** @var array<int, array<string, mixed>> $rawArray */
+        $rawArray = $this->readCacheService->remember(
+            scopes: ['orders', 'carts', 'products', 'settings'],
+            dataset: 'b_grade_catalog',
+            ttlSeconds: 45,
+            callback: function () use ($dateString, $userId, $authUser, $hasCategoryFilter): array {
+                $products = Product::query()
+                    ->active()
+                    ->where('show_in_purchaser_order', true)
+                    ->with('category:id,name')
+                    ->ordered()
+                    ->get(['id', 'name', 'sku', 'unit', 'category_id']);
 
-        $approvedGradeBQuantities = ShopOrderItem::query()
-            ->where('product_grade', 'B')
-            ->whereHas('order', fn ($query) => $query
-                ->whereDate('business_date', $dateString)
-                ->where('state', 'approved'))
-            ->selectRaw('product_id, SUM(approved_qty) as approved_quantity')
-            ->groupBy('product_id')
-            ->pluck('approved_quantity', 'product_id');
+                if ($hasCategoryFilter && $authUser) {
+                    $products = $products->whereIn('category_id', $authUser->assignedCategoryIds())->values();
+                }
 
-        $cartItems = PurchaserCartItem::query()
-            ->where('grade', 'B')
-            ->whereHas('cart', fn ($query) => $query
-                ->whereDate('business_date', $dateString)
-                ->where('purchase_grade', 'B')
-                ->whereIn('status', ['draft', 'submitted']))
-            ->with('cart:id,user_id,business_date,status')
-            ->get()
-            ->groupBy('product_id');
+                $approvedGradeBQuantities = ShopOrderItem::query()
+                    ->where('product_grade', 'B')
+                    ->whereHas('order', fn ($query) => $query
+                        ->whereDate('business_date', $dateString)
+                        ->where('state', 'approved'))
+                    ->selectRaw('product_id, SUM(approved_qty) as approved_quantity')
+                    ->groupBy('product_id')
+                    ->pluck('approved_quantity', 'product_id');
 
-        return $products->map(function (Product $product) use ($approvedGradeBQuantities, $cartItems, $date, $userId): array {
-            $items = $cartItems->get($product->id, collect());
-            $draftQuantity = (float) $items->filter(fn (PurchaserCartItem $item): bool => $item->cart?->status === 'draft' && (int) $item->cart->user_id === $userId)->sum('quantity');
-            $submittedQuantity = (float) $items->filter(fn (PurchaserCartItem $item): bool => $item->cart?->status === 'submitted')->sum('quantity');
-            $approvedQuantity = (float) ($approvedGradeBQuantities->get($product->id) ?? 0);
-            $hasGradeBOrder = $approvedQuantity > 0;
+                $cartItems = PurchaserCartItem::query()
+                    ->where('grade', 'B')
+                    ->whereHas('cart', fn ($query) => $query
+                        ->whereDate('business_date', $dateString)
+                        ->where('purchase_grade', 'B')
+                        ->whereIn('status', ['draft', 'submitted']))
+                    ->with('cart:id,user_id,business_date,status')
+                    ->get()
+                    ->groupBy('product_id');
 
-            return [
-                'product_id' => (int) $product->id,
-                'product_name' => $product->name,
-                'sku' => $product->sku,
-                'unit' => $product->unit,
-                'category_name' => $product->category?->name ?? '',
-                'is_frequent' => false,
-                'is_direct_catalog' => ! $hasGradeBOrder,
-                'is_grade_b_catalog' => true,
-                'has_grade_b_order' => $hasGradeBOrder,
-                'total_approved_qty' => $approvedQuantity,
-                'bought_qty' => $submittedQuantity,
-                'draft_qty' => $draftQuantity,
-                'draft_purchasers' => [],
-                'remaining_qty' => max(0, $approvedQuantity - $submittedQuantity),
-                'order_date' => $date->copy(),
-                'search_index' => strtolower(implode(' ', [$product->name, $product->sku, $product->category?->name])),
-                'shop_details' => [],
-                'quantity_buckets' => [],
-                'measure_breakdown' => [],
-            ];
+                return $products->map(function (Product $product) use ($approvedGradeBQuantities, $cartItems, $userId, $dateString): array {
+                    $items = $cartItems->get($product->id, collect());
+                    $draftQuantity = (float) $items->filter(fn (PurchaserCartItem $item): bool => $item->cart?->status === 'draft' && (int) $item->cart->user_id === $userId)->sum('quantity');
+                    $submittedQuantity = (float) $items->filter(fn (PurchaserCartItem $item): bool => $item->cart?->status === 'submitted')->sum('quantity');
+                    $approvedQuantity = (float) ($approvedGradeBQuantities->get($product->id) ?? 0);
+                    $hasGradeBOrder = $approvedQuantity > 0;
+
+                    return [
+                        'product_id' => (int) $product->id,
+                        'product_name' => $product->name,
+                        'sku' => $product->sku,
+                        'unit' => $product->unit,
+                        'category_name' => $product->category?->name ?? '',
+                        'is_frequent' => false,
+                        'is_direct_catalog' => ! $hasGradeBOrder,
+                        'is_grade_b_catalog' => true,
+                        'has_grade_b_order' => $hasGradeBOrder,
+                        'total_approved_qty' => $approvedQuantity,
+                        'bought_qty' => $submittedQuantity,
+                        'draft_qty' => $draftQuantity,
+                        'draft_purchasers' => [],
+                        'remaining_qty' => max(0, $approvedQuantity - $submittedQuantity),
+                        'order_date' => $dateString,
+                        'search_index' => strtolower(implode(' ', [$product->name, $product->sku, $product->category?->name])),
+                        'shop_details' => [],
+                        'quantity_buckets' => [],
+                        'measure_breakdown' => [],
+                    ];
+                })
+                    ->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']))
+                    ->values()
+                    ->all();
+            },
+            userId: $userId,
+            businessDate: $date,
+            grade: 'B',
+            filters: $filters,
+        );
+
+        return collect($rawArray)->map(function (array $item): array {
+            if (isset($item['order_date']) && is_string($item['order_date'])) {
+                $item['order_date'] = Carbon::parse($item['order_date']);
+            }
+
+            return $item;
         });
     }
 

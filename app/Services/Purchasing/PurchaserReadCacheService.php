@@ -170,9 +170,13 @@ class PurchaserReadCacheService
                 $store = Cache::store($this->store);
                 $newVersion = $store->increment($versionKey);
 
-                if ($newVersion === false || $newVersion <= 1) {
-                    $store->forever($versionKey, 1);
-                    $newVersion = 1;
+                if ($newVersion === false) {
+                    $current = (int) ($store->get($versionKey) ?? 1);
+                    $newVersion = $current + 1;
+                    $store->forever($versionKey, $newVersion);
+                } elseif ($newVersion <= 1) {
+                    $newVersion = 2;
+                    $store->forever($versionKey, 2);
                 }
 
                 $this->localScopeVersions[$versionKey] = (int) $newVersion;

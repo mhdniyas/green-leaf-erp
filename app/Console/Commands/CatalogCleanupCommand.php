@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\Product;
+use App\Services\Purchasing\PurchaserReadCacheService;
 use Database\Seeders\ProductSeeder;
 use Illuminate\Console\Command;
 
@@ -50,6 +51,10 @@ class CatalogCleanupCommand extends Command
             ->whereNotIn('sku', $catalogSkus)
             ->where('is_active', true)
             ->update(['is_active' => false]);
+
+        if ($deactivated > 0) {
+            app(PurchaserReadCacheService::class)->invalidate(['products']);
+        }
 
         $this->info("Catalog cleanup complete. Deactivated {$deactivated} non-catalog products.");
 

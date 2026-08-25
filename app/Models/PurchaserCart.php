@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use App\Enums\Purchasing\POStatus;
+use App\Services\Purchasing\PurchaserReadCacheService;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class PurchaserCart extends Model
 {
@@ -174,5 +176,9 @@ class PurchaserCart extends Model
                 POStatus::PartiallyReceived,
             ])
             ->update(['status' => POStatus::Cancelled]);
+
+        DB::afterCommit(function (): void {
+            app(PurchaserReadCacheService::class)->invalidate(['carts', 'orders']);
+        });
     }
 }
