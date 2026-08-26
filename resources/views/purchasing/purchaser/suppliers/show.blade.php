@@ -88,35 +88,90 @@
                         @php
                             $entryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
                             $billModalPayload = [
-                                'supplierName'   => $supplier->name,
-                                'supplierMobile' => $supplier->mobile_number ?: '',
-                                'billRef'        => $entry['cart_number'],
-                                'invoiceNumber'  => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
-                                'date'           => $day['date_label'],
-                                'paymentStatus'  => $entry['payment_status'],
-                                'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
-                                'cashAmount'     => '₹' . number_format((float) $entry['paid_amount'], 2),
-                                'creditAmount'   => '₹' . number_format($entryPending, 2),
-                                'grnNumber'      => $entry['receipt_notes'] ? 'See notes below' : 'Pending',
-                                'items'          => collect($entry['item_summary'])->values()->all(),
+                                'supplierName'     => $supplier->name,
+                                'supplierMobile'   => $supplier->mobile_number ?: '',
+                                'billRef'          => $entry['cart_number'],
+                                'invoiceNumber'    => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
+                                'date'             => $day['date_label'],
+                                'paymentStatus'    => $entry['payment_status'],
+                                'totalAmount'      => '₹' . number_format((float) $entry['amount'], 2),
+                                'cashAmount'       => '₹' . number_format((float) $entry['paid_amount'], 2),
+                                'creditAmount'     => '₹' . number_format($entryPending, 2),
+                                'grnNumber'        => $entry['grn_number'] ?: ($entry['receipt_notes'] ? 'See notes below' : ($entry['is_receipt_pending'] ? 'Pending GRN' : 'Completed')),
+                                'grnStatus'        => $entry['grn_status'] ? ucfirst(str_replace('_', ' ', $entry['grn_status'])) : ($entry['is_receipt_pending'] ? 'Pending Receipt' : 'Received'),
+                                'grnRoute'         => $entry['grn_route'] ?? null,
+                                'isReceiptPending' => $entry['is_receipt_pending'] ?? false,
+                                'paymentModal'     => $entry['payment_modal'] ?? null,
+                                'paymentRoute'     => $entry['payment_route'] ?? null,
+                                'isPaymentPending' => $entry['is_payment_pending'] ?? false,
+                                'items'            => collect($entry['item_summary'])->values()->all(),
                             ];
                         @endphp
                         <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50/80">
-                            <div class="flex-1">
-                                <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
-                                <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
+                                    <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $entry['status_tone'] }}">
+                                        {{ $entry['status_label'] }}
+                                    </span>
+                                    @if ($entry['grn_number'])
+                                        <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-mono font-bold text-slate-700">
+                                            {{ $entry['grn_number'] }}
+                                        </span>
+                                    @endif
+                                </div>
+                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
                             </div>
                             <div class="flex items-center gap-2">
                                 @if ($entryPending > 0)
-                                    <div class="text-right">
+                                    <div class="text-right mr-1">
                                         <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Pending</p>
                                         <p class="text-xs font-black text-amber-700">₹{{ number_format($entryPending, 0) }}</p>
                                     </div>
                                 @endif
+
+                                @if ($entry['is_receipt_pending'] || $entry['grn_route'])
+                                    @if ($entry['grn_route'])
+                                        <a
+                                            href="{{ $entry['grn_route'] }}"
+                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs transition-all"
+                                        >
+                                            <svg class="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            Process GRN
+                                        </a>
+                                    @else
+                                        <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
+                                            @csrf
+                                            @method('PATCH')
+                                            <input type="hidden" name="flag" value="goods_received">
+                                            <input type="hidden" name="return_to" value="suppliers">
+                                            <input type="hidden" name="date" value="{{ $date }}">
+                                            <button
+                                                type="submit"
+                                                class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs transition-all"
+                                                title="Mark goods received"
+                                            >
+                                                <svg class="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                                Mark GRN
+                                            </button>
+                                        </form>
+                                    @endif
+                                @endif
+
+                                @if ($entry['is_payment_pending'] && $entry['payment_modal'])
+                                    <button
+                                        type="button"
+                                        onclick='openVendorHistoryPaymentModal(@json($entry['payment_modal']), "{{ $entry['payment_route'] }}")'
+                                        class="inline-flex h-8 items-center rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs transition-all"
+                                    >
+                                        Pay Bill
+                                    </button>
+                                @endif
+
                                 <button
                                     type="button"
                                     onclick='openVendorBillModal(@json($billModalPayload))'
-                                    class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs"
+                                    class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs transition-all"
                                 >
                                     View Bill
                                 </button>
@@ -133,34 +188,91 @@
                         @php
                             $mobileEntryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
                             $mobileBillModalPayload = [
-                                'supplierName'   => $supplier->name,
-                                'supplierMobile' => $supplier->mobile_number ?: '',
-                                'billRef'        => $entry['cart_number'],
-                                'invoiceNumber'  => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
-                                'date'           => $day['date_label'],
-                                'paymentStatus'  => $entry['payment_status'],
-                                'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
-                                'cashAmount'     => '₹' . number_format((float) $entry['paid_amount'], 2),
-                                'creditAmount'   => '₹' . number_format($mobileEntryPending, 2),
-                                'grnNumber'      => $entry['receipt_notes'] ? 'See notes below' : 'Pending',
-                                'items'          => collect($entry['item_summary'])->values()->all(),
+                                'supplierName'     => $supplier->name,
+                                'supplierMobile'   => $supplier->mobile_number ?: '',
+                                'billRef'          => $entry['cart_number'],
+                                'invoiceNumber'    => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
+                                'date'             => $day['date_label'],
+                                'paymentStatus'    => $entry['payment_status'],
+                                'totalAmount'      => '₹' . number_format((float) $entry['amount'], 2),
+                                'cashAmount'       => '₹' . number_format((float) $entry['paid_amount'], 2),
+                                'creditAmount'     => '₹' . number_format($mobileEntryPending, 2),
+                                'grnNumber'        => $entry['grn_number'] ?: ($entry['receipt_notes'] ? 'See notes below' : ($entry['is_receipt_pending'] ? 'Pending GRN' : 'Completed')),
+                                'grnStatus'        => $entry['grn_status'] ? ucfirst(str_replace('_', ' ', $entry['grn_status'])) : ($entry['is_receipt_pending'] ? 'Pending Receipt' : 'Received'),
+                                'grnRoute'         => $entry['grn_route'] ?? null,
+                                'isReceiptPending' => $entry['is_receipt_pending'] ?? false,
+                                'paymentModal'     => $entry['payment_modal'] ?? null,
+                                'paymentRoute'     => $entry['payment_route'] ?? null,
+                                'isPaymentPending' => $entry['is_payment_pending'] ?? false,
+                                'items'            => collect($entry['item_summary'])->values()->all(),
                             ];
                         @endphp
-                        <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
-                            <div class="flex-1 min-w-0">
-                                <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
-                                <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
+                        <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs space-y-2.5">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
+                                        <span class="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider {{ $entry['status_tone'] }}">
+                                            {{ $entry['status_label'] }}
+                                        </span>
+                                    </div>
+                                    <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
+                                    @if ($entry['grn_number'])
+                                        <p class="mt-0.5 text-[10px] font-mono font-bold text-slate-600">GRN: {{ $entry['grn_number'] }}</p>
+                                    @endif
+                                </div>
                                 @if ($mobileEntryPending > 0)
-                                    <p class="mt-1 text-xs font-black text-amber-700">Pending: ₹{{ number_format($mobileEntryPending, 0) }}</p>
+                                    <div class="text-right shrink-0">
+                                        <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Pending</p>
+                                        <p class="text-xs font-black text-amber-700">₹{{ number_format($mobileEntryPending, 0) }}</p>
+                                    </div>
                                 @endif
                             </div>
-                            <button
-                                type="button"
-                                onclick='openVendorBillModal(@json($mobileBillModalPayload))'
-                                class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs shrink-0"
-                            >
-                                View Bill
-                            </button>
+
+                            <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-100 flex-wrap">
+                                @if ($entry['is_receipt_pending'] || $entry['grn_route'])
+                                    @if ($entry['grn_route'])
+                                        <a
+                                            href="{{ $entry['grn_route'] }}"
+                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs"
+                                        >
+                                            Process GRN
+                                        </a>
+                                    @else
+                                        <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
+                                            @csrf
+                                            @method('PATCH')
+                                            <input type="hidden" name="flag" value="goods_received">
+                                            <input type="hidden" name="return_to" value="suppliers">
+                                            <input type="hidden" name="date" value="{{ $date }}">
+                                            <button
+                                                type="submit"
+                                                class="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs"
+                                            >
+                                                Mark GRN
+                                            </button>
+                                        </form>
+                                    @endif
+                                @endif
+
+                                @if ($entry['is_payment_pending'] && $entry['payment_modal'])
+                                    <button
+                                        type="button"
+                                        onclick='openVendorHistoryPaymentModal(@json($entry['payment_modal']), "{{ $entry['payment_route'] }}")'
+                                        class="inline-flex h-8 items-center rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs"
+                                    >
+                                        Pay Bill
+                                    </button>
+                                @endif
+
+                                <button
+                                    type="button"
+                                    onclick='openVendorBillModal(@json($mobileBillModalPayload))'
+                                    class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs shrink-0"
+                                >
+                                    View Bill
+                                </button>
+                            </div>
                         </div>
                     @endforeach
                 @endforeach
@@ -235,9 +347,12 @@
                     </div>
                 </div>
                 <!-- GRN -->
-                <div class="border-t border-slate-200 pt-2">
-                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">GRN</p>
-                    <p id="vb-grn" class="font-mono font-bold text-slate-800 mt-0.5 text-[11px]"></p>
+                <div class="border-t border-slate-200 pt-2.5 flex items-center justify-between gap-2">
+                    <div>
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Goods Received (GRN)</p>
+                        <p id="vb-grn" class="font-mono font-bold text-slate-800 mt-0.5 text-[11px]"></p>
+                    </div>
+                    <div id="vb-grn-action-container"></div>
                 </div>
             </div>
             <!-- Sticky Footer -->
@@ -345,7 +460,16 @@
             document.getElementById('vb-total').textContent = data.totalAmount;
             document.getElementById('vb-paid').textContent = data.cashAmount;
             document.getElementById('vb-credit').textContent = data.creditAmount;
-            document.getElementById('vb-grn').textContent = data.grnNumber;
+            document.getElementById('vb-grn').textContent = `${data.grnNumber}${data.grnStatus ? ' (' + data.grnStatus + ')' : ''}`;
+
+            const grnActionContainer = document.getElementById('vb-grn-action-container');
+            if (grnActionContainer) {
+                if (data.grnRoute) {
+                    grnActionContainer.innerHTML = `<a href="${data.grnRoute}" class="inline-flex h-7 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[10px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs">Process GRN →</a>`;
+                } else {
+                    grnActionContainer.innerHTML = '';
+                }
+            }
 
             const paidRow = document.getElementById('vb-paid-row');
             const creditRow = document.getElementById('vb-credit-row');
