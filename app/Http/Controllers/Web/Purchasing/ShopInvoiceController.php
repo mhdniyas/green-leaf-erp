@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Spatie\Activitylog\Models\Activity;
 
 class ShopInvoiceController extends Controller
 {
@@ -39,7 +40,7 @@ class ShopInvoiceController extends Controller
             ->when($selectedDate !== null, fn ($query) => $query->whereDate('business_date', $selectedDate));
 
         $invoiceQuery = ShopInvoice::query()
-            ->with(['shop', 'order.shopCheckedBy', 'items.orderItem'])
+            ->with(['shop', 'order.shopCheckedBy', 'order.adminReviewedBy', 'items.orderItem', 'discountApprovedBy', 'finalizedBy'])
             ->latest('business_date')
             ->latest('id');
 
@@ -113,17 +114,24 @@ class ShopInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order.shopCheckedBy', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy']);
+        $invoice->load(['shop', 'order.shopCheckedBy', 'order.adminReviewedBy', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
         $invoice->load(['paymentRequests.requestedBy', 'paymentRequests.reviewedBy']);
+        $activities = Activity::query()
+            ->with('causer')
+            ->where('subject_type', ShopInvoice::class)
+            ->where('subject_id', $invoice->id)
+            ->latest('created_at')
+            ->latest('id')
+            ->get();
 
-        return view('purchasing.shop-invoices.show', compact('invoice'));
+        return view('purchasing.shop-invoices.show', compact('invoice', 'activities'));
     }
 
     public function pdf(Request $request, ShopInvoice $invoice): View
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy']);
+        $invoice->load(['shop', 'order', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy', 'finalizedBy']);
 
         return view('purchasing.shop-invoices.pdf', compact('invoice'));
     }

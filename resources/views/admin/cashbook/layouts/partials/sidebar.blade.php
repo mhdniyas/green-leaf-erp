@@ -100,6 +100,10 @@
                     <i data-lucide="circle-dollar-sign" class="w-4 h-4"></i>
                     <span>Direct Company Sales</span>
                 </a>
+                <a href="{{ route('admin.cashbook.finance.gl-bills') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.gl-bills*') || request()->routeIs('admin.cashbook.reports.gl-bills*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="receipt" class="w-4 h-4"></i>
+                    <span>GL Bills</span>
+                </a>
                 <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bank-accounts.*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="landmark" class="w-4 h-4"></i>
                     <span>Bank &amp; Cash In Hand</span>

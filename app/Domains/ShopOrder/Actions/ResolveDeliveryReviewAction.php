@@ -260,6 +260,12 @@ class ResolveDeliveryReviewAction
             ]);
 
             $invoice = $this->shopInvoiceService->recalculate($invoice->fresh('items'));
+            $invoice = $this->shopInvoiceService->markFinalized(
+                $invoice,
+                $userId,
+                'admin_delivery_review_finalized',
+                'Admin finalized delivery review.'
+            );
 
             $lockedOrder->update([
                 'delivery_status' => $hasShortage ? 'partially_delivered' : 'delivered',

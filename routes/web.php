@@ -690,6 +690,7 @@ Route::middleware('auth')->group(function () {
             Route::post('finance/direct-sales', [CashbookController::class, 'storeDirectCompanySale'])->name('finance.direct-sales.store');
             Route::get('finance/direct-sales/{directCompanySale:public_uuid}', [CashbookController::class, 'showDirectCompanySale'])->name('finance.direct-sales.show');
             Route::get('finance/direct-sales/{directCompanySale:public_uuid}/bill', [CashbookController::class, 'directCompanySaleBill'])->name('finance.direct-sales.bill');
+            Route::get('finance/gl-bills', [AdminCashbookReportsController::class, 'glBills'])->name('finance.gl-bills');
             Route::get('finance/purchase/product-filters', [PurchaseProductFilterController::class, 'index'])->name('finance.purchase.product-filters.index');
             Route::get('finance/purchase/product-filters/create', [PurchaseProductFilterController::class, 'create'])->name('finance.purchase.product-filters.create');
             Route::post('finance/purchase/product-filters', [PurchaseProductFilterController::class, 'store'])->name('finance.purchase.product-filters.store');

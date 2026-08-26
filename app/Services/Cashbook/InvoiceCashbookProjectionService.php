@@ -34,6 +34,10 @@ class InvoiceCashbookProjectionService
         }
 
         $invoice->refresh();
+        if (! $invoice->isFinalized()) {
+            return null;
+        }
+
         $businessDate = $invoice->business_date?->toDateString() ?? today()->toDateString();
         $amount = round((float) $invoice->final_total, 2);
         $shouldVoid = $invoice->status === 'cancelled' || $amount <= 0.0;

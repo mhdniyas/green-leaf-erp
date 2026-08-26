@@ -137,6 +137,7 @@ class CashbookShopSyncService
     public function syncInvoicesToCashbook(): void
     {
         $invoices = ShopInvoice::where('final_total', '>', 0)
+            ->whereNotNull('finalized_at')
             ->where('status', '!=', 'cancelled')
             ->orderBy('id')
             ->get();

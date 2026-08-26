@@ -58,6 +58,10 @@
             $reviewItems = $invoice->items;
         }
         $hiddenItemCount = max(0, $invoice->items->count() - $reviewItems->count());
+        $originalInvoiceAmount = round((float) $invoice->items->sum('line_subtotal'), 2);
+        $currentAdjustedAmount = round((float) $invoice->final_total, 2);
+        $invoiceDifference = round($currentAdjustedAmount - $originalInvoiceAmount, 2);
+        $finalizationLabel = $invoice->finalized_at ? 'Finalized' : ($isDeliveryReviewPending ? 'Needs Admin Review' : 'Ready to Finalize');
     @endphp
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -86,10 +90,10 @@
                         @endif
                     @endif
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
-                        {{ $invoice->delivery_status === 'awaiting_review' ? 'Awaiting Admin Review' : str($invoice->delivery_status)->replace('_', ' ')->title() }}
+                        {{ $invoice->order?->shop_checked_at ? 'Shop Submitted' : 'Awaiting Shop Check' }}
                     </span>
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
-                        {{ str($invoice->payment_status)->replace('_', ' ')->title() }}
+                        {{ $finalizationLabel }}
                     </span>
                 </div>
             </div>
@@ -115,24 +119,24 @@
             <div class="px-5 py-5">
                 <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Loaded Value</p>
-                        <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format($loadedInvoiceValue, 2) }}</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Original Invoice Amount</p>
+                        <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format($originalInvoiceAmount, 2) }}</p>
                     </div>
                     <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Shortage</p>
-                        <p class="mt-2 text-lg font-black text-amber-800">-Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Current Adjusted Amount</p>
+                        <p class="mt-2 text-lg font-black text-amber-800">Rs. {{ number_format($grossPayableAmount, 2) }}</p>
                     </div>
                     <div class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Excess</p>
-                        <p class="mt-2 text-lg font-black text-cyan-800">+Rs. {{ number_format((float) $invoice->excess_total, 2) }}</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Difference</p>
+                        <p class="mt-2 text-lg font-black text-cyan-800">Rs. {{ number_format($invoiceDifference, 2) }}</p>
                     </div>
                     <div class="rounded-2xl border border-slate-200 bg-white p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Final Invoice</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Discount</p>
+                        <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Final Amount</p>
                         <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
-                    </div>
-                    <div class="rounded-2xl border border-slate-200 bg-white p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
-                        <p class="mt-2 text-lg font-black {{ (float) $invoice->balance_amount > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</p>
                     </div>
                 </div>
 
@@ -268,8 +272,8 @@
                 <div class="flex flex-col gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-amber-700">Delivery Review</p>
-                        <h2 class="mt-1 text-lg font-black text-slate-950">Review Exceptions & Approve</h2>
-                        <p class="mt-1 text-sm font-semibold text-slate-600">Only items with shop notes, shortage, or excess are shown here. Final quantity stays in the loadout unit.</p>
+                        <h2 class="mt-1 text-lg font-black text-slate-950">Review Quantities & Finalize</h2>
+                        <p class="mt-1 text-sm font-semibold text-slate-600">Correct final quantities, then record one overall delivery review note.</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         @if($invoice->order)
@@ -306,7 +310,7 @@
                                 <th class="px-3 py-3 text-right">Bill Impact</th>
                                 <th class="px-3 py-3">Inventory Impact</th>
                                 <th class="px-3 py-3">Final Qty</th>
-                                <th class="px-4 py-3">Manager Note</th>
+                                <th class="px-4 py-3">Adjustment Reason</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
@@ -444,16 +448,8 @@
                                         @enderror
                                     </td>
                                     <td class="px-4 py-2.5">
-                                        <input
-                                            form="delivery-discrepancy-approve-form"
-                                            name="item_review_notes[{{ $item->shop_order_item_id }}]"
-                                            value="{{ old("item_review_notes.{$item->shop_order_item_id}") }}"
-                                            class="h-9 w-72 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-amber-400 focus:outline-none"
-                                            placeholder="Note if correction is needed"
-                                        >
-                                        @error("item_review_notes.{$item->shop_order_item_id}")
-                                            <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
-                                        @enderror
+                                        <input form="delivery-discrepancy-approve-form" type="hidden" name="item_review_notes[{{ $item->shop_order_item_id }}]" value="">
+                                        <p class="max-w-[16rem] text-xs font-semibold leading-5 text-slate-600">Use overall note below for this delivery review.</p>
                                     </td>
                                 </tr>
                             @endforeach
@@ -465,11 +461,11 @@
                     <div class="grid gap-4 lg:grid-cols-2">
                         <div class="rounded-2xl border border-emerald-200 bg-white p-4">
                             <label class="block">
-                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Approval Note</span>
-                                <textarea form="delivery-discrepancy-approve-form" name="review_note" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-400 focus:outline-none" placeholder="Optional note for approval">{{ old('review_note') }}</textarea>
+                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Delivery Note</span>
+                                <textarea form="delivery-discrepancy-approve-form" name="review_note" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-400 focus:outline-none" placeholder="One overall note for shortages, damage, or correction reason">{{ old('review_note', $invoice->delivery_note) }}</textarea>
                             </label>
                             <button form="delivery-discrepancy-approve-form" type="submit" class="mt-3 inline-flex h-10 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white hover:bg-emerald-700 sm:w-auto">
-                                Approve Delivery Review
+                                Finalize Invoice
                             </button>
                         </div>
 
@@ -534,13 +530,13 @@
                     <thead class="border-b border-slate-100 bg-slate-50 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
                         <tr>
                             <th class="px-5 py-4">Product</th>
-                            <th class="px-5 py-4 text-right">Approved</th>
-                            <th class="px-5 py-4 text-right">Bill Qty</th>
-                            <th class="px-5 py-4 text-right">Delivered</th>
+                            <th class="px-5 py-4 text-right">Ordered / Loaded</th>
+                            <th class="px-5 py-4 text-right">Shop Submitted</th>
+                            <th class="px-5 py-4 text-right">Admin Final Qty</th>
                             <th class="px-5 py-4 text-right">Unit Price</th>
-                            <th class="px-5 py-4 text-right">Shortage</th>
-                            <th class="px-5 py-4 text-right">Excess</th>
-                            <th class="px-5 py-4 text-right">Final</th>
+                            <th class="px-5 py-4 text-right">Original Line Amount</th>
+                            <th class="px-5 py-4 text-right">Final Line Amount</th>
+                            <th class="px-5 py-4 text-right">Difference</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
@@ -572,18 +568,62 @@
                                     @endif
                                 </td>
                                 <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }} {{ $formatUnit($item->product->unit) }}</td>
-                                <td class="px-5 py-4 text-right font-black text-slate-900">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ $formatUnit($item->price_unit ?: $item->product->unit) }}</td>
+                                <td class="px-5 py-4 text-right font-black text-slate-900">{{ number_format((float) ($item->orderItem?->shop_reported_received_qty ?? $item->delivered_qty), 2) }} {{ $formatUnit($item->product->unit) }}</td>
                                 <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $formatUnit($item->product->unit) }}</td>
                                 <td class="px-5 py-4 text-right text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ $formatUnit($item->price_unit ?: $item->product->unit) }}</td>
-                                <td class="px-5 py-4 text-right text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
-                                <td class="px-5 py-4 text-right text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
+                                <td class="px-5 py-4 text-right text-slate-700">Rs. {{ number_format((float) $item->line_subtotal, 2) }}</td>
                                 <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
+                                <td class="px-5 py-4 text-right font-black {{ ((float) $item->final_line_total - (float) $item->line_subtotal) < 0 ? 'text-rose-700' : 'text-cyan-700' }}">Rs. {{ number_format((float) $item->final_line_total - (float) $item->line_subtotal, 2) }}</td>
                             </tr>
                         @endforeach
                     </tbody>
                 </table>
             </div>
         </details>
+
+        <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 px-5 py-4">
+                <h2 class="text-lg font-black text-slate-950">Adjustment History</h2>
+                <p class="mt-1 text-sm text-slate-600">Quantity, discount, finalization, and note changes recorded for this invoice.</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-left text-sm">
+                    <thead class="border-b border-slate-100 bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
+                        <tr>
+                            <th class="px-5 py-4">Date / Time</th>
+                            <th class="px-5 py-4">Changed By</th>
+                            <th class="px-5 py-4">Field / Product</th>
+                            <th class="px-5 py-4">Before</th>
+                            <th class="px-5 py-4">After</th>
+                            <th class="px-5 py-4">Reason / Note</th>
+                            <th class="px-5 py-4">Source</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse (($activities ?? collect()) as $activity)
+                            @php
+                                $properties = $activity->properties?->toArray() ?? [];
+                                $before = $properties['before'] ?? [];
+                                $after = $properties['after'] ?? [];
+                            @endphp
+                            <tr>
+                                <td class="px-5 py-4 text-xs font-semibold text-slate-600">{{ $activity->created_at?->format('d M Y h:i A') }}</td>
+                                <td class="px-5 py-4 font-semibold text-slate-900">{{ $activity->causer?->name ?? 'System' }}</td>
+                                <td class="px-5 py-4 text-xs font-black text-slate-700">{{ str((string) $activity->event)->replace('_', ' ')->title() }}</td>
+                                <td class="px-5 py-4"><pre class="whitespace-pre-wrap text-xs font-semibold text-slate-600">{{ json_encode($before, JSON_PRETTY_PRINT) }}</pre></td>
+                                <td class="px-5 py-4"><pre class="whitespace-pre-wrap text-xs font-semibold text-slate-600">{{ json_encode($after, JSON_PRETTY_PRINT) }}</pre></td>
+                                <td class="px-5 py-4 text-xs font-semibold text-slate-700">{{ $properties['reason'] ?? 'No reason recorded.' }}</td>
+                                <td class="px-5 py-4 text-xs font-black text-slate-500">{{ str((string) ($properties['source'] ?? 'system'))->replace('_', ' ')->title() }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="px-5 py-8 text-center text-sm font-semibold text-slate-500">No adjustment activity recorded yet.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
         @if (auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin'))
             <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -695,7 +735,14 @@
                         <p class="mt-1 text-sm text-slate-600">Apply audited discount first, then record collected money against the finalized bill.</p>
                     </div>
 
-                    @if ($isDeliveryReviewPending)
+                    @if ($invoice->finalized_at)
+                        <div class="px-5 py-5">
+                            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                                <p class="text-sm font-black text-emerald-900">Finalized bill is locked.</p>
+                                <p class="mt-1 text-sm font-semibold text-emerald-800">Normal admin review, shop delivery edits, and repricing cannot change this invoice.</p>
+                            </div>
+                        </div>
+                    @elseif ($isDeliveryReviewPending)
                         <div class="px-5 py-5">
                             <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                                 <p class="text-sm font-black text-amber-900">Approve delivery review before discount or payment changes.</p>

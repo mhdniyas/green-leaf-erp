@@ -79,6 +79,10 @@ class ShopInvoiceService
     {
         $order->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
 
+        if ($order->invoice instanceof ShopInvoice && $order->invoice->isFinalLocked()) {
+            return $order->invoice->fresh('items');
+        }
+
         $missingProducts = $this->missingDailyPriceProductNamesForOrder($order);
         if ($missingProducts !== []) {
             throw ValidationException::withMessages([
@@ -302,6 +306,7 @@ class ShopInvoiceService
             ]);
 
             if (! $hasDiscrepancy) {
+                $invoice = $this->markFinalized($invoice, $userId, 'shop_delivery_finalized', 'Shop delivery submitted without discrepancy.');
                 $this->syncOwnedShopBalanceForInvoice($invoice, $userId);
             }
 
@@ -318,14 +323,18 @@ class ShopInvoiceService
             $invoice = $this->synchronizeOrderInvoice($order, $userId);
         }
 
+        if ($invoice->isFinalized()) {
+            return $invoice->fresh('items');
+        }
+
         $invoice->update([
             'delivery_status' => 'approved_after_discrepancy',
-            'status' => 'finalized',
             'delivery_confirmed_by' => $invoice->delivery_confirmed_by ?? $userId,
             'delivery_confirmed_at' => $invoice->delivery_confirmed_at ?? now(),
         ]);
 
         $invoice = $this->recalculate($invoice->fresh('items'));
+        $invoice = $this->markFinalized($invoice, $userId, 'admin_delivery_review_finalized', 'Admin finalized delivery discrepancy.');
 
         $order->update([
             'is_delivered' => true,
@@ -348,6 +357,8 @@ class ShopInvoiceService
     public function approvePayment(ShopInvoice $invoice, array $payload, int $userId): ShopInvoice
     {
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoice {
+            $this->assertInvoiceFinalizedForMoneyMutation($invoice);
+
             $invoice->update([
                 'discount_total' => round((float) ($payload['discount_total'] ?? 0), 2),
                 'paid_amount' => round((float) ($payload['paid_amount'] ?? 0), 2),
@@ -681,6 +692,7 @@ class ShopInvoiceService
     {
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
             $invoice->refresh();
+            $this->assertInvoiceFinalizedForMoneyMutation($invoice);
 
             $paymentApplication = (string) ($payload['payment_application'] ?? 'invoice_pending');
             $currentPaidAmount = round((float) $invoice->paid_amount, 2);
@@ -746,6 +758,18 @@ class ShopInvoiceService
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoice {
             $invoice->refresh();
 
+            if ($invoice->isFinalized()) {
+                throw ValidationException::withMessages([
+                    'discount_total' => 'This shop invoice is finalized. Reopen/correction flow is required before changing discounts.',
+                ]);
+            }
+
+            $before = [
+                'discount_total' => round((float) $invoice->discount_total, 2),
+                'discount_note' => $invoice->discount_note,
+                'final_total' => round((float) $invoice->final_total, 2),
+            ];
+
             $invoice->update([
                 'discount_total' => round((float) $payload['discount_total'], 2),
                 'discount_note' => trim((string) $payload['discount_note']),
@@ -754,6 +778,11 @@ class ShopInvoiceService
             ]);
 
             $invoice = $this->recalculate($invoice->fresh('items'));
+            $this->recordInvoiceActivity($invoice, 'discount_updated', $userId, $before, [
+                'discount_total' => round((float) $invoice->discount_total, 2),
+                'discount_note' => $invoice->discount_note,
+                'final_total' => round((float) $invoice->final_total, 2),
+            ], trim((string) $payload['discount_note']), 'admin_discount');
 
             if ($invoice->order) {
                 $invoice->order->update([
@@ -1115,9 +1144,76 @@ class ShopInvoiceService
         ]);
 
         $invoice = $invoice->fresh('items');
-        $this->invoiceCashbookProjectionService->syncInvoice($invoice);
+
+        if ($invoice->isFinalized()) {
+            $this->invoiceCashbookProjectionService->syncInvoice($invoice);
+        }
 
         return $invoice;
+    }
+
+    public function markFinalized(ShopInvoice $invoice, int $userId, string $event, string $reason): ShopInvoice
+    {
+        $invoice = ShopInvoice::query()->with('items')->lockForUpdate()->findOrFail($invoice->id);
+
+        if ($invoice->finalized_at !== null) {
+            return $invoice->fresh('items');
+        }
+
+        $before = [
+            'status' => $invoice->status,
+            'delivery_status' => $invoice->delivery_status,
+            'final_total' => round((float) $invoice->final_total, 2),
+            'balance_amount' => round((float) $invoice->balance_amount, 2),
+        ];
+
+        $paymentStatus = (float) $invoice->balance_amount <= 0.0001 ? 'paid' : $invoice->payment_status;
+        $invoice->forceFill([
+            'status' => $paymentStatus === 'paid' ? 'paid' : 'payment_pending',
+            'payment_status' => $paymentStatus,
+            'finalized_by' => $userId,
+            'finalized_at' => now(),
+        ])->save();
+
+        $invoice = $invoice->fresh('items');
+        $this->recordInvoiceActivity($invoice, $event, $userId, $before, [
+            'status' => $invoice->status,
+            'delivery_status' => $invoice->delivery_status,
+            'final_total' => round((float) $invoice->final_total, 2),
+            'balance_amount' => round((float) $invoice->balance_amount, 2),
+            'finalized_at' => $invoice->finalized_at?->toDateTimeString(),
+        ], $reason, 'finalization');
+        $this->invoiceCashbookProjectionService->syncInvoice($invoice, $userId);
+
+        return $invoice;
+    }
+
+    private function assertInvoiceFinalizedForMoneyMutation(ShopInvoice $invoice): void
+    {
+        if (! $invoice->isFinalized()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'Money changes can only be recorded against a finalized shop invoice.',
+            ]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
+     */
+    private function recordInvoiceActivity(ShopInvoice $invoice, string $event, int $userId, array $before, array $after, ?string $reason, string $source): void
+    {
+        activity('shop_invoice')
+            ->performedOn($invoice)
+            ->causedBy($userId)
+            ->event($event)
+            ->withProperties([
+                'before' => $before,
+                'after' => $after,
+                'reason' => $reason,
+                'source' => $source,
+            ])
+            ->log($event);
     }
 
     /**

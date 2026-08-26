@@ -17,6 +17,34 @@
             'payment-pending' => ['label' => 'Payment Pending', 'count' => $paymentPendingCount, 'tone' => 'indigo'],
             'all' => ['label' => 'All', 'count' => $allInvoicesCount, 'tone' => 'slate'],
         ];
+        $statusLabel = function ($invoice): string {
+            if ($invoice->finalized_at || in_array((string) $invoice->status, ['payment_pending', 'paid'], true)) {
+                return ((float) $invoice->discount_total > 0 || (float) $invoice->shortage_total > 0 || (float) $invoice->excess_total > 0)
+                    ? 'Adjusted by Admin'
+                    : 'Finalized';
+            }
+
+            if ($invoice->order?->delivery_status === 'pending_approval') {
+                return 'Needs Admin Review';
+            }
+
+            if ($invoice->delivery_status === 'awaiting_review') {
+                return 'Shop Submitted';
+            }
+
+            return 'Awaiting Shop Check';
+        };
+        $deliveryLabel = function ($invoice): string {
+            if ($invoice->order?->shop_checked_at) {
+                return 'Shop Submitted';
+            }
+
+            if ($invoice->order?->delivery_status === 'in_transit') {
+                return 'Awaiting Shop Check';
+            }
+
+            return $statusLabel($invoice);
+        };
     @endphp
 
     <div class="space-y-5">
@@ -46,7 +74,7 @@
                 <div>
                     <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Purchasing</p>
                     <h1 class="mt-1 text-2xl font-black text-slate-950">Shop Invoice Queue</h1>
-                    <p class="mt-1 text-sm font-semibold text-slate-600">{{ $switchCarbonDate->format('d M Y') }} · {{ $invoices->total() }} invoices in this view</p>
+                            <p class="mt-1 text-sm font-semibold text-slate-600">{{ $switchCarbonDate->format('d M Y') }} · {{ $invoices->total() }} invoices in review workspace</p>
                 </div>
                 <form method="GET" action="{{ route('purchasing.shop-invoices.index') }}" class="flex flex-wrap items-center gap-2">
                     <input type="hidden" name="tab" value="{{ $tab }}">
@@ -140,11 +168,13 @@
                             <tr>
                                 <th class="px-5 py-4">Invoice</th>
                                 <th class="px-5 py-4">Shop</th>
-                                <th class="px-5 py-4">Status</th>
-                                <th class="px-5 py-4">Shop Notes</th>
+                                <th class="px-5 py-4">Business Date</th>
+                                <th class="px-5 py-4 text-right">Original Amount</th>
+                                <th class="px-5 py-4 text-right">Adjusted Amount</th>
                                 <th class="px-5 py-4">Difference</th>
-                                <th class="px-5 py-4 text-right">Final</th>
-                                <th class="px-5 py-4 text-right">Balance</th>
+                                <th class="px-5 py-4">Delivery Status</th>
+                                <th class="px-5 py-4">Invoice Status</th>
+                                <th class="px-5 py-4">Last Action</th>
                                 <th class="px-5 py-4 text-right">Action</th>
                             </tr>
                         </thead>
@@ -160,6 +190,14 @@
                                     $reportedShort = (float) $invoice->items->sum(fn ($item) => (float) ($item->orderItem?->shop_reported_missing_qty ?? 0));
                                     $reportedExcess = (float) $invoice->items->sum(fn ($item) => (float) ($item->orderItem?->shop_reported_excess_qty ?? 0));
                                     $actionLabel = $needsApproval ? 'Review & Approve' : 'Open';
+                                    $originalAmount = round((float) $invoice->items->sum('line_subtotal'), 2);
+                                    $adjustedAmount = round((float) $invoice->final_total, 2);
+                                    $difference = round($adjustedAmount - $originalAmount, 2);
+                                    $lastAction = $invoice->finalized_at
+                                        ? 'Finalized by '.($invoice->finalizedBy?->name ?? 'Admin')
+                                        : ($invoice->order?->admin_reviewed_at
+                                            ? 'Reviewed by '.($invoice->order->adminReviewedBy?->name ?? 'Admin')
+                                            : ($invoice->order?->shop_checked_at ? 'Submitted by shop' : 'Generated'));
                                 @endphp
                                 <tr class="{{ $needsApproval ? 'bg-amber-50/60' : 'hover:bg-slate-50/70' }}">
                                     <td class="px-5 py-4">
@@ -167,31 +205,18 @@
                                         <p class="mt-1 text-xs font-semibold text-slate-500">{{ $invoice->business_date->format('d M Y') }}</p>
                                     </td>
                                     <td class="px-5 py-4 font-semibold text-slate-950">{{ $invoice->shop?->name }}</td>
-                                    <td class="px-5 py-4">
-                                        <div class="flex flex-col gap-1.5">
-                                            @if ($needsApproval)
-                                                <span class="w-fit rounded-full bg-amber-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-amber-900">Needs Approval</span>
-                                            @endif
-                                            <span class="text-xs font-bold text-slate-600">{{ str($invoice->delivery_status)->replace('_', ' ')->title() }}</span>
-                                            <span class="text-xs font-bold text-slate-500">{{ str($invoice->payment_status)->replace('_', ' ')->title() }}</span>
-                                        </div>
-                                    </td>
-                                    <td class="max-w-sm px-5 py-4">
-                                        @if ($shopNotes->isNotEmpty())
-                                            <p class="text-xs font-black text-amber-800">{{ $shopNotes->count() }} note{{ $shopNotes->count() === 1 ? '' : 's' }}</p>
-                                            <p class="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-700">{{ $shopNotes->take(2)->implode(' · ') }}</p>
-                                        @else
-                                            <span class="text-xs font-semibold text-slate-400">No shop notes</span>
-                                        @endif
-                                    </td>
+                                    <td class="px-5 py-4 text-xs font-bold text-slate-600">{{ $invoice->business_date->format('d M Y') }}</td>
+                                    <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format($originalAmount, 2) }}</td>
+                                    <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format($adjustedAmount, 2) }}</td>
                                     <td class="px-5 py-4">
                                         <div class="flex flex-col gap-1.5 text-xs font-black">
-                                            <span class="{{ $reportedShort > 0 ? 'text-amber-700' : 'text-slate-400' }}">Short {{ number_format($reportedShort, 2) }}</span>
-                                            <span class="{{ $reportedExcess > 0 ? 'text-cyan-700' : 'text-slate-400' }}">Excess {{ number_format($reportedExcess, 2) }}</span>
+                                            <span class="{{ $difference < 0 ? 'text-rose-700' : ($difference > 0 ? 'text-cyan-700' : 'text-slate-500') }}">Rs. {{ number_format($difference, 2) }}</span>
+                                            <span class="{{ ($reportedShort + $reportedExcess) > 0 ? 'text-amber-700' : 'text-slate-400' }}">Qty {{ number_format($reportedShort + $reportedExcess, 2) }}</span>
                                         </div>
                                     </td>
-                                    <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</td>
-                                    <td class="px-5 py-4 text-right font-black {{ (float) $invoice->balance_amount > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
+                                    <td class="px-5 py-4 text-xs font-bold text-slate-600">{{ $deliveryLabel($invoice) }}</td>
+                                    <td class="px-5 py-4"><span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">{{ $statusLabel($invoice) }}</span></td>
+                                    <td class="px-5 py-4 text-xs font-semibold text-slate-600">{{ $lastAction }}</td>
                                     <td class="px-5 py-4 text-right">
                                         <div class="flex items-center justify-end gap-3">
                                             <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="font-black uppercase tracking-[0.14em] text-slate-500 hover:text-slate-700">PDF</a>

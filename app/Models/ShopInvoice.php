@@ -41,6 +41,8 @@ class ShopInvoice extends Model
         'payment_approved_at',
         'price_updated_by',
         'price_updated_at',
+        'finalized_by',
+        'finalized_at',
     ];
 
     protected function casts(): array
@@ -58,6 +60,7 @@ class ShopInvoice extends Model
             'discount_approved_at' => 'datetime',
             'payment_approved_at' => 'datetime',
             'price_updated_at' => 'datetime',
+            'finalized_at' => 'datetime',
         ];
     }
 
@@ -91,9 +94,15 @@ class ShopInvoice extends Model
         $hasZeroOrNegativeBalance = (float) $this->balance_amount <= 0.0001;
         $hasBillableTotal = (float) $this->final_total > 0.0001;
 
-        return in_array($this->delivery_status, ['received_full', 'approved_after_discrepancy'], true)
+        return $this->finalized_at !== null
+            || in_array($this->delivery_status, ['received_full', 'approved_after_discrepancy'], true)
             || in_array($this->status, ['finalized', 'payment_pending'], true)
             || ($this->status === 'paid' && $hasZeroOrNegativeBalance && $hasBillableTotal);
+    }
+
+    public function isFinalized(): bool
+    {
+        return $this->finalized_at !== null || in_array($this->status, ['finalized', 'payment_pending', 'paid'], true);
     }
 
     public function generatedBy(): BelongsTo
@@ -119,5 +128,10 @@ class ShopInvoice extends Model
     public function priceUpdatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'price_updated_by');
+    }
+
+    public function finalizedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'finalized_by');
     }
 }
