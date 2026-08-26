@@ -1327,12 +1327,21 @@ class PurchaserDashboardController extends Controller
             ])
             ->firstOrFail();
 
+        $operationalDate = $this->businessDayService->operationalDate();
         $relatedBatchState = $this->relatedBatchStateForCarts($supplier->purchaserCarts);
         $vendorHistoryEntries = $supplier->purchaserCarts
-            ->map(function (PurchaserCart $cart) use ($relatedBatchState): array {
+            ->map(function (PurchaserCart $cart) use ($relatedBatchState, $operationalDate): array {
                 $invoice = $cart->purchaseInvoice;
                 $batchState = $relatedBatchState[(int) $cart->id] ?? [];
-                $operationalState = $this->cartOperationalState($cart, $batchState);
+                $isCancelled = $cart->status === 'cancelled' || ($cart->status === 'draft' && $cart->business_date->lt($operationalDate));
+                $operationalState = $isCancelled
+                    ? [
+                        'label' => 'Cancelled',
+                        'tone' => 'bg-rose-100 text-rose-700',
+                        'unresolved' => false,
+                        'payment_pending' => false,
+                    ]
+                    : $this->cartOperationalState($cart, $batchState);
                 $receiptNotes = $cart->goodsReceived?->notes;
                 $discrepancySummary = $this->buildReceiptDiscrepancySummary($cart->goodsReceived);
                 $itemCount = (int) $cart->items->count();
@@ -1356,8 +1365,6 @@ class PurchaserDashboardController extends Controller
                     })
                     ->values()
                     ->all();
-
-                $isCancelled = $cart->status === 'cancelled';
 
                 return [
                     'date_key' => $cart->business_date->format('Y-m-d'),
