@@ -19,9 +19,12 @@ use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Reports\ShopProfitIntelligenceService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\StreamedResponse;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -180,10 +183,76 @@ class AdminCashbookReportsController extends Controller
      */
     public function glBills(Request $request): View
     {
+        $report = $this->glBillsReport($request, true);
+
+        return view('admin.cashbook.reports.gl_bills', [
+            ...$report,
+            'activeTab' => 'gl-bills',
+        ]);
+    }
+
+    public function glBillsExportCsv(Request $request): StreamedResponse
+    {
+        $report = $this->glBillsReport($request, false);
+        $rows = $this->glBillsExportRows($report);
+        $filename = $this->glBillsFilename($report, 'csv');
+
+        return response()->streamDownload(function () use ($rows): void {
+            $file = fopen('php://output', 'w');
+            if ($file === false) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                fputcsv($file, $row);
+            }
+
+            fclose($file);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    public function glBillsExportPdf(Request $request): mixed
+    {
+        $report = $this->glBillsReport($request, false);
+
+        $viewData = [
+            ...$report,
+            'title' => 'GL Bills Export',
+            'exportRows' => $this->glBillsExportRows($report),
+        ];
+
+        if ($request->boolean('download', false) || $request->input('download') === '1') {
+            return Pdf::loadView('admin.cashbook.reports.gl_bills_pdf_download', $viewData)
+                ->setPaper('a4', 'portrait')
+                ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true])
+                ->download($this->glBillsFilename($report, 'pdf'));
+        }
+
+        return view('admin.cashbook.reports.gl_bills_pdf', $viewData);
+    }
+
+    /**
+     * @return array{
+     *     shops: Collection<int, mixed>,
+     *     selectedShop: mixed,
+     *     selectedShopId: int|null,
+     *     productFilters: Collection<int, PurchaseProductFilter>,
+     *     selectedProductFilter: PurchaseProductFilter|null,
+     *     selectedProductFilterUuid: string,
+     *     filterProductIds: array<int, int>,
+     *     invoices: Collection<int, ShopInvoice>|LengthAwarePaginator,
+     *     totals: array{total_billed: float, total_paid: float, total_balance: float, count: int},
+     *     timeframe: string,
+     *     startDate: string,
+     *     endDate: string
+     * }
+     */
+    private function glBillsReport(Request $request, bool $paginate): array
+    {
         $this->ensureAuthorized($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
-        $ownedShops = $shops->filter(fn ($s) => $s->client_id !== null)->values();
+        $ownedShops = $shops->filter(fn ($shop) => $shop->client_id !== null)->values();
         $shops = $ownedShops->isNotEmpty() ? $ownedShops : $shops;
 
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
@@ -191,116 +260,48 @@ class AdminCashbookReportsController extends Controller
 
         $timeframe = (string) $request->input('timeframe', 'monthly');
         $dateRange = $this->resolveDateRange($timeframe, $request);
-
         $productFilters = PurchaseProductFilter::query()
             ->where('is_active', true)
             ->orderBy('name')
             ->get();
 
         $selectedProductFilterUuid = (string) $request->input('product_filter', '');
-        $selectedProductFilter = null;
-        if ($selectedProductFilterUuid !== '') {
-            $selectedProductFilter = $productFilters->firstWhere('uuid', $selectedProductFilterUuid)
-                ?? PurchaseProductFilter::query()->where('uuid', $selectedProductFilterUuid)->first();
-        }
+        $selectedProductFilter = $selectedProductFilterUuid === ''
+            ? null
+            : ($productFilters->firstWhere('uuid', $selectedProductFilterUuid)
+                ?? PurchaseProductFilter::query()->where('uuid', $selectedProductFilterUuid)->first());
 
-        if ($selectedShopId) {
-            $filterProductIds = $selectedProductFilter
-                ? $selectedProductFilter->getProductIds()
-                : [];
+        $filterProductIds = $selectedProductFilter
+            ? $selectedProductFilter->getProductIds()
+            : [];
 
-            // Constrained eager load: when filter is active, only fetch matching items.
-            // Without filter, load all items (existing behaviour).
-            if ($filterProductIds !== []) {
-                $itemsEager = [
-                    'shop',
-                    'order',
-                    'items' => fn ($q) => $q->whereIn('product_id', $filterProductIds)->with('product'),
-                ];
-            } else {
-                $itemsEager = ['shop', 'order', 'items.product'];
-            }
-
-            $query = ShopInvoice::query()
-                ->with($itemsEager)
-                ->where('shop_id', $selectedShopId)
-                ->whereDate('business_date', '>=', $dateRange['start'])
-                ->whereDate('business_date', '<=', $dateRange['end']);
-
-            if ($selectedProductFilter && $filterProductIds !== []) {
-                // Only include invoices that have at least one matching item.
-                $filterId = (int) $selectedProductFilter->id;
-                $query->whereExists(function ($sub) use ($filterId): void {
-                    $sub->selectRaw('1')
-                        ->from('shop_invoice_items')
-                        ->join('purchase_product_filter_items', 'purchase_product_filter_items.product_id', '=', 'shop_invoice_items.product_id')
-                        ->whereColumn('shop_invoice_items.shop_invoice_id', 'shop_invoices.id')
-                        ->where('purchase_product_filter_items.filter_id', $filterId);
-                });
-            }
-
-            $invoices = $query->orderByDesc('business_date')
-                ->orderByDesc('id')
-                ->paginate(15)
-                ->withQueryString();
-
-            // Annotate each invoice with its filtered display total (sum of matching item amounts).
-            // When no filter: filtered_display_total === null so views fall back to persisted final_total.
-            $filteredTotalBilled = 0.0;
-            foreach ($invoices as $inv) {
-                if ($filterProductIds !== []) {
-                    $filteredLineTotal = $inv->items->sum(function ($item) {
-                        return (float) ($item->final_line_total ?? (
-                            ((float) ($item->delivered_price_quantity ?? $item->price_quantity ?? $item->delivered_qty ?? 0))
-                            * ((float) ($item->unit_price ?? 0))
-                        ));
-                    });
-                    $inv->filtered_display_total = $filteredLineTotal;
-                    $filteredTotalBilled += $filteredLineTotal;
-                } else {
-                    $inv->filtered_display_total = null;
-                    $filteredTotalBilled += (float) $inv->final_total;
-                }
-            }
-
-            // Totals: use filtered item amounts when filter is active, otherwise DB aggregates.
-            if ($filterProductIds !== []) {
-                $totals = [
-                    'total_billed' => round($filteredTotalBilled, 2),
-                    'total_paid' => round((float) $query->newQuery()
-                        ->from('shop_invoices')
-                        ->whereIn('id', $invoices->pluck('id')->all())
-                        ->sum('paid_amount'), 2),
-                    'total_balance' => round((float) $query->newQuery()
-                        ->from('shop_invoices')
-                        ->whereIn('id', $invoices->pluck('id')->all())
-                        ->sum('balance_amount'), 2),
-                    'count' => $invoices->total(),
-                ];
-            } else {
-                $totalsQuery = ShopInvoice::query()
-                    ->where('shop_id', $selectedShopId)
-                    ->whereDate('business_date', '>=', $dateRange['start'])
-                    ->whereDate('business_date', '<=', $dateRange['end']);
-                $totals = [
-                    'total_billed' => round((float) $totalsQuery->sum('final_total'), 2),
-                    'total_paid' => round((float) $totalsQuery->sum('paid_amount'), 2),
-                    'total_balance' => round((float) $totalsQuery->sum('balance_amount'), 2),
-                    'count' => $totalsQuery->count(),
-                ];
-            }
-        } else {
-            $filterProductIds = [];
-            $totals = [
-                'total_billed' => 0.00,
-                'total_paid' => 0.00,
-                'total_balance' => 0.00,
-                'count' => 0,
+        if (! $selectedShopId) {
+            return [
+                'shops' => $shops,
+                'selectedShop' => null,
+                'selectedShopId' => null,
+                'productFilters' => $productFilters,
+                'selectedProductFilter' => $selectedProductFilter,
+                'selectedProductFilterUuid' => $selectedProductFilterUuid,
+                'filterProductIds' => $filterProductIds,
+                'invoices' => $paginate ? new LengthAwarePaginator([], 0, 15) : collect(),
+                'totals' => $this->emptyGlBillsTotals(),
+                'timeframe' => $timeframe,
+                'startDate' => $dateRange['start'],
+                'endDate' => $dateRange['end'],
             ];
-            $invoices = new LengthAwarePaginator([], 0, 15);
         }
 
-        return view('admin.cashbook.reports.gl_bills', [
+        $query = $this->glBillsQuery($selectedShopId, $dateRange['start'], $dateRange['end'], $selectedProductFilter, $filterProductIds);
+        $totalInvoices = (clone $query)->get();
+        $this->annotateGlBillsInvoices($totalInvoices, $filterProductIds);
+
+        $invoices = $paginate
+            ? $query->paginate(15)->withQueryString()
+            : $query->get();
+        $this->annotateGlBillsInvoices($invoices->getCollection(), $filterProductIds);
+
+        return [
             'shops' => $shops,
             'selectedShop' => $selectedShop,
             'selectedShopId' => $selectedShopId,
@@ -309,12 +310,148 @@ class AdminCashbookReportsController extends Controller
             'selectedProductFilterUuid' => $selectedProductFilterUuid,
             'filterProductIds' => $filterProductIds,
             'invoices' => $invoices,
-            'totals' => $totals,
+            'totals' => $this->glBillsTotals($totalInvoices, $filterProductIds),
             'timeframe' => $timeframe,
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
-            'activeTab' => 'gl-bills',
-        ]);
+        ];
+    }
+
+    /**
+     * @param  array<int, int>  $filterProductIds
+     */
+    private function glBillsQuery(
+        int $selectedShopId,
+        string $startDate,
+        string $endDate,
+        ?PurchaseProductFilter $selectedProductFilter,
+        array $filterProductIds
+    ): Builder {
+        $itemsEager = $filterProductIds === []
+            ? ['shop', 'order', 'items.product']
+            : [
+                'shop',
+                'order',
+                'items' => fn ($query) => $query->whereIn('product_id', $filterProductIds)->with('product'),
+            ];
+
+        $query = ShopInvoice::query()
+            ->with($itemsEager)
+            ->where('shop_id', $selectedShopId)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate);
+
+        if ($selectedProductFilter && $filterProductIds === []) {
+            $query->whereRaw('1 = 0');
+        }
+
+        if ($selectedProductFilter && $filterProductIds !== []) {
+            $filterId = (int) $selectedProductFilter->id;
+            $query->whereExists(function ($subQuery) use ($filterId): void {
+                $subQuery->selectRaw('1')
+                    ->from('shop_invoice_items')
+                    ->join('purchase_product_filter_items', 'purchase_product_filter_items.product_id', '=', 'shop_invoice_items.product_id')
+                    ->whereColumn('shop_invoice_items.shop_invoice_id', 'shop_invoices.id')
+                    ->where('purchase_product_filter_items.filter_id', $filterId);
+            });
+        }
+
+        return $query->orderByDesc('business_date')->orderByDesc('id');
+    }
+
+    /**
+     * @param  Collection<int, ShopInvoice>  $invoices
+     * @param  array<int, int>  $filterProductIds
+     */
+    private function annotateGlBillsInvoices(Collection $invoices, array $filterProductIds): void
+    {
+        foreach ($invoices as $invoice) {
+            $invoice->filtered_display_total = $filterProductIds === []
+                ? null
+                : $invoice->items->sum(fn ($item): float => $this->glBillsItemTotal($item));
+        }
+    }
+
+    private function glBillsItemTotal(mixed $item): float
+    {
+        return (float) ($item->final_line_total ?? (
+            ((float) ($item->delivered_price_quantity ?? $item->price_quantity ?? $item->delivered_qty ?? 0))
+            * ((float) ($item->unit_price ?? 0))
+        ));
+    }
+
+    /**
+     * @param  Collection<int, ShopInvoice>  $invoices
+     * @param  array<int, int>  $filterProductIds
+     * @return array{total_billed: float, total_paid: float, total_balance: float, count: int}
+     */
+    private function glBillsTotals(Collection $invoices, array $filterProductIds): array
+    {
+        return [
+            'total_billed' => round((float) $invoices->sum(fn (ShopInvoice $invoice): float => $filterProductIds === [] ? (float) $invoice->final_total : (float) $invoice->filtered_display_total), 2),
+            'total_paid' => round((float) $invoices->sum('paid_amount'), 2),
+            'total_balance' => round((float) $invoices->sum('balance_amount'), 2),
+            'count' => $invoices->count(),
+        ];
+    }
+
+    /**
+     * @return array{total_billed: float, total_paid: float, total_balance: float, count: int}
+     */
+    private function emptyGlBillsTotals(): array
+    {
+        return [
+            'total_billed' => 0.00,
+            'total_paid' => 0.00,
+            'total_balance' => 0.00,
+            'count' => 0,
+        ];
+    }
+
+    /**
+     * @param  array{invoices: Collection<int, ShopInvoice>|LengthAwarePaginator, totals: array<string, float|int>, selectedShop: mixed, selectedProductFilter: PurchaseProductFilter|null, startDate: string, endDate: string}  $report
+     * @return array<int, array<int, float|int|string|null>>
+     */
+    private function glBillsExportRows(array $report): array
+    {
+        $rows = [
+            ['GL Bills Export'],
+            ['Shop', $report['selectedShop']?->name ?: 'No outlet selected'],
+            ['Period', $report['startDate'].' to '.$report['endDate']],
+            ['Product Filter', $report['selectedProductFilter']?->name ?: 'All Products'],
+            [],
+            ['Total Billed', $report['totals']['total_billed']],
+            ['Paid Amount', $report['totals']['total_paid']],
+            ['Balance Due', $report['totals']['total_balance']],
+            ['Invoice Count', $report['totals']['count']],
+            [],
+            ['Date', 'Invoice Number', 'Shop', 'Product Filter Total', 'Invoice Total', 'Paid Amount', 'Balance Due', 'Status'],
+        ];
+
+        foreach ($report['invoices'] as $invoice) {
+            $rows[] = [
+                $invoice->business_date?->format('Y-m-d'),
+                $invoice->invoice_number,
+                $invoice->shop?->name ?: 'Shop #'.$invoice->shop_id,
+                $invoice->filtered_display_total === null ? '' : round((float) $invoice->filtered_display_total, 2),
+                round((float) $invoice->final_total, 2),
+                round((float) $invoice->paid_amount, 2),
+                round((float) $invoice->balance_amount, 2),
+                $invoice->status ?: $invoice->payment_status,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array{selectedShop: mixed, startDate: string, endDate: string}  $report
+     */
+    private function glBillsFilename(array $report, string $extension): string
+    {
+        $shopCode = $report['selectedShop']?->code ?: 'all-shops';
+
+        return 'gl-bills-'.$shopCode.'-'.$report['startDate'].'-to-'.$report['endDate'].'.'.$extension;
     }
 
     /**

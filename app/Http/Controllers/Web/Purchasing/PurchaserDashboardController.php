@@ -1375,7 +1375,7 @@ class PurchaserDashboardController extends Controller
                     'grn_number' => $cart->goodsReceived?->grn_number,
                     'grn_status' => $cart->goodsReceived?->status,
                     'grn_route' => $cart->goodsReceived ? route('purchasing.grns.show', $cart->goodsReceived) : null,
-                    'is_receipt_pending' => ! $this->isWarehouseConfirmed($batchState),
+                    'is_receipt_pending' => $cart->status === 'submitted' && ! $this->isWarehouseConfirmed($batchState),
                     'cart_status_route' => route('purchaser.carts.status', $cart),
                     'receipt_notes' => $receiptNotes,
                     'discrepancy_summary' => $discrepancySummary,
@@ -2824,12 +2824,16 @@ class PurchaserDashboardController extends Controller
 
     private function ownedCart(Request $request, PurchaserCart $cart, array $statuses): PurchaserCart
     {
-        return PurchaserCart::query()
+        $query = PurchaserCart::query()
             ->whereKey($cart->id)
-            ->where('user_id', $request->user()->id)
             ->whereIn('status', $statuses)
-            ->with(['supplier', 'items.product.category', 'goodsReceived'])
-            ->firstOrFail();
+            ->with(['supplier', 'items.product.category', 'goodsReceived']);
+
+        if (! $request->user()->hasRole('admin')) {
+            $query->where('user_id', $request->user()->id);
+        }
+
+        return $query->firstOrFail();
     }
 
     private function redirectAfterMutation(string $returnTo, Carbon $date, PurchaserCart $cart, string $message): RedirectResponse
@@ -3712,6 +3716,15 @@ class PurchaserDashboardController extends Controller
      */
     private function cartOperationalState(PurchaserCart $cart, array $batchState): array
     {
+        if ($cart->status === 'cancelled') {
+            return [
+                'label' => 'Cancelled',
+                'tone' => 'bg-rose-100 text-rose-700',
+                'unresolved' => false,
+                'payment_pending' => false,
+            ];
+        }
+
         if ($cart->status === 'draft') {
             return [
                 'label' => $cart->supplier_id === null ? 'Vendor Pending' : 'Bill Pending',
