@@ -2370,9 +2370,11 @@ class PurchaserDashboardController extends Controller
         }
 
         if ($request->string('return_to')->toString() === 'suppliers') {
+            $cart->loadMissing('supplier');
+
             return redirect()
                 ->route('purchaser.suppliers.show', [
-                    'supplier' => $cart->supplier_id,
+                    'supplier' => $cart->supplier ?? $cart->supplier_id,
                     'date' => $request->string('date', $cart->business_date->format('Y-m-d'))->toString(),
                 ])
                 ->with('success', $message);

@@ -67,7 +67,16 @@ class Supplier extends Model
         $query = $this->newQuery()->where($field, $value);
 
         if ($field === 'public_uuid') {
-            return $query->first();
+            $model = $query->first();
+            if ($model) {
+                return $model;
+            }
+
+            if (is_numeric($value)) {
+                return $this->newQuery()->where($this->getKeyName(), (int) $value)->first();
+            }
+
+            return null;
         }
 
         if (is_numeric($value)) {
