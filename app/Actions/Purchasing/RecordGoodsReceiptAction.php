@@ -67,6 +67,7 @@ class RecordGoodsReceiptAction
                     'purchase_order_item_id' => $poItem?->id,
                     'product_id' => $item['product_id'],
                     'received_qty' => $item['received_qty'],
+                    'received_unit' => $item['received_unit'] ?? 'kg',
                     'variance' => $variance,
                 ]);
             }

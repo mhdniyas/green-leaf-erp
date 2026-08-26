@@ -34,6 +34,7 @@ final readonly class GoodsReceivedData
                 'purchase_order_item_id' => isset($item['purchase_order_item_id']) && $item['purchase_order_item_id'] !== null ? (int) $item['purchase_order_item_id'] : null,
                 'product_id' => (int) ($item['product_id'] ?? 0),
                 'received_qty' => (float) ($item['received_qty'] ?? 0.000),
+                'received_unit' => isset($item['received_unit']) && $item['received_unit'] !== null ? (string) $item['received_unit'] : null,
             ];
         }
 
