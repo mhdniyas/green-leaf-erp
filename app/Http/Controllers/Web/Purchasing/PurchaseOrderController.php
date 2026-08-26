@@ -67,13 +67,15 @@ class PurchaseOrderController extends Controller
             ->where('status', 'cancelled')
             ->with(['supplier', 'user', 'items.product'])
             ->latest('business_date')
-            ->get();
+            ->paginate(15, ['*'], 'carts_page')
+            ->withQueryString();
 
         $cancelledPOs = PurchaseOrder::query()
             ->where('status', POStatus::Cancelled)
             ->with(['supplier', 'createdBy', 'items.product'])
             ->latest('order_date')
-            ->get();
+            ->paginate(15, ['*'], 'pos_page')
+            ->withQueryString();
 
         return view('purchase-manager.orders.index', compact(
             'todayDate',

@@ -164,6 +164,26 @@
                         </table>
                     </div>
                 </div>
+
+                {{-- Pagination --}}
+                @if ($cancelledCarts->hasPages() || $cancelledPOs->hasPages())
+                    <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-1">
+                        @if ($cancelledCarts->hasPages())
+                            <div class="text-xs font-semibold text-slate-500">
+                                <span class="font-black text-slate-700">Carts</span> — page {{ $cancelledCarts->currentPage() }} of {{ $cancelledCarts->lastPage() }}
+                                &nbsp;
+                                {!! $cancelledCarts->links() !!}
+                            </div>
+                        @endif
+                        @if ($cancelledPOs->hasPages())
+                            <div class="text-xs font-semibold text-slate-500">
+                                <span class="font-black text-slate-700">Purchase Orders</span> — page {{ $cancelledPOs->currentPage() }} of {{ $cancelledPOs->lastPage() }}
+                                &nbsp;
+                                {!! $cancelledPOs->links() !!}
+                            </div>
+                        @endif
+                    </div>
+                @endif
             @endif
         </section>
     </div>
