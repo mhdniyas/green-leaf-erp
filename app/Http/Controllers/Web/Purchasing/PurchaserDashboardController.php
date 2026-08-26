@@ -987,6 +987,7 @@ class PurchaserDashboardController extends Controller
         $probe?->checkpoint('receipt_discrepancies');
         $draftCarts = $carts->where('status', 'draft')->values();
         $submittedCarts = $carts->where('status', 'submitted')->values();
+        $cancelledCarts = $carts->where('status', 'cancelled')->values();
         $pendingCarts = $submittedCarts
             ->filter(fn (PurchaserCart $cart): bool => ! $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) || $this->cartHasPaymentPending($cart))
             ->values();
@@ -995,10 +996,11 @@ class PurchaserDashboardController extends Controller
             ->values();
         $activeTab = $request->string('tab')->toString();
 
-        if (! in_array($activeTab, ['draft', 'pending', 'completed'], true)) {
+        if (! in_array($activeTab, ['draft', 'pending', 'completed', 'cancelled'], true)) {
             $activeTab = match (true) {
                 $completedCarts->contains('id', $focusCartId) => 'completed',
                 $pendingCarts->contains('id', $focusCartId) => 'pending',
+                $cancelledCarts->contains('id', $focusCartId) => 'cancelled',
                 default => 'draft',
             };
         }
@@ -1036,6 +1038,7 @@ class PurchaserDashboardController extends Controller
             'draft_count' => $draftCarts->count(),
             'pending_count' => $pendingCarts->count(),
             'completed_count' => $completedCarts->count(),
+            'cancelled_count' => $cancelledCarts->count(),
             'product_count' => $productCatalog->count(),
             'supplier_count' => $suppliers->count(),
         ]);
@@ -1046,6 +1049,7 @@ class PurchaserDashboardController extends Controller
             'draftCarts' => $draftCarts,
             'pendingCarts' => $pendingCarts,
             'completedCarts' => $completedCarts,
+            'cancelledCarts' => $cancelledCarts,
             'mergeSuggestions' => $mergeSuggestions,
             'mergeableDraftCounts' => $mergeableDraftCounts,
             'productCatalog' => $productCatalog,
@@ -1356,8 +1360,6 @@ class PurchaserDashboardController extends Controller
                 return [
                     'date_key' => $cart->business_date->format('Y-m-d'),
                     'date_label' => $cart->business_date->format('d M Y'),
-                    'cart_id' => $cart->id,
-                    'cart_status' => $cart->status,
                     'cart_number' => $cart->cart_number,
                     'invoice_id' => $invoice?->id,
                     'invoice_number' => $invoice?->invoice_number,
@@ -1371,12 +1373,6 @@ class PurchaserDashboardController extends Controller
                     'item_count' => $itemCount,
                     'total_quantity' => $totalQuantity,
                     'item_summary' => $itemSummary,
-                    'grn_id' => $cart->goodsReceived?->id,
-                    'grn_number' => $cart->goodsReceived?->grn_number,
-                    'grn_status' => $cart->goodsReceived?->status,
-                    'grn_route' => $cart->goodsReceived ? route('purchasing.grns.show', $cart->goodsReceived) : null,
-                    'is_receipt_pending' => $cart->status === 'submitted' && ! $this->isWarehouseConfirmed($batchState),
-                    'cart_status_route' => route('purchaser.carts.status', $cart),
                     'receipt_notes' => $receiptNotes,
                     'discrepancy_summary' => $discrepancySummary,
                     'status_label' => $operationalState['label'],
@@ -2330,65 +2326,29 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $cart = $this->ownedCart($request, $cart, ['draft', 'submitted', 'cancelled']);
+        $cart = $this->ownedCart($request, $cart, ['submitted']);
 
         $validated = $request->validate([
-            'flag' => ['nullable', 'string', 'in:goods_received'],
-            'status' => ['nullable', 'string', 'in:draft,submitted,cancelled'],
+            'flag' => ['required', 'string', 'in:goods_received'],
         ]);
 
-        if ($request->filled('status')) {
-            $newStatus = (string) $validated['status'];
-            $cart->update([
-                'status' => $newStatus,
-            ]);
+        $column = match ($validated['flag']) {
+            'goods_received' => 'goods_received_at',
+        };
 
-            $message = match ($newStatus) {
-                'draft' => "Cart {$cart->cart_number} has been restored as Draft.",
-                'submitted' => "Cart {$cart->cart_number} has been moved to Submitted.",
-                'cancelled' => "Cart {$cart->cart_number} has been marked as Cancelled.",
-                default => "Cart {$cart->cart_number} status updated to {$newStatus}.",
-            };
-        } elseif ($request->filled('flag')) {
-            $column = match ($validated['flag']) {
-                'goods_received' => 'goods_received_at',
-            };
-
-            $cart->update([
-                $column => $cart->{$column} ? null : now(),
-            ]);
-
-            $message = 'Purchase status updated.';
-        } else {
-            return back()->with('error', 'No status action specified.');
-        }
-
-        if ($request->string('return_to')->toString() === 'orders') {
-            return redirect()
-                ->route('purchasing.orders.index')
-                ->with('success', $message);
-        }
+        $cart->update([
+            $column => $cart->{$column} ? null : now(),
+        ]);
 
         if ($request->string('return_to')->toString() === 'suppliers') {
-            $cart->loadMissing('supplier');
-
             return redirect()
-                ->route('purchaser.suppliers.show', [
-                    'supplier' => $cart->supplier ?? $cart->supplier_id,
-                    'date' => $request->string('date', $cart->business_date->format('Y-m-d'))->toString(),
-                ])
-                ->with('success', $message);
-        }
-
-        if ($request->string('return_to')->toString() === 'vendors') {
-            return redirect()
-                ->route('purchaser.vendors', ['date' => $request->string('date', $cart->business_date->format('Y-m-d'))->toString()])
-                ->with('success', $message);
+                ->route('purchaser.suppliers', ['date' => $request->string('date', $cart->business_date->format('Y-m-d'))->toString()])
+                ->with('success', 'Purchase status updated.');
         }
 
         return redirect()
             ->route('purchaser.history', ['date' => $cart->business_date->format('Y-m-d')])
-            ->with('success', $message);
+            ->with('success', 'Purchase status updated.');
     }
 
     public function updateInvoicePayment(Request $request, PurchaseInvoice $invoice): RedirectResponse
@@ -2860,16 +2820,12 @@ class PurchaserDashboardController extends Controller
 
     private function ownedCart(Request $request, PurchaserCart $cart, array $statuses): PurchaserCart
     {
-        $query = PurchaserCart::query()
+        return PurchaserCart::query()
             ->whereKey($cart->id)
+            ->where('user_id', $request->user()->id)
             ->whereIn('status', $statuses)
-            ->with(['supplier', 'items.product.category', 'goodsReceived']);
-
-        if (! $request->user()->hasRole('admin')) {
-            $query->where('user_id', $request->user()->id);
-        }
-
-        return $query->firstOrFail();
+            ->with(['supplier', 'items.product.category', 'goodsReceived'])
+            ->firstOrFail();
     }
 
     private function redirectAfterMutation(string $returnTo, Carbon $date, PurchaserCart $cart, string $message): RedirectResponse
@@ -3752,15 +3708,6 @@ class PurchaserDashboardController extends Controller
      */
     private function cartOperationalState(PurchaserCart $cart, array $batchState): array
     {
-        if ($cart->status === 'cancelled') {
-            return [
-                'label' => 'Cancelled',
-                'tone' => 'bg-rose-100 text-rose-700',
-                'unresolved' => false,
-                'payment_pending' => false,
-            ];
-        }
-
         if ($cart->status === 'draft') {
             return [
                 'label' => $cart->supplier_id === null ? 'Vendor Pending' : 'Bill Pending',

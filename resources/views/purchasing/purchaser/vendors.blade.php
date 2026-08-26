@@ -45,7 +45,7 @@
             </section>
         @endif
 
-        <div class="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1 shadow-sm">
+        <div class="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 shadow-sm sm:grid-cols-4">
             <button type="button" id="tab-draft-btn" onclick="switchVendorTab('draft')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
                 Draft ({{ $draftCarts->count() }})
             </button>
@@ -54,6 +54,9 @@
             </button>
             <button type="button" id="tab-completed-btn" onclick="switchVendorTab('completed')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
                 Completed ({{ $completedCarts->count() }})
+            </button>
+            <button type="button" id="tab-cancelled-btn" onclick="switchVendorTab('cancelled')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
+                Cancelled ({{ $cancelledCarts->count() }})
             </button>
         </div>
 
@@ -563,6 +566,52 @@
                 <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">No completed carts for this business day.</p>
             @endforelse
         </div>
+
+        <div id="section-cancelled" class="hidden space-y-3">
+            @forelse ($cancelledCarts as $cart)
+                <article id="cart-card-{{ $cart->id }}" class="rounded-2xl border {{ $focusCartId === $cart->id ? 'border-rose-300 ring-2 ring-rose-100' : 'border-slate-200' }} bg-white p-3 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                        <div class="min-w-0">
+                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }} · Grade {{ $cart->purchase_grade ?? 'A' }}</p>
+                            <h3 class="mt-1 truncate text-sm font-black text-slate-950">{{ $cart->supplier?->name ?: 'Supplier pending' }}</h3>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">{{ $cart->business_date?->format('d M Y') }}</p>
+                        </div>
+                        <span class="rounded-full bg-rose-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Cancelled</span>
+                    </div>
+
+                    @if ($cart->items->isNotEmpty())
+                        <div class="mt-3 space-y-1 rounded-2xl border border-slate-100 bg-slate-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Items ({{ $cart->items->count() }})</p>
+                            <div class="divide-y divide-slate-200/60">
+                                @foreach ($cart->items as $item)
+                                    <div class="flex items-center justify-between gap-2 py-1.5 text-xs">
+                                        <span class="font-bold text-slate-800">{{ $item->product?->name ?? 'Unknown' }}</span>
+                                        <span class="font-semibold text-slate-600">
+                                            {{ (float) $item->quantity }} {{ $item->product?->unit ?? '' }}
+                                            @if ((float) $item->unit_price > 0)
+                                                · ₹{{ number_format((float) $item->unit_price, 2) }}
+                                            @endif
+                                            @if ((float) $item->line_total > 0)
+                                                = <span class="font-bold text-slate-900">₹{{ number_format((float) $item->line_total, 2) }}</span>
+                                            @endif
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @else
+                        <p class="mt-3 text-xs font-semibold text-slate-400">No items recorded in this cart.</p>
+                    @endif
+
+                    <div class="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-[10px] font-bold text-slate-500">
+                        <span>Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
+                        <span class="text-rose-600 font-bold">Order Cancelled</span>
+                    </div>
+                </article>
+            @empty
+                <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">No cancelled carts for this business day.</p>
+            @endforelse
+        </div>
     </div>
 
     <form id="change-vendor-form" method="POST" action="">
@@ -747,11 +796,13 @@
             draft: document.getElementById('tab-draft-btn'),
             pending: document.getElementById('tab-pending-btn'),
             completed: document.getElementById('tab-completed-btn'),
+            cancelled: document.getElementById('tab-cancelled-btn'),
         };
         const tabSections = {
             draft: document.getElementById('section-draft'),
             pending: document.getElementById('section-pending'),
             completed: document.getElementById('section-completed'),
+            cancelled: document.getElementById('section-cancelled'),
         };
 
         function switchVendorTab(tab) {
