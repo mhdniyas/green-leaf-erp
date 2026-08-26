@@ -377,6 +377,7 @@ Route::middleware('auth')->group(function () {
         Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');
         Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
         Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
+        Route::post('shop-invoices/{invoice}/finalize-on-behalf', [ShopInvoiceController::class, 'finalizeOnBehalf'])->name('shop-invoices.finalize-on-behalf');
         Route::post('shop-invoices/{invoice}/revert-approval', [ShopInvoiceController::class, 'revertApproval'])->name('shop-invoices.revert-approval');
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
         Route::get('bill-prices', [BillPriceApprovalController::class, 'index'])->name('bill-prices.index');
@@ -660,6 +661,7 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills', [AdminCashbookReportsController::class, 'glBills'])->name('reports.gl-bills');
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
+            Route::get('inventory', [AdminCashbookReportsController::class, 'inventory'])->name('inventory');
             Route::get('reports/products', [AdminCashbookReportsController::class, 'products'])->name('reports.products');
             Route::get('products', [AdminCashbookReportsController::class, 'products'])->name('products');
             Route::get('reports/api/hub', [AdminCashbookReportsController::class, 'apiHubData'])->name('reports.api.hub');

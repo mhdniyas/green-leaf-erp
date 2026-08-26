@@ -9,6 +9,7 @@ use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\User;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use Illuminate\Support\Facades\DB;
 
@@ -34,6 +35,8 @@ class RecordGoodsReceiptAction
                 'purchase_order_id' => $data->purchaseOrderId,
                 'grn_number' => $grnNumber,
                 'status' => 'approved',
+                'bill_status' => $data->billStatus,
+                'bill_number' => $data->billNumber,
                 'received_by' => $userId,
                 'approved_by' => $userId,
                 'updated_by' => $userId,
@@ -74,7 +77,7 @@ class RecordGoodsReceiptAction
             // Log activity
             activity()
                 ->performedOn($grn)
-                ->causedBy($userId)
+                ->causedBy(User::query()->find($userId))
                 ->log('goods_received.recorded');
 
             return $this->approveGoodsReceiptAction->execute($grn->fresh(['items.purchaseOrderItem', 'items.product', 'purchaseOrder']), $userId);

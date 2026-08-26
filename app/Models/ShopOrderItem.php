@@ -96,6 +96,11 @@ class ShopOrderItem extends Model
         return $this->belongsTo(ShopOrder::class, 'shop_order_id');
     }
 
+    public function shopOrder(): BelongsTo
+    {
+        return $this->order();
+    }
+
     /**
      * Get the product represented by this item.
      *

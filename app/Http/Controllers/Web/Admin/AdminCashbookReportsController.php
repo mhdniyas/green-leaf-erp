@@ -10,11 +10,13 @@ use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
+use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseProductFilter;
 use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
+use App\Models\ShopOrderItem;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Pricing\PriceBoardService;
@@ -1304,6 +1306,79 @@ class AdminCashbookReportsController extends Controller
             'endDate' => $dateRange['end'],
             'skipGlOnlyDays' => $skipGlOnlyDays,
             'activeTab' => 'mobile-ledger',
+        ]);
+    }
+
+    /**
+     * Cashbook Inventory Section:
+     * A. Bill Pending (Goods received into warehouse, bill not linked yet)
+     * B. Loadout Not Billed (Dispatched items without bill coverage)
+     */
+    public function inventory(Request $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $section = (string) $request->input('section', 'bill_pending');
+        $search = trim((string) $request->input('search', ''));
+        $date = $request->input('date');
+
+        // A. Bill Pending Receipts
+        $billPendingQuery = GoodsReceived::query()
+            ->with(['purchaseOrder.supplier', 'purchaseOrder.destinationShop', 'items.product', 'receivedBy', 'updatedBy', 'purchaseInvoices'])
+            ->where(function ($q): void {
+                $q->where('bill_status', 'bill_pending')
+                    ->orWhereDoesntHave('purchaseInvoices');
+            });
+
+        if ($date) {
+            $billPendingQuery->whereDate('received_at', $date);
+        }
+
+        if ($search !== '') {
+            $billPendingQuery->where(function ($q) use ($search): void {
+                $q->where('grn_number', 'like', "%{$search}%")
+                    ->orWhere('bill_number', 'like', "%{$search}%")
+                    ->orWhere('notes', 'like', "%{$search}%")
+                    ->orWhereHas('purchaseOrder.supplier', function ($sq) use ($search): void {
+                        $sq->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $billPendingReceipts = $billPendingQuery->orderByDesc('received_at')
+            ->orderByDesc('id')
+            ->paginate(20, ['*'], 'bill_pending_page');
+
+        // B. Loadout Not Billed
+        $loadoutQuery = ShopOrderItem::query()
+            ->with(['order.shop', 'product'])
+            ->whereHas('order', function ($q): void {
+                $q->whereIn('delivery_status', ['delivered', 'partially_delivered'])
+                    ->orWhere('status', 'confirmed');
+            })
+            ->whereDoesntHave('order.invoice');
+
+        if ($date) {
+            $loadoutQuery->whereHas('order', fn ($q) => $q->whereDate('business_date', $date));
+        }
+
+        if ($search !== '') {
+            $loadoutQuery->where(function ($q) use ($search): void {
+                $q->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('shopOrder.shop', fn ($sq) => $sq->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        $loadoutNotBilled = $loadoutQuery->orderByDesc('created_at')
+            ->paginate(20, ['*'], 'loadout_page');
+
+        return view('admin.cashbook.reports.inventory', [
+            'section' => $section,
+            'billPendingReceipts' => $billPendingReceipts,
+            'loadoutNotBilled' => $loadoutNotBilled,
+            'search' => $search,
+            'date' => $date,
+            'activeTab' => 'inventory',
         ]);
     }
 }

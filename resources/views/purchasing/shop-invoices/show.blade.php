@@ -10,6 +10,8 @@
         $invoiceCarbonDate = $invoice->business_date->copy();
         $canManageInvoiceMoney = \App\Support\AccountingAccess::canViewDashboard(auth()->user());
         $isDeliveryReviewPending = $invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval';
+        $showAdminDeliveryOverride = ($canOverride ?? false) && ! $isDeliveryReviewPending;
+        $showDeliveryReviewControls = ($canEdit ?? false) && ($isDeliveryReviewPending || $showAdminDeliveryOverride);
         $grossPayableAmount = round(max(0, (float) $invoice->subtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total), 2);
         $maxDiscountAmount = round(max(0, $grossPayableAmount - (float) $invoice->paid_amount), 2);
         $canSeeRevertDeliveryApproval = auth()->user()->hasRole('admin')
@@ -54,7 +56,7 @@
 
             return $reportedShort > 0.0001 || $reportedExcess > 0.0001 || $shopNote !== '' || $discrepancyNote !== '';
         });
-        if ($isDeliveryReviewPending && $reviewItems->isEmpty()) {
+        if (($isDeliveryReviewPending || $showAdminDeliveryOverride) && $reviewItems->isEmpty()) {
             $reviewItems = $invoice->items;
         }
         $hiddenItemCount = max(0, $invoice->items->count() - $reviewItems->count());
@@ -93,7 +95,7 @@
                         @endif
                     @endif
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
-                        {{ $invoice->order?->shop_checked_at ? 'Shop Submitted' : 'Awaiting Shop Check' }}
+                        {{ $shopSubmitted ?? false ? 'Shop Submitted' : 'Shop not submitted' }}
                     </span>
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
                         {{ $finalizationLabel }}
@@ -143,15 +145,15 @@
                     </div>
                 </div>
 
-                @if ($isDeliveryReviewPending)
+                @if ($showDeliveryReviewControls)
                     <div class="mt-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                            <p class="text-sm font-black text-amber-950">Approval waiting</p>
-                            <p class="mt-1 text-sm font-semibold text-amber-800">{{ $reviewItems->count() }} item{{ $reviewItems->count() === 1 ? '' : 's' }} need admin attention{{ $hiddenItemCount > 0 ? ', '.$hiddenItemCount.' unchanged item'.($hiddenItemCount === 1 ? '' : 's').' hidden below' : '' }}.</p>
+                            <p class="text-sm font-black text-amber-950">{{ $isDeliveryReviewPending ? 'Approval waiting' : 'Shop not submitted' }}</p>
+                            <p class="mt-1 text-sm font-semibold text-amber-800">{{ $reviewItems->count() }} item{{ $reviewItems->count() === 1 ? '' : 's' }} available for admin review{{ $hiddenItemCount > 0 ? ', '.$hiddenItemCount.' unchanged item'.($hiddenItemCount === 1 ? '' : 's').' hidden below' : '' }}.</p>
                         </div>
                         <div class="flex flex-wrap gap-2">
                             <a href="#delivery-review-approval" class="inline-flex h-10 items-center justify-center rounded-xl bg-amber-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white hover:bg-amber-700">
-                                Review & Approve
+                                {{ $isDeliveryReviewPending ? 'Review & Approve' : 'Review on behalf of Shop' }}
                             </a>
                             @if($invoice->order)
                                 <form method="POST" action="{{ route('warehouse.loadout.move-to-loadout', $invoice->order) }}">
@@ -270,13 +272,13 @@
             </details>
         @endif
 
-        @if (($invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval') && (auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin')))
+        @if ($showDeliveryReviewControls)
             <section id="delivery-review-approval" class="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
                 <div class="flex flex-col gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-amber-700">Delivery Review</p>
                         <h2 class="mt-1 text-lg font-black text-slate-950">Review Quantities & Finalize</h2>
-                        <p class="mt-1 text-sm font-semibold text-slate-600">Correct final quantities, then record one overall delivery review note.</p>
+                        <p class="mt-1 text-sm font-semibold text-slate-600">{{ $shopSubmitted ?? false ? 'Correct final quantities, then record one overall delivery review note.' : 'Shop not submitted. Admin can review on behalf of shop and finalize this invoice.' }}</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         @if($invoice->order)
@@ -296,7 +298,7 @@
                     </div>
                 </div>
 
-                <form id="delivery-discrepancy-approve-form" method="POST" action="{{ route('requisitions.delivery.approve', $invoice->order?->order_number) }}">
+                <form id="delivery-discrepancy-approve-form" method="POST" action="{{ $isDeliveryReviewPending ? route('requisitions.delivery.approve', $invoice->order?->order_number) : route('purchasing.shop-invoices.finalize-on-behalf', $invoice) }}">
                     @csrf
                     <input type="hidden" name="invoice_number" value="{{ $invoice->invoice_number }}">
                 </form>
@@ -319,7 +321,7 @@
                         <tbody class="divide-y divide-slate-100">
                             @foreach ($reviewItems as $item)
                                 @php
-                                    $reportedDeliveredQty = (float) ($item->orderItem?->shop_reported_received_qty ?? $item->delivered_qty);
+                                    $reportedDeliveredQty = (float) ($item->orderItem?->shop_reported_received_qty ?? $item->delivered_qty ?? $item->orderItem?->loaded_qty ?? $item->approved_qty);
                                     $reportedShortageQty = (float) ($item->orderItem?->shop_reported_missing_qty ?? $item->shortage_qty);
                                     $reportedExcessQty = (float) ($item->orderItem?->shop_reported_excess_qty ?? $item->excess_qty);
                                     $approvedDeliveredQty = old("approved_delivered_qty.{$item->shop_order_item_id}", number_format($reportedDeliveredQty, 2, '.', ''));
@@ -468,7 +470,7 @@
                                 <textarea form="delivery-discrepancy-approve-form" name="review_note" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-400 focus:outline-none" placeholder="One overall note for shortages, damage, or correction reason">{{ old('review_note', $invoice->delivery_note) }}</textarea>
                             </label>
                             <button form="delivery-discrepancy-approve-form" type="submit" class="mt-3 inline-flex h-10 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white hover:bg-emerald-700 sm:w-auto">
-                                Finalize Invoice
+                                {{ $shopSubmitted ?? false ? 'Finalize Invoice' : 'Review on behalf of Shop - Finalize Invoice' }}
                             </button>
                         </div>
 
@@ -743,6 +745,11 @@
                             <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                                 <p class="text-sm font-black text-emerald-900">Finalized bill is locked.</p>
                                 <p class="mt-1 text-sm font-semibold text-emerald-800">Normal admin review, shop delivery edits, and repricing cannot change this invoice.</p>
+                                @if (auth()->user()->hasRole('admin'))
+                                    <button type="button" disabled class="mt-4 inline-flex h-10 cursor-not-allowed items-center justify-center rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-emerald-800 opacity-80" title="Finalized correction workflow is not wired on this page.">
+                                        Edit Finalized Invoice
+                                    </button>
+                                @endif
                             </div>
                         </div>
                     @elseif ($isDeliveryReviewPending)

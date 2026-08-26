@@ -10,6 +10,7 @@ use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\JournalEntry;
 use App\Models\StockBatch;
+use App\Models\User;
 use App\Repositories\Inventory\StockBatchRepository;
 use App\Services\Finance\JournalService;
 use App\Services\Pricing\PriceBoardService;
@@ -111,7 +112,7 @@ class ApproveGoodsReceiptAction
             // Log activity
             activity()
                 ->performedOn($grn)
-                ->causedBy($userId)
+                ->causedBy(User::query()->find($userId))
                 ->log('goods_received.approved');
 
             return $grn->fresh(['items.product', 'purchaseOrder']);

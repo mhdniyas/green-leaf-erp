@@ -59,20 +59,20 @@ class PurchaseOrderController extends Controller
         );
     }
 
-    public function show(PurchaseOrder $purchaseOrder): JsonResponse
+    public function show(PurchaseOrder $order): JsonResponse
     {
-        Gate::authorize('view', $purchaseOrder);
+        Gate::authorize('view', $order);
 
         return ApiResponse::success(
-            new PurchaseOrderResource($purchaseOrder->load(['supplier', 'items.product', 'createdBy']))
+            new PurchaseOrderResource($order->load(['supplier', 'items.product', 'createdBy']))
         );
     }
 
-    public function approve(PurchaseOrder $purchaseOrder): JsonResponse
+    public function approve(PurchaseOrder $order): JsonResponse
     {
-        Gate::authorize('approve', $purchaseOrder);
+        Gate::authorize('approve', $order);
 
-        $approved = $this->service->approve($purchaseOrder);
+        $approved = $this->service->approve($order);
 
         return ApiResponse::success(
             new PurchaseOrderResource($approved->load(['supplier', 'items.product'])),
@@ -80,11 +80,11 @@ class PurchaseOrderController extends Controller
         );
     }
 
-    public function destroy(PurchaseOrder $purchaseOrder): JsonResponse
+    public function destroy(PurchaseOrder $order): JsonResponse
     {
-        Gate::authorize('delete', $purchaseOrder);
+        Gate::authorize('delete', $order);
 
-        $this->service->delete($purchaseOrder);
+        $this->service->delete($order);
 
         return ApiResponse::success(null, 'Purchase order deleted successfully');
     }

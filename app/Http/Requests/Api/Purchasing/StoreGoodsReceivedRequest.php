@@ -10,7 +10,15 @@ class StoreGoodsReceivedRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->can('purchasing.grn.create');
+        $user = $this->user();
+
+        if (! $user) {
+            return false;
+        }
+
+        return $user->hasRole(['admin', 'purchase', 'purchaser', 'warehouse_receiver'])
+            || $user->can('purchasing.grn.create')
+            || $user->can('warehouse.receive.view');
     }
 
     public function rules(): array
@@ -20,6 +28,8 @@ class StoreGoodsReceivedRequest extends FormRequest
             'received_at' => ['required', 'date'],
             'transport_cost' => ['sometimes', 'numeric', 'min:0'],
             'labour_cost' => ['sometimes', 'numeric', 'min:0'],
+            'bill_status' => ['sometimes', 'string', 'in:bill_available,bill_pending'],
+            'bill_number' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.purchase_order_item_id' => ['required', 'integer', 'exists:purchase_order_items,id'],

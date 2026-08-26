@@ -89,6 +89,24 @@ class PurchaseOrder extends Model
         return 'po_number';
     }
 
+    public function getRouteKey(): mixed
+    {
+        return $this->po_number ?: $this->getKey();
+    }
+
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        $field ??= $this->getRouteKeyName();
+
+        $query = $this->newQuery()->where($field, $value);
+
+        if ($field === 'po_number' && is_numeric($value)) {
+            $query->orWhere($this->getKeyName(), (int) $value);
+        }
+
+        return $query->first();
+    }
+
     // Computed
     public function getTotalAmountAttribute(): float
     {

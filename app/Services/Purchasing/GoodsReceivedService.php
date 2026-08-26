@@ -9,9 +9,12 @@ use App\Actions\Purchasing\RecordGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
+use App\Models\GoodsReceivedItem;
 use App\Models\JournalEntry;
+use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrderItem;
 use App\Models\StockBatch;
+use App\Models\User;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -24,12 +27,44 @@ class GoodsReceivedService
         private readonly ApproveGoodsReceiptAction $approveGoodsReceiptAction,
     ) {}
 
-    public function paginate(int $perPage = 15): LengthAwarePaginator
+    public function paginate(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return $this->repository->query()
+        $query = $this->repository->query()
             ->where('status', '!=', 'draft')
-            ->with(['purchaseOrder.supplier', 'receivedBy', 'items.product'])
-            ->orderByDesc('received_at')
+            ->with(['purchaseOrder.supplier', 'purchaseOrder.destinationShop', 'receivedBy', 'updatedBy', 'items.product', 'purchaseInvoices']);
+
+        if (! empty($filters['bill_status'])) {
+            $status = (string) $filters['bill_status'];
+            if ($status === 'bill_pending') {
+                $query->where(function ($q): void {
+                    $q->where('bill_status', 'bill_pending')
+                        ->orWhereDoesntHave('purchaseInvoices');
+                });
+            } elseif ($status === 'bill_available') {
+                $query->where(function ($q): void {
+                    $q->where('bill_status', 'bill_available')
+                        ->orWhereHas('purchaseInvoices');
+                });
+            }
+        }
+
+        if (! empty($filters['date'])) {
+            $query->whereDate('received_at', $filters['date']);
+        }
+
+        if (! empty($filters['search'])) {
+            $search = trim((string) $filters['search']);
+            $query->where(function ($q) use ($search): void {
+                $q->where('grn_number', 'like', "%{$search}%")
+                    ->orWhere('bill_number', 'like', "%{$search}%")
+                    ->orWhere('notes', 'like', "%{$search}%")
+                    ->orWhereHas('purchaseOrder.supplier', function ($sq) use ($search): void {
+                        $sq->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        return $query->orderByDesc('received_at')
             ->orderByDesc('id')
             ->paginate($perPage);
     }
@@ -37,6 +72,127 @@ class GoodsReceivedService
     public function create(GoodsReceivedData $data, int $userId): GoodsReceived
     {
         return $this->recordGoodsReceiptAction->execute($data, $userId);
+    }
+
+    public function linkBill(GoodsReceived $grn, array $billData, int $userId): GoodsReceived
+    {
+        return DB::transaction(function () use ($grn, $billData, $userId): GoodsReceived {
+            $invoiceNumber = (string) ($billData['invoice_number'] ?? $billData['bill_number'] ?? 'BILL-'.$grn->grn_number);
+            $amount = (float) ($billData['amount'] ?? 0.0);
+            $supplierId = (int) ($billData['supplier_id'] ?? $grn->purchaseOrder?->supplier_id);
+            $notes = $billData['notes'] ?? null;
+
+            if ($amount <= 0 && $grn->purchaseOrder) {
+                $amount = (float) $grn->purchaseOrder->total_amount;
+            }
+
+            // Attach real PurchaseInvoice to existing GRN without recreating inventory
+            $invoice = PurchaseInvoice::create([
+                'goods_received_id' => $grn->id,
+                'supplier_id' => $supplierId,
+                'invoice_number' => $invoiceNumber,
+                'amount' => $amount,
+                'status' => 'approved',
+                'notes' => $notes,
+            ]);
+
+            $grn->update([
+                'bill_status' => 'bill_available',
+                'bill_number' => $invoiceNumber,
+                'updated_by' => $userId,
+            ]);
+
+            activity()
+                ->performedOn($grn)
+                ->causedBy(User::find($userId))
+                ->withProperties([
+                    'invoice_id' => $invoice->id,
+                    'invoice_number' => $invoiceNumber,
+                    'amount' => $invoice->amount,
+                ])
+                ->log('goods_received.bill_linked');
+
+            return $grn->fresh(['purchaseOrder.supplier', 'items.product', 'purchaseInvoices']);
+        });
+    }
+
+    public function updateItems(GoodsReceived $grn, array $itemsData, int $userId): GoodsReceived
+    {
+        return DB::transaction(function () use ($grn, $itemsData, $userId): GoodsReceived {
+            $user = User::find($userId);
+            $userRole = $user?->roles?->pluck('name')->first() ?? 'user';
+            $auditChanges = [];
+
+            foreach ($itemsData as $itemInput) {
+                $itemId = (int) ($itemInput['id'] ?? $itemInput['goods_received_item_id'] ?? 0);
+                $newQty = round((float) ($itemInput['received_qty'] ?? 0), 2);
+
+                /** @var GoodsReceivedItem|null $grnItem */
+                $grnItem = $grn->items()->where('id', $itemId)->first();
+                if (! $grnItem) {
+                    continue;
+                }
+
+                $oldQty = (float) $grnItem->received_qty;
+                $difference = round($newQty - $oldQty, 2);
+
+                if ($difference == 0.0) {
+                    continue;
+                }
+
+                // Record audit detail
+                $auditChanges[] = [
+                    'item_id' => $grnItem->id,
+                    'product_id' => $grnItem->product_id,
+                    'product_name' => $grnItem->product?->name,
+                    'before_qty' => $oldQty,
+                    'after_qty' => $newQty,
+                    'difference' => $difference,
+                ];
+
+                // Update item quantity and variance
+                $poItem = $grnItem->purchaseOrderItem;
+                $orderedQty = $poItem ? (float) $poItem->quantity : 0.0;
+                $grnItem->update([
+                    'received_qty' => $newQty,
+                    'variance' => round($newQty - $orderedQty, 2),
+                ]);
+
+                // Adjust inventory by the DIFFERENCE only
+                /** @var StockBatch|null $batch */
+                $batch = StockBatch::query()
+                    ->where('goods_received_id', $grn->id)
+                    ->where('goods_received_item_id', $grnItem->id)
+                    ->first();
+
+                if ($batch) {
+                    $oldBatchTotal = (float) $batch->total_kg;
+                    $newBatchTotal = max(0.0, round($oldBatchTotal + $difference, 2));
+                    $batch->update([
+                        'total_kg' => $newBatchTotal,
+                    ]);
+                }
+            }
+
+            $grn->update([
+                'updated_by' => $userId,
+            ]);
+
+            if (! empty($auditChanges)) {
+                activity()
+                    ->performedOn($grn)
+                    ->causedBy(User::find($userId))
+                    ->withProperties([
+                        'changed_by' => $userId,
+                        'user_name' => $user?->name,
+                        'role' => $userRole,
+                        'changes' => $auditChanges,
+                    ])
+                    ->log('goods_received.quantities_adjusted');
+            }
+
+            return $grn->fresh(['items.product', 'purchaseOrder.supplier', 'receivedBy', 'updatedBy']);
+        });
     }
 
     public function markForRecheck(GoodsReceived $grn, string $remarks, int $userId): GoodsReceived
@@ -61,7 +217,7 @@ class GoodsReceivedService
 
             activity()
                 ->performedOn($grn)
-                ->causedBy($userId)
+                ->causedBy(User::find($userId))
                 ->log('goods_received.recheck_requested');
 
             return $grn->fresh();

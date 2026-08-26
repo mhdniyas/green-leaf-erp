@@ -22,6 +22,7 @@ use App\Models\Warehouse;
 use App\Services\Finance\PurchaserFinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -36,10 +37,18 @@ class CashbookPurchaseReportTest extends TestCase
     {
         parent::setUp();
 
+        Carbon::setTestNow('2026-08-25');
+
         $this->admin = User::factory()->create();
         Role::firstOrCreate(['name' => 'admin']);
         $this->admin->assignRole('admin');
         config(['admin.user_access.main_admin_email' => $this->admin->email]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     public function test_dashboard_defaults_to_today_and_uses_item_level_purchase_value(): void

@@ -30,6 +30,8 @@ class GoodsReceived extends Model
         'purchaser_cart_id',
         'grn_number',
         'status',
+        'bill_status',
+        'bill_number',
         'rejection_remarks',
         'received_by',
         'approved_by',
@@ -45,6 +47,7 @@ class GoodsReceived extends Model
 
     protected $attributes = [
         'purchase_grade' => 'A',
+        'bill_status' => 'bill_available',
     ];
 
     protected $casts = [
@@ -80,6 +83,10 @@ class GoodsReceived extends Model
 
         if ($field !== 'grn_number') {
             $query->orWhere('grn_number', $value);
+        }
+
+        if (is_numeric($value)) {
+            $query->orWhere($this->getKeyName(), (int) $value);
         }
 
         return $query->first();
@@ -136,5 +143,15 @@ class GoodsReceived extends Model
     public function purchaseInvoices(): HasMany
     {
         return $this->hasMany(PurchaseInvoice::class, 'goods_received_id');
+    }
+
+    public function stockBatches(): HasMany
+    {
+        return $this->hasMany(StockBatch::class, 'goods_received_id');
+    }
+
+    public function isBillPending(): bool
+    {
+        return $this->bill_status === 'bill_pending' || ! $this->purchaseInvoices()->exists();
     }
 }

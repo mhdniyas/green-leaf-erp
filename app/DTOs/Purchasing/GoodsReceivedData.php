@@ -18,6 +18,8 @@ final readonly class GoodsReceivedData
         public float $labourCost,
         public ?string $notes,
         public array $items,
+        public string $billStatus = 'bill_available',
+        public ?string $billNumber = null,
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -40,6 +42,8 @@ final readonly class GoodsReceivedData
             labourCost: (float) $request->input('labour_cost', 0.00),
             notes: $request->string('notes')->toString() ?: null,
             items: $items,
+            billStatus: (string) $request->input('bill_status', 'bill_available'),
+            billNumber: $request->filled('bill_number') ? (string) $request->input('bill_number') : null,
         );
     }
 
@@ -51,6 +55,8 @@ final readonly class GoodsReceivedData
             'transport_cost' => $this->transportCost,
             'labour_cost' => $this->labourCost,
             'notes' => $this->notes,
+            'bill_status' => $this->billStatus,
+            'bill_number' => $this->billNumber,
         ];
     }
 }

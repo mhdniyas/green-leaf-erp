@@ -7,11 +7,15 @@ namespace App\Http\Controllers\Web\Purchasing;
 use App\Domains\ShopOrder\Actions\ResolveDeliveryReviewAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\RepriceShopInvoiceRequest;
+use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
 use App\Models\ShopInvoice;
+use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Spatie\Activitylog\Models\Activity;
@@ -95,7 +99,82 @@ class ShopInvoiceController extends Controller
             ->latest('id')
             ->get();
 
-        return view('purchasing.shop-invoices.show', compact('invoice', 'activities'));
+        $isAdmin = (bool) $request->user()?->hasRole('admin');
+        $canApprove = $isAdmin || (bool) $request->user()?->hasRole('purchase') || (bool) $request->user()?->can('purchasing.order.approve');
+        $isFinalized = $invoice->isFinalized();
+        $shopSubmitted = $invoice->order?->shop_checked_at !== null;
+        $deliveryReviewState = $invoice->order?->delivery_review_status;
+        $canOverride = $isAdmin && ! $isFinalized && $invoice->order !== null;
+        $canEdit = $canOverride || (
+            $canApprove
+            && ! $isFinalized
+            && ($invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval')
+        );
+        $canFinalize = $canApprove && ! $isFinalized && $invoice->order !== null;
+
+        return view('purchasing.shop-invoices.show', compact(
+            'invoice',
+            'activities',
+            'canApprove',
+            'canFinalize',
+            'canOverride',
+            'canEdit',
+            'isFinalized',
+            'shopSubmitted',
+            'deliveryReviewState',
+        ));
+    }
+
+    public function finalizeOnBehalf(ReviewDeliveryDiscrepancyRequest $request, ShopInvoice $invoice): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $invoice->loadMissing(['order.items.product', 'order.invoice.items', 'items']);
+        $order = $invoice->order;
+
+        if (! $order instanceof ShopOrder) {
+            return back()->withErrors(['invoice' => 'Cannot finalize because this invoice has no linked order.'])->withInput();
+        }
+
+        if ($invoice->isFinalized()) {
+            return back()->withErrors(['invoice' => 'This shop invoice is already finalized.'])->withInput();
+        }
+
+        $validated = $request->validated();
+        $approvedDeliveredQuantities = $validated['approved_delivered_qty'] ?? [];
+        $reviewNote = $validated['review_note'] ?? null;
+
+        try {
+            if ($order->delivery_status === 'in_transit' && in_array($order->delivery_review_status, ['not_started', 'correction_requested'], true)) {
+                $this->prepareUnitCosts($order);
+
+                $this->resolveDeliveryReviewAction->submit(
+                    $order,
+                    $this->reportedQuantitiesForAdminOverride($order, $approvedDeliveredQuantities),
+                    (int) $request->user()->id,
+                    $reviewNote,
+                );
+
+                $order = $order->fresh(['items.product', 'invoice.items']);
+            }
+
+            $order = $this->resolveDeliveryReviewAction->approve(
+                $order,
+                $approvedDeliveredQuantities,
+                $validated['item_review_notes'] ?? [],
+                $validated['item_inventory_actions'] ?? [],
+                $validated['delivery_discrepancy_types'] ?? [],
+                $validated['delivery_discrepancy_notes'] ?? [],
+                (int) $request->user()->id,
+                $reviewNote,
+            );
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        return redirect()
+            ->route('purchasing.shop-invoices.show', $order->invoice?->invoice_number ?? $invoice->invoice_number)
+            ->with('success', 'Shop invoice finalized by admin review.');
     }
 
     public function pdf(Request $request, ShopInvoice $invoice): View
@@ -147,5 +226,58 @@ class ShopInvoiceController extends Controller
 
         return redirect()->route('purchasing.shop-invoices.show', $invoice)
             ->with('success', 'Delivery approval was reverted. You can now edit and approve the review again.');
+    }
+
+    /**
+     * @param  array<int|string, mixed>  $approvedDeliveredQuantities
+     * @return array<int, float>
+     */
+    private function reportedQuantitiesForAdminOverride(ShopOrder $order, array $approvedDeliveredQuantities): array
+    {
+        return $order->items
+            ->mapWithKeys(function (ShopOrderItem $item) use ($approvedDeliveredQuantities): array {
+                $quantity = $approvedDeliveredQuantities[$item->id]
+                    ?? $item->shop_reported_received_qty
+                    ?? $item->loaded_qty
+                    ?? $item->approved_qty
+                    ?? 0;
+
+                return [$item->id => round((float) $quantity, 2)];
+            })
+            ->all();
+    }
+
+    private function prepareUnitCosts(ShopOrder $order): void
+    {
+        $businessDate = $order->business_date?->toDateString() ?? today()->toDateString();
+
+        foreach ($order->items as $item) {
+            $item->update([
+                'unit_cost' => $this->resolveProductUnitCost((int) $item->product_id, $businessDate),
+            ]);
+        }
+    }
+
+    private function resolveProductUnitCost(int $productId, string $businessDate): float
+    {
+        $cost = DB::table('stock_batches')
+            ->where('product_id', $productId)
+            ->whereDate('received_at', $businessDate)
+            ->whereNull('deleted_at')
+            ->latest('id')
+            ->value('cost_per_kg');
+
+        if ($cost !== null) {
+            return (float) $cost;
+        }
+
+        $cost = DB::table('stock_batches')
+            ->where('product_id', $productId)
+            ->whereNull('deleted_at')
+            ->latest('received_at')
+            ->latest('id')
+            ->value('cost_per_kg');
+
+        return $cost !== null ? (float) $cost : 0.00;
     }
 }
