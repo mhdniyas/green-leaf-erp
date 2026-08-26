@@ -183,7 +183,7 @@ class AdminCashbookReportsController extends Controller
      */
     public function glBills(Request $request): View
     {
-        $report = $this->glBillsReport($request, true);
+        $report = $this->glBillsReport($request, true, false);
 
         return view('admin.cashbook.reports.gl_bills', [
             ...$report,
@@ -193,7 +193,7 @@ class AdminCashbookReportsController extends Controller
 
     public function glBillsExportCsv(Request $request): StreamedResponse
     {
-        $report = $this->glBillsReport($request, false);
+        $report = $this->glBillsReport($request, false, true);
         $rows = $this->glBillsExportRows($report);
         $filename = $this->glBillsFilename($report, 'csv');
 
@@ -213,7 +213,7 @@ class AdminCashbookReportsController extends Controller
 
     public function glBillsExportPdf(Request $request): mixed
     {
-        $report = $this->glBillsReport($request, false);
+        $report = $this->glBillsReport($request, false, true);
 
         $viewData = [
             ...$report,
@@ -236,6 +236,7 @@ class AdminCashbookReportsController extends Controller
      *     shops: Collection<int, mixed>,
      *     selectedShop: mixed,
      *     selectedShopId: int|null,
+     *     exportScopeLabel: string,
      *     productFilters: Collection<int, PurchaseProductFilter>,
      *     selectedProductFilter: PurchaseProductFilter|null,
      *     selectedProductFilterUuid: string,
@@ -247,16 +248,17 @@ class AdminCashbookReportsController extends Controller
      *     endDate: string
      * }
      */
-    private function glBillsReport(Request $request, bool $paginate): array
+    private function glBillsReport(Request $request, bool $paginate, bool $forExport): array
     {
         $this->ensureAuthorized($request);
 
-        $shops = $this->shopSyncService->syncAndGetProfiles();
-        $ownedShops = $shops->filter(fn ($shop) => $shop->client_id !== null)->values();
-        $shops = $ownedShops->isNotEmpty() ? $ownedShops : $shops;
+        $shops = Shop::query()->orderBy('name')->get();
 
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
-        $selectedShop = $selectedShopId ? $shops->firstWhere('shop_id', $selectedShopId) : null;
+        $selectedShop = $selectedShopId ? ($shops->firstWhere('id', $selectedShopId) ?? $shops->firstWhere('shop_id', $selectedShopId)) : null;
+        $shopIds = $selectedShopId
+            ? ($selectedShop ? [(int) ($selectedShop->shop_id ?? $selectedShop->id)] : [$selectedShopId])
+            : [];
 
         $timeframe = (string) $request->input('timeframe', 'monthly');
         $dateRange = $this->resolveDateRange($timeframe, $request);
@@ -275,24 +277,7 @@ class AdminCashbookReportsController extends Controller
             ? $selectedProductFilter->getProductIds()
             : [];
 
-        if (! $selectedShopId) {
-            return [
-                'shops' => $shops,
-                'selectedShop' => null,
-                'selectedShopId' => null,
-                'productFilters' => $productFilters,
-                'selectedProductFilter' => $selectedProductFilter,
-                'selectedProductFilterUuid' => $selectedProductFilterUuid,
-                'filterProductIds' => $filterProductIds,
-                'invoices' => $paginate ? new LengthAwarePaginator([], 0, 15) : collect(),
-                'totals' => $this->emptyGlBillsTotals(),
-                'timeframe' => $timeframe,
-                'startDate' => $dateRange['start'],
-                'endDate' => $dateRange['end'],
-            ];
-        }
-
-        $query = $this->glBillsQuery($selectedShopId, $dateRange['start'], $dateRange['end'], $selectedProductFilter, $filterProductIds);
+        $query = $this->glBillsQuery($shopIds, $dateRange['start'], $dateRange['end'], $selectedProductFilter, $filterProductIds);
         $totalInvoices = (clone $query)->get();
         $this->annotateGlBillsInvoices($totalInvoices, $filterProductIds);
 
@@ -305,6 +290,7 @@ class AdminCashbookReportsController extends Controller
             'shops' => $shops,
             'selectedShop' => $selectedShop,
             'selectedShopId' => $selectedShopId,
+            'exportScopeLabel' => $selectedShop?->name ?: 'All Shops',
             'productFilters' => $productFilters,
             'selectedProductFilter' => $selectedProductFilter,
             'selectedProductFilterUuid' => $selectedProductFilterUuid,
@@ -318,10 +304,11 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
+     * @param  array<int, int>  $shopIds
      * @param  array<int, int>  $filterProductIds
      */
     private function glBillsQuery(
-        int $selectedShopId,
+        array $shopIds,
         string $startDate,
         string $endDate,
         ?PurchaseProductFilter $selectedProductFilter,
@@ -337,7 +324,7 @@ class AdminCashbookReportsController extends Controller
 
         $query = ShopInvoice::query()
             ->with($itemsEager)
-            ->where('shop_id', $selectedShopId)
+            ->when($shopIds !== [], fn (Builder $query): Builder => $query->whereIn('shop_id', $shopIds))
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate);
 
@@ -409,14 +396,14 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
-     * @param  array{invoices: Collection<int, ShopInvoice>|LengthAwarePaginator, totals: array<string, float|int>, selectedShop: mixed, selectedProductFilter: PurchaseProductFilter|null, startDate: string, endDate: string}  $report
+     * @param  array{invoices: Collection<int, ShopInvoice>|LengthAwarePaginator, totals: array<string, float|int>, selectedShop: mixed, selectedProductFilter: PurchaseProductFilter|null, exportScopeLabel: string, startDate: string, endDate: string}  $report
      * @return array<int, array<int, float|int|string|null>>
      */
     private function glBillsExportRows(array $report): array
     {
         $rows = [
             ['GL Bills Export'],
-            ['Shop', $report['selectedShop']?->name ?: 'No outlet selected'],
+            ['Shop', $report['exportScopeLabel']],
             ['Period', $report['startDate'].' to '.$report['endDate']],
             ['Product Filter', $report['selectedProductFilter']?->name ?: 'All Products'],
             [],

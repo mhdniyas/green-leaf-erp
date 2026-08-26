@@ -363,6 +363,154 @@ class CashbookGlBillsReportTest extends TestCase
             ->assertHeader('Content-Disposition', 'attachment; filename=gl-bills-DT-01-2026-08-24-to-2026-08-24.pdf');
     }
 
+    public function test_gl_bills_csv_export_without_shop_exports_all_owned_shops(): void
+    {
+        $tomato = $this->createProduct('Tomato', 'TOM-01');
+        $secondShop = Shop::factory()->create([
+            'name' => 'Uptown Fresh',
+            'code' => 'UT-01',
+            'client_id' => Client::query()->create([
+                'code' => 'CL-02',
+                'name' => 'Second Client',
+                'status' => 'active',
+            ])->id,
+            'status' => 'active',
+            'accounting_enabled' => true,
+        ]);
+
+        $this->createInvoiceWithItem('INV-DT-ALL', '2026-08-24', $tomato, 300.00, 300.00);
+        $this->createInvoiceWithItem('INV-UT-ALL', '2026-08-25', $tomato, 450.00, 450.00, $secondShop);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills.export.csv', [
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-24',
+            'end_date' => '2026-08-25',
+        ]));
+        ob_start();
+        $response->baseResponse->sendContent();
+        $content = (string) ob_get_clean();
+
+        $response->assertOk()
+            ->assertHeader('Content-Disposition', 'attachment; filename=gl-bills-all-shops-2026-08-24-to-2026-08-25.csv');
+
+        $this->assertStringContainsString('All Shops', $content);
+        $this->assertStringContainsString('INV-DT-ALL', $content);
+        $this->assertStringContainsString('INV-UT-ALL', $content);
+        $this->assertStringContainsString('750', $content);
+    }
+
+    public function test_gl_bills_pdf_print_view_shows_filters_and_shop_sections(): void
+    {
+        $tomato = $this->createProduct('Tomato', 'TOM-01');
+        $secondShop = Shop::factory()->create([
+            'name' => 'Uptown Fresh',
+            'code' => 'UT-01',
+            'client_id' => Client::query()->create([
+                'code' => 'CL-03',
+                'name' => 'Third Client',
+                'status' => 'active',
+            ])->id,
+            'status' => 'active',
+            'accounting_enabled' => true,
+        ]);
+        $filter = PurchaseProductFilter::create([
+            'name' => 'Professional Tomato Filter',
+            'is_active' => true,
+            'created_by' => $this->admin->id,
+        ]);
+        PurchaseProductFilterItem::create([
+            'filter_id' => $filter->id,
+            'product_id' => $tomato->id,
+        ]);
+
+        $this->createInvoiceWithItem('INV-DT-PRINT', '2026-08-24', $tomato, 300.00, 300.00);
+        $this->createInvoiceWithItem('INV-UT-PRINT', '2026-08-25', $tomato, 450.00, 450.00, $secondShop);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills.export.pdf', [
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-24',
+            'end_date' => '2026-08-25',
+            'product_filter' => $filter->uuid,
+        ]));
+
+        $response->assertOk()
+            ->assertSee('Outlet scope')
+            ->assertSee('Product filter')
+            ->assertSee('Professional Tomato Filter')
+            ->assertSee('Downtown Fresh')
+            ->assertSee('Uptown Fresh')
+            ->assertSee('INV-DT-PRINT')
+            ->assertSee('INV-UT-PRINT');
+    }
+
+    public function test_gl_bills_shows_all_shops_in_dropdown_including_non_client_shops(): void
+    {
+        $nonClientShop = Shop::factory()->create([
+            'name' => 'Independent Retailer',
+            'code' => 'IND-01',
+            'client_id' => null,
+            'accounting_mode' => 'direct_buyer',
+            'accounting_enabled' => false,
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills'));
+
+        $response->assertOk()
+            ->assertSee('Downtown Fresh')
+            ->assertSee('Independent Retailer')
+            ->assertSee('All Outlets');
+    }
+
+    public function test_gl_bills_applies_date_and_product_filters_without_shop_id_selection(): void
+    {
+        $tomato = $this->createProduct('Tomato', 'TOM-01');
+        $potato = $this->createProduct('Potato', 'POT-01');
+
+        $otherShop = Shop::factory()->create([
+            'name' => 'Suburban Market',
+            'code' => 'SUB-01',
+            'client_id' => null,
+            'status' => 'active',
+        ]);
+
+        // Invoice 1: Shop 1 with Tomato (matches filter)
+        $inv1 = $this->createInvoiceWithItem('INV-ALL-TOM-1', '2026-08-15', $tomato, 350.00, 350.00, $this->shop);
+        // Invoice 2: Shop 2 with Tomato (matches filter)
+        $inv2 = $this->createInvoiceWithItem('INV-ALL-TOM-2', '2026-08-20', $tomato, 450.00, 450.00, $otherShop);
+        // Invoice 3: Shop 1 with Potato (does not match product filter)
+        $this->createInvoiceWithItem('INV-ALL-POT-3', '2026-08-18', $potato, 200.00, 200.00, $this->shop);
+        // Invoice 4: Outside date range
+        $this->createInvoiceWithItem('INV-ALL-OUT-4', '2026-07-20', $tomato, 500.00, 500.00, $this->shop);
+
+        $filter = PurchaseProductFilter::create([
+            'name' => 'Tomato Filter',
+            'is_active' => true,
+            'created_by' => $this->admin->id,
+        ]);
+        PurchaseProductFilterItem::create([
+            'filter_id' => $filter->id,
+            'product_id' => $tomato->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills', [
+            'timeframe' => 'custom',
+            'shop_id' => '',
+            'product_filter' => $filter->uuid,
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-08-31',
+        ]));
+
+        $response->assertOk()
+            ->assertSee('INV-ALL-TOM-1')
+            ->assertSee('INV-ALL-TOM-2')
+            ->assertDontSee('INV-ALL-POT-3')
+            ->assertDontSee('INV-ALL-OUT-4')
+            ->assertSee('Downtown Fresh')
+            ->assertSee('Suburban Market')
+            ->assertSee('800.00'); // 350 + 450 total billed
+    }
+
     private function createProduct(string $name, string $sku): Product
     {
         return Product::factory()->create([
@@ -379,24 +527,27 @@ class CashbookGlBillsReportTest extends TestCase
         string $businessDate,
         Product $product,
         float $lineTotal,
-        float $invoiceTotal
+        float $invoiceTotal,
+        ?Shop $shop = null
     ): ShopInvoice {
+        $shop ??= $this->shop;
+
         $order = ShopOrder::create([
-            'shop_id' => $this->shop->id,
+            'shop_id' => $shop->id,
             'business_date' => $businessDate,
             'order_number' => 'RQ-'.$invoiceNumber,
             'order_source' => 'shop_owner',
             'state' => 'approved',
             'delivery_status' => 'delivered',
             'payment_status' => 'paid',
-            'shop_daily_order_key' => 'shop:'.$this->shop->id.':'.$businessDate.':'.$invoiceNumber,
+            'shop_daily_order_key' => 'shop:'.$shop->id.':'.$businessDate.':'.$invoiceNumber,
             'created_by' => $this->admin->id,
             'submitted_at' => $businessDate.' 08:00:00',
             'deadline_at' => $businessDate.' 10:00:00',
         ]);
 
         $invoice = ShopInvoice::create([
-            'shop_id' => $this->shop->id,
+            'shop_id' => $shop->id,
             'shop_order_id' => $order->id,
             'invoice_number' => $invoiceNumber,
             'business_date' => $businessDate,

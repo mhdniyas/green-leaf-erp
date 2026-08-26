@@ -249,4 +249,9 @@ class Shop extends Model
     {
         return $this->client_id !== null;
     }
+
+    public function getShopIdAttribute(): int
+    {
+        return $this->id;
+    }
 }

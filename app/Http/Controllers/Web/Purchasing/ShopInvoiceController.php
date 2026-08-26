@@ -27,50 +27,21 @@ class ShopInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $tab = (string) $request->input('tab', 'needs-approval');
-        if ($tab === 'delivery-review') {
-            $tab = 'needs-approval';
-        }
-
         $selectedDate = $request->filled('date')
             ? Carbon::parse((string) $request->input('date'))->toDateString()
-            : null;
+            : today()->toDateString();
 
         $baseInvoiceQuery = fn () => ShopInvoice::query()
-            ->when($selectedDate !== null, fn ($query) => $query->whereDate('business_date', $selectedDate));
+            ->whereDate('business_date', $selectedDate);
 
         $invoiceQuery = ShopInvoice::query()
             ->with(['shop', 'order.shopCheckedBy', 'order.adminReviewedBy', 'items.orderItem', 'discountApprovedBy', 'finalizedBy'])
             ->latest('business_date')
-            ->latest('id');
-
-        if ($selectedDate !== null) {
-            $invoiceQuery->whereDate('business_date', $selectedDate);
-        }
-
-        if ($tab === 'needs-approval') {
-            $invoiceQuery->whereHas('order', fn ($query) => $query
-                ->where('delivery_status', 'pending_approval')
-                ->where('delivery_review_status', 'pending'));
-        } elseif ($tab === 'shop-notes') {
-            $invoiceQuery->whereHas('items.orderItem', fn ($query) => $query
-                ->whereNotNull('shop_verification_note')
-                ->where('shop_verification_note', '!=', ''));
-        } elseif ($tab === 'variance') {
-            $invoiceQuery->where(function ($query): void {
-                $query->where('shortage_total', '>', 0)
-                    ->orWhere('excess_total', '>', 0)
-                    ->orWhereHas('items.orderItem', fn ($itemQuery) => $itemQuery
-                        ->where(function ($varianceQuery): void {
-                            $varianceQuery->where('shop_reported_missing_qty', '>', 0)
-                                ->orWhere('shop_reported_excess_qty', '>', 0);
-                        }));
-            });
-        } elseif ($tab === 'payment-pending') {
-            $invoiceQuery->where('balance_amount', '>', 0);
-        }
+            ->latest('id')
+            ->whereDate('business_date', $selectedDate);
 
         $invoices = $invoiceQuery->paginate(20);
+        $invoicesByShop = $invoices->getCollection()->groupBy(fn (ShopInvoice $invoice): string => (string) ($invoice->shop?->name ?? 'Unknown Shop'));
         $pendingApprovalCount = $baseInvoiceQuery()
             ->whereHas('order', fn ($query) => $query
                 ->where('delivery_status', 'pending_approval')
@@ -98,7 +69,7 @@ class ShopInvoiceController extends Controller
 
         return view('purchasing.shop-invoices.index', [
             'invoices' => $invoices,
-            'tab' => $tab,
+            'invoicesByShop' => $invoicesByShop,
             'selectedDate' => $selectedDate,
             'todayDate' => today()->toDateString(),
             'allInvoicesCount' => $baseInvoiceQuery()->count(),

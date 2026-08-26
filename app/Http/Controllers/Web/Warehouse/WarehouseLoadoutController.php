@@ -544,6 +544,7 @@ class WarehouseLoadoutController extends Controller
                     }
 
                     $totalApproved = $this->loadoutApprovedQuantity($rows);
+                    $totalRequested = $this->loadoutRequestedQuantity($rows);
                     $firstRow = $rows->first();
 
                     $requestedUnitQty = (float) ($firstRow->requested_unit_quantity ?? 0.0);
@@ -625,16 +626,12 @@ class WarehouseLoadoutController extends Controller
                     $targetRows = [];
 
                     if ($isNotAvailable) {
-                        $rowReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                            ? round($totalApproved / $conversionToBase, 2)
-                            : $totalApproved;
-
                         $targetRows[] = array_merge($basePriceData, [
-                            'requested_qty' => $totalApproved,
+                            'requested_qty' => $totalRequested,
                             'approved_qty' => $totalApproved,
                             'loaded_qty' => 0.0,
                             'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
-                            'requested_unit_quantity' => $rowReqUnitQty,
+                            'requested_unit_quantity' => $requestedUnitQty,
                             'line_total' => round($totalApproved * $unitSellingPrice, 2),
                             'actual_weight' => null,
                             'delivered_qty' => 0.0,
@@ -651,22 +648,15 @@ class WarehouseLoadoutController extends Controller
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
                         $excessValue = round($excessQty * $unitSellingPrice, 2);
 
-                        $remaining = max(0.0, round($totalApproved - $submittedQty, 3));
-
                         if ($submittedQty > 0) {
                             $anyItemLoaded = true;
-                            $loadedQtyToRecord = round($submittedQty, 3);
-                            $loadedReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                                ? round($loadedQtyToRecord / $conversionToBase, 2)
-                                : $loadedQtyToRecord;
-
                             $targetRows[] = array_merge($basePriceData, [
-                                'requested_qty' => $loadedQtyToRecord,
-                                'approved_qty' => $loadedQtyToRecord,
+                                'requested_qty' => $totalRequested,
+                                'approved_qty' => $totalApproved,
                                 'loaded_qty' => $submittedQty,
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? round($submittedQty / $conversionToBase, 2)) : null,
-                                'requested_unit_quantity' => $loadedReqUnitQty,
-                                'line_total' => round($loadedQtyToRecord * $unitSellingPrice, 2),
+                                'requested_unit_quantity' => $requestedUnitQty,
+                                'line_total' => round($totalApproved * $unitSellingPrice, 2),
                                 'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
                                 'delivered_qty' => null,
                                 'excess_qty' => $excessQty,
@@ -677,31 +667,6 @@ class WarehouseLoadoutController extends Controller
                                 'is_sorted' => true,
                                 'sorted_at' => now(),
                                 'sorted_by' => $userId,
-                            ]);
-                        }
-
-                        if ($remaining > 0.001) {
-                            $remainderReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                                ? round($remaining / $conversionToBase, 2)
-                                : $remaining;
-
-                            $targetRows[] = array_merge($basePriceData, [
-                                'requested_qty' => $remaining,
-                                'approved_qty' => $remaining,
-                                'loaded_qty' => null,
-                                'loaded_order_unit_qty' => null,
-                                'requested_unit_quantity' => $remainderReqUnitQty,
-                                'line_total' => round($remaining * $unitSellingPrice, 2),
-                                'actual_weight' => null,
-                                'delivered_qty' => null,
-                                'excess_qty' => 0.0,
-                                'excess_value' => 0.0,
-                                'loadout_discrepancy_type' => 'none',
-                                'loadout_discrepancy_note' => null,
-                                'sorting_status' => 'allocated',
-                                'is_sorted' => false,
-                                'sorted_at' => null,
-                                'sorted_by' => null,
                             ]);
                         }
                     }
@@ -812,7 +777,10 @@ class WarehouseLoadoutController extends Controller
             ->get();
 
         $remainingItems = $shopOrder->items()
-            ->where('sorting_status', '!=', 'loaded')
+            ->where(function ($query): void {
+                $query->where('sorting_status', '!=', 'loaded')
+                    ->orWhereColumn('loaded_qty', '<', 'approved_qty');
+            })
             ->get();
 
         if ($loadedItems->isEmpty()) {
@@ -940,12 +908,6 @@ class WarehouseLoadoutController extends Controller
      */
     private function loadoutApprovedQuantity(Collection $items): float
     {
-        $originalApproved = $this->originalRequestedQuantity($items);
-
-        if ($originalApproved > 0.001) {
-            return $originalApproved;
-        }
-
         $loadedRows = $items->where('sorting_status', 'loaded');
         $openApproved = (float) $items
             ->reject(fn (ShopOrderItem $item): bool => $item->sorting_status === 'loaded')
@@ -961,7 +923,7 @@ class WarehouseLoadoutController extends Controller
         return round((float) $items->sum('approved_qty'), 3);
     }
 
-    private function originalRequestedQuantity(Collection $items): float
+    private function loadoutRequestedQuantity(Collection $items): float
     {
         /** @var ShopOrderItem|null $source */
         $source = $items->first(function (ShopOrderItem $item): bool {
@@ -970,7 +932,7 @@ class WarehouseLoadoutController extends Controller
         });
 
         if (! $source) {
-            return 0.0;
+            return round((float) $items->sum('requested_qty'), 3);
         }
 
         return round(
@@ -1048,8 +1010,8 @@ class WarehouseLoadoutController extends Controller
         /** @var ShopOrderItem $first */
         $first = $rows->first();
         $totalApproved = $this->loadoutApprovedQuantity($rows);
+        $totalRequested = $this->loadoutRequestedQuantity($rows);
         $totalLoaded = round((float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty'), 3);
-        $remaining = round(max(0.0, $totalApproved - min($totalLoaded, $totalApproved)), 3);
         $hasRequestedUnit = filled($first->requested_unit) && strtolower((string) $first->requested_unit) !== 'kg';
         $conversionToBase = (float) ($first->requested_unit_conversion_to_base ?? 1.0);
         $unitPrice = (float) ($first->locked_selling_price ?? 0.0);
@@ -1070,16 +1032,12 @@ class WarehouseLoadoutController extends Controller
         ];
 
         if ($allNotAvailable || $totalLoaded <= 0.001) {
-            $requestedUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                ? round($totalApproved / $conversionToBase, 2)
-                : $totalApproved;
-
             return [array_merge($basePriceData, [
-                'requested_qty' => $totalApproved,
+                'requested_qty' => $totalRequested,
                 'approved_qty' => $totalApproved,
                 'loaded_qty' => $allNotAvailable ? 0.0 : null,
                 'loaded_order_unit_qty' => $allNotAvailable && $hasRequestedUnit ? 0.0 : null,
-                'requested_unit_quantity' => $requestedUnitQty,
+                'requested_unit_quantity' => (float) ($first->requested_unit_quantity ?? $totalRequested),
                 'line_total' => round($totalApproved * $unitPrice, 2),
                 'actual_weight' => null,
                 'delivered_qty' => null,
@@ -1095,18 +1053,13 @@ class WarehouseLoadoutController extends Controller
         }
 
         $targetRows = [];
-        $loadedQtyToRecord = round(min($totalLoaded, $totalApproved), 3);
-        $loadedReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-            ? round($loadedQtyToRecord / $conversionToBase, 2)
-            : $loadedQtyToRecord;
-
         $targetRows[] = array_merge($basePriceData, [
-            'requested_qty' => $loadedQtyToRecord,
-            'approved_qty' => $loadedQtyToRecord,
+            'requested_qty' => $totalRequested,
+            'approved_qty' => $totalApproved,
             'loaded_qty' => $totalLoaded,
             'loaded_order_unit_qty' => $hasRequestedUnit && $conversionToBase > 0 ? round($totalLoaded / $conversionToBase, 2) : null,
-            'requested_unit_quantity' => $loadedReqUnitQty,
-            'line_total' => round($loadedQtyToRecord * $unitPrice, 2),
+            'requested_unit_quantity' => (float) ($first->requested_unit_quantity ?? $totalRequested),
+            'line_total' => round($totalApproved * $unitPrice, 2),
             'actual_weight' => $totalLoaded,
             'delivered_qty' => null,
             'excess_qty' => max(0.0, round($totalLoaded - $totalApproved, 3)),
@@ -1118,31 +1071,6 @@ class WarehouseLoadoutController extends Controller
             'sorted_at' => now(),
             'sorted_by' => $userId,
         ]);
-
-        if ($remaining > 0.001) {
-            $remainderReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                ? round($remaining / $conversionToBase, 2)
-                : $remaining;
-
-            $targetRows[] = array_merge($basePriceData, [
-                'requested_qty' => $remaining,
-                'approved_qty' => $remaining,
-                'loaded_qty' => null,
-                'loaded_order_unit_qty' => null,
-                'requested_unit_quantity' => $remainderReqUnitQty,
-                'line_total' => round($remaining * $unitPrice, 2),
-                'actual_weight' => null,
-                'delivered_qty' => null,
-                'excess_qty' => 0.0,
-                'excess_value' => 0.0,
-                'loadout_discrepancy_type' => 'none',
-                'loadout_discrepancy_note' => null,
-                'sorting_status' => 'allocated',
-                'is_sorted' => false,
-                'sorted_at' => null,
-                'sorted_by' => null,
-            ]);
-        }
 
         return $targetRows;
     }

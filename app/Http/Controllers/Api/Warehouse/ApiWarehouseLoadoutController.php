@@ -476,6 +476,7 @@ class ApiWarehouseLoadoutController extends Controller
                     }
 
                     $totalApproved = $this->loadoutApprovedQuantity($rows);
+                    $totalRequested = $this->loadoutRequestedQuantity($rows);
                     $firstRow = $rows->first();
 
                     $requestedUnitQty = (float) ($firstRow->requested_unit_quantity ?? 0.0);
@@ -553,16 +554,12 @@ class ApiWarehouseLoadoutController extends Controller
                     $targetRows = [];
 
                     if ($isNotAvailable) {
-                        $rowReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                            ? round($totalApproved / $conversionToBase, 2)
-                            : $totalApproved;
-
                         $targetRows[] = array_merge($basePriceData, [
-                            'requested_qty' => $totalApproved,
+                            'requested_qty' => $totalRequested,
                             'approved_qty' => $totalApproved,
                             'loaded_qty' => 0.0,
                             'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
-                            'requested_unit_quantity' => $rowReqUnitQty,
+                            'requested_unit_quantity' => $requestedUnitQty,
                             'line_total' => round($totalApproved * $unitSellingPrice, 2),
                             'actual_weight' => null,
                             'delivered_qty' => 0.0,
@@ -579,22 +576,15 @@ class ApiWarehouseLoadoutController extends Controller
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
                         $excessValue = round($excessQty * $unitSellingPrice, 2);
 
-                        $remaining = max(0.0, round($totalApproved - $submittedQty, 3));
-
                         if ($submittedQty > 0) {
                             $anyItemLoaded = true;
-                            $loadedQtyToRecord = round($submittedQty, 3);
-                            $loadedReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                                ? round($loadedQtyToRecord / $conversionToBase, 2)
-                                : $loadedQtyToRecord;
-
                             $targetRows[] = array_merge($basePriceData, [
-                                'requested_qty' => $loadedQtyToRecord,
-                                'approved_qty' => $loadedQtyToRecord,
+                                'requested_qty' => $totalRequested,
+                                'approved_qty' => $totalApproved,
                                 'loaded_qty' => $submittedQty,
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? round($submittedQty / $conversionToBase, 2)) : null,
-                                'requested_unit_quantity' => $loadedReqUnitQty,
-                                'line_total' => round($loadedQtyToRecord * $unitSellingPrice, 2),
+                                'requested_unit_quantity' => $requestedUnitQty,
+                                'line_total' => round($totalApproved * $unitSellingPrice, 2),
                                 'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
                                 'delivered_qty' => null,
                                 'excess_qty' => $excessQty,
@@ -605,31 +595,6 @@ class ApiWarehouseLoadoutController extends Controller
                                 'is_sorted' => true,
                                 'sorted_at' => now(),
                                 'sorted_by' => $userId,
-                            ]);
-                        }
-
-                        if ($remaining > 0.001) {
-                            $remainderReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
-                                ? round($remaining / $conversionToBase, 2)
-                                : $remaining;
-
-                            $targetRows[] = array_merge($basePriceData, [
-                                'requested_qty' => $remaining,
-                                'approved_qty' => $remaining,
-                                'loaded_qty' => null,
-                                'loaded_order_unit_qty' => null,
-                                'requested_unit_quantity' => $remainderReqUnitQty,
-                                'line_total' => round($remaining * $unitSellingPrice, 2),
-                                'actual_weight' => null,
-                                'delivered_qty' => null,
-                                'excess_qty' => 0.0,
-                                'excess_value' => 0.0,
-                                'loadout_discrepancy_type' => 'none',
-                                'loadout_discrepancy_note' => null,
-                                'sorting_status' => 'allocated',
-                                'is_sorted' => false,
-                                'sorted_at' => null,
-                                'sorted_by' => null,
                             ]);
                         }
                     }
@@ -700,6 +665,21 @@ class ApiWarehouseLoadoutController extends Controller
 
         if ($shopOrder->delivery_status !== 'ready_for_dispatch') {
             return response()->json(['success' => false, 'message' => 'Order is not ready for delivery.'], 422);
+        }
+
+        $remainingItems = $shopOrder->items()
+            ->where(function ($query): void {
+                $query->where('sorting_status', '!=', 'loaded')
+                    ->orWhereColumn('loaded_qty', '<', 'approved_qty');
+            })
+            ->get();
+
+        if (! $partialDelivery && $remainingItems->isNotEmpty()) {
+            return response()->json(['success' => false, 'message' => 'Order has short-loaded items. Use partial delivery.'], 422);
+        }
+
+        if ($partialDelivery && $remainingItems->isEmpty()) {
+            return response()->json(['success' => false, 'message' => 'All items are fully loaded. Use regular delivery.'], 422);
         }
 
         try {
@@ -934,12 +914,6 @@ class ApiWarehouseLoadoutController extends Controller
 
     private function loadoutApprovedQuantity(Collection $items): float
     {
-        $originalApproved = $this->originalRequestedQuantity($items);
-
-        if ($originalApproved > 0.001) {
-            return $originalApproved;
-        }
-
         $loadedRows = $items->where('sorting_status', 'loaded');
         $openApproved = (float) $items
             ->reject(fn (ShopOrderItem $item): bool => $item->sorting_status === 'loaded')
@@ -955,7 +929,7 @@ class ApiWarehouseLoadoutController extends Controller
         return round((float) $items->sum('approved_qty'), 3);
     }
 
-    private function originalRequestedQuantity(Collection $items): float
+    private function loadoutRequestedQuantity(Collection $items): float
     {
         $source = $items->first(function (ShopOrderItem $item): bool {
             return (float) ($item->requested_unit_quantity ?? 0) > 0
@@ -963,7 +937,7 @@ class ApiWarehouseLoadoutController extends Controller
         });
 
         if (! $source) {
-            return 0.0;
+            return round((float) $items->sum('requested_qty'), 3);
         }
 
         return round((float) $source->requested_unit_quantity * (float) $source->requested_unit_conversion_to_base, 3);

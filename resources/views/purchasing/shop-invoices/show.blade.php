@@ -75,6 +75,9 @@
                     <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
                         Print / PDF
                     </a>
+                    <a href="{{ route('purchasing.bill-prices.show', $invoice) }}" class="rounded-full border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-cyan-800">
+                        Edit Prices
+                    </a>
                     @if ($canSeeRevertDeliveryApproval)
                         @if ($canRevertDeliveryApproval)
                             <form method="POST" action="{{ route('purchasing.shop-invoices.revert-approval', $invoice) }}" onsubmit="return confirm('Revert this delivery approval and reopen admin review editing?');">
