@@ -60,16 +60,16 @@
                         <select id="market-category" name="category" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
                             <option value="">All categories</option>
                             @foreach ($categories as $category)
-                                <option value="{{ $category->id }}" @selected($filters['category'] === $category->id)>{{ $category->name }}</option>
+                                <option value="{{ $category->id }}" @selected(($filters['category'] ?? null) === $category->id)>{{ $category->name }}</option>
                             @endforeach
                         </select>
                     </label>
                     <label class="grid gap-1 text-xs font-black uppercase tracking-wider text-slate-500">Sort
                         <select id="market-sort" name="sort" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
-                            <option value="featured" @selected($filters['sort'] === 'featured')>Featured</option>
-                            <option value="price_low" @selected($filters['sort'] === 'price_low')>Price: low to high</option>
-                            <option value="price_high" @selected($filters['sort'] === 'price_high')>Price: high to low</option>
-                            <option value="name" @selected($filters['sort'] === 'name')>Name A-Z</option>
+                            <option value="featured" @selected(($filters['sort'] ?? 'featured') === 'featured')>Featured</option>
+                            <option value="price_low" @selected(($filters['sort'] ?? 'featured') === 'price_low')>Price: low to high</option>
+                            <option value="price_high" @selected(($filters['sort'] ?? 'featured') === 'price_high')>Price: high to low</option>
+                            <option value="name" @selected(($filters['sort'] ?? 'featured') === 'name')>Name A-Z</option>
                         </select>
                     </label>
                     <div class="flex items-end gap-2">

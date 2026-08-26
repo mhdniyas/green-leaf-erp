@@ -98,14 +98,18 @@ class GoodsReceivedService
             }
 
             // Create or attach real PurchaseInvoice to existing GRN without recreating inventory
-            $invoice = PurchaseInvoice::create([
-                'goods_received_id' => $grn->id,
-                'supplier_id' => $supplierId > 0 ? $supplierId : ($grn->purchaseOrder?->supplier_id ?? Supplier::first()?->id ?? 1),
-                'invoice_number' => $invoiceNumber,
-                'amount' => $amount,
-                'status' => 'approved',
-                'notes' => $notes,
-            ]);
+            $invoice = PurchaseInvoice::firstOrCreate(
+                [
+                    'goods_received_id' => $grn->id,
+                    'invoice_number' => $invoiceNumber,
+                ],
+                [
+                    'supplier_id' => $supplierId > 0 ? $supplierId : ($grn->purchaseOrder?->supplier_id ?? Supplier::first()?->id ?? 1),
+                    'amount' => $amount,
+                    'status' => 'approved',
+                    'notes' => $notes,
+                ]
+            );
 
             $grn->update([
                 'bill_status' => 'bill_available',
@@ -119,7 +123,9 @@ class GoodsReceivedService
             activity()
                 ->performedOn($grn)
                 ->causedBy(User::find($userId))
+                ->event('goods_received.bill_matched')
                 ->withProperties([
+                    'source' => 'goods_received_matched',
                     'invoice_id' => $invoice->id,
                     'invoice_number' => $invoiceNumber,
                     'amount' => $invoice->amount,

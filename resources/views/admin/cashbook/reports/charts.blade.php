@@ -253,6 +253,8 @@
                     detailedCategories: @json($chartData['expense_categories']['detailed'] ?? []),
                     chartLabels: @json($chartData['expense_categories']['labels'] ?? []),
                     chartData: @json($chartData['expense_categories']['data'] ?? []),
+                    totalExpense: @json($chartData['total_expense'] ?? 0),
+                    totalInflow: @json($chartData['total_sales'] ?? 0),
                     chartInstance: null,
 
                     initChart() {
@@ -320,12 +322,14 @@
 
                         if (!item) {
                             const idx = this.chartLabels.indexOf(categoryName);
-                            const amt = this.chartData[idx] || 0;
-                            const tot = this.chartData.reduce((a, b) => a + b, 0);
+                            const amt = Number(this.chartData[idx] || 0);
+                            const totExp = Number(this.totalExpense || 0);
+                            const totInf = Number(this.totalInflow || 0);
                             item = {
                                 name: categoryName,
                                 amount: amt,
-                                pct: tot > 0 ? ((amt / tot) * 100).toFixed(1) : 0,
+                                pct: totExp > 0 ? Number(((amt / totExp) * 100).toFixed(1)) : 0,
+                                inflow_pct: totInf > 0 ? Number(((amt / totInf) * 100).toFixed(1)) : null,
                                 count: 1,
                                 avg: amt
                             };
@@ -355,7 +359,7 @@
                     <canvas id="cakeChartCanvas"></canvas>
                     <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                         <span class="text-[9px] font-black uppercase text-slate-400">Total Outflow</span>
-                        <span class="text-sm font-black text-slate-900">₹{{ number_format($chartData['total_expense'], 0) }}</span>
+                        <span class="text-sm font-black text-slate-900 font-mono">₹{{ number_format($chartData['total_expense'], 0) }}</span>
                     </div>
                 </div>
 
@@ -363,10 +367,17 @@
                 <div class="sm:col-span-7 space-y-2">
                     <h4 class="text-xs font-black uppercase tracking-wider text-slate-400">Outflow Share Breakdown</h4>
                     <div class="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                        @php
+                            $totExp = max(1, $chartData['total_expense']);
+                            $totInf = (float) $chartData['total_sales'];
+                        @endphp
                         @foreach ($chartData['expense_categories']['labels'] as $idx => $lbl)
                             @if ($idx < 5)
-                                @php($amt = $chartData['expense_categories']['data'][$idx] ?? 0)
-                                @php($pct = round(($amt / max(1, $chartData['total_expense'])) * 100, 1))
+                                @php
+                                    $amt = (float) ($chartData['expense_categories']['data'][$idx] ?? 0);
+                                    $pct = round(($amt / $totExp) * 100, 1);
+                                    $infPct = $totInf > 0 ? round(($amt / $totInf) * 100, 1) : null;
+                                @endphp
                                 <div
                                     @click="openCategoryDetail('{{ $lbl }}')"
                                     class="flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-slate-100 transition cursor-pointer text-xs"
@@ -376,8 +387,10 @@
                                         <span class="font-black text-slate-900 truncate">{{ $lbl }}</span>
                                     </div>
                                     <div class="text-right shrink-0">
-                                        <span class="font-black text-slate-900">₹{{ number_format($amt, 0) }}</span>
-                                        <span class="text-[10px] font-bold text-slate-400 ml-1">({{ $pct }}%)</span>
+                                        <span class="font-black text-slate-900 font-mono">₹{{ number_format($amt, 0) }}</span>
+                                        <span class="text-[10px] font-bold text-slate-500 ml-1">
+                                            ({{ $pct }}% Exp • {{ $infPct !== null ? $infPct.'% Inf' : '—' }})
+                                        </span>
                                     </div>
                                 </div>
                             @endif
@@ -388,27 +401,45 @@
 
             <!-- Outflow Category Cards Grid (Matching User Screenshot) -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                @php($totalExp = max(1, $chartData['total_expense']))
+                @php
+                    $totalExp = (float) $chartData['total_expense'];
+                    $totalInf = (float) $chartData['total_sales'];
+                @endphp
                 @forelse ($chartData['expense_categories']['labels'] as $index => $label)
-                    @php($amount = $chartData['expense_categories']['data'][$index] ?? 0)
-                    @php($pct = round(($amount / $totalExp) * 100, 1))
+                    @php
+                        $amount = (float) ($chartData['expense_categories']['data'][$index] ?? 0);
+                        $pctExp = $totalExp > 0 ? round(($amount / $totalExp) * 100, 1) : 0;
+                        $pctInf = $totalInf > 0 ? round(($amount / $totalInf) * 100, 1) : null;
+                    @endphp
                     <div
                         @click="openCategoryDetail('{{ $label }}')"
-                        class="rounded-2xl border border-slate-150 bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col justify-between cursor-pointer transition hover:border-indigo-400 hover:shadow-md"
+                        class="rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col justify-between cursor-pointer transition hover:border-indigo-400 hover:shadow-md"
                     >
-                        <div class="flex items-start justify-between">
-                            <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-600">
-                                <i data-lucide="tag" class="w-4 h-4"></i>
+                        <div class="flex items-start justify-between gap-1">
+                            <div class="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-100 text-indigo-600 shrink-0">
+                                <i data-lucide="tag" class="w-3.5 h-3.5"></i>
                             </div>
-                            <span class="text-[10px] font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md">{{ $pct }}%</span>
+                            <div class="flex flex-col items-end gap-0.5">
+                                <span class="text-[9px] font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md leading-tight" title="Outflow share of total expenses">
+                                    {{ $pctExp }}% <span class="font-normal text-[8px] text-rose-500">Exp</span>
+                                </span>
+                                <span class="text-[9px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md leading-tight" title="Inflow share of total inflow">
+                                    {{ $pctInf !== null ? $pctInf.'%' : '—' }} <span class="font-normal text-[8px] text-emerald-600">Inf</span>
+                                </span>
+                            </div>
                         </div>
-                        <div class="mt-3">
-                            <h4 class="text-xs font-black text-slate-900 truncate">{{ $label }}</h4>
-                            <p class="text-sm font-black text-slate-800 mt-0.5">₹{{ number_format($amount, 0) }}</p>
+                        <div class="mt-2.5">
+                            <h4 class="text-xs font-black text-slate-900 truncate" title="{{ $label }}">{{ $label }}</h4>
+                            <p class="text-sm font-black text-slate-900 mt-0.5 font-mono">₹{{ number_format($amount, 0) }}</p>
+                            <div class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[9px] font-bold">
+                                <span class="text-rose-600">{{ $pctExp }}% of Expenses</span>
+                                <span class="text-slate-300">•</span>
+                                <span class="text-emerald-700">{{ $pctInf !== null ? $pctInf.'% of Inflow' : '— Inflow' }}</span>
+                            </div>
                         </div>
                     </div>
                 @empty
-                    <p class="col-span-4 rounded-2xl border border-slate-100 bg-white p-6 text-center text-xs font-semibold text-slate-400">
+                    <p class="col-span-2 sm:col-span-4 rounded-2xl border border-slate-100 bg-white p-6 text-center text-xs font-semibold text-slate-400">
                         No category records in this timeframe.
                     </p>
                 @endforelse
@@ -441,37 +472,48 @@
                             </div>
                         </div>
 
-                        <button @click="showModal = false" class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold">
+                        <button @click="showModal = false" class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold cursor-pointer">
                             ✕
                         </button>
                     </div>
 
                     <template x-if="selectedCategory">
-                        <div class="space-y-3">
+                        <div class="space-y-3.5">
                             <!-- Outflow Share Bar -->
                             <div>
                                 <div class="flex justify-between text-xs font-black mb-1">
-                                    <span class="text-slate-400 uppercase text-[9px]">Outflow Share</span>
-                                    <span class="text-rose-600" x-text="selectedCategory.pct + '% of total expenses'"></span>
+                                    <span class="text-slate-500 uppercase text-[9px] tracking-wider">Outflow Share</span>
+                                    <span class="text-rose-600 font-mono" x-text="selectedCategory.pct + '% of total expenses'"></span>
                                 </div>
                                 <div class="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-rose-500 transition-all duration-500" :style="'width: ' + Math.max(5, selectedCategory.pct) + '%'"></div>
+                                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-rose-500 transition-all duration-500" :style="'width: ' + Math.min(100, Math.max(5, selectedCategory.pct)) + '%'"></div>
+                                </div>
+                            </div>
+
+                            <!-- Inflow Share Bar -->
+                            <div>
+                                <div class="flex justify-between text-xs font-black mb-1">
+                                    <span class="text-slate-500 uppercase text-[9px] tracking-wider">Inflow Share</span>
+                                    <span class="text-emerald-700 font-mono" x-text="selectedCategory.inflow_pct !== null ? (selectedCategory.inflow_pct + '% of total inflow') : '—'"></span>
+                                </div>
+                                <div class="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                                    <div class="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-600 transition-all duration-500" :style="'width: ' + (selectedCategory.inflow_pct !== null ? Math.min(100, Math.max(5, selectedCategory.inflow_pct)) : 0) + '%'"></div>
                                 </div>
                             </div>
 
                             <!-- 3 Stats Grid -->
-                            <div class="grid grid-cols-3 gap-2 text-center pt-2">
+                            <div class="grid grid-cols-3 gap-2 text-center pt-1">
                                 <div class="rounded-2xl bg-slate-50 p-2.5 border border-slate-100">
                                     <span class="text-[8px] font-black uppercase text-slate-400 block">Total Spent</span>
-                                    <span class="text-xs font-black text-slate-900" x-text="'₹' + Number(selectedCategory.amount).toLocaleString('en-IN')"></span>
+                                    <span class="text-xs font-black text-slate-900 font-mono" x-text="'₹' + Number(selectedCategory.amount).toLocaleString('en-IN')"></span>
                                 </div>
                                 <div class="rounded-2xl bg-slate-50 p-2.5 border border-slate-100">
                                     <span class="text-[8px] font-black uppercase text-slate-400 block">Entries</span>
-                                    <span class="text-xs font-black text-indigo-600" x-text="selectedCategory.count || 1"></span>
+                                    <span class="text-xs font-black text-indigo-600 font-mono" x-text="selectedCategory.count || 1"></span>
                                 </div>
                                 <div class="rounded-2xl bg-slate-50 p-2.5 border border-slate-100">
                                     <span class="text-[8px] font-black uppercase text-slate-400 block">Avg Size</span>
-                                    <span class="text-xs font-black text-slate-900" x-text="'₹' + Number(selectedCategory.avg || selectedCategory.amount).toLocaleString('en-IN')"></span>
+                                    <span class="text-xs font-black text-slate-900 font-mono" x-text="'₹' + Number(selectedCategory.avg || selectedCategory.amount).toLocaleString('en-IN')"></span>
                                 </div>
                             </div>
                         </div>

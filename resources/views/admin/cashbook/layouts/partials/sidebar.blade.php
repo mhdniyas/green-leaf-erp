@@ -138,6 +138,14 @@
                     <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
                     <span>Main Financial Reports</span>
                 </a>
+                <a href="{{ route('admin.cashbook.inventory') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.inventory*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="boxes" class="w-4 h-4"></i>
+                    <span>Inventory</span>
+                </a>
+                <a href="{{ route('admin.cashbook.bill-changes') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bill-changes*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="receipt-text" class="w-4 h-4"></i>
+                    <span>Bill Changes</span>
+                </a>
                 <a href="{{ route('admin.cashbook.payables') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.payables') ? 'active-sidebar' : '' }}">
                     <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
                     <span>Shop Payables Report</span>

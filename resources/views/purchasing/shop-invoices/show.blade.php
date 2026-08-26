@@ -377,8 +377,15 @@
                         <input type="number" step="0.01" min="0.01" data-item-final-price class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-base font-black text-slate-950 focus:border-cyan-500 focus:ring-cyan-500" {{ $canEditPrices ? '' : 'disabled' }}>
                     </label>
 
+
                     <div class="rounded-lg border border-slate-200 p-3 text-sm font-semibold text-slate-700" data-item-difference>
                         Qty: 0. Amount: Rs. 0.00.
+                    </div>
+
+                    {{-- Read-only Inventory Impact indicator --}}
+                    <div class="rounded-lg border p-3 text-xs font-semibold hidden" data-inventory-impact>
+                        <p class="text-[10px] font-black uppercase tracking-[0.14em] mb-1.5" data-impact-label>Inventory Impact</p>
+                        <p class="font-semibold" data-impact-message></p>
                     </div>
                 </div>
 
@@ -433,20 +440,152 @@
     @endif
 
     @if (($canFinalize ?? false) && $reviewAction && ! $isFinalized)
+        @php
+            $discrepancyItems = $invoice->items->filter(function ($item) use ($finalQuantity) {
+                $loaded = round((float) ($item->orderItem?->loaded_qty ?? $item->orderItem?->approved_qty ?? $item->approved_qty ?? 0), 4);
+                $final = round((float) $finalQuantity($item), 4);
+                return abs($final - $loaded) > 0.0001;
+            });
+            $hasQuantityDiscrepancies = $discrepancyItems->isNotEmpty();
+        @endphp
+
+        {{-- Standard Finalize Modal (When all quantities match) --}}
         <div class="fixed inset-0 z-50 hidden items-end bg-slate-950/50 p-0 sm:items-center sm:p-4" data-finalize-modal>
-            <div class="w-full rounded-t-lg bg-white p-4 shadow-xl sm:mx-auto sm:max-w-md sm:rounded-lg sm:p-5">
-                <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Finalize Invoice</p>
-                <h3 class="mt-1 text-lg font-black text-slate-950">{{ $invoice->invoice_number }}</h3>
+            <div class="w-full rounded-t-2xl bg-white p-4 shadow-xl sm:mx-auto sm:max-w-md sm:rounded-2xl sm:p-5">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Finalize Invoice</p>
+                        <h3 class="mt-0.5 text-lg font-black text-slate-950">{{ $invoice->invoice_number }}</h3>
+                    </div>
+                    <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black text-emerald-800">
+                        Quantities Match
+                    </span>
+                </div>
                 @if (! ($shopSubmitted ?? false))
-                    <p class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">Shop not submitted. Admin finalization needs a note.</p>
+                    <p class="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">Shop not submitted. Admin finalization needs a note.</p>
                 @endif
                 <label class="mt-4 block">
                     <span class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Overall Note / Reason</span>
-                    <textarea rows="3" data-finalize-note class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-950 focus:border-cyan-500 focus:ring-cyan-500" placeholder="Shop quantity confirmed manually."></textarea>
+                    <textarea rows="3" data-finalize-note class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-950 focus:border-cyan-500 focus:ring-cyan-500" placeholder="Shop quantity confirmed manually."></textarea>
                 </label>
                 <div class="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                    <button type="button" class="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700" data-close-finalize>Cancel</button>
-                    <button type="button" class="inline-flex h-11 items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-black text-white" data-confirm-finalize>Finalize Invoice</button>
+                    <button type="button" class="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700" data-close-finalize>Cancel</button>
+                    <button type="button" class="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800" data-confirm-finalize>Finalize Invoice</button>
+                </div>
+            </div>
+        </div>
+
+        {{-- Inventory Impact Modal (Shown when differences exist between loaded and final bill quantities) --}}
+        <div class="fixed inset-0 z-50 hidden items-end bg-slate-950/50 p-0 sm:items-center sm:p-4 overflow-y-auto" data-inventory-impact-modal>
+            <div class="w-full max-h-[90vh] flex flex-col rounded-t-2xl bg-white p-4 shadow-xl sm:mx-auto sm:max-w-2xl sm:rounded-2xl sm:p-6 my-auto">
+                <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">
+                                INVENTORY RESOLUTION REQUIRED
+                            </span>
+                            <span class="text-xs font-mono text-slate-400">{{ $invoice->invoice_number }}</span>
+                        </div>
+                        <h3 class="mt-1 text-lg font-black text-slate-950">Inventory Impact Review</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Differences detected between warehouse loadout and final bill quantity. Select reason and resolution for each item.</p>
+                    </div>
+                    <button type="button" class="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-600 hover:bg-slate-50" data-close-impact-modal>
+                        Cancel
+                    </button>
+                </div>
+
+                {{-- Discrepancy Items List --}}
+                <div class="mt-4 flex-1 overflow-y-auto space-y-4 pr-1" data-impact-items-container>
+                    @foreach ($discrepancyItems as $dItem)
+                        @php
+                            $dLoaded = round((float) ($dItem->orderItem?->loaded_qty ?? $dItem->orderItem?->approved_qty ?? $dItem->approved_qty ?? 0), 4);
+                            $dFinal = round((float) $finalQuantity($dItem), 4);
+                            $dDiff = round($dFinal - $dLoaded, 4);
+                            $dUnit = $formatUnit($dItem->unit);
+                            $dOrderItemId = $dItem->shop_order_item_id;
+                            $dProductName = $dItem->product?->name ?? $dItem->product_name;
+                        @endphp
+                        <div class="rounded-2xl border border-slate-200/90 bg-slate-50/70 p-4 space-y-3" data-impact-row data-order-item-id="{{ $dOrderItemId }}" data-diff="{{ $dDiff }}" data-product-name="{{ $dProductName }}">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200/60 pb-2.5">
+                                <div>
+                                    <h4 class="text-sm font-black text-slate-900">{{ $dProductName }}</h4>
+                                    <p class="text-xs font-semibold text-slate-500">Unit: {{ $dUnit }}</p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2.5 text-xs">
+                                    <div class="text-slate-600">Loaded: <span class="font-mono font-bold text-slate-800">{{ rtrim(rtrim(number_format($dLoaded, 4), '0'), '.') }} {{ $dUnit }}</span></div>
+                                    <div class="text-slate-600">Final: <span class="font-mono font-bold text-slate-800">{{ rtrim(rtrim(number_format($dFinal, 4), '0'), '.') }} {{ $dUnit }}</span></div>
+                                    <div class="px-2.5 py-0.5 rounded-full text-[11px] font-black {{ $dDiff < 0 ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800' }}">
+                                        Diff: {{ $dDiff > 0 ? '+'.rtrim(rtrim(number_format($dDiff, 4), '0'), '.') : rtrim(rtrim(number_format($dDiff, 4), '0'), '.') }} {{ $dUnit }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {{-- Reason --}}
+                                <div>
+                                    <label class="block text-xs font-black uppercase tracking-[0.12em] text-slate-600 mb-1">
+                                        Reason <span class="text-rose-500">*</span>
+                                    </label>
+                                    <select class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-950 focus:border-cyan-500 focus:ring-cyan-500" data-impact-reason>
+                                        <option value="">-- Select Reason --</option>
+                                        <option value="wastage_damage">Wastage / Damage</option>
+                                        <option value="loadout_mistake">Loadout Mistake</option>
+                                        <option value="delivery_mistake">Shop Order / Delivery Mistake</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
+
+                                {{-- Resolution --}}
+                                <div>
+                                    <label class="block text-xs font-black uppercase tracking-[0.12em] text-slate-600 mb-1">
+                                        Resolution <span class="text-rose-500">*</span>
+                                    </label>
+                                    <select class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-950 focus:border-cyan-500 focus:ring-cyan-500" data-impact-resolution>
+                                        <option value="">-- Select Resolution --</option>
+                                        @if ($dDiff < 0)
+                                            <option value="return_to_warehouse">Return to Warehouse</option>
+                                            <option value="wastage">Wastage</option>
+                                            <option value="already_accounted">Already Accounted / No Stock Adjustment</option>
+                                        @else
+                                            <option value="deduct_extra">Deduct Extra From Warehouse</option>
+                                        @endif
+                                    </select>
+                                </div>
+                            </div>
+
+                            {{-- Note --}}
+                            <div>
+                                <label class="block text-xs font-black uppercase tracking-[0.12em] text-slate-600 mb-1">
+                                    Discrepancy Note <span class="text-slate-400 font-normal text-[11px]" data-impact-note-required-hint>(Required for 'Other' or 'Already Accounted')</span>
+                                </label>
+                                <input type="text"
+                                       placeholder="Enter note or explanation..."
+                                       class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-950 focus:border-cyan-500 focus:ring-cyan-500"
+                                       data-impact-note>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                {{-- Overall Note --}}
+                <div class="mt-4 pt-3 border-t border-slate-100">
+                    <label class="block text-xs font-black uppercase tracking-[0.12em] text-slate-600 mb-1">
+                        Overall Review Note
+                    </label>
+                    <textarea rows="2" data-impact-overall-note class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-950 focus:border-cyan-500 focus:ring-cyan-500" placeholder="Optional overall note for finalization."></textarea>
+                </div>
+
+                {{-- Error Message Alert --}}
+                <div class="mt-3 hidden rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800" data-impact-error-banner></div>
+
+                {{-- Action Buttons --}}
+                <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 hover:bg-slate-50" data-close-impact-modal>
+                        Cancel
+                    </button>
+                    <button type="button" class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-5 text-xs font-black text-white hover:bg-slate-800 transition-all shadow-xs" data-confirm-impact-finalize>
+                        Confirm &amp; Finalize Invoice
+                    </button>
                 </div>
             </div>
         </div>
@@ -481,12 +620,36 @@
                 const priceInput = itemModal.querySelector('[data-item-final-price]');
                 const originalQty = Number(activeItemButton.dataset.originalQty || 0);
                 const originalPrice = Number(activeItemButton.dataset.originalPrice || 0);
+                const loadedQty = Number(activeItemButton.dataset.loadedQty || 0);
                 const finalQty = Number(qtyInput.value || 0);
                 const finalPrice = Number(priceInput.value || 0);
                 const qtyDiff = finalQty - originalQty;
                 const amountDiff = (finalQty * finalPrice) - (originalQty * originalPrice);
 
                 itemModal.querySelector('[data-item-difference]').textContent = `Qty: ${trimNumber(qtyDiff)} ${activeItemButton.dataset.unit || ''}. Amount: ${money(amountDiff)}.`;
+
+                // Inventory Impact panel
+                const impactPanel = itemModal.querySelector('[data-inventory-impact]');
+                const impactMessage = itemModal.querySelector('[data-impact-message]');
+                if (impactPanel && impactMessage) {
+                    const delta = finalQty - loadedQty;
+                    impactPanel.classList.remove(
+                        'hidden',
+                        'border-amber-200', 'bg-amber-50', 'text-amber-800',
+                        'border-rose-200', 'bg-rose-50', 'text-rose-800',
+                        'border-emerald-200', 'bg-emerald-50', 'text-emerald-800',
+                    );
+                    if (delta < -0.0001) {
+                        impactPanel.classList.add('border-amber-200', 'bg-amber-50', 'text-amber-800');
+                        impactMessage.textContent = `Shortage of ${trimNumber(Math.abs(delta))} ${activeItemButton.dataset.unit || ''}. Inventory add-back may be required.`;
+                    } else if (delta > 0.0001) {
+                        impactPanel.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
+                        impactMessage.textContent = `Excess of ${trimNumber(delta)} ${activeItemButton.dataset.unit || ''}. Inventory deduction may be required.`;
+                    } else {
+                        impactPanel.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
+                        impactMessage.textContent = 'No inventory impact — final qty matches loaded qty.';
+                    }
+                }
             };
 
             document.querySelectorAll('[data-item-edit]').forEach((button) => {
@@ -557,10 +720,47 @@
             });
 
             const finalizeModal = document.querySelector('[data-finalize-modal]');
-            document.querySelector('[data-open-finalize]')?.addEventListener('click', () => {
-                finalizeModal?.classList.remove('hidden');
-                finalizeModal?.classList.add('flex');
+            const impactModal = document.querySelector('[data-inventory-impact-modal]');
+            const impactRows = document.querySelectorAll('[data-impact-row]');
+            const impactErrorBanner = document.querySelector('[data-impact-error-banner]');
+
+            // Dynamic note hint updater
+            impactRows.forEach((row) => {
+                const reasonSelect = row.querySelector('[data-impact-reason]');
+                const resolutionSelect = row.querySelector('[data-impact-resolution]');
+                const hint = row.querySelector('[data-impact-note-required-hint]');
+
+                const updateNoteHint = () => {
+                    const isRequired = reasonSelect?.value === 'other' || resolutionSelect?.value === 'already_accounted';
+                    if (hint) {
+                        if (isRequired) {
+                            hint.textContent = '*(Required)';
+                            hint.classList.add('text-rose-600', 'font-black');
+                            hint.classList.remove('text-slate-400', 'font-normal');
+                        } else {
+                            hint.textContent = "(Required for 'Other' or 'Already Accounted')";
+                            hint.classList.remove('text-rose-600', 'font-black');
+                            hint.classList.add('text-slate-400', 'font-normal');
+                        }
+                    }
+                };
+
+                reasonSelect?.addEventListener('change', updateNoteHint);
+                resolutionSelect?.addEventListener('change', updateNoteHint);
             });
+
+            // Open appropriate modal on Finalize click
+            document.querySelector('[data-open-finalize]')?.addEventListener('click', () => {
+                if (impactRows.length > 0) {
+                    impactModal?.classList.remove('hidden');
+                    impactModal?.classList.add('flex');
+                } else {
+                    finalizeModal?.classList.remove('hidden');
+                    finalizeModal?.classList.add('flex');
+                }
+            });
+
+            // Standard finalize modal close & confirm
             finalizeModal?.querySelector('[data-close-finalize]')?.addEventListener('click', () => {
                 finalizeModal.classList.add('hidden');
                 finalizeModal.classList.remove('flex');
@@ -575,6 +775,103 @@
                 }
 
                 form?.submit();
+            });
+
+            // Impact modal close
+            impactModal?.querySelectorAll('[data-close-impact-modal]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    impactModal.classList.add('hidden');
+                    impactModal.classList.remove('flex');
+                    if (impactErrorBanner) {
+                        impactErrorBanner.classList.add('hidden');
+                    }
+                });
+            });
+
+            // Impact modal confirm & finalize
+            impactModal?.querySelector('[data-confirm-impact-finalize]')?.addEventListener('click', () => {
+                let hasError = false;
+                let errorMessage = '';
+
+                impactRows.forEach((row) => {
+                    if (hasError) return;
+                    const productName = row.dataset.productName || 'Item';
+                    const reason = row.querySelector('[data-impact-reason]')?.value || '';
+                    const resolution = row.querySelector('[data-impact-resolution]')?.value || '';
+                    const note = (row.querySelector('[data-impact-note]')?.value || '').trim();
+
+                    if (!reason) {
+                        hasError = true;
+                        errorMessage = `Please select a Reason for ${productName}.`;
+                    } else if (!resolution) {
+                        hasError = true;
+                        errorMessage = `Please select a Resolution for ${productName}.`;
+                    } else if (reason === 'other' && !note) {
+                        hasError = true;
+                        errorMessage = `A Discrepancy Note is required for ${productName} when reason is 'Other'.`;
+                    } else if (resolution === 'already_accounted' && !note) {
+                        hasError = true;
+                        errorMessage = `A Discrepancy Note is required for ${productName} when resolution is 'Already Accounted'.`;
+                    }
+                });
+
+                if (hasError) {
+                    if (impactErrorBanner) {
+                        impactErrorBanner.textContent = errorMessage;
+                        impactErrorBanner.classList.remove('hidden');
+                    }
+                    return;
+                }
+
+                if (impactErrorBanner) {
+                    impactErrorBanner.classList.add('hidden');
+                }
+
+                // Populate hidden form inputs
+                const form = document.getElementById('invoice-finalize-form');
+                if (!form) return;
+
+                impactRows.forEach((row) => {
+                    const orderItemId = row.dataset.orderItemId;
+                    const reason = row.querySelector('[data-impact-reason]')?.value || '';
+                    const resolution = row.querySelector('[data-impact-resolution]')?.value || '';
+                    const note = (row.querySelector('[data-impact-note]')?.value || '').trim();
+
+                    let reasonInput = form.querySelector(`input[name="delivery_discrepancy_types[${orderItemId}]"]`);
+                    if (!reasonInput) {
+                        reasonInput = document.createElement('input');
+                        reasonInput.type = 'hidden';
+                        reasonInput.name = `delivery_discrepancy_types[${orderItemId}]`;
+                        form.appendChild(reasonInput);
+                    }
+                    reasonInput.value = reason;
+
+                    let resInput = form.querySelector(`input[name="item_inventory_actions[${orderItemId}]"]`);
+                    if (!resInput) {
+                        resInput = document.createElement('input');
+                        resInput.type = 'hidden';
+                        resInput.name = `item_inventory_actions[${orderItemId}]`;
+                        form.appendChild(resInput);
+                    }
+                    resInput.value = resolution;
+
+                    let noteInput = form.querySelector(`input[name="delivery_discrepancy_notes[${orderItemId}]"]`);
+                    if (!noteInput) {
+                        noteInput = document.createElement('input');
+                        noteInput.type = 'hidden';
+                        noteInput.name = `delivery_discrepancy_notes[${orderItemId}]`;
+                        form.appendChild(noteInput);
+                    }
+                    noteInput.value = note;
+                });
+
+                const overallNote = impactModal.querySelector('[data-impact-overall-note]')?.value || '';
+                const reviewNoteInput = document.getElementById('invoice-finalize-review-note');
+                if (reviewNoteInput && overallNote) {
+                    reviewNoteInput.value = overallNote;
+                }
+
+                form.submit();
             });
         });
     </script>

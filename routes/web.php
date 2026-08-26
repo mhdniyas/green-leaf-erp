@@ -663,6 +663,9 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
             Route::get('inventory', [AdminCashbookReportsController::class, 'inventory'])->name('inventory');
+            Route::post('inventory/match-bill/{goodsReceived}', [AdminCashbookReportsController::class, 'matchBill'])->name('inventory.match-bill');
+            Route::get('bill-changes', [AdminCashbookReportsController::class, 'billChanges'])->name('bill-changes');
+            Route::get('bill-changes/api/shop-day', [AdminCashbookReportsController::class, 'billChangesShopDay'])->name('bill-changes.shop-day');
             Route::get('reports/products', [AdminCashbookReportsController::class, 'products'])->name('reports.products');
             Route::get('products', [AdminCashbookReportsController::class, 'products'])->name('products');
             Route::get('reports/api/hub', [AdminCashbookReportsController::class, 'apiHubData'])->name('reports.api.hub');
@@ -714,6 +717,7 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/purchase/reports/credit-purchases', [CashbookController::class, 'companyFinancePurchaseCreditReport'])->name('finance.purchase.reports.credit-purchases');
             Route::get('finance/purchase/reports/purchasers', [CashbookController::class, 'companyFinancePurchasePurchaserReport'])->name('finance.purchase.reports.purchasers');
             Route::get('finance/purchase/reports/prices', [CashbookController::class, 'companyFinancePurchasePriceReport'])->name('finance.purchase.reports.prices');
+            Route::get('finance/purchase/reports/prices/export/pdf', [CashbookController::class, 'companyFinancePurchasePriceReportPdf'])->name('finance.purchase.reports.prices.export.pdf');
             Route::get('finance/purchase/reports/prices/{product}', [CashbookController::class, 'companyFinancePurchasePriceProduct'])->name('finance.purchase.reports.prices.product');
             Route::get('finance/purchase/reports/changed-items', [CashbookController::class, 'companyFinancePurchaseChangedItems'])->name('finance.purchase.reports.changed-items');
             Route::get('finance/purchase/reports/changed-items/whatsapp', [CashbookController::class, 'companyFinancePurchaseChangedItemsWhatsApp'])->name('finance.purchase.reports.changed-items.whatsapp');

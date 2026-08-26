@@ -30,6 +30,7 @@ final class PurchasePriceReportRequest extends FormRequest
             'vendor_id' => ['nullable', 'integer', 'exists:suppliers,id'],
             'grade' => ['nullable', 'in:A,B'],
             'price_group' => ['nullable', 'in:A,B,C'],
+            'sort' => ['nullable', 'in:code,category'],
             'search' => ['nullable', 'string', 'max:100'],
             'view' => ['nullable', 'in:all,changed'],
         ];
@@ -40,10 +41,12 @@ final class PurchasePriceReportRequest extends FormRequest
     {
         $validated = $this->validated();
         $date = Carbon::parse($validated['date'] ?? now('Asia/Kolkata'))->toDateString();
+        $sort = $validated['sort'] ?? 'code';
 
         return $this->commonFilters($validated) + [
             'date' => $date,
             'search' => ! empty($validated['search']) ? trim((string) $validated['search']) : null,
+            'sort' => in_array($sort, ['code', 'category'], true) ? $sort : 'code',
         ];
     }
 

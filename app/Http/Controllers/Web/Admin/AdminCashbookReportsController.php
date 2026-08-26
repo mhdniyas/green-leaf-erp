@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Enums\Inventory\StockMovementType;
 use App\Http\Controllers\Controller;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
@@ -16,19 +17,22 @@ use App\Models\PurchaseProductFilter;
 use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
-use App\Models\ShopOrderItem;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Reports\ShopProfitIntelligenceService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
+use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminCashbookReportsController extends Controller
@@ -1120,17 +1124,21 @@ class AdminCashbookReportsController extends Controller
             $current->addDay();
         }
 
-        $totalExp = max(1, (float) $expenseCategories->sum());
+        $totalExpense = (float) $expenseCategories->sum();
+        $totalInflow = (float) $incomeCategories->sum();
+        $totalExpForDiv = max(1, $totalExpense);
+
         $expenseCategoriesDetailed = $activeTransactions
             ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
             ->groupBy(fn ($t) => $t->entryType?->name ?: 'Other Expense')
-            ->map(function ($group, $name) use ($totalExp) {
+            ->map(function ($group, $name) use ($totalExpense, $totalExpForDiv, $totalInflow) {
                 $amount = (float) $group->sum('amount');
 
                 return [
                     'name' => $name,
                     'amount' => round($amount, 2),
-                    'pct' => round(($amount / $totalExp) * 100, 1),
+                    'pct' => $totalExpense > 0 ? round(($amount / $totalExpForDiv) * 100, 1) : 0,
+                    'inflow_pct' => $totalInflow > 0 ? round(($amount / $totalInflow) * 100, 1) : null,
                     'count' => $group->count(),
                     'avg' => $group->count() > 0 ? round($amount / $group->count(), 2) : 0,
                 ];
@@ -1313,72 +1321,445 @@ class AdminCashbookReportsController extends Controller
      * Cashbook Inventory Section:
      * A. Bill Pending (Goods received into warehouse, bill not linked yet)
      * B. Loadout Not Billed (Dispatched items without bill coverage)
+     * C. Invoice Adjustments (Admin qty/price/discount edits sourced from activity log)
+     * D. Bill Notes & Changes (Day-wise cross-invoice admin action audit)
      */
     public function inventory(Request $request): View
     {
         $this->ensureAuthorized($request);
 
-        $section = (string) $request->input('section', 'bill_pending');
+        $selectedDate = $request->input('date');
+        $timeframe = (string) $request->input('timeframe', $selectedDate ? 'custom' : 'today');
+
+        if ($timeframe === 'yesterday') {
+            $selectedDate = today()->subDay()->toDateString();
+        } elseif ($timeframe === 'today' || ! $selectedDate) {
+            $selectedDate = today()->toDateString();
+            $timeframe = 'today';
+        }
+
+        $section = (string) $request->input('section', 'invoice_adjustments');
+        if (! in_array($section, ['invoice_adjustments', 'bill_notes', 'bill_pending', 'loadout_not_billed', 'history'], true)) {
+            $section = 'invoice_adjustments';
+        }
+
+        $shopId = $request->input('shop_id');
+        $reasonFilter = $request->input('reason');
+        $resolutionFilter = $request->input('resolution');
         $search = trim((string) $request->input('search', ''));
-        $date = $request->input('date');
 
-        // A. Bill Pending Receipts
-        $billPendingQuery = GoodsReceived::query()
-            ->with(['purchaseOrder.supplier', 'purchaseOrder.destinationShop', 'destinationShop', 'warehouse', 'items.product', 'receivedBy', 'updatedBy', 'matchedBy', 'purchaseInvoices'])
-            ->where(function ($q): void {
-                $q->where('bill_status', 'bill_pending')
-                    ->orWhereDoesntHave('purchaseInvoices');
-            });
+        // Query activities for the selected date (Summary calculation)
+        $baseQuery = Activity::query()
+            ->with(['causer', 'subject.shop'])
+            ->where('subject_type', ShopInvoice::class)
+            ->whereIn(
+                'properties->source',
+                ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount']
+            )
+            ->whereDate('created_at', $selectedDate);
 
-        if ($date) {
-            $billPendingQuery->whereDate('received_at', $date);
+        if ($shopId) {
+            $baseQuery->whereHasMorph('subject', [ShopInvoice::class], fn ($q) => $q->where('shop_id', $shopId));
         }
 
         if ($search !== '') {
-            $billPendingQuery->where(function ($q) use ($search): void {
-                $q->where('grn_number', 'like', "%{$search}%")
-                    ->orWhere('bill_number', 'like', "%{$search}%")
-                    ->orWhere('notes', 'like', "%{$search}%")
-                    ->orWhereHas('purchaseOrder.supplier', function ($sq) use ($search): void {
-                        $sq->where('name', 'like', "%{$search}%");
+            $baseQuery->where(function ($q) use ($search): void {
+                $q->whereHas('causer', fn ($u) => $u->where('name', 'like', "%{$search}%"))
+                    ->orWhereHasMorph('subject', [ShopInvoice::class], function ($s) use ($search): void {
+                        $s->where('invoice_number', 'like', "%{$search}%")
+                            ->orWhereHas('shop', fn ($sh) => $sh->where('name', 'like', "%{$search}%"));
+                    })
+                    ->orWhere('properties', 'like', "%{$search}%");
+            });
+        }
+
+        $allDayActivities = (clone $baseQuery)->get();
+        $summary = [
+            'total_adjustments' => 0,
+            'returned_to_warehouse_count' => 0,
+            'returned_to_warehouse_qty' => 0.0,
+            'wastage_count' => 0,
+            'wastage_qty' => 0.0,
+            'extra_stock_count' => 0,
+            'extra_stock_qty' => 0.0,
+            'already_accounted_count' => 0,
+            'already_accounted_qty' => 0.0,
+        ];
+
+        foreach ($allDayActivities as $act) {
+            $resolutions = data_get($act->properties, 'inventory_resolutions', []);
+            if (is_array($resolutions) && count($resolutions) > 0) {
+                foreach ($resolutions as $res) {
+                    $summary['total_adjustments']++;
+                    $resType = (string) ($res['resolution'] ?? '');
+                    $resQty = (float) ($res['resolution_qty'] ?? 0);
+                    if (in_array($resType, ['return_to_warehouse', 'add_back'], true)) {
+                        $summary['returned_to_warehouse_count']++;
+                        $summary['returned_to_warehouse_qty'] += $resQty;
+                    } elseif ($resType === 'wastage') {
+                        $summary['wastage_count']++;
+                        $summary['wastage_qty'] += $resQty;
+                    } elseif ($resType === 'deduct_extra') {
+                        $summary['extra_stock_count']++;
+                        $summary['extra_stock_qty'] += $resQty;
+                    } elseif ($resType === 'already_accounted') {
+                        $summary['already_accounted_count']++;
+                        $summary['already_accounted_qty'] += $resQty;
+                    }
+                }
+            } else {
+                $summary['total_adjustments']++;
+            }
+        }
+
+        $activities = null;
+        $adjustedInvoices = null;
+        $activitiesByInvoice = collect();
+        $billPendingReceipts = null;
+        $loadoutNotBilled = null;
+        $historyRecords = null;
+
+        if (in_array($section, ['invoice_adjustments', 'bill_notes'], true)) {
+            $filteredQuery = clone $baseQuery;
+            if ($reasonFilter) {
+                $filteredQuery->where(function ($q) use ($reasonFilter): void {
+                    $q->where('properties->reason', $reasonFilter)
+                        ->orWhere('properties->inventory_resolutions', 'like', "%\"reason\":\"{$reasonFilter}\"%");
+                });
+            }
+            if ($resolutionFilter) {
+                $filteredQuery->where(function ($q) use ($resolutionFilter): void {
+                    $q->where('properties->inventory_resolutions', 'like', "%\"resolution\":\"{$resolutionFilter}\"%");
+                });
+            }
+
+            // Find unique invoice IDs for one-entry-per-day/invoice
+            $invoiceIds = (clone $filteredQuery)->pluck('subject_id')->unique()->all();
+
+            $adjustedInvoices = ShopInvoice::query()
+                ->with(['shop', 'finalizedBy', 'items.product', 'order.items.product'])
+                ->whereIn('id', $invoiceIds)
+                ->orderByDesc('business_date')
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page')
+                ->withQueryString();
+
+            $pageInvoiceIds = $adjustedInvoices->pluck('id')->all();
+            $activitiesByInvoice = Activity::query()
+                ->with('causer')
+                ->where('subject_type', ShopInvoice::class)
+                ->whereIn('subject_id', $pageInvoiceIds)
+                ->whereIn('properties->source', ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount'])
+                ->whereDate('created_at', $selectedDate)
+                ->orderByDesc('created_at')
+                ->get()
+                ->groupBy('subject_id');
+
+            $activities = $filteredQuery
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page')
+                ->withQueryString();
+        } elseif ($section === 'bill_pending') {
+            $bpQuery = GoodsReceived::query()
+                ->with(['purchaseOrder.supplier', 'destinationShop', 'warehouse', 'items.product', 'receivedBy', 'purchaseInvoices'])
+                ->where(function ($q): void {
+                    $q->where('bill_status', 'bill_pending')
+                        ->orWhereDoesntHave('purchaseInvoices');
+                });
+
+            if ($request->filled('date')) {
+                $bpQuery->whereDate('received_at', $selectedDate);
+            }
+
+            if ($search !== '') {
+                $bpQuery->where(function ($q) use ($search): void {
+                    $q->where('grn_number', 'like', "%{$search}%")
+                        ->orWhere('bill_number', 'like', "%{$search}%")
+                        ->orWhere('notes', 'like', "%{$search}%")
+                        ->orWhereHas('purchaseOrder.supplier', fn ($sq) => $sq->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('items.product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"));
+                });
+            }
+
+            $billPendingReceipts = $bpQuery
+                ->orderByDesc('received_at')
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page')
+                ->withQueryString();
+        } elseif ($section === 'loadout_not_billed') {
+            $loadoutQuery = StockMovement::query()
+                ->where('type', StockMovementType::Out)
+                ->whereNotNull('shop_order_item_id')
+                ->where(function ($q): void {
+                    $q->whereNull('batch_id')
+                        ->orWhereDoesntHave('batch.goodsReceived')
+                        ->orWhereHas('batch.goodsReceived', function ($gq): void {
+                            $gq->where('bill_status', 'bill_pending')
+                                ->orWhereDoesntHave('purchaseInvoices');
+                        });
+                })
+                ->with([
+                    'product',
+                    'warehouse',
+                    'batch.goodsReceived.purchaseOrder.supplier',
+                    'batch.goodsReceived.purchaseOrder.purchaser',
+                    'shopOrderItem.order.shop',
+                ]);
+
+            if ($request->filled('date')) {
+                $loadoutQuery->whereDate('created_at', $selectedDate);
+            }
+
+            if ($search !== '') {
+                $loadoutQuery->where(function ($q) use ($search): void {
+                    $q->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('shopOrderItem.order.shop', fn ($sq) => $sq->where('name', 'like', "%{$search}%"))
+                        ->orWhere('notes', 'like', "%{$search}%");
+                });
+            }
+
+            $loadoutNotBilled = $loadoutQuery
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page')
+                ->withQueryString();
+        } elseif ($section === 'history') {
+            $histQuery = Activity::query()
+                ->with(['causer', 'subject'])
+                ->where(function ($q): void {
+                    $q->where(function ($sq): void {
+                        $sq->where('subject_type', ShopInvoice::class)
+                            ->whereIn('properties->source', ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount']);
+                    })->orWhere(function ($gq): void {
+                        $gq->where('subject_type', GoodsReceived::class)
+                            ->where(function ($eq): void {
+                                $eq->where('event', 'goods_received.bill_matched')
+                                    ->orWhere('description', 'goods_received.bill_matched')
+                                    ->orWhere('properties->source', 'goods_received_matched');
+                            });
                     });
-            });
+                });
+
+            if ($request->filled('date')) {
+                $histQuery->whereDate('created_at', $selectedDate);
+            }
+
+            if ($search !== '') {
+                $histQuery->where(function ($q) use ($search): void {
+                    $q->whereHas('causer', fn ($u) => $u->where('name', 'like', "%{$search}%"))
+                        ->orWhere('properties', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%");
+                });
+            }
+
+            $historyRecords = $histQuery
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->paginate(25, ['*'], 'page')
+                ->withQueryString();
         }
 
-        $billPendingReceipts = $billPendingQuery->orderByDesc('received_at')
-            ->orderByDesc('id')
-            ->paginate(20, ['*'], 'bill_pending_page');
-
-        // B. Loadout Not Billed
-        $loadoutQuery = ShopOrderItem::query()
-            ->with(['order.shop', 'product'])
-            ->whereHas('order', function ($q): void {
-                $q->whereIn('delivery_status', ['delivered', 'partially_delivered'])
-                    ->orWhere('status', 'confirmed');
-            })
-            ->whereDoesntHave('order.invoice');
-
-        if ($date) {
-            $loadoutQuery->whereHas('order', fn ($q) => $q->whereDate('business_date', $date));
-        }
-
-        if ($search !== '') {
-            $loadoutQuery->where(function ($q) use ($search): void {
-                $q->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"))
-                    ->orWhereHas('shopOrder.shop', fn ($sq) => $sq->where('name', 'like', "%{$search}%"));
-            });
-        }
-
-        $loadoutNotBilled = $loadoutQuery->orderByDesc('created_at')
-            ->paginate(20, ['*'], 'loadout_page');
+        $availableShops = Shop::query()->orderBy('name')->get(['id', 'name', 'code']);
 
         return view('admin.cashbook.reports.inventory', [
             'section' => $section,
+            'timeframe' => $timeframe,
+            'selectedDate' => $selectedDate,
+            'search' => $search,
+            'shopId' => $shopId,
+            'reasonFilter' => $reasonFilter,
+            'resolutionFilter' => $resolutionFilter,
+            'summary' => $summary,
+            'activities' => $activities,
+            'adjustedInvoices' => $adjustedInvoices,
+            'activitiesByInvoice' => $activitiesByInvoice,
             'billPendingReceipts' => $billPendingReceipts,
             'loadoutNotBilled' => $loadoutNotBilled,
-            'search' => $search,
-            'date' => $date,
+            'historyRecords' => $historyRecords,
+            'availableShops' => $availableShops,
             'activeTab' => 'inventory',
         ]);
+    }
+
+    public function matchBill(Request $request, GoodsReceived $goodsReceived): RedirectResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'invoice_number' => ['required', 'string', 'max:100'],
+            'amount' => ['required', 'numeric', 'min:0'],
+            'supplier_id' => ['nullable', 'integer', 'exists:suppliers,id'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        app(GoodsReceivedService::class)->matchBill($goodsReceived, $validated, (int) auth()->id());
+
+        return redirect()->back()->with('success', 'Purchase bill successfully matched to goods receipt. Inventory was preserved.');
+    }
+
+    public function billChanges(Request $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $selectedDate = $request->input('date');
+        $timeframe = (string) $request->input('timeframe', $selectedDate ? 'custom' : 'today');
+
+        if ($timeframe === 'yesterday') {
+            $selectedDate = today()->subDay()->toDateString();
+        } elseif ($timeframe === 'today' || ! $selectedDate) {
+            $selectedDate = today()->toDateString();
+            $timeframe = 'today';
+        }
+
+        $shopId = $request->input('shop_id');
+        $search = trim((string) $request->input('search', ''));
+
+        $invoiceQuery = ShopInvoice::query()
+            ->with(['shop', 'finalizedBy', 'items.product', 'order.items.product'])
+            ->whereDate('business_date', $selectedDate);
+
+        if ($shopId) {
+            $invoiceQuery->where('shop_id', $shopId);
+        }
+
+        if ($search !== '') {
+            $invoiceQuery->where(function ($q) use ($search): void {
+                $q->where('invoice_number', 'like', "%{$search}%")
+                    ->orWhereHas('shop', fn ($sq) => $sq->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('items.product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"))
+                    ->orWhere('delivery_note', 'like', "%{$search}%");
+            });
+        }
+
+        $allDayInvoices = (clone $invoiceQuery)->get();
+        $invoiceIds = $allDayInvoices->pluck('id')->all();
+
+        $activitiesByInvoice = Activity::query()
+            ->with('causer')
+            ->where('subject_type', ShopInvoice::class)
+            ->whereIn('subject_id', $invoiceIds)
+            ->whereIn('properties->source', ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('subject_id');
+
+        $shopSummaries = $allDayInvoices
+            ->groupBy('shop_id')
+            ->map(function (Collection $invoices, int $shopIdKey) use ($activitiesByInvoice) {
+                $shop = $invoices->first()?->shop;
+                $totalBills = $invoices->count();
+                $finalizedBills = $invoices->filter(fn (ShopInvoice $inv) => $inv->isFinalized())->count();
+                $totalFinalAmount = (float) $invoices->sum('final_total');
+
+                $changedBills = 0;
+                $totalAdjustments = 0;
+                foreach ($invoices as $inv) {
+                    $invActs = $activitiesByInvoice->get($inv->id, collect());
+                    if ($invActs->isNotEmpty() || $inv->shortage_total > 0 || $inv->discount_total > 0) {
+                        $changedBills++;
+                        $totalAdjustments += $invActs->count();
+                    }
+                }
+
+                return [
+                    'shop_id' => $shopIdKey,
+                    'shop_name' => $shop?->name ?? 'Shop #'.$shopIdKey,
+                    'shop_code' => $shop?->code ?? '',
+                    'total_bills' => $totalBills,
+                    'changed_bills' => $changedBills,
+                    'finalized_bills' => $finalizedBills,
+                    'total_final_amount' => $totalFinalAmount,
+                    'total_adjustments' => $totalAdjustments,
+                    'invoices' => $invoices,
+                ];
+            })
+            ->values();
+
+        $paginatedInvoices = $invoiceQuery
+            ->orderByDesc('id')
+            ->paginate(20, ['*'], 'page')
+            ->withQueryString();
+
+        $availableShops = Shop::query()->orderBy('name')->get(['id', 'name', 'code']);
+
+        return view('admin.cashbook.reports.bill-changes', [
+            'timeframe' => $timeframe,
+            'selectedDate' => $selectedDate,
+            'search' => $search,
+            'shopId' => $shopId,
+            'shopSummaries' => $shopSummaries,
+            'invoices' => $paginatedInvoices,
+            'activitiesByInvoice' => $activitiesByInvoice,
+            'availableShops' => $availableShops,
+            'activeTab' => 'bill-changes',
+        ]);
+    }
+
+    public function billChangesShopDay(Request $request): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $shopId = (int) $request->input('shop_id');
+        $date = $request->input('date') ?: today()->toDateString();
+        $invoiceId = $request->input('invoice_id');
+
+        $query = ShopInvoice::query()
+            ->with(['shop', 'finalizedBy', 'items.product', 'order.items.product'])
+            ->whereDate('business_date', $date);
+
+        if ($shopId > 0) {
+            $query->where('shop_id', $shopId);
+        }
+        if ($invoiceId) {
+            $query->where('id', $invoiceId);
+        }
+
+        $invoices = $query->get();
+        $invoiceIds = $invoices->pluck('id')->all();
+
+        $activities = Activity::query()
+            ->with('causer')
+            ->where('subject_type', ShopInvoice::class)
+            ->whereIn('subject_id', $invoiceIds)
+            ->whereIn('properties->source', ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('subject_id');
+
+        $data = $invoices->map(function (ShopInvoice $invoice) use ($activities) {
+            $invActivities = $activities->get($invoice->id, collect());
+            $latestAct = $invActivities->first();
+            $props = $latestAct?->properties ?? [];
+
+            $productChanges = data_get($props, 'product_changes', []);
+            $resolutions = data_get($props, 'inventory_resolutions', []);
+            $autoSummary = data_get($props, 'auto_change_summary');
+            $overallNote = data_get($props, 'overall_note') ?: $invoice->delivery_note;
+            $isAdminOnBehalf = (bool) data_get($props, 'is_admin_on_behalf');
+
+            return [
+                'id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'shop_name' => $invoice->shop?->name,
+                'business_date' => $invoice->business_date?->toDateString(),
+                'status' => $invoice->isFinalized() ? 'FINALIZED' : strtoupper(str_replace('_', ' ', $invoice->status)),
+                'final_total' => (float) $invoice->final_total,
+                'subtotal' => (float) $invoice->subtotal,
+                'discount_total' => (float) $invoice->discount_total,
+                'finalized_by' => $invoice->finalizedBy?->name ?? data_get($props, 'actor.name') ?? 'Admin',
+                'finalized_at' => $invoice->finalized_at?->format('d M Y • H:i'),
+                'is_admin_on_behalf' => $isAdminOnBehalf,
+                'overall_note' => $overallNote,
+                'auto_change_summary' => $autoSummary,
+                'product_changes' => $productChanges,
+                'inventory_resolutions' => $resolutions,
+                'activities_count' => $invActivities->count(),
+                'has_changes' => $invActivities->isNotEmpty() || $invoice->discount_total > 0,
+            ];
+        });
+
+        return response()->json(['data' => $data]);
     }
 }

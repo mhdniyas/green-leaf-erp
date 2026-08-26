@@ -15,6 +15,8 @@ final class PurchasePriceReportingService
 {
     private const PRODUCT_ORDER_EXPRESSION = "CASE WHEN products.sku IS NULL OR products.sku = '' THEN 1 ELSE 0 END ASC, products.sku ASC, products.name ASC";
 
+    private const CATEGORY_ORDER_EXPRESSION = "CASE WHEN categories.name IS NULL OR categories.name = '' THEN 1 ELSE 0 END ASC, categories.name ASC, CASE WHEN products.sku IS NULL OR products.sku = '' THEN 1 ELSE 0 END ASC, products.sku ASC, products.name ASC";
+
     /** @return Collection<int, ShopPriceGroup> */
     public function activePriceGroups(): Collection
     {
@@ -26,25 +28,24 @@ final class PurchasePriceReportingService
     }
 
     /** @param array<string, mixed> $filters */
-    public function priceReport(array $filters): LengthAwarePaginator
+    public function priceReport(array $filters, bool $paginate = true): LengthAwarePaginator|Collection
     {
         $actualPrices = $this->actualPurchasePrices($filters);
-        $specialPrices = DB::table('shop_daily_product_prices')
-            ->whereDate('business_date', $filters['date'])
-            ->where('status', 'approved')
-            ->selectRaw('product_id, COUNT(*) as special_price_count, MIN(selling_price) as special_price_min, MAX(selling_price) as special_price_max')
-            ->groupBy('product_id');
 
         $query = $this->approvalQuery('daily_price_approvals')
             ->leftJoinSub($actualPrices, 'actual_prices', 'actual_prices.product_id', '=', 'products.id')
-            ->leftJoinSub($specialPrices, 'special_prices', 'special_prices.product_id', '=', 'products.id')
             ->whereDate('daily_price_approvals.business_date', $filters['date'])
             ->where('daily_price_approvals.status', 'approved')
-            ->selectRaw('daily_price_approvals.purchase_price as approved_purchase_price, daily_price_approvals.price_a, daily_price_approvals.price_b, daily_price_approvals.price_c, daily_price_approvals.price_unit, actual_prices.actual_purchase_price, actual_prices.purchase_count, COALESCE(special_prices.special_price_count, 0) as special_price_count, special_prices.special_price_min, special_prices.special_price_max');
+            ->selectRaw('daily_price_approvals.price_a as selling_price, daily_price_approvals.price_a, daily_price_approvals.purchase_price as approved_purchase_price, daily_price_approvals.price_unit, actual_prices.actual_purchase_price, actual_prices.purchase_count');
 
         $this->applyProductFilters($query, $filters);
 
-        return $query->orderByRaw(self::PRODUCT_ORDER_EXPRESSION)->paginate(30)->withQueryString();
+        $sort = (string) ($filters['sort'] ?? 'code');
+        $orderExpression = $sort === 'category' ? self::CATEGORY_ORDER_EXPRESSION : self::PRODUCT_ORDER_EXPRESSION;
+
+        return $paginate
+            ? $query->orderByRaw($orderExpression)->paginate(50)->withQueryString()
+            : $query->orderByRaw($orderExpression)->get();
     }
 
     /** @param array<string, mixed> $filters */

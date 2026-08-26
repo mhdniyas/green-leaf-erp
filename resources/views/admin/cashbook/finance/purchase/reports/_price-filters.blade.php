@@ -1,7 +1,7 @@
 @php($produceType = ($filters['warehouse_code'] ?? null) === 'VEG-WH' ? 'vegetables' : (($filters['warehouse_code'] ?? null) === 'FRT-WH' ? 'fruits' : 'all'))
 
 <form method="GET" action="{{ route($filterRoute) }}" class="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-    <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[12rem_12rem_1fr_auto_auto] lg:items-end">
+    <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[10rem_10rem_9rem_1fr_auto_auto] lg:items-end">
         <label class="text-[10px] font-black uppercase text-slate-500">Business Date
             <input type="date" name="date" value="{{ $filters['date'] }}" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
         </label>
@@ -14,11 +14,18 @@
             </select>
         </label>
 
+        <label class="text-[10px] font-black uppercase text-slate-500">Sort By
+            <select name="sort" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                <option value="code" @selected(($filters['sort'] ?? 'code') === 'code')>Code</option>
+                <option value="category" @selected(($filters['sort'] ?? 'code') === 'category')>Category</option>
+            </select>
+        </label>
+
         <label class="text-[10px] font-black uppercase text-slate-500">Search
             <input type="text" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Search code or name..." class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800">
         </label>
 
-        <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-4 text-xs font-black text-white hover:bg-emerald-800">
+        <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-4 text-xs font-black text-white hover:bg-emerald-800 cursor-pointer">
             <i data-lucide="calendar-search" class="h-4 w-4"></i> Show
         </button>
         <a href="{{ route($filterRoute) }}" class="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-slate-600 hover:bg-slate-50" aria-label="Reset filters" title="Reset filters">

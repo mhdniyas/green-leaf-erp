@@ -1796,6 +1796,40 @@ final class CashbookController extends Controller
         return view('admin.cashbook.finance.purchase.reports.prices', array_merge($this->purchaseLayoutData(), compact('filters', 'rows', 'options', 'activePriceGroups')));
     }
 
+    public function companyFinancePurchasePriceReportPdf(PurchasePriceReportRequest $request, PurchasePriceReportingService $priceReportingService): mixed
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->priceFilters();
+        $rows = $priceReportingService->priceReport($filters, false);
+
+        $produceName = match ($filters['warehouse_code'] ?? null) {
+            'VEG-WH' => 'Vegetables',
+            'FRT-WH' => 'Fruits',
+            default => 'All Produce',
+        };
+
+        $viewData = [
+            'filters' => $filters,
+            'rows' => $rows,
+            'produceName' => $produceName,
+            'sort' => $filters['sort'] ?? 'code',
+            'generatedAt' => now('Asia/Kolkata'),
+        ];
+
+        $produceSuffix = match ($filters['warehouse_code'] ?? null) {
+            'VEG-WH' => '-vegetables',
+            'FRT-WH' => '-fruits',
+            default => '',
+        };
+        $filename = 'price-report-'.$filters['date'].$produceSuffix.'.pdf';
+
+        $pdf = Pdf::loadView('admin.cashbook.finance.purchase.reports.prices_pdf', $viewData)
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->download($filename);
+    }
+
     public function companyFinancePurchasePriceProduct(PurchasePriceReportRequest $request, Product $product, PurchasePriceReportingService $priceReportingService): View
     {
         $this->ensureMainAdmin($request);
