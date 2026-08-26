@@ -196,6 +196,7 @@ class RolePermissionSeeder extends Seeder
                 'inventory.wastage.record',
                 'purchasing.grn.view',
                 'purchasing.grn.create',
+                'purchaser.reports.sales.view',
                 'sales.order.view',
                 'warehouse.receive.view',
                 'warehouse.receive.confirm',

@@ -321,6 +321,15 @@
             'type' => 'link',
         ],
     ];
+    if ($currentUser?->can('purchaser.reports.sales.view')) {
+        $warehouseReceiverMobileNavItems[] = [
+            'label' => 'Sales',
+            'route' => 'purchaser.reports.sales-summary',
+            'active' => request()->routeIs('purchaser.reports.sales-summary'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 20.25h18M5.25 17.25V10.5h3v6.75m3 0V5.25h3v12m3 0V8.25h3v9" /></svg>',
+            'type' => 'link',
+        ];
+    }
     $showMobileBottomNav = $showAdminMobileNav || $showStaffMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav;
 @endphp
 
@@ -580,6 +589,11 @@
                         <x-nav-item href="{{ route('warehouse.receiver.sort-sheet.index') }}" :active="request()->routeIs('warehouse.receiver.sort-sheet.*')" :sub="true">
                             Sort Sheet
                         </x-nav-item>
+                        @can('purchaser.reports.sales.view')
+                            <x-nav-item href="{{ route('purchaser.reports.sales-summary') }}" :active="request()->routeIs('purchaser.reports.sales-summary')" :sub="true">
+                                Sales Summary
+                            </x-nav-item>
+                        @endcan
                     </div>
                 </div>
             @else
