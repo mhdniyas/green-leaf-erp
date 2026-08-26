@@ -2330,29 +2330,63 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $cart = $this->ownedCart($request, $cart, ['submitted']);
+        $cart = $this->ownedCart($request, $cart, ['draft', 'submitted', 'cancelled']);
 
         $validated = $request->validate([
-            'flag' => ['required', 'string', 'in:goods_received'],
+            'flag' => ['nullable', 'string', 'in:goods_received'],
+            'status' => ['nullable', 'string', 'in:draft,submitted,cancelled'],
         ]);
 
-        $column = match ($validated['flag']) {
-            'goods_received' => 'goods_received_at',
-        };
+        if ($request->filled('status')) {
+            $newStatus = (string) $validated['status'];
+            $cart->update([
+                'status' => $newStatus,
+            ]);
 
-        $cart->update([
-            $column => $cart->{$column} ? null : now(),
-        ]);
+            $message = match ($newStatus) {
+                'draft' => "Cart {$cart->cart_number} has been restored as Draft.",
+                'submitted' => "Cart {$cart->cart_number} has been moved to Submitted.",
+                'cancelled' => "Cart {$cart->cart_number} has been marked as Cancelled.",
+                default => "Cart {$cart->cart_number} status updated to {$newStatus}.",
+            };
+        } elseif ($request->filled('flag')) {
+            $column = match ($validated['flag']) {
+                'goods_received' => 'goods_received_at',
+            };
+
+            $cart->update([
+                $column => $cart->{$column} ? null : now(),
+            ]);
+
+            $message = 'Purchase status updated.';
+        } else {
+            return back()->with('error', 'No status action specified.');
+        }
+
+        if ($request->string('return_to')->toString() === 'orders') {
+            return redirect()
+                ->route('purchasing.orders.index')
+                ->with('success', $message);
+        }
 
         if ($request->string('return_to')->toString() === 'suppliers') {
             return redirect()
-                ->route('purchaser.suppliers', ['date' => $request->string('date', $cart->business_date->format('Y-m-d'))->toString()])
-                ->with('success', 'Purchase status updated.');
+                ->route('purchaser.suppliers.show', [
+                    'supplier' => $cart->supplier_id,
+                    'date' => $request->string('date', $cart->business_date->format('Y-m-d'))->toString(),
+                ])
+                ->with('success', $message);
+        }
+
+        if ($request->string('return_to')->toString() === 'vendors') {
+            return redirect()
+                ->route('purchaser.vendors', ['date' => $request->string('date', $cart->business_date->format('Y-m-d'))->toString()])
+                ->with('success', $message);
         }
 
         return redirect()
             ->route('purchaser.history', ['date' => $cart->business_date->format('Y-m-d')])
-            ->with('success', 'Purchase status updated.');
+            ->with('success', $message);
     }
 
     public function updateInvoicePayment(Request $request, PurchaseInvoice $invoice): RedirectResponse

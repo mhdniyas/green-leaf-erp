@@ -130,6 +130,37 @@
                                     </div>
                                 @endif
 
+                                @if ($entry['cart_status'] === 'cancelled')
+                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="status" value="draft">
+                                        <input type="hidden" name="return_to" value="suppliers">
+                                        <input type="hidden" name="date" value="{{ $date }}">
+                                        <button
+                                            type="submit"
+                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs transition-all"
+                                            title="Restore cancelled cart to active draft"
+                                        >
+                                            Restore Draft
+                                        </button>
+                                    </form>
+                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="status" value="submitted">
+                                        <input type="hidden" name="return_to" value="suppliers">
+                                        <input type="hidden" name="date" value="{{ $date }}">
+                                        <button
+                                            type="submit"
+                                            class="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs transition-all"
+                                            title="Restore cancelled cart to submitted"
+                                        >
+                                            Restore Submitted
+                                        </button>
+                                    </form>
+                                @endif
+
                                 @if ($entry['is_receipt_pending'] || $entry['grn_route'])
                                     @if ($entry['grn_route'])
                                         <a
@@ -230,6 +261,37 @@
                             </div>
 
                             <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-100 flex-wrap">
+                                @if ($entry['cart_status'] === 'cancelled')
+                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="status" value="draft">
+                                        <input type="hidden" name="return_to" value="suppliers">
+                                        <input type="hidden" name="date" value="{{ $date }}">
+                                        <button
+                                            type="submit"
+                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs"
+                                            title="Restore cancelled cart to active draft"
+                                        >
+                                            Restore Draft
+                                        </button>
+                                    </form>
+                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="status" value="submitted">
+                                        <input type="hidden" name="return_to" value="suppliers">
+                                        <input type="hidden" name="date" value="{{ $date }}">
+                                        <button
+                                            type="submit"
+                                            class="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs"
+                                            title="Restore cancelled cart to submitted"
+                                        >
+                                            Restore Submitted
+                                        </button>
+                                    </form>
+                                @endif
+
                                 @if ($entry['is_receipt_pending'] || $entry['grn_route'])
                                     @if ($entry['grn_route'])
                                         <a
