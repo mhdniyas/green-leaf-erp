@@ -1179,12 +1179,6 @@ class PurchaserDashboardController extends Controller
         }
         $userId = (int) $request->user()->id;
         $suppliers = Supplier::query()
-            ->where(function ($query) use ($userId): void {
-                $query
-                    ->whereHas('purchaserCarts', fn ($cartQuery) => $cartQuery->where('user_id', $userId))
-                    ->orWhereHas('purchaseInvoices', fn ($invoiceQuery) => $invoiceQuery
-                        ->whereHas('purchaserCart', fn ($cartQuery) => $cartQuery->where('user_id', $userId)));
-            })
             ->when($search !== '', function ($query) use ($search, $normalizedSearch): void {
                 $query->where(function ($innerQuery) use ($search, $normalizedSearch): void {
                     $innerQuery
@@ -2399,14 +2393,17 @@ class PurchaserDashboardController extends Controller
         ]);
 
         $existingPaidAmount = (float) ($invoice->paid_amount ?? 0);
-        $hasAdditionalPaidAmount = $request->filled('additional_paid_amount');
-        $resolvedPaidAmount = $hasAdditionalPaidAmount
-            ? round($existingPaidAmount + (float) ($validated['additional_paid_amount'] ?? 0), 2)
-            : (float) ($validated['paid_amount'] ?? $existingPaidAmount);
+        $isCredit = strcasecmp($validated['payment_method'], 'Credit') === 0;
+        $hasAdditionalPaidAmount = $request->filled('additional_paid_amount') && (float) $validated['additional_paid_amount'] > 0;
+        $resolvedPaidAmount = $isCredit && ! $hasAdditionalPaidAmount
+            ? (float) ($validated['paid_amount'] ?? 0.0)
+            : ($hasAdditionalPaidAmount
+                ? round($existingPaidAmount + (float) ($validated['additional_paid_amount'] ?? 0), 2)
+                : (float) ($validated['paid_amount'] ?? $existingPaidAmount));
 
         $updatedInvoice = app(PurchaseInvoiceService::class)->updatePayment($invoice, [
             'payment_method' => $validated['payment_method'],
-            'payment_paid_by' => $validated['payment_paid_by'] ?? 'purchaser',
+            'payment_paid_by' => $validated['payment_paid_by'] ?? ($isCredit && $resolvedPaidAmount <= 0 ? 'vendor_credit' : 'purchaser'),
             'discount_amount' => (float) ($validated['discount_amount'] ?? $invoice->discount_amount ?? 0),
             'paid_amount' => $resolvedPaidAmount,
             'payment_note' => $validated['payment_note'] ?? null,
@@ -5071,23 +5068,8 @@ class PurchaserDashboardController extends Controller
         }
     }
 
-    private function scopedSuppliersForUser(?User $user): Collection
+    private function scopedSuppliersForUser(?User $user = null): Collection
     {
-        if (! $user) {
-            return Supplier::query()->orderBy('name')->get();
-        }
-
-        $query = Supplier::query()->orderBy('name');
-
-        if (! $user->hasRole('admin')) {
-            $userId = (int) $user->id;
-            $query->where(function ($q) use ($userId): void {
-                $q->whereHas('purchaserCarts', fn ($cartQuery) => $cartQuery->where('user_id', $userId))
-                    ->orWhereHas('purchaseInvoices', fn ($invoiceQuery) => $invoiceQuery
-                        ->whereHas('purchaserCart', fn ($cartQuery) => $cartQuery->where('user_id', $userId)));
-            });
-        }
-
-        return $query->get();
+        return Supplier::query()->orderBy('name')->get();
     }
 }

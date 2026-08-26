@@ -154,6 +154,7 @@
             <input type="hidden" id="paid_amount" name="paid_amount" value="{{ old('paid_amount', $cart->paid_amount ?? 0) }}">
             <input type="hidden" id="discount_amount" name="discount_amount" value="{{ old('discount_amount', $cart->discount_amount ?? 0) }}">
             <input type="hidden" id="payment_method" name="payment_method" value="{{ old('payment_method', $cart->payment_method ?: 'Cash') }}">
+            <input type="hidden" id="payment_note" name="payment_note" value="{{ old('payment_note', $cart->payment_note) }}">
 
             <div class="sticky bottom-20 z-20 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur print:hidden sm:static sm:mx-auto sm:w-full sm:max-w-[36rem]">
                 <div class="flex items-center gap-2">
@@ -183,19 +184,27 @@
                                 <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Bill</span>
                                 <span id="payment-modal-total" class="font-mono text-base font-black text-white">₹0.00</span>
                             </div>
+                            <div id="payment-modal-credit-discount-row" class="hidden flex items-center justify-between text-[11px] font-bold text-rose-400">
+                                <span>Discount</span>
+                                <span id="payment-modal-credit-discount" class="font-mono font-bold text-rose-400">-₹0.00</span>
+                            </div>
+                            <div id="payment-modal-credit-amount-row" class="hidden flex items-center justify-between text-[11px] font-bold text-teal-300">
+                                <span>Credit Amount</span>
+                                <span id="payment-modal-credit-amount" class="font-mono font-bold text-teal-300">₹0.00</span>
+                            </div>
                             <div class="flex items-center justify-between text-[11px] font-bold text-slate-300">
                                 <span>Remaining Balance</span>
                                 <span id="payment-modal-balance" class="font-mono font-black text-amber-400">₹0.00</span>
                             </div>
                         </div>
 
-                        <!-- Paid Amount Input -->
-                        <div>
+                        <!-- Paid Amount Input (Cash / Online / GPay) -->
+                        <div id="paid-amount-container">
                             <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Paid Amount (₹)</label>
                             <input id="additional_paid_amount" type="number" step="0.01" min="0" placeholder="Enter amount paid" class="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-sm font-black text-slate-950 focus:bg-white focus:border-teal-600 focus:outline-none">
                         </div>
 
-                        <!-- Auto Difference Action (Discount vs Balance) -->
+                        <!-- Auto Difference Action (Discount vs Balance for Cash) -->
                         <div id="diff-action-container" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
                             <div class="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-500">
                                 <span>Unpaid Difference</span>
@@ -222,6 +231,21 @@
                             </div>
                         </div>
 
+                        <!-- Credit Discount & Optional Note Section -->
+                        <div id="credit-discount-container" class="hidden space-y-2.5 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                            <div>
+                                <div class="flex items-center justify-between">
+                                    <label for="credit_discount_input" class="text-[10px] font-black uppercase tracking-wider text-slate-700">Discount (₹)</label>
+                                    <span class="text-[10px] font-bold text-slate-400">Settlement discount</span>
+                                </div>
+                                <input id="credit_discount_input" type="number" step="0.01" min="0" placeholder="0.00" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-black text-slate-950 focus:border-teal-600 focus:outline-none">
+                            </div>
+                            <div>
+                                <label for="credit_discount_note_input" class="text-[10px] font-black uppercase tracking-wider text-slate-700">Discount Note <span class="text-slate-400 font-normal">(Optional)</span></label>
+                                <input id="credit_discount_note_input" type="text" placeholder="reason / settlement note" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-900 focus:border-teal-600 focus:outline-none">
+                            </div>
+                        </div>
+
                         <!-- Bill Ref No -->
                         <div>
                             <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Bill Ref No (Optional)</label>
@@ -244,6 +268,7 @@
             let currentSubtotal = 0;
             let currentDiffMode = 'discount';
             let userToggledDiffMode = false;
+            let currentPaymentMethod = 'Cash';
 
             const formatCurrency = (value) => `₹${Number(value).toFixed(2)}`;
 
@@ -292,6 +317,7 @@
             };
 
             window.selectPaymentMethod = (method) => {
+                currentPaymentMethod = method;
                 const methods = ['Cash', 'Online', 'GPay', 'Credit'];
                 const input = document.getElementById('payment_method');
                 if (input) input.value = method;
@@ -305,6 +331,33 @@
                         btn.className = 'h-8 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700 hover:bg-slate-100 transition-all';
                     }
                 });
+
+                const creditSection = document.getElementById('credit-discount-container');
+                const paidAmountContainer = document.getElementById('paid-amount-container');
+                const creditDiscRow = document.getElementById('payment-modal-credit-discount-row');
+                const creditAmtRow = document.getElementById('payment-modal-credit-amount-row');
+                const creditDiscInput = document.getElementById('credit_discount_input');
+                const creditNoteInput = document.getElementById('credit_discount_note_input');
+                const hiddenNoteInput = document.getElementById('payment_note');
+
+                if (method === 'Credit') {
+                    if (creditSection) creditSection.classList.remove('hidden');
+                    if (paidAmountContainer) paidAmountContainer.classList.add('hidden');
+                    if (creditDiscRow) creditDiscRow.classList.remove('hidden');
+                    if (creditAmtRow) creditAmtRow.classList.remove('hidden');
+
+                    const hiddenPaidInput = document.getElementById('paid_amount');
+                    if (hiddenPaidInput) hiddenPaidInput.value = '0.00';
+                } else {
+                    if (creditSection) creditSection.classList.add('hidden');
+                    if (paidAmountContainer) paidAmountContainer.classList.remove('hidden');
+                    if (creditDiscRow) creditDiscRow.classList.add('hidden');
+                    if (creditAmtRow) creditAmtRow.classList.add('hidden');
+
+                    if (creditDiscInput) creditDiscInput.value = '';
+                    if (creditNoteInput) creditNoteInput.value = '';
+                    if (hiddenNoteInput) hiddenNoteInput.value = '';
+                }
 
                 window.updatePaymentModalStatus();
             };
@@ -324,6 +377,11 @@
 
                 const addPaidInput = document.getElementById('additional_paid_amount');
                 if (addPaidInput) addPaidInput.value = '';
+
+                const creditDiscInput = document.getElementById('credit_discount_input');
+                const creditNoteInput = document.getElementById('credit_discount_note_input');
+                if (creditDiscInput) creditDiscInput.value = '';
+                if (creditNoteInput) creditNoteInput.value = '';
 
                 selectPaymentMethod('Cash');
                 window.updatePaymentModalStatus();
@@ -353,11 +411,44 @@
                 const diffAmtNode = document.getElementById('diff-amount-label');
                 const btnDiscount = document.getElementById('diff-btn-discount');
                 const btnBalance = document.getElementById('diff-btn-balance');
-
-                const paidVal = Math.max(0, Number(addPaidInput?.value || 0));
-                if (hiddenPaidInput) hiddenPaidInput.value = paidVal;
+                const creditDiscInput = document.getElementById('credit_discount_input');
+                const creditNoteInput = document.getElementById('credit_discount_note_input');
+                const hiddenNoteInput = document.getElementById('payment_note');
+                const creditDiscNode = document.getElementById('payment-modal-credit-discount');
+                const creditAmtNode = document.getElementById('payment-modal-credit-amount');
+                const balanceNode = document.getElementById('payment-modal-balance');
 
                 const totalBill = currentSubtotal;
+
+                if (currentPaymentMethod === 'Credit') {
+                    if (diffContainer) diffContainer.classList.add('hidden');
+
+                    let discountVal = Math.max(0, Number(creditDiscInput?.value || 0));
+                    if (discountVal > totalBill) {
+                        discountVal = totalBill;
+                        if (creditDiscInput) creditDiscInput.value = totalBill.toFixed(2);
+                    }
+
+                    const creditAmount = Math.max(0, totalBill - discountVal);
+                    const remainingBalance = creditAmount;
+
+                    if (discInput) discInput.value = discountVal.toFixed(2);
+                    if (hiddenPaidInput) hiddenPaidInput.value = '0.00';
+                    if (hiddenNoteInput) hiddenNoteInput.value = creditNoteInput?.value || '';
+
+                    if (creditDiscNode) creditDiscNode.textContent = `-₹${discountVal.toFixed(2)}`;
+                    if (creditAmtNode) creditAmtNode.textContent = formatCurrency(creditAmount);
+                    if (balanceNode) {
+                        balanceNode.textContent = formatCurrency(remainingBalance);
+                        balanceNode.className = 'font-mono font-black text-amber-400';
+                    }
+                    return;
+                }
+
+                // Cash / Online / GPay
+                const paidVal = Math.max(0, Number(addPaidInput?.value || 0));
+                if (hiddenPaidInput) hiddenPaidInput.value = paidVal.toFixed(2);
+
                 const rawDiff = Math.max(0, totalBill - paidVal);
                 const diffPercent = totalBill > 0 ? (rawDiff / totalBill) * 100 : 0;
 
@@ -390,7 +481,6 @@
                 const netDue = Math.max(0, totalBill - discountVal);
                 const balance = Math.max(0, netDue - paidVal);
 
-                const balanceNode = document.getElementById('payment-modal-balance');
                 if (balanceNode) {
                     balanceNode.textContent = formatCurrency(balance);
                     balanceNode.className = balance > 0 ? 'font-mono font-black text-amber-400' : 'font-mono font-black text-emerald-400';
@@ -411,6 +501,8 @@
             };
 
             document.getElementById('additional_paid_amount')?.addEventListener('input', window.updatePaymentModalStatus);
+            document.getElementById('credit_discount_input')?.addEventListener('input', window.updatePaymentModalStatus);
+            document.getElementById('credit_discount_note_input')?.addEventListener('input', window.updatePaymentModalStatus);
         })();
     </script>
 </x-layouts.app>

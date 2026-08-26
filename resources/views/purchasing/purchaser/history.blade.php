@@ -333,6 +333,12 @@
                                             ? route('purchaser.invoices.payment', $cart->purchaseInvoice) 
                                             : route('purchaser.carts.submit');
 
+                                        $grossTotal = $cart->purchaseInvoice ? (float) $cart->purchaseInvoice->amount : (float) $cart->items->sum('line_total');
+                                        $discountVal = (float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0));
+                                        $submitterName = $cart->purchaseInvoice?->purchaserSubmittedBy?->name ?? $cart->user?->name ?? 'Purchaser';
+                                        $submittedAt = ($cart->purchaseInvoice?->purchaser_submitted_at ?? $cart->submitted_at)?->format('d M Y, h:i A') ?? '';
+                                        $paymentNoteVal = $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note;
+
                                         $modalPayload = [
                                             'supplierName' => $cart->supplier?->name ?: 'Vendor pending',
                                             'supplierMobile' => $cart->supplier?->mobile_number ?: '',
@@ -341,8 +347,14 @@
                                             'date' => $cart->business_date->format('d M Y'),
                                             'paymentStatus' => $paymentStatusLabel,
                                             'totalAmount' => '₹' . number_format($cartAmount, 2),
+                                            'grossAmount' => '₹' . number_format($grossTotal, 2),
+                                            'discountAmount' => $discountVal > 0 ? '₹' . number_format($discountVal, 2) : '',
+                                            'netAmount' => '₹' . number_format($cartAmount, 2),
                                             'cashAmount' => '₹' . number_format($cashAmount, 2),
                                             'creditAmount' => '₹' . number_format($creditAmount, 2),
+                                            'submitterName' => $submitterName,
+                                            'submittedAt' => $submittedAt,
+                                            'paymentNote' => $paymentNoteVal,
                                             'grnNumber' => $cart->goodsReceived?->grn_number ?: 'Pending',
                                             'pdfUrl' => $pdfUrl ?: '#',
                                             'purchaseGrade' => $cart->purchase_grade ?? 'A',
@@ -505,6 +517,12 @@
                                     ? route('purchaser.invoices.payment', $cart->purchaseInvoice) 
                                     : route('purchaser.carts.submit');
 
+                                $grossTotal = $cart->purchaseInvoice ? (float) $cart->purchaseInvoice->amount : (float) $cart->items->sum('line_total');
+                                $discountVal = (float) ($hasInvoice ? $cart->purchaseInvoice->discount_amount : ($cart->discount_amount ?? 0));
+                                $submitterName = $cart->purchaseInvoice?->purchaserSubmittedBy?->name ?? $cart->user?->name ?? 'Purchaser';
+                                $submittedAt = ($cart->purchaseInvoice?->purchaser_submitted_at ?? $cart->submitted_at)?->format('d M Y, h:i A') ?? '';
+                                $paymentNoteVal = $hasInvoice ? $cart->purchaseInvoice->payment_note : $cart->payment_note;
+
                                 $modalPayload = [
                                     'supplierName' => $cart->supplier?->name ?: 'Vendor pending',
                                     'supplierMobile' => $cart->supplier?->mobile_number ?: '',
@@ -513,8 +531,14 @@
                                     'date' => $cart->business_date->format('d M Y'),
                                     'paymentStatus' => $paymentStatusLabel,
                                     'totalAmount' => '₹' . number_format($cartAmount, 2),
+                                    'grossAmount' => '₹' . number_format($grossTotal, 2),
+                                    'discountAmount' => $discountVal > 0 ? '₹' . number_format($discountVal, 2) : '',
+                                    'netAmount' => '₹' . number_format($cartAmount, 2),
                                     'cashAmount' => '₹' . number_format($cashAmount, 2),
                                     'creditAmount' => '₹' . number_format($creditAmount, 2),
+                                    'submitterName' => $submitterName,
+                                    'submittedAt' => $submittedAt,
+                                    'paymentNote' => $paymentNoteVal,
                                     'grnNumber' => $cart->goodsReceived?->grn_number ?: 'Pending',
                                     'purchaseGrade' => $cart->purchase_grade ?? 'A',
                                     'items' => $cart->items->map(fn($item) => [
@@ -642,6 +666,14 @@
                         <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Payment Status</p>
                         <p id="mb-payment-status" class="font-black text-amber-700 mt-0.5 text-[11px]"></p>
                     </div>
+                    <div id="mb-note-row" class="col-span-2 hidden">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Note / Reason</p>
+                        <p id="mb-note" class="font-semibold text-slate-900 mt-0.5 text-[11px]"></p>
+                    </div>
+                    <div id="mb-audit-row" class="col-span-2 hidden">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Applied By</p>
+                        <p id="mb-audit" class="font-semibold text-slate-700 mt-0.5 text-[11px]"></p>
+                    </div>
                 </div>
 
                 <!-- Amount Summary -->
@@ -649,8 +681,16 @@
                     <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Amount Summary</p>
                     <div class="mt-1.5 space-y-1 text-xs">
                         <div class="flex justify-between font-black text-xs text-white">
-                            <span>Total</span>
+                            <span id="mb-total-label">Total Bill</span>
                             <span id="mb-total"></span>
+                        </div>
+                        <div id="mb-discount-row" class="hidden flex justify-between text-rose-400 font-bold text-[11px]">
+                            <span>Discount</span>
+                            <span id="mb-discount"></span>
+                        </div>
+                        <div id="mb-net-row" class="hidden flex justify-between text-teal-300 font-bold text-[11px]">
+                            <span id="mb-net-label">Final Payable</span>
+                            <span id="mb-net"></span>
                         </div>
                         <div id="mb-cash-row" class="flex justify-between text-emerald-400 font-bold text-[11px]">
                             <span>Cash</span>
@@ -713,6 +753,7 @@
                 <input type="hidden" id="payment-form-supplier-id" name="supplier_id" value="">
                 <input type="hidden" id="payment-form-business-date" name="business_date" value="">
                 <input type="hidden" id="payment-form-paid-amount" name="paid_amount" value="">
+                <input type="hidden" id="payment-form-payment-note" name="payment_note" value="">
                 <input type="hidden" name="return_to" value="history">
                 <input type="hidden" name="date" value="{{ request('date', $date ?? now()->format('Y-m-d')) }}">
                 <input type="hidden" id="payment-form-tab" name="tab" value="today">
@@ -724,6 +765,14 @@
                         <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Bill</span>
                         <span id="payment-modal-total" class="font-mono text-base font-black text-white">₹0.00</span>
                     </div>
+                    <div id="payment-modal-credit-discount-row" class="hidden flex items-center justify-between text-[11px] font-bold text-rose-400">
+                        <span>Discount</span>
+                        <span id="payment-modal-credit-discount" class="font-mono font-bold text-rose-400">-₹0.00</span>
+                    </div>
+                    <div id="payment-modal-credit-amount-row" class="hidden flex items-center justify-between text-[11px] font-bold text-teal-300">
+                        <span>Credit Amount</span>
+                        <span id="payment-modal-credit-amount" class="font-mono font-bold text-teal-300">₹0.00</span>
+                    </div>
                     <div id="payment-modal-already-paid-row" class="hidden flex items-center justify-between text-[11px] font-bold text-slate-400">
                         <span>Already Paid</span>
                         <span id="payment-modal-already-paid" class="font-mono font-bold text-emerald-400">₹0.00</span>
@@ -734,13 +783,13 @@
                     </div>
                 </div>
 
-                <!-- Paid Amount Input -->
-                <div>
+                <!-- Paid Amount Input (Cash / Online / GPay) -->
+                <div id="paid-amount-container">
                     <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Paid Amount (₹)</label>
                     <input id="additional_paid_amount" type="number" step="0.01" min="0" name="additional_paid_amount" placeholder="Enter amount paid" class="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-sm font-black text-slate-950 focus:bg-white focus:border-teal-600 focus:outline-none">
                 </div>
 
-                <!-- Auto Difference Action (Discount vs Balance) -->
+                <!-- Auto Difference Action (Discount vs Balance for Cash) -->
                 <div id="diff-action-container" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
                     <div class="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-500">
                         <span>Unpaid Difference</span>
@@ -768,6 +817,21 @@
                     </div>
                 </div>
 
+                <!-- Credit Discount & Optional Note Section -->
+                <div id="credit-discount-container" class="hidden space-y-2.5 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                    <div>
+                        <div class="flex items-center justify-between">
+                            <label for="credit_discount_input" class="text-[10px] font-black uppercase tracking-wider text-slate-700">Discount (₹)</label>
+                            <span class="text-[10px] font-bold text-slate-400">Settlement discount</span>
+                        </div>
+                        <input id="credit_discount_input" type="number" step="0.01" min="0" placeholder="0.00" class="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm font-black text-slate-950 focus:border-teal-600 focus:outline-none">
+                    </div>
+                    <div>
+                        <label for="credit_discount_note_input" class="text-[10px] font-black uppercase tracking-wider text-slate-700">Discount Note <span class="text-slate-400 font-normal">(Optional)</span></label>
+                        <input id="credit_discount_note_input" type="text" placeholder="reason / settlement note" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-900 focus:border-teal-600 focus:outline-none">
+                    </div>
+                </div>
+
                 <!-- Bill Ref No -->
                 <div>
                     <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Bill Ref No (Optional)</label>
@@ -789,6 +853,7 @@
         let currentDiffMode = 'discount';
         let userToggledDiffMode = false;
         let currentDifference = 0;
+        let currentPaymentMethod = 'Cash';
 
         function togglePageJumpControls(show) {
             document.querySelectorAll('.fixed.z-\\[60\\]').forEach(el => {
@@ -813,6 +878,7 @@
         }
 
         function selectPaymentMethod(method) {
+            currentPaymentMethod = method;
             const methods = ['Cash', 'Online', 'GPay', 'Credit'];
             const input = document.getElementById('payment_method');
             if (input) input.value = method;
@@ -826,6 +892,36 @@
                     btn.className = 'h-8 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700 hover:bg-slate-100 transition-all';
                 }
             });
+
+            const creditSection = document.getElementById('credit-discount-container');
+            const paidAmountContainer = document.getElementById('paid-amount-container');
+            const creditDiscRow = document.getElementById('payment-modal-credit-discount-row');
+            const creditAmtRow = document.getElementById('payment-modal-credit-amount-row');
+            const alreadyPaidRow = document.getElementById('payment-modal-already-paid-row');
+            const creditDiscInput = document.getElementById('credit_discount_input');
+            const creditNoteInput = document.getElementById('credit_discount_note_input');
+            const hiddenNoteInput = document.getElementById('payment-form-payment-note');
+
+            if (method === 'Credit') {
+                if (creditSection) creditSection.classList.remove('hidden');
+                if (paidAmountContainer) paidAmountContainer.classList.add('hidden');
+                if (creditDiscRow) creditDiscRow.classList.remove('hidden');
+                if (creditAmtRow) creditAmtRow.classList.remove('hidden');
+                if (alreadyPaidRow) alreadyPaidRow.classList.add('hidden');
+
+                const hiddenPaidInput = document.getElementById('payment-form-paid-amount');
+                if (hiddenPaidInput) hiddenPaidInput.value = '0.00';
+            } else {
+                if (creditSection) creditSection.classList.add('hidden');
+                if (paidAmountContainer) paidAmountContainer.classList.remove('hidden');
+                if (creditDiscRow) creditDiscRow.classList.add('hidden');
+                if (creditAmtRow) creditAmtRow.classList.add('hidden');
+                if (alreadyPaidRow && currentInvoicePaidAmount > 0) alreadyPaidRow.classList.remove('hidden');
+
+                if (creditDiscInput) creditDiscInput.value = '';
+                if (creditNoteInput) creditNoteInput.value = '';
+                if (hiddenNoteInput) hiddenNoteInput.value = '';
+            }
 
             updatePaymentModalStatus();
         }
@@ -858,17 +954,14 @@
         }
 
         function filterVendorCards(query) {
-            const q = query.toLowerCase().trim();
-            document.querySelectorAll('.report-view-cards article, .report-view-table tbody tr').forEach(el => {
-                if (!q) {
-                    el.style.display = '';
-                    return;
-                }
-                const text = el.textContent.toLowerCase();
-                if (text.includes(q)) {
-                    el.style.display = '';
+            const normalized = query.trim().toLowerCase();
+            document.querySelectorAll('.vendor-card-item').forEach(card => {
+                const name = card.dataset.vendorName || '';
+                const mobile = card.dataset.vendorMobile || '';
+                if (!normalized || name.includes(normalized) || mobile.includes(normalized)) {
+                    card.style.display = '';
                 } else {
-                    el.style.display = 'none';
+                    card.style.display = 'none';
                 }
             });
         }
@@ -915,7 +1008,44 @@
             document.getElementById('mb-date').textContent = data.date;
             document.getElementById('mb-invoice').textContent = data.invoiceNumber;
             document.getElementById('mb-payment-status').textContent = data.paymentStatus;
-            document.getElementById('mb-total').textContent = data.totalAmount;
+
+            const discRow = document.getElementById('mb-discount-row');
+            const discNode = document.getElementById('mb-discount');
+            const netRow = document.getElementById('mb-net-row');
+            const netNode = document.getElementById('mb-net');
+            const totalLabel = document.getElementById('mb-total-label');
+            const noteRow = document.getElementById('mb-note-row');
+            const noteNode = document.getElementById('mb-note');
+            const auditRow = document.getElementById('mb-audit-row');
+            const auditNode = document.getElementById('mb-audit');
+
+            if (data.discountAmount) {
+                if (totalLabel) totalLabel.textContent = 'Original Bill';
+                if (discRow) discRow.classList.remove('hidden');
+                if (discNode) discNode.textContent = '-' + data.discountAmount;
+                if (netRow) netRow.classList.remove('hidden');
+                if (netNode) netNode.textContent = data.netAmount || data.totalAmount;
+            } else {
+                if (totalLabel) totalLabel.textContent = 'Total Bill';
+                if (discRow) discRow.classList.add('hidden');
+                if (netRow) netRow.classList.add('hidden');
+            }
+
+            if (data.paymentNote) {
+                if (noteRow) noteRow.classList.remove('hidden');
+                if (noteNode) noteNode.textContent = data.paymentNote;
+            } else {
+                if (noteRow) noteRow.classList.add('hidden');
+            }
+
+            if (data.submitterName) {
+                if (auditRow) auditRow.classList.remove('hidden');
+                if (auditNode) auditNode.textContent = `${data.submitterName}${data.submittedAt ? ' • ' + data.submittedAt : ''}`;
+            } else {
+                if (auditRow) auditRow.classList.add('hidden');
+            }
+
+            document.getElementById('mb-total').textContent = data.grossAmount || data.totalAmount;
             document.getElementById('mb-cash').textContent = data.cashAmount;
             document.getElementById('mb-credit').textContent = data.creditAmount;
             document.getElementById('mb-grn').textContent = data.grnNumber;
@@ -1001,8 +1131,10 @@
             const cartIdInput = document.getElementById('payment-form-cart-id');
             const supplierIdInput = document.getElementById('payment-form-supplier-id');
             const bDateInput = document.getElementById('payment-form-business-date');
+            const hiddenNoteInput = document.getElementById('payment-form-payment-note');
 
             if (form) form.action = actionUrl;
+            if (hiddenNoteInput) hiddenNoteInput.value = invoice.paymentNote || '';
 
             let itemsContainer = document.getElementById('payment-form-items-inputs');
             if (!itemsContainer) {
@@ -1055,6 +1187,16 @@
             const billNumInput = document.getElementById('bill_number');
             if (billNumInput) billNumInput.value = invoice.billNumber || '';
 
+            const creditDiscInput = document.getElementById('credit_discount_input');
+            const creditNoteInput = document.getElementById('credit_discount_note_input');
+            if (invoice.paymentMethod === 'Credit') {
+                if (creditDiscInput) creditDiscInput.value = invoice.discountAmount > 0 ? Number(invoice.discountAmount).toFixed(2) : '';
+                if (creditNoteInput) creditNoteInput.value = invoice.paymentNote || '';
+            } else {
+                if (creditDiscInput) creditDiscInput.value = '';
+                if (creditNoteInput) creditNoteInput.value = '';
+            }
+
             selectPaymentMethod(invoice.paymentMethod || 'Cash');
 
             const addPaidInput = document.getElementById('additional_paid_amount');
@@ -1087,13 +1229,44 @@
             const diffAmtNode = document.getElementById('diff-amount-label');
             const btnDiscount = document.getElementById('diff-btn-discount');
             const btnBalance = document.getElementById('diff-btn-balance');
-
-            const additionalPaidAmount = Math.max(0, Number(addPaidInput?.value || 0));
-            if (hiddenPaidInput) hiddenPaidInput.value = additionalPaidAmount;
+            const creditDiscInput = document.getElementById('credit_discount_input');
+            const creditNoteInput = document.getElementById('credit_discount_note_input');
+            const hiddenNoteInput = document.getElementById('payment-form-payment-note');
+            const creditDiscNode = document.getElementById('payment-modal-credit-discount');
+            const creditAmtNode = document.getElementById('payment-modal-credit-amount');
+            const balanceNode = document.getElementById('payment-modal-balance');
 
             const totalBill = currentInvoiceAmount;
             const alreadyPaid = currentInvoicePaidAmount;
             const remainingToPay = Math.max(0, totalBill - alreadyPaid);
+
+            if (currentPaymentMethod === 'Credit') {
+                if (diffContainer) diffContainer.classList.add('hidden');
+
+                let discountVal = Math.max(0, Number(creditDiscInput?.value || 0));
+                if (discountVal > remainingToPay) {
+                    discountVal = remainingToPay;
+                    if (creditDiscInput) creditDiscInput.value = remainingToPay.toFixed(2);
+                }
+
+                const creditAmount = Math.max(0, remainingToPay - discountVal);
+                const remainingBalance = creditAmount;
+
+                if (discInput) discInput.value = discountVal.toFixed(2);
+                if (hiddenPaidInput) hiddenPaidInput.value = '0.00';
+                if (hiddenNoteInput) hiddenNoteInput.value = creditNoteInput?.value || '';
+
+                if (creditDiscNode) creditDiscNode.textContent = `-₹${discountVal.toFixed(2)}`;
+                if (creditAmtNode) creditAmtNode.textContent = `₹${creditAmount.toFixed(2)}`;
+                if (balanceNode) {
+                    balanceNode.textContent = `₹${remainingBalance.toFixed(2)}`;
+                    balanceNode.className = 'font-mono font-black text-amber-400';
+                }
+                return;
+            }
+
+            const additionalPaidAmount = Math.max(0, Number(addPaidInput?.value || 0));
+            if (hiddenPaidInput) hiddenPaidInput.value = additionalPaidAmount;
 
             const rawDiff = Math.max(0, remainingToPay - additionalPaidAmount);
             currentDifference = rawDiff;
@@ -1128,7 +1301,6 @@
             const netDue = Math.max(0, remainingToPay - discountVal);
             const balance = Math.max(0, netDue - additionalPaidAmount);
 
-            const balanceNode = document.getElementById('payment-modal-balance');
             if (balanceNode) {
                 balanceNode.textContent = `₹${balance.toFixed(2)}`;
                 balanceNode.className = balance > 0 ? 'font-mono font-black text-amber-400' : 'font-mono font-black text-emerald-400';
@@ -1136,5 +1308,7 @@
         }
 
         document.getElementById('additional_paid_amount')?.addEventListener('input', updatePaymentModalStatus);
+        document.getElementById('credit_discount_input')?.addEventListener('input', updatePaymentModalStatus);
+        document.getElementById('credit_discount_note_input')?.addEventListener('input', updatePaymentModalStatus);
     </script>
 </x-layouts.app>
