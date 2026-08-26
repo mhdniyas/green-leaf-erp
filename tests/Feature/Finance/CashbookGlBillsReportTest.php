@@ -306,6 +306,63 @@ class CashbookGlBillsReportTest extends TestCase
             ->assertDontSee('INV-POT-001');
     }
 
+    public function test_gl_bills_csv_export_respects_shop_date_and_product_filter(): void
+    {
+        $tomato = $this->createProduct('Tomato', 'TOM-01');
+        $potato = $this->createProduct('Potato', 'POT-01');
+
+        $matchingInvoice = $this->createInvoiceWithItem('INV-TOM-CSV', '2026-08-24', $tomato, 300.00, 500.00);
+        $this->createInvoiceWithItem('INV-POT-CSV', '2026-08-25', $potato, 400.00, 400.00);
+
+        $filter = PurchaseProductFilter::create([
+            'name' => 'Tomato Filter',
+            'is_active' => true,
+            'created_by' => $this->admin->id,
+        ]);
+        PurchaseProductFilterItem::create([
+            'filter_id' => $filter->id,
+            'product_id' => $tomato->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills.export.csv', [
+            'shop_id' => $this->shop->id,
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-24',
+            'end_date' => '2026-08-25',
+            'product_filter' => $filter->uuid,
+        ]));
+        ob_start();
+        $response->baseResponse->sendContent();
+        $content = (string) ob_get_clean();
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+
+        $this->assertStringContainsString('Tomato Filter', $content);
+        $this->assertStringContainsString($matchingInvoice->invoice_number, $content);
+        $this->assertStringContainsString('300', $content);
+        $this->assertStringContainsString('500', $content);
+        $this->assertStringNotContainsString('INV-POT-CSV', $content);
+    }
+
+    public function test_gl_bills_pdf_export_respects_filters(): void
+    {
+        $tomato = $this->createProduct('Tomato', 'TOM-01');
+        $this->createInvoiceWithItem('INV-TOM-PDF', '2026-08-24', $tomato, 300.00, 300.00);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills.export.pdf', [
+            'shop_id' => $this->shop->id,
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-24',
+            'end_date' => '2026-08-24',
+            'download' => 1,
+        ]));
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf')
+            ->assertHeader('Content-Disposition', 'attachment; filename=gl-bills-DT-01-2026-08-24-to-2026-08-24.pdf');
+    }
+
     private function createProduct(string $name, string $sku): Product
     {
         return Product::factory()->create([
@@ -315,5 +372,55 @@ class CashbookGlBillsReportTest extends TestCase
             'default_warehouse_id' => $this->warehouse->id,
             'unit' => 'kg',
         ]);
+    }
+
+    private function createInvoiceWithItem(
+        string $invoiceNumber,
+        string $businessDate,
+        Product $product,
+        float $lineTotal,
+        float $invoiceTotal
+    ): ShopInvoice {
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $businessDate,
+            'order_number' => 'RQ-'.$invoiceNumber,
+            'order_source' => 'shop_owner',
+            'state' => 'approved',
+            'delivery_status' => 'delivered',
+            'payment_status' => 'paid',
+            'shop_daily_order_key' => 'shop:'.$this->shop->id.':'.$businessDate.':'.$invoiceNumber,
+            'created_by' => $this->admin->id,
+            'submitted_at' => $businessDate.' 08:00:00',
+            'deadline_at' => $businessDate.' 10:00:00',
+        ]);
+
+        $invoice = ShopInvoice::create([
+            'shop_id' => $this->shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => $invoiceNumber,
+            'business_date' => $businessDate,
+            'final_total' => $invoiceTotal,
+            'paid_amount' => $invoiceTotal,
+            'balance_amount' => 0.00,
+            'generated_by' => $this->admin->id,
+        ]);
+
+        ShopInvoiceItem::create([
+            'shop_invoice_id' => $invoice->id,
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'unit' => 'kg',
+            'price_unit' => 'kg',
+            'approved_qty' => 6,
+            'price_quantity' => 6,
+            'delivered_qty' => 6,
+            'delivered_price_quantity' => 6,
+            'unit_price' => $lineTotal / 6,
+            'line_subtotal' => $lineTotal,
+            'final_line_total' => $lineTotal,
+        ]);
+
+        return $invoice;
     }
 }

@@ -96,7 +96,6 @@
                                     <th class="px-4 py-3 sm:px-6">Purchaser</th>
                                     <th class="px-4 py-3 sm:px-6">Supplier</th>
                                     <th class="px-4 py-3 sm:px-6">Items</th>
-                                    <th class="px-4 py-3 sm:px-6 text-center">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-200 bg-white font-medium">
@@ -128,28 +127,6 @@
                                                 </div>
                                             @endif
                                         </td>
-                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-center align-middle">
-                                            <div class="flex items-center justify-center gap-1.5">
-                                                <form method="POST" action="{{ route('purchaser.carts.status', $cart) }}">
-                                                    @csrf
-                                                    @method('PATCH')
-                                                    <input type="hidden" name="status" value="draft">
-                                                    <input type="hidden" name="return_to" value="orders">
-                                                    <button type="submit" class="inline-flex h-7 items-center rounded-lg bg-teal-600 px-2.5 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs transition-all" title="Restore cart as active draft">
-                                                        Restore Draft
-                                                    </button>
-                                                </form>
-                                                <form method="POST" action="{{ route('purchaser.carts.status', $cart) }}">
-                                                    @csrf
-                                                    @method('PATCH')
-                                                    <input type="hidden" name="status" value="submitted">
-                                                    <input type="hidden" name="return_to" value="orders">
-                                                    <button type="submit" class="inline-flex h-7 items-center rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs transition-all" title="Restore cart directly to submitted">
-                                                        Restore Submitted
-                                                    </button>
-                                                </form>
-                                            </div>
-                                        </td>
                                     </tr>
                                 @endforeach
 
@@ -180,11 +157,6 @@
                                                     @endforeach
                                                 </div>
                                             @endif
-                                        </td>
-                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-center align-middle">
-                                            <a href="{{ route('purchasing.orders.show', $po) }}" class="inline-flex h-7 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-black text-slate-700 hover:bg-slate-50 shadow-2xs transition-all">
-                                                View PO
-                                            </a>
                                         </td>
                                     </tr>
                                 @endforeach

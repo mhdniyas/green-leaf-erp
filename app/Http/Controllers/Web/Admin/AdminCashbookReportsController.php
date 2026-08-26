@@ -24,10 +24,10 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\StreamedResponse;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminCashbookReportsController extends Controller
 {
@@ -299,7 +299,7 @@ class AdminCashbookReportsController extends Controller
         $invoices = $paginate
             ? $query->paginate(15)->withQueryString()
             : $query->get();
-        $this->annotateGlBillsInvoices($invoices->getCollection(), $filterProductIds);
+        $this->annotateGlBillsInvoices($paginate ? $invoices->getCollection() : $invoices, $filterProductIds);
 
         return [
             'shops' => $shops,

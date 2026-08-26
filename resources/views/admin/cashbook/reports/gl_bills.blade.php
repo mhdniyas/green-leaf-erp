@@ -20,6 +20,25 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
+                @php
+                    $exportQuery = [
+                        'timeframe' => $timeframe,
+                        'shop_id' => $selectedShopId,
+                        'product_filter' => $selectedProductFilterUuid,
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                    ];
+                @endphp
+
+                <a href="{{ route('admin.cashbook.reports.gl-bills.export.csv', $exportQuery) }}" download class="inline-flex h-10 items-center gap-2 rounded-2xl border border-emerald-200 bg-white px-3.5 text-xs font-black text-emerald-700 shadow-xs transition-all hover:bg-emerald-50">
+                    <i data-lucide="file-spreadsheet" class="h-4 w-4"></i>
+                    <span>CSV</span>
+                </a>
+                <a href="{{ route('admin.cashbook.reports.gl-bills.export.pdf', $exportQuery + ['download' => 1]) }}" download class="inline-flex h-10 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 text-xs font-black text-slate-800 shadow-xs transition-all hover:bg-slate-50">
+                    <i data-lucide="file-text" class="h-4 w-4"></i>
+                    <span>PDF</span>
+                </a>
+
                 <!-- Product Filter Dropdown -->
                 <div x-data="{ open: false }" class="relative inline-block text-left">
                     <button @click="open = !open" type="button" class="inline-flex items-center justify-between gap-2 h-10 px-3.5 rounded-2xl bg-white border border-slate-200/90 text-xs font-black text-slate-800 shadow-xs hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer">
