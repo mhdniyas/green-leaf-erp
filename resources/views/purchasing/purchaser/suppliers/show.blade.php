@@ -76,257 +76,87 @@
             @endif
         </section>
 
-        @if ($vendorHistory->isEmpty())
+        @if ($vendorHistory->isEmpty() && $cancelledHistory->isEmpty())
             <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem]">
                 No vendor history found yet.
             </div>
         @else
-            {{-- Desktop Table View --}}
-            <div class="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block lg:rounded-[2rem]">
-                @foreach ($vendorHistory as $day)
-                    @foreach ($day['entries'] as $entry)
-                        @php
-                            $entryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
-                            $billModalPayload = [
-                                'supplierName'     => $supplier->name,
-                                'supplierMobile'   => $supplier->mobile_number ?: '',
-                                'billRef'          => $entry['cart_number'],
-                                'invoiceNumber'    => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
-                                'date'             => $day['date_label'],
-                                'paymentStatus'    => $entry['payment_status'],
-                                'totalAmount'      => '₹' . number_format((float) $entry['amount'], 2),
-                                'cashAmount'       => '₹' . number_format((float) $entry['paid_amount'], 2),
-                                'creditAmount'     => '₹' . number_format($entryPending, 2),
-                                'grnNumber'        => $entry['grn_number'] ?: ($entry['receipt_notes'] ? 'See notes below' : ($entry['is_receipt_pending'] ? 'Pending GRN' : 'Completed')),
-                                'grnStatus'        => $entry['grn_status'] ? ucfirst(str_replace('_', ' ', $entry['grn_status'])) : ($entry['is_receipt_pending'] ? 'Pending Receipt' : 'Received'),
-                                'grnRoute'         => $entry['grn_route'] ?? null,
-                                'isReceiptPending' => $entry['is_receipt_pending'] ?? false,
-                                'paymentModal'     => $entry['payment_modal'] ?? null,
-                                'paymentRoute'     => $entry['payment_route'] ?? null,
-                                'isPaymentPending' => $entry['is_payment_pending'] ?? false,
-                                'items'            => collect($entry['item_summary'])->values()->all(),
-                            ];
-                        @endphp
-                        <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50/80">
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2 flex-wrap">
+            @if ($vendorHistory->isNotEmpty())
+                {{-- Desktop Table View --}}
+                <div class="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block lg:rounded-[2rem]">
+                    @foreach ($vendorHistory as $day)
+                        @foreach ($day['entries'] as $entry)
+                            @php
+                                $entryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                                $billModalPayload = [
+                                    'supplierName'   => $supplier->name,
+                                    'supplierMobile' => $supplier->mobile_number ?: '',
+                                    'billRef'        => $entry['cart_number'],
+                                    'invoiceNumber'  => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
+                                    'date'           => $day['date_label'],
+                                    'paymentStatus'  => $entry['payment_status'],
+                                    'isCancelled'    => false,
+                                    'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
+                                    'cashAmount'     => '₹' . number_format((float) $entry['paid_amount'], 2),
+                                    'creditAmount'   => '₹' . number_format($entryPending, 2),
+                                    'grnNumber'      => $entry['receipt_notes'] ? 'See notes below' : 'Pending',
+                                    'items'          => collect($entry['item_summary'])->values()->all(),
+                                ];
+                            @endphp
+                            <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50/80">
+                                <div class="flex-1">
                                     <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
-                                    <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $entry['status_tone'] }}">
-                                        {{ $entry['status_label'] }}
-                                    </span>
-                                    @if ($entry['grn_number'])
-                                        <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-mono font-bold text-slate-700">
-                                            {{ $entry['grn_number'] }}
-                                        </span>
-                                    @endif
+                                    <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
                                 </div>
-                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                @if ($entryPending > 0)
-                                    <div class="text-right mr-1">
-                                        <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Pending</p>
-                                        <p class="text-xs font-black text-amber-700">₹{{ number_format($entryPending, 0) }}</p>
-                                    </div>
-                                @endif
-
-                                @if ($entry['cart_status'] === 'cancelled')
-                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
-                                        @csrf
-                                        @method('PATCH')
-                                        <input type="hidden" name="status" value="draft">
-                                        <input type="hidden" name="return_to" value="suppliers">
-                                        <input type="hidden" name="date" value="{{ $date }}">
-                                        <button
-                                            type="submit"
-                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs transition-all"
-                                            title="Restore cancelled cart to active draft"
-                                        >
-                                            Restore Draft
-                                        </button>
-                                    </form>
-                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
-                                        @csrf
-                                        @method('PATCH')
-                                        <input type="hidden" name="status" value="submitted">
-                                        <input type="hidden" name="return_to" value="suppliers">
-                                        <input type="hidden" name="date" value="{{ $date }}">
-                                        <button
-                                            type="submit"
-                                            class="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs transition-all"
-                                            title="Restore cancelled cart to submitted"
-                                        >
-                                            Restore Submitted
-                                        </button>
-                                    </form>
-                                @endif
-
-                                @if ($entry['is_receipt_pending'] || $entry['grn_route'])
-                                    @if ($entry['grn_route'])
-                                        <a
-                                            href="{{ $entry['grn_route'] }}"
-                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs transition-all"
-                                        >
-                                            <svg class="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                            Process GRN
-                                        </a>
-                                    @else
-                                        <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
-                                            @csrf
-                                            @method('PATCH')
-                                            <input type="hidden" name="flag" value="goods_received">
-                                            <input type="hidden" name="return_to" value="suppliers">
-                                            <input type="hidden" name="date" value="{{ $date }}">
-                                            <button
-                                                type="submit"
-                                                class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs transition-all"
-                                                title="Mark goods received"
-                                            >
-                                                <svg class="h-3.5 w-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                                Mark GRN
-                                            </button>
-                                        </form>
+                                <div class="flex items-center gap-2">
+                                    @if ($entryPending > 0)
+                                        <div class="text-right">
+                                            <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Pending</p>
+                                            <p class="text-xs font-black text-amber-700">₹{{ number_format($entryPending, 0) }}</p>
+                                        </div>
                                     @endif
-                                @endif
-
-                                @if ($entry['is_payment_pending'] && $entry['payment_modal'])
                                     <button
                                         type="button"
-                                        onclick='openVendorHistoryPaymentModal(@json($entry['payment_modal']), "{{ $entry['payment_route'] }}")'
-                                        class="inline-flex h-8 items-center rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs transition-all"
+                                        onclick='openVendorBillModal(@json($billModalPayload))'
+                                        class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs"
                                     >
-                                        Pay Bill
+                                        View Bill
                                     </button>
-                                @endif
-
-                                <button
-                                    type="button"
-                                    onclick='openVendorBillModal(@json($billModalPayload))'
-                                    class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs transition-all"
-                                >
-                                    View Bill
-                                </button>
+                                </div>
                             </div>
-                        </div>
+                        @endforeach
                     @endforeach
-                @endforeach
-            </div>
+                </div>
 
-            {{-- Mobile Compact Cards --}}
-            <div class="space-y-2 lg:hidden">
-                @foreach ($vendorHistory as $day)
-                    @foreach ($day['entries'] as $entry)
-                        @php
-                            $mobileEntryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
-                            $mobileBillModalPayload = [
-                                'supplierName'     => $supplier->name,
-                                'supplierMobile'   => $supplier->mobile_number ?: '',
-                                'billRef'          => $entry['cart_number'],
-                                'invoiceNumber'    => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
-                                'date'             => $day['date_label'],
-                                'paymentStatus'    => $entry['payment_status'],
-                                'totalAmount'      => '₹' . number_format((float) $entry['amount'], 2),
-                                'cashAmount'       => '₹' . number_format((float) $entry['paid_amount'], 2),
-                                'creditAmount'     => '₹' . number_format($mobileEntryPending, 2),
-                                'grnNumber'        => $entry['grn_number'] ?: ($entry['receipt_notes'] ? 'See notes below' : ($entry['is_receipt_pending'] ? 'Pending GRN' : 'Completed')),
-                                'grnStatus'        => $entry['grn_status'] ? ucfirst(str_replace('_', ' ', $entry['grn_status'])) : ($entry['is_receipt_pending'] ? 'Pending Receipt' : 'Received'),
-                                'grnRoute'         => $entry['grn_route'] ?? null,
-                                'isReceiptPending' => $entry['is_receipt_pending'] ?? false,
-                                'paymentModal'     => $entry['payment_modal'] ?? null,
-                                'paymentRoute'     => $entry['payment_route'] ?? null,
-                                'isPaymentPending' => $entry['is_payment_pending'] ?? false,
-                                'items'            => collect($entry['item_summary'])->values()->all(),
-                            ];
-                        @endphp
-                        <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs space-y-2.5">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0">
-                                    <div class="flex items-center gap-1.5 flex-wrap">
-                                        <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
-                                        <span class="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider {{ $entry['status_tone'] }}">
-                                            {{ $entry['status_label'] }}
-                                        </span>
-                                    </div>
-                                    <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
-                                    @if ($entry['grn_number'])
-                                        <p class="mt-0.5 text-[10px] font-mono font-bold text-slate-600">GRN: {{ $entry['grn_number'] }}</p>
+                {{-- Mobile Compact Cards --}}
+                <div class="space-y-2 lg:hidden">
+                    @foreach ($vendorHistory as $day)
+                        @foreach ($day['entries'] as $entry)
+                            @php
+                                $mobileEntryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                                $mobileBillModalPayload = [
+                                    'supplierName'   => $supplier->name,
+                                    'supplierMobile' => $supplier->mobile_number ?: '',
+                                    'billRef'        => $entry['cart_number'],
+                                    'invoiceNumber'  => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
+                                    'date'           => $day['date_label'],
+                                    'paymentStatus'  => $entry['payment_status'],
+                                    'isCancelled'    => false,
+                                    'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
+                                    'cashAmount'     => '₹' . number_format((float) $entry['paid_amount'], 2),
+                                    'creditAmount'   => '₹' . number_format($mobileEntryPending, 2),
+                                    'grnNumber'      => $entry['receipt_notes'] ? 'See notes below' : 'Pending',
+                                    'items'          => collect($entry['item_summary'])->values()->all(),
+                                ];
+                            @endphp
+                            <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
+                                    <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
+                                    @if ($mobileEntryPending > 0)
+                                        <p class="mt-1 text-xs font-black text-amber-700">Pending: ₹{{ number_format($mobileEntryPending, 0) }}</p>
                                     @endif
                                 </div>
-                                @if ($mobileEntryPending > 0)
-                                    <div class="text-right shrink-0">
-                                        <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Pending</p>
-                                        <p class="text-xs font-black text-amber-700">₹{{ number_format($mobileEntryPending, 0) }}</p>
-                                    </div>
-                                @endif
-                            </div>
-
-                            <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-100 flex-wrap">
-                                @if ($entry['cart_status'] === 'cancelled')
-                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
-                                        @csrf
-                                        @method('PATCH')
-                                        <input type="hidden" name="status" value="draft">
-                                        <input type="hidden" name="return_to" value="suppliers">
-                                        <input type="hidden" name="date" value="{{ $date }}">
-                                        <button
-                                            type="submit"
-                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs"
-                                            title="Restore cancelled cart to active draft"
-                                        >
-                                            Restore Draft
-                                        </button>
-                                    </form>
-                                    <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
-                                        @csrf
-                                        @method('PATCH')
-                                        <input type="hidden" name="status" value="submitted">
-                                        <input type="hidden" name="return_to" value="suppliers">
-                                        <input type="hidden" name="date" value="{{ $date }}">
-                                        <button
-                                            type="submit"
-                                            class="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs"
-                                            title="Restore cancelled cart to submitted"
-                                        >
-                                            Restore Submitted
-                                        </button>
-                                    </form>
-                                @endif
-
-                                @if ($entry['is_receipt_pending'] || $entry['grn_route'])
-                                    @if ($entry['grn_route'])
-                                        <a
-                                            href="{{ $entry['grn_route'] }}"
-                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs"
-                                        >
-                                            Process GRN
-                                        </a>
-                                    @else
-                                        <form method="POST" action="{{ $entry['cart_status_route'] }}" class="inline-block">
-                                            @csrf
-                                            @method('PATCH')
-                                            <input type="hidden" name="flag" value="goods_received">
-                                            <input type="hidden" name="return_to" value="suppliers">
-                                            <input type="hidden" name="date" value="{{ $date }}">
-                                            <button
-                                                type="submit"
-                                                class="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs"
-                                            >
-                                                Mark GRN
-                                            </button>
-                                        </form>
-                                    @endif
-                                @endif
-
-                                @if ($entry['is_payment_pending'] && $entry['payment_modal'])
-                                    <button
-                                        type="button"
-                                        onclick='openVendorHistoryPaymentModal(@json($entry['payment_modal']), "{{ $entry['payment_route'] }}")'
-                                        class="inline-flex h-8 items-center rounded-lg bg-slate-950 px-2.5 text-[11px] font-black text-white hover:bg-slate-800 shadow-2xs"
-                                    >
-                                        Pay Bill
-                                    </button>
-                                @endif
-
                                 <button
                                     type="button"
                                     onclick='openVendorBillModal(@json($mobileBillModalPayload))'
@@ -335,10 +165,107 @@
                                     View Bill
                                 </button>
                             </div>
-                        </div>
+                        @endforeach
                     @endforeach
-                @endforeach
-            </div>
+                </div>
+            @endif
+
+            {{-- Section 2: Cancelled Purchases (Separate Section) --}}
+            @if ($cancelledHistory->isNotEmpty())
+                <section class="mt-4 rounded-xl border border-rose-200 bg-white p-3 shadow-xs lg:rounded-2xl lg:p-4">
+                    <div class="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <span class="rounded-md bg-rose-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-700">Cancelled</span>
+                            <h2 class="text-sm font-black text-slate-950">Cancelled Purchases</h2>
+                        </div>
+                        <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-700">
+                            {{ $cancelledHistory->sum('record_count') }} {{ Str::plural('cart', $cancelledHistory->sum('record_count')) }}
+                        </span>
+                    </div>
+
+                    {{-- Desktop Table View --}}
+                    <div class="hidden overflow-hidden rounded-xl border border-rose-100 bg-white shadow-2xs lg:block">
+                        @foreach ($cancelledHistory as $day)
+                            @foreach ($day['entries'] as $entry)
+                                @php
+                                    $billModalPayload = [
+                                        'supplierName'   => $supplier->name,
+                                        'supplierMobile' => $supplier->mobile_number ?: '',
+                                        'billRef'        => $entry['cart_number'],
+                                        'invoiceNumber'  => $entry['invoice_number'] ?: ('CANCELLED-' . $entry['cart_number']),
+                                        'date'           => $day['date_label'],
+                                        'paymentStatus'  => 'Cancelled',
+                                        'isCancelled'    => true,
+                                        'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
+                                        'cashAmount'     => '₹0.00',
+                                        'creditAmount'   => '₹0.00',
+                                        'grnNumber'      => 'Cancelled',
+                                        'items'          => collect($entry['item_summary'])->values()->all(),
+                                    ];
+                                @endphp
+                                <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-rose-50/30">
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-2">
+                                            <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
+                                            <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-700">Cancelled</span>
+                                        </div>
+                                        <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items · ₹{{ number_format((float) $entry['amount'], 2) }}</p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onclick='openVendorBillModal(@json($billModalPayload))'
+                                            class="inline-flex h-8 items-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-[11px] font-black text-rose-700 hover:bg-rose-100 shadow-2xs"
+                                        >
+                                            View Details
+                                        </button>
+                                    </div>
+                                </div>
+                            @endforeach
+                        @endforeach
+                    </div>
+
+                    {{-- Mobile Compact Cards --}}
+                    <div class="space-y-2 lg:hidden">
+                        @foreach ($cancelledHistory as $day)
+                            @foreach ($day['entries'] as $entry)
+                                @php
+                                    $mobileBillModalPayload = [
+                                        'supplierName'   => $supplier->name,
+                                        'supplierMobile' => $supplier->mobile_number ?: '',
+                                        'billRef'        => $entry['cart_number'],
+                                        'invoiceNumber'  => $entry['invoice_number'] ?: ('CANCELLED-' . $entry['cart_number']),
+                                        'date'           => $day['date_label'],
+                                        'paymentStatus'  => 'Cancelled',
+                                        'isCancelled'    => true,
+                                        'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
+                                        'cashAmount'     => '₹0.00',
+                                        'creditAmount'   => '₹0.00',
+                                        'grnNumber'      => 'Cancelled',
+                                        'items'          => collect($entry['item_summary'])->values()->all(),
+                                    ];
+                                @endphp
+                                <div class="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-white p-3 shadow-2xs">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2">
+                                            <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
+                                            <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-rose-700">Cancelled</span>
+                                        </div>
+                                        <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items · ₹{{ number_format((float) $entry['amount'], 2) }}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onclick='openVendorBillModal(@json($mobileBillModalPayload))'
+                                        class="inline-flex h-8 items-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-[11px] font-black text-rose-700 hover:bg-rose-100 shadow-2xs shrink-0"
+                                    >
+                                        View
+                                    </button>
+                                </div>
+                            @endforeach
+                        @endforeach
+                    </div>
+                </section>
+            @endif
         @endif
     </div>
 
@@ -409,12 +336,9 @@
                     </div>
                 </div>
                 <!-- GRN -->
-                <div class="border-t border-slate-200 pt-2.5 flex items-center justify-between gap-2">
-                    <div>
-                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Goods Received (GRN)</p>
-                        <p id="vb-grn" class="font-mono font-bold text-slate-800 mt-0.5 text-[11px]"></p>
-                    </div>
-                    <div id="vb-grn-action-container"></div>
+                <div class="border-t border-slate-200 pt-2">
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">GRN</p>
+                    <p id="vb-grn" class="font-mono font-bold text-slate-800 mt-0.5 text-[11px]"></p>
                 </div>
             </div>
             <!-- Sticky Footer -->
@@ -518,20 +442,18 @@
             document.getElementById('vb-bill-ref').textContent = data.billRef;
             document.getElementById('vb-date').textContent = data.date;
             document.getElementById('vb-invoice').textContent = data.invoiceNumber;
-            document.getElementById('vb-payment-status').textContent = data.paymentStatus;
+            const isCancelled = Boolean(data.isCancelled || data.paymentStatus === 'Cancelled');
+            const statusNode = document.getElementById('vb-payment-status');
+            if (statusNode) {
+                statusNode.textContent = data.paymentStatus;
+                statusNode.className = isCancelled 
+                    ? 'font-black text-rose-600 mt-0.5 text-[11px] uppercase'
+                    : 'font-black text-amber-700 mt-0.5 text-[11px]';
+            }
             document.getElementById('vb-total').textContent = data.totalAmount;
             document.getElementById('vb-paid').textContent = data.cashAmount;
             document.getElementById('vb-credit').textContent = data.creditAmount;
-            document.getElementById('vb-grn').textContent = `${data.grnNumber}${data.grnStatus ? ' (' + data.grnStatus + ')' : ''}`;
-
-            const grnActionContainer = document.getElementById('vb-grn-action-container');
-            if (grnActionContainer) {
-                if (data.grnRoute) {
-                    grnActionContainer.innerHTML = `<a href="${data.grnRoute}" class="inline-flex h-7 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[10px] font-black text-teal-800 hover:bg-teal-100 shadow-2xs">Process GRN →</a>`;
-                } else {
-                    grnActionContainer.innerHTML = '';
-                }
-            }
+            document.getElementById('vb-grn').textContent = data.grnNumber;
 
             const paidRow = document.getElementById('vb-paid-row');
             const creditRow = document.getElementById('vb-credit-row');
@@ -539,10 +461,10 @@
             const creditAmount = Number(String(data.creditAmount || '').replace(/[^0-9.-]/g, ''));
 
             if (paidRow) {
-                paidRow.classList.toggle('hidden', false);
+                paidRow.classList.toggle('hidden', isCancelled);
             }
             if (creditRow) {
-                creditRow.classList.toggle('hidden', !(creditAmount > 0));
+                creditRow.classList.toggle('hidden', isCancelled || !(creditAmount > 0));
             }
 
             const countNode = document.getElementById('vb-items-count');

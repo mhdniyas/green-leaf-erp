@@ -1357,30 +1357,34 @@ class PurchaserDashboardController extends Controller
                     ->values()
                     ->all();
 
+                $isCancelled = $cart->status === 'cancelled';
+
                 return [
                     'date_key' => $cart->business_date->format('Y-m-d'),
                     'date_label' => $cart->business_date->format('d M Y'),
                     'cart_number' => $cart->cart_number,
+                    'status' => $cart->status,
+                    'is_cancelled' => $isCancelled,
                     'invoice_id' => $invoice?->id,
                     'invoice_number' => $invoice?->invoice_number,
                     'amount' => (float) ($invoice ? max(0, (float) $invoice->amount - (float) $invoice->discount_amount) : max(0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)),
                     'updated_at' => $invoice?->updated_at ?? $cart->updated_at,
                     'updated_label' => ($invoice?->updated_at ?? $cart->updated_at)?->format('d M Y h:i A'),
-                    'payment_status' => str($invoice?->payment_status ?: $cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),
+                    'payment_status' => $isCancelled ? 'Cancelled' : str($invoice?->payment_status ?: $cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),
                     'payment_method' => $invoice?->payment_method ?: $cart->payment_method ?: 'Cash',
                     'paid_amount' => (float) ($invoice?->paid_amount ?? $cart->paid_amount ?? 0),
-                    'balance_amount' => $invoice ? $this->invoiceRemainingBalance($invoice) : 0.0,
+                    'balance_amount' => $isCancelled ? 0.0 : ($invoice ? $this->invoiceRemainingBalance($invoice) : 0.0),
                     'item_count' => $itemCount,
                     'total_quantity' => $totalQuantity,
                     'item_summary' => $itemSummary,
                     'receipt_notes' => $receiptNotes,
                     'discrepancy_summary' => $discrepancySummary,
-                    'status_label' => $operationalState['label'],
-                    'status_tone' => $operationalState['tone'],
-                    'is_operationally_unresolved' => $operationalState['unresolved'],
-                    'is_payment_pending' => $operationalState['payment_pending'],
-                    'payment_route' => $operationalState['payment_pending'] && $invoice ? route('purchaser.invoices.payment', $invoice) : null,
-                    'payment_modal' => $operationalState['payment_pending'] && $invoice ? [
+                    'status_label' => $isCancelled ? 'Cancelled' : $operationalState['label'],
+                    'status_tone' => $isCancelled ? 'bg-rose-100 text-rose-700' : $operationalState['tone'],
+                    'is_operationally_unresolved' => $isCancelled ? false : $operationalState['unresolved'],
+                    'is_payment_pending' => $isCancelled ? false : $operationalState['payment_pending'],
+                    'payment_route' => (! $isCancelled && $operationalState['payment_pending'] && $invoice) ? route('purchaser.invoices.payment', $invoice) : null,
+                    'payment_modal' => (! $isCancelled && $operationalState['payment_pending'] && $invoice) ? [
                         'number' => $invoice->invoice_number,
                         'supplier' => $cart->supplier?->name,
                         'amount' => round((float) $invoice->amount, 2),
@@ -1394,40 +1398,48 @@ class PurchaserDashboardController extends Controller
                 ];
             });
 
-        $vendorHistory = $vendorHistoryEntries
-            ->groupBy('date_key')
-            ->map(function ($entries, $historyDate): array {
-                $entries = collect($entries)->values();
-                $firstEntry = $entries->first();
+        $activeEntries = $vendorHistoryEntries->where('is_cancelled', false)->values();
+        $cancelledEntries = $vendorHistoryEntries->where('is_cancelled', true)->values();
 
-                return [
-                    'date_key' => (string) $historyDate,
-                    'date_label' => $firstEntry['date_label'],
-                    'record_count' => $entries->count(),
-                    'item_count' => (int) $entries->sum('item_count'),
-                    'total_quantity' => round((float) $entries->sum('total_quantity'), 2),
-                    'total_amount' => round((float) $entries->sum('amount'), 2),
-                    'paid_amount' => round((float) $entries->sum('paid_amount'), 2),
-                    'balance_amount' => round((float) $entries->sum('balance_amount'), 2),
-                    'pending_count' => $entries->where('is_operationally_unresolved', true)->count(),
-                    'completed_count' => $entries->where('is_operationally_unresolved', false)->count(),
-                    'entries' => $entries,
-                ];
-            })
-            ->sortByDesc('date_key')
-            ->values();
+        $groupHistory = function ($entries) {
+            return collect($entries)
+                ->groupBy('date_key')
+                ->map(function ($dayEntries, $historyDate): array {
+                    $dayEntries = collect($dayEntries)->values();
+                    $firstEntry = $dayEntries->first();
+
+                    return [
+                        'date_key' => (string) $historyDate,
+                        'date_label' => $firstEntry['date_label'],
+                        'record_count' => $dayEntries->count(),
+                        'item_count' => (int) $dayEntries->sum('item_count'),
+                        'total_quantity' => round((float) $dayEntries->sum('total_quantity'), 2),
+                        'total_amount' => round((float) $dayEntries->sum('amount'), 2),
+                        'paid_amount' => round((float) $dayEntries->sum('paid_amount'), 2),
+                        'balance_amount' => round((float) $dayEntries->sum('balance_amount'), 2),
+                        'pending_count' => $dayEntries->where('is_operationally_unresolved', true)->count(),
+                        'completed_count' => $dayEntries->where('is_operationally_unresolved', false)->count(),
+                        'entries' => $dayEntries,
+                    ];
+                })
+                ->sortByDesc('date_key')
+                ->values();
+        };
+
+        $vendorHistory = $groupHistory($activeEntries);
+        $cancelledHistory = $groupHistory($cancelledEntries);
 
         $historyTotals = [
-            'pending_amount' => round((float) $vendorHistoryEntries->sum('balance_amount'), 2),
-            'paid_amount' => round((float) $vendorHistoryEntries->sum('paid_amount'), 2),
-            'total_amount' => round((float) $vendorHistoryEntries->sum('amount'), 2),
-            'discount_amount' => round((float) $vendorHistoryEntries->sum(fn (array $entry): float => max(0, $entry['amount'] - $entry['paid_amount'] - $entry['balance_amount'])), 2),
-            'item_count' => (int) $vendorHistoryEntries->sum('item_count'),
-            'record_count' => (int) $vendorHistoryEntries->count(),
+            'pending_amount' => round((float) $activeEntries->sum('balance_amount'), 2),
+            'paid_amount' => round((float) $activeEntries->sum('paid_amount'), 2),
+            'total_amount' => round((float) $activeEntries->sum('amount'), 2),
+            'discount_amount' => round((float) $activeEntries->sum(fn (array $entry): float => max(0, $entry['amount'] - $entry['paid_amount'] - $entry['balance_amount'])), 2),
+            'item_count' => (int) $activeEntries->sum('item_count'),
+            'record_count' => (int) $activeEntries->count(),
         ];
 
-        $pendingEntries = $vendorHistoryEntries->where('is_operationally_unresolved', true)->values();
-        $completedEntries = $vendorHistoryEntries->where('is_operationally_unresolved', false)->values();
+        $pendingEntries = $activeEntries->where('is_operationally_unresolved', true)->values();
+        $completedEntries = $activeEntries->where('is_operationally_unresolved', false)->values();
 
         return view('purchasing.purchaser.suppliers.show', [
             'date' => $date->format('Y-m-d'),
@@ -1435,6 +1447,7 @@ class PurchaserDashboardController extends Controller
             'pendingInvoices' => $pendingEntries,
             'completedInvoices' => $completedEntries,
             'vendorHistory' => $vendorHistory,
+            'cancelledHistory' => $cancelledHistory,
             'historyTotals' => $historyTotals,
             'deadlineAlert' => $this->buildDeadlineAlert($userId, $date),
         ]);
@@ -3708,6 +3721,15 @@ class PurchaserDashboardController extends Controller
      */
     private function cartOperationalState(PurchaserCart $cart, array $batchState): array
     {
+        if ($cart->status === 'cancelled') {
+            return [
+                'label' => 'Cancelled',
+                'tone' => 'bg-rose-100 text-rose-700',
+                'unresolved' => false,
+                'payment_pending' => false,
+            ];
+        }
+
         if ($cart->status === 'draft') {
             return [
                 'label' => $cart->supplier_id === null ? 'Vendor Pending' : 'Bill Pending',
