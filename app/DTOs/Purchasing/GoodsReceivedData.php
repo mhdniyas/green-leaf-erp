@@ -12,7 +12,7 @@ final readonly class GoodsReceivedData
      * @param  array<int, array{purchase_order_item_id: ?int, product_id: int, received_qty: float}>  $items
      */
     public function __construct(
-        public int $purchaseOrderId,
+        public ?int $purchaseOrderId,
         public string $receivedAt,
         public float $transportCost,
         public float $labourCost,
@@ -20,6 +20,8 @@ final readonly class GoodsReceivedData
         public array $items,
         public string $billStatus = 'bill_available',
         public ?string $billNumber = null,
+        public ?int $destinationShopId = null,
+        public ?int $warehouseId = null,
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -29,14 +31,18 @@ final readonly class GoodsReceivedData
 
         foreach ($reqItems as $item) {
             $items[] = [
-                'purchase_order_item_id' => isset($item['purchase_order_item_id']) ? (int) $item['purchase_order_item_id'] : null,
+                'purchase_order_item_id' => isset($item['purchase_order_item_id']) && $item['purchase_order_item_id'] !== null ? (int) $item['purchase_order_item_id'] : null,
                 'product_id' => (int) ($item['product_id'] ?? 0),
                 'received_qty' => (float) ($item['received_qty'] ?? 0.000),
             ];
         }
 
+        $poId = $request->filled('purchase_order_id') ? (int) $request->input('purchase_order_id') : null;
+        $destShopId = $request->filled('destination_shop_id') ? (int) $request->input('destination_shop_id') : null;
+        $whId = $request->filled('warehouse_id') ? (int) $request->input('warehouse_id') : null;
+
         return new self(
-            purchaseOrderId: (int) $request->input('purchase_order_id'),
+            purchaseOrderId: $poId,
             receivedAt: $request->string('received_at')->toString() ?: now()->format('Y-m-d'),
             transportCost: (float) $request->input('transport_cost', 0.00),
             labourCost: (float) $request->input('labour_cost', 0.00),
@@ -44,6 +50,8 @@ final readonly class GoodsReceivedData
             items: $items,
             billStatus: (string) $request->input('bill_status', 'bill_available'),
             billNumber: $request->filled('bill_number') ? (string) $request->input('bill_number') : null,
+            destinationShopId: $destShopId,
+            warehouseId: $whId,
         );
     }
 
@@ -51,6 +59,8 @@ final readonly class GoodsReceivedData
     {
         return [
             'purchase_order_id' => $this->purchaseOrderId,
+            'destination_shop_id' => $this->destinationShopId,
+            'warehouse_id' => $this->warehouseId,
             'received_at' => $this->receivedAt,
             'transport_cost' => $this->transportCost,
             'labour_cost' => $this->labourCost,

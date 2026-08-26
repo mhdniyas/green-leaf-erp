@@ -72,6 +72,7 @@ class ApproveGoodsReceiptAction
                 // Create StockBatch in inventory — flagged as warehouse_receive_pending
                 $this->stockBatchRepository->create([
                     'product_id' => $item->product_id,
+                    'warehouse_id' => $grn->warehouse_id,
                     'goods_received_id' => $grn->id,
                     'goods_received_item_id' => $item->id,
                     'purchase_grade' => $item->grade ?? $grn->purchase_grade ?? 'A',

@@ -27,6 +27,8 @@ class GoodsReceived extends Model
     protected $fillable = [
         'public_uuid',
         'purchase_order_id',
+        'destination_shop_id',
+        'warehouse_id',
         'purchaser_cart_id',
         'grn_number',
         'status',
@@ -36,6 +38,8 @@ class GoodsReceived extends Model
         'received_by',
         'approved_by',
         'updated_by',
+        'matched_by',
+        'matched_at',
         'received_at',
         'approved_at',
         'transport_cost',
@@ -53,6 +57,7 @@ class GoodsReceived extends Model
     protected $casts = [
         'received_at' => 'date',
         'approved_at' => 'datetime',
+        'matched_at' => 'datetime',
         'transport_cost' => 'decimal:2',
         'labour_cost' => 'decimal:2',
         'is_extra' => 'boolean',
@@ -120,6 +125,16 @@ class GoodsReceived extends Model
         return $this->belongsTo(PurchaseOrder::class);
     }
 
+    public function destinationShop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class, 'destination_shop_id');
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'warehouse_id');
+    }
+
     public function receivedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'received_by');
@@ -133,6 +148,11 @@ class GoodsReceived extends Model
     public function updatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    public function matchedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'matched_by');
     }
 
     public function items(): HasMany

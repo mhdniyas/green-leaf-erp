@@ -1324,7 +1324,7 @@ class AdminCashbookReportsController extends Controller
 
         // A. Bill Pending Receipts
         $billPendingQuery = GoodsReceived::query()
-            ->with(['purchaseOrder.supplier', 'purchaseOrder.destinationShop', 'items.product', 'receivedBy', 'updatedBy', 'purchaseInvoices'])
+            ->with(['purchaseOrder.supplier', 'purchaseOrder.destinationShop', 'destinationShop', 'warehouse', 'items.product', 'receivedBy', 'updatedBy', 'matchedBy', 'purchaseInvoices'])
             ->where(function ($q): void {
                 $q->where('bill_status', 'bill_pending')
                     ->orWhereDoesntHave('purchaseInvoices');

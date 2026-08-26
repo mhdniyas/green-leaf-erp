@@ -352,7 +352,7 @@ class BillPriceApprovalController extends Controller
 
     public function updateInvoicePrices(Request $request, ShopInvoice $invoice): RedirectResponse|JsonResponse
     {
-        $this->authorizePurchaserAccess($request);
+        $this->authorizeAccess($request);
 
         $invoice->loadMissing(['shop', 'items.product']);
 

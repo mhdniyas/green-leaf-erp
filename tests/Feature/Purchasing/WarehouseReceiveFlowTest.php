@@ -313,4 +313,132 @@ class WarehouseReceiveFlowTest extends TestCase
             ->assertSee('Bill Pending')
             ->assertSee('Loadout Not Billed');
     }
+
+    public function test_advance_goods_receipt_without_po_creates_bill_pending_receipt_and_stock_batches_for_multiple_products(): void
+    {
+        Sanctum::actingAs($this->receiver);
+
+        // Advance goods receive with 2 products, no PO, no fake invoice
+        $response = $this->postJson('/api/v1/purchasing/grns', [
+            'destination_shop_id' => $this->warehouse->id,
+            'received_at' => now()->toDateString(),
+            'bill_status' => 'bill_pending',
+            'notes' => 'Received from direct grower truck before bill',
+            'items' => [
+                [
+                    'product_id' => $this->productA->id,
+                    'received_qty' => 250.00,
+                ],
+                [
+                    'product_id' => $this->productB->id,
+                    'received_qty' => 120.00,
+                ],
+            ],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.bill_status', 'bill_pending')
+            ->assertJsonPath('data.is_bill_pending', true)
+            ->assertJsonPath('data.status_label', 'BILL PENDING')
+            ->assertJsonCount(2, 'data.items');
+
+        $grnId = $response->json('data.id');
+
+        // Check persistent Bill Pending GRN
+        $grn = GoodsReceived::findOrFail($grnId);
+        $this->assertEquals('bill_pending', $grn->bill_status);
+        $this->assertNull($grn->purchase_order_id);
+        $this->assertEquals($this->warehouse->id, $grn->destination_shop_id);
+
+        // Check NO fake PurchaseInvoice created
+        $this->assertDatabaseMissing('purchase_invoices', [
+            'goods_received_id' => $grnId,
+        ]);
+
+        // Check Inventory / StockBatches created immediately
+        $batches = StockBatch::where('goods_received_id', $grnId)->get();
+        $this->assertCount(2, $batches);
+        $this->assertEquals(250.00, (float) $batches->where('product_id', $this->productA->id)->first()->total_kg);
+        $this->assertEquals(120.00, (float) $batches->where('product_id', $this->productB->id)->first()->total_kg);
+    }
+
+    public function test_pending_receipt_suggestions_and_matching_bill_marks_receipt_cleared_with_audit_and_no_stock_duplication(): void
+    {
+        Sanctum::actingAs($this->receiver);
+
+        // 1. Create advance receipt
+        $grnResponse = $this->postJson('/api/v1/purchasing/grns', [
+            'destination_shop_id' => $this->warehouse->id,
+            'received_at' => now()->toDateString(),
+            'bill_status' => 'bill_pending',
+            'notes' => 'Direct harvest load',
+            'items' => [
+                [
+                    'product_id' => $this->productA->id,
+                    'received_qty' => 300.00,
+                ],
+            ],
+        ]);
+        $grnResponse->assertCreated();
+        $grnId = $grnResponse->json('data.id');
+
+        // 2. Purchaser queries pending suggestions
+        Sanctum::actingAs($this->admin);
+
+        $suggestResponse = $this->getJson("/api/v1/purchasing/grns/pending-suggestions?destination_shop_id={$this->warehouse->id}&product_ids[]={$this->productA->id}");
+        $suggestResponse->assertOk()
+            ->assertJsonPath('success', true);
+        $suggestedIds = collect($suggestResponse->json('data'))->pluck('id')->all();
+        $this->assertContains($grnId, $suggestedIds);
+
+        // Count stock batches before matching
+        $batchCountBefore = StockBatch::where('goods_received_id', $grnId)->count();
+        $totalStockBefore = StockBatch::where('goods_received_id', $grnId)->sum('total_kg');
+        $this->assertEquals(1, $batchCountBefore);
+        $this->assertEquals(300.00, (float) $totalStockBefore);
+
+        // 3. Match Bill later
+        $matchResponse = $this->postJson("/api/v1/purchasing/grns/{$grnId}/match-bill", [
+            'invoice_number' => 'INV-SUP-9988',
+            'supplier_id' => $this->supplier->id,
+            'amount' => 15000.00,
+            'notes' => 'Matched against vendor invoice INV-SUP-9988',
+        ]);
+
+        $matchResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.bill_status', 'bill_available')
+            ->assertJsonPath('data.is_bill_pending', false)
+            ->assertJsonPath('data.status_label', 'RECEIVED WITH BILL')
+            ->assertJsonPath('data.bill_number', 'INV-SUP-9988');
+
+        // 4. Verify status updated and matched_by / matched_at set
+        $grn = GoodsReceived::findOrFail($grnId);
+        $this->assertEquals('bill_available', $grn->bill_status);
+        $this->assertEquals('INV-SUP-9988', $grn->bill_number);
+        $this->assertEquals($this->admin->id, $grn->matched_by);
+        $this->assertNotNull($grn->matched_at);
+
+        // 5. Verify PurchaseInvoice attached
+        $this->assertDatabaseHas('purchase_invoices', [
+            'goods_received_id' => $grnId,
+            'invoice_number' => 'INV-SUP-9988',
+            'supplier_id' => $this->supplier->id,
+            'amount' => 15000.00,
+        ]);
+
+        // 6. Verify inventory was NOT duplicated
+        $batchCountAfter = StockBatch::where('goods_received_id', $grnId)->count();
+        $totalStockAfter = StockBatch::where('goods_received_id', $grnId)->sum('total_kg');
+        $this->assertEquals($batchCountBefore, $batchCountAfter);
+        $this->assertEquals($totalStockBefore, $totalStockAfter);
+
+        // 7. Verify activity log
+        $this->assertDatabaseHas('activity_log', [
+            'subject_id' => $grnId,
+            'subject_type' => GoodsReceived::class,
+            'description' => 'goods_received.bill_matched',
+        ]);
+    }
 }

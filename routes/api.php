@@ -99,8 +99,10 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::apiResource('suppliers', SupplierController::class);
             Route::apiResource('orders', PurchaseOrderController::class);
             Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
+            Route::get('grns/pending-suggestions', [GoodsReceivedController::class, 'pendingSuggestions'])->name('grns.pending-suggestions');
             Route::apiResource('grns', GoodsReceivedController::class)->only(['index', 'store', 'show']);
             Route::post('grns/{goodsReceived}/link-bill', [GoodsReceivedController::class, 'linkBill'])->name('grns.link-bill');
+            Route::post('grns/{goodsReceived}/match-bill', [GoodsReceivedController::class, 'matchBill'])->name('grns.match-bill');
             Route::put('grns/{goodsReceived}/items', [GoodsReceivedController::class, 'updateItems'])->name('grns.items.update');
             Route::apiResource('invoices', PurchaseInvoiceController::class)->only(['index', 'store', 'show']);
             Route::patch('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');

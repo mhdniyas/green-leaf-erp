@@ -60,20 +60,40 @@ class GoodsReceivedController extends Controller
 
     public function linkBill(Request $request, GoodsReceived $goodsReceived): JsonResponse
     {
+        return $this->matchBill($request, $goodsReceived);
+    }
+
+    public function matchBill(Request $request, GoodsReceived $goodsReceived): JsonResponse
+    {
         $this->authorizeAdminOrPurchaser($request);
 
         $validated = $request->validate([
-            'invoice_number' => ['required', 'string', 'max:100'],
+            'invoice_number' => ['nullable', 'string', 'max:100'],
+            'bill_number' => ['nullable', 'string', 'max:100'],
             'amount' => ['nullable', 'numeric', 'min:0'],
             'supplier_id' => ['nullable', 'integer', 'exists:suppliers,id'],
+            'purchase_order_id' => ['nullable', 'integer', 'exists:purchase_orders,id'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $updated = $this->service->linkBill($goodsReceived, $validated, (int) $request->user()->id);
+        $updated = $this->service->matchBill($goodsReceived, $validated, (int) $request->user()->id);
 
         return ApiResponse::success(
             new GoodsReceivedResource($updated),
-            'Vendor bill linked successfully'
+            'Vendor bill matched and receipt cleared successfully'
+        );
+    }
+
+    public function pendingSuggestions(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $params = $request->only(['destination_shop_id', 'warehouse_id', 'date', 'product_ids']);
+        $suggestions = $this->service->suggestPendingReceipts($params);
+
+        return ApiResponse::success(
+            GoodsReceivedResource::collection($suggestions),
+            'Pending receipts fetched successfully'
         );
     }
 

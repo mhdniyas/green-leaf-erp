@@ -24,7 +24,9 @@ class StoreGoodsReceivedRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'purchase_order_id' => ['required', 'integer', 'exists:purchase_orders,id'],
+            'purchase_order_id' => ['nullable', 'integer', 'exists:purchase_orders,id'],
+            'destination_shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'received_at' => ['required', 'date'],
             'transport_cost' => ['sometimes', 'numeric', 'min:0'],
             'labour_cost' => ['sometimes', 'numeric', 'min:0'],
@@ -32,9 +34,9 @@ class StoreGoodsReceivedRequest extends FormRequest
             'bill_number' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.purchase_order_item_id' => ['required', 'integer', 'exists:purchase_order_items,id'],
+            'items.*.purchase_order_item_id' => ['nullable', 'integer', 'exists:purchase_order_items,id'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
-            'items.*.received_qty' => ['required', 'numeric', 'min:0'],
+            'items.*.received_qty' => ['required', 'numeric', 'min:0.001'],
         ];
     }
 }

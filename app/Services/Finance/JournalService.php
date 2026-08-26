@@ -617,7 +617,7 @@ class JournalService
      * Record Goods Received Note entry upon approval.
      * Debit Graded Inventory (1200), Credit Goods Received Not Invoiced (2150)
      */
-    public function recordGoodsReceipt(GoodsReceived $grn): JournalEntry
+    public function recordGoodsReceipt(GoodsReceived $grn): ?JournalEntry
     {
         $grn->load(['purchaseOrder.supplier', 'items.purchaseOrderItem']);
 
@@ -638,6 +638,10 @@ class JournalService
         }
         $materialCost = round($materialCost, 2);
 
+        if ($materialCost <= 0) {
+            return null;
+        }
+
         $lines = [
             ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $materialCost],
             ['account_id' => $grniAccountId, 'type' => 'credit', 'amount' => $materialCost],
@@ -645,10 +649,12 @@ class JournalService
 
         $userId = auth()->id() ?? User::first()?->id ?? 1;
 
+        $supplierName = $grn->purchaseOrder?->supplier?->name ?? 'Advance Goods Receipt';
+
         $data = new JournalEntryData(
             entryDate: $grn->received_at->format('Y-m-d'),
             reference: $grn->grn_number,
-            description: "Goods Received Note #{$grn->grn_number} approved for Supplier: {$grn->purchaseOrder->supplier->name}",
+            description: "Goods Received Note #{$grn->grn_number} approved for: {$supplierName}",
             lines: $lines,
             sourceType: GoodsReceived::class,
             sourceId: $grn->id,

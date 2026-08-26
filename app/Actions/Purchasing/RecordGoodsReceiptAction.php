@@ -33,6 +33,8 @@ class RecordGoodsReceiptAction
             /** @var GoodsReceived $grn */
             $grn = $this->grnRepository->create([
                 'purchase_order_id' => $data->purchaseOrderId,
+                'destination_shop_id' => $data->destinationShopId,
+                'warehouse_id' => $data->warehouseId,
                 'grn_number' => $grnNumber,
                 'status' => 'approved',
                 'bill_status' => $data->billStatus,
@@ -51,28 +53,32 @@ class RecordGoodsReceiptAction
             $totalReceivedQty = array_sum(array_column($data->items, 'received_qty'));
 
             foreach ($data->items as $item) {
-                // Fetch the matching PO item
-                /** @var PurchaseOrderItem $poItem */
-                $poItem = PurchaseOrderItem::findOrFail($item['purchase_order_item_id']);
+                // Fetch the matching PO item if available
+                /** @var PurchaseOrderItem|null $poItem */
+                $poItem = ! empty($item['purchase_order_item_id'])
+                    ? PurchaseOrderItem::find($item['purchase_order_item_id'])
+                    : null;
 
                 // Calculate quantity variance (received_qty - ordered_qty)
-                $variance = $item['received_qty'] - (float) $poItem->quantity;
+                $variance = $poItem ? ($item['received_qty'] - (float) $poItem->quantity) : 0.0;
 
                 // Create GRN Item
                 $grn->items()->create([
-                    'purchase_order_item_id' => $poItem->id,
+                    'purchase_order_item_id' => $poItem?->id,
                     'product_id' => $item['product_id'],
                     'received_qty' => $item['received_qty'],
                     'variance' => $variance,
                 ]);
             }
 
-            // Update Purchase Order status to Received
-            /** @var PurchaseOrder $po */
-            $po = PurchaseOrder::findOrFail($data->purchaseOrderId);
-            $po->update([
-                'status' => POStatus::Received,
-            ]);
+            // Update Purchase Order status to Received if PO exists
+            if ($data->purchaseOrderId) {
+                /** @var PurchaseOrder|null $po */
+                $po = PurchaseOrder::find($data->purchaseOrderId);
+                $po?->update([
+                    'status' => POStatus::Received,
+                ]);
+            }
 
             // Log activity
             activity()

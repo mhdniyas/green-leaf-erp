@@ -14,9 +14,12 @@ use App\Models\JournalEntry;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrderItem;
 use App\Models\StockBatch;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class GoodsReceivedService
@@ -76,20 +79,28 @@ class GoodsReceivedService
 
     public function linkBill(GoodsReceived $grn, array $billData, int $userId): GoodsReceived
     {
-        return DB::transaction(function () use ($grn, $billData, $userId): GoodsReceived {
-            $invoiceNumber = (string) ($billData['invoice_number'] ?? $billData['bill_number'] ?? 'BILL-'.$grn->grn_number);
-            $amount = (float) ($billData['amount'] ?? 0.0);
-            $supplierId = (int) ($billData['supplier_id'] ?? $grn->purchaseOrder?->supplier_id);
-            $notes = $billData['notes'] ?? null;
+        return $this->matchBill($grn, $billData, $userId);
+    }
+
+    public function matchBill(GoodsReceived $grn, array $matchData, int $userId): GoodsReceived
+    {
+        return DB::transaction(function () use ($grn, $matchData, $userId): GoodsReceived {
+            $invoiceNumber = (string) ($matchData['invoice_number'] ?? $matchData['bill_number'] ?? 'BILL-'.$grn->grn_number);
+            $amount = (float) ($matchData['amount'] ?? 0.0);
+            $supplierId = (int) ($matchData['supplier_id'] ?? $grn->purchaseOrder?->supplier_id ?? 0);
+            $poId = isset($matchData['purchase_order_id']) && $matchData['purchase_order_id'] !== null
+                ? (int) $matchData['purchase_order_id']
+                : $grn->purchase_order_id;
+            $notes = $matchData['notes'] ?? null;
 
             if ($amount <= 0 && $grn->purchaseOrder) {
                 $amount = (float) $grn->purchaseOrder->total_amount;
             }
 
-            // Attach real PurchaseInvoice to existing GRN without recreating inventory
+            // Create or attach real PurchaseInvoice to existing GRN without recreating inventory
             $invoice = PurchaseInvoice::create([
                 'goods_received_id' => $grn->id,
-                'supplier_id' => $supplierId,
+                'supplier_id' => $supplierId > 0 ? $supplierId : ($grn->purchaseOrder?->supplier_id ?? Supplier::first()?->id ?? 1),
                 'invoice_number' => $invoiceNumber,
                 'amount' => $amount,
                 'status' => 'approved',
@@ -99,7 +110,10 @@ class GoodsReceivedService
             $grn->update([
                 'bill_status' => 'bill_available',
                 'bill_number' => $invoiceNumber,
+                'purchase_order_id' => $poId,
                 'updated_by' => $userId,
+                'matched_by' => $userId,
+                'matched_at' => now(),
             ]);
 
             activity()
@@ -109,11 +123,46 @@ class GoodsReceivedService
                     'invoice_id' => $invoice->id,
                     'invoice_number' => $invoiceNumber,
                     'amount' => $invoice->amount,
+                    'matched_by' => $userId,
+                    'matched_at' => now()->toDateTimeString(),
                 ])
-                ->log('goods_received.bill_linked');
+                ->log('goods_received.bill_matched');
 
-            return $grn->fresh(['purchaseOrder.supplier', 'items.product', 'purchaseInvoices']);
+            return $grn->fresh(['purchaseOrder.supplier', 'destinationShop', 'items.product', 'purchaseInvoices', 'matchedBy', 'updatedBy']);
         });
+    }
+
+    public function suggestPendingReceipts(array $params): Collection
+    {
+        $query = $this->repository->query()
+            ->where(function ($q): void {
+                $q->where('bill_status', 'bill_pending')
+                    ->orWhereDoesntHave('purchaseInvoices');
+            })
+            ->with(['items.product', 'destinationShop', 'receivedBy', 'purchaseOrder.supplier']);
+
+        if (! empty($params['destination_shop_id'])) {
+            $shopId = (int) $params['destination_shop_id'];
+            $query->where(function ($q) use ($shopId): void {
+                $q->where('destination_shop_id', $shopId)
+                    ->orWhereHas('purchaseOrder', fn ($poq) => $poq->where('destination_shop_id', $shopId));
+            });
+        }
+
+        if (! empty($params['date'])) {
+            $date = Carbon::parse($params['date']);
+            $query->whereBetween('received_at', [
+                $date->copy()->subDays(7)->toDateString(),
+                $date->copy()->addDays(7)->toDateString(),
+            ]);
+        }
+
+        if (! empty($params['product_ids']) && is_array($params['product_ids'])) {
+            $productIds = array_map('intval', $params['product_ids']);
+            $query->whereHas('items', fn ($iq) => $iq->whereIn('product_id', $productIds));
+        }
+
+        return $query->orderByDesc('received_at')->limit(20)->get();
     }
 
     public function updateItems(GoodsReceived $grn, array $itemsData, int $userId): GoodsReceived
