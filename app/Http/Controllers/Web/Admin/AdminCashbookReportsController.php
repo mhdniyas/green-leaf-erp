@@ -11,6 +11,7 @@ use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
 use App\Models\Product;
+use App\Models\PurchaseProductFilter;
 use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
@@ -191,25 +192,105 @@ class AdminCashbookReportsController extends Controller
         $timeframe = (string) $request->input('timeframe', 'monthly');
         $dateRange = $this->resolveDateRange($timeframe, $request);
 
-        if ($selectedShopId) {
-            $query = ShopInvoice::query()
-                ->with(['shop', 'order', 'items.product'])
-                ->where('shop_id', $selectedShopId)
-                ->whereBetween('business_date', [$dateRange['start'], $dateRange['end']]);
+        $productFilters = PurchaseProductFilter::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
 
-            $totalsQuery = clone $query;
-            $totals = [
-                'total_billed' => round((float) $totalsQuery->sum('final_total'), 2),
-                'total_paid' => round((float) $totalsQuery->sum('paid_amount'), 2),
-                'total_balance' => round((float) $totalsQuery->sum('balance_amount'), 2),
-                'count' => $totalsQuery->count(),
-            ];
+        $selectedProductFilterUuid = (string) $request->input('product_filter', '');
+        $selectedProductFilter = null;
+        if ($selectedProductFilterUuid !== '') {
+            $selectedProductFilter = $productFilters->firstWhere('uuid', $selectedProductFilterUuid)
+                ?? PurchaseProductFilter::query()->where('uuid', $selectedProductFilterUuid)->first();
+        }
+
+        if ($selectedShopId) {
+            $filterProductIds = $selectedProductFilter
+                ? $selectedProductFilter->getProductIds()
+                : [];
+
+            // Constrained eager load: when filter is active, only fetch matching items.
+            // Without filter, load all items (existing behaviour).
+            if ($filterProductIds !== []) {
+                $itemsEager = [
+                    'shop',
+                    'order',
+                    'items' => fn ($q) => $q->whereIn('product_id', $filterProductIds)->with('product'),
+                ];
+            } else {
+                $itemsEager = ['shop', 'order', 'items.product'];
+            }
+
+            $query = ShopInvoice::query()
+                ->with($itemsEager)
+                ->where('shop_id', $selectedShopId)
+                ->whereDate('business_date', '>=', $dateRange['start'])
+                ->whereDate('business_date', '<=', $dateRange['end']);
+
+            if ($selectedProductFilter && $filterProductIds !== []) {
+                // Only include invoices that have at least one matching item.
+                $filterId = (int) $selectedProductFilter->id;
+                $query->whereExists(function ($sub) use ($filterId): void {
+                    $sub->selectRaw('1')
+                        ->from('shop_invoice_items')
+                        ->join('purchase_product_filter_items', 'purchase_product_filter_items.product_id', '=', 'shop_invoice_items.product_id')
+                        ->whereColumn('shop_invoice_items.shop_invoice_id', 'shop_invoices.id')
+                        ->where('purchase_product_filter_items.filter_id', $filterId);
+                });
+            }
 
             $invoices = $query->orderByDesc('business_date')
                 ->orderByDesc('id')
                 ->paginate(15)
                 ->withQueryString();
+
+            // Annotate each invoice with its filtered display total (sum of matching item amounts).
+            // When no filter: filtered_display_total === null so views fall back to persisted final_total.
+            $filteredTotalBilled = 0.0;
+            foreach ($invoices as $inv) {
+                if ($filterProductIds !== []) {
+                    $filteredLineTotal = $inv->items->sum(function ($item) {
+                        return (float) ($item->final_line_total ?? (
+                            ((float) ($item->delivered_price_quantity ?? $item->price_quantity ?? $item->delivered_qty ?? 0))
+                            * ((float) ($item->unit_price ?? 0))
+                        ));
+                    });
+                    $inv->filtered_display_total = $filteredLineTotal;
+                    $filteredTotalBilled += $filteredLineTotal;
+                } else {
+                    $inv->filtered_display_total = null;
+                    $filteredTotalBilled += (float) $inv->final_total;
+                }
+            }
+
+            // Totals: use filtered item amounts when filter is active, otherwise DB aggregates.
+            if ($filterProductIds !== []) {
+                $totals = [
+                    'total_billed' => round($filteredTotalBilled, 2),
+                    'total_paid' => round((float) $query->newQuery()
+                        ->from('shop_invoices')
+                        ->whereIn('id', $invoices->pluck('id')->all())
+                        ->sum('paid_amount'), 2),
+                    'total_balance' => round((float) $query->newQuery()
+                        ->from('shop_invoices')
+                        ->whereIn('id', $invoices->pluck('id')->all())
+                        ->sum('balance_amount'), 2),
+                    'count' => $invoices->total(),
+                ];
+            } else {
+                $totalsQuery = ShopInvoice::query()
+                    ->where('shop_id', $selectedShopId)
+                    ->whereDate('business_date', '>=', $dateRange['start'])
+                    ->whereDate('business_date', '<=', $dateRange['end']);
+                $totals = [
+                    'total_billed' => round((float) $totalsQuery->sum('final_total'), 2),
+                    'total_paid' => round((float) $totalsQuery->sum('paid_amount'), 2),
+                    'total_balance' => round((float) $totalsQuery->sum('balance_amount'), 2),
+                    'count' => $totalsQuery->count(),
+                ];
+            }
         } else {
+            $filterProductIds = [];
             $totals = [
                 'total_billed' => 0.00,
                 'total_paid' => 0.00,
@@ -223,6 +304,10 @@ class AdminCashbookReportsController extends Controller
             'shops' => $shops,
             'selectedShop' => $selectedShop,
             'selectedShopId' => $selectedShopId,
+            'productFilters' => $productFilters,
+            'selectedProductFilter' => $selectedProductFilter,
+            'selectedProductFilterUuid' => $selectedProductFilterUuid,
+            'filterProductIds' => $filterProductIds,
             'invoices' => $invoices,
             'totals' => $totals,
             'timeframe' => $timeframe,

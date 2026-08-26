@@ -1,16 +1,23 @@
 @php
-    $billedItems = $invoice->items->filter(fn ($item) => (float) $item->delivered_qty > 0 || (float) $item->final_line_total > 0 || (float) $item->approved_qty > 0);
+    // Respect filtered items passed from the GL Bills modal (product filter mode).
+    $isFiltered = isset($filteredItems) && $filteredItems !== null;
+    $billedItems = $isFiltered
+        ? $filteredItems
+        : $invoice->items->filter(fn ($item) => (float) $item->delivered_qty > 0 || (float) $item->final_line_total > 0 || (float) $item->approved_qty > 0);
     if ($billedItems->isEmpty()) {
-        $billedItems = $invoice->items;
+        $billedItems = $isFiltered ? $filteredItems : $invoice->items;
     }
     $computedSubtotal = (float) $billedItems->sum(function ($item) {
         $qty = (float) ($item->delivered_price_quantity ?? $item->price_quantity ?? $item->delivered_qty ?? 0);
         $rate = (float) ($item->unit_price ?? 0);
         return $qty * $rate;
     });
-    $subtotal = (float) $invoice->subtotal > 0 ? (float) $invoice->subtotal : $computedSubtotal;
-    $discountTotal = (float) $invoice->discount_total;
-    $finalTotal = (float) $invoice->final_total > 0 ? (float) $invoice->final_total : max(0, $subtotal - $discountTotal);
+    $subtotal = (float) $invoice->subtotal > 0 && !$isFiltered ? (float) $invoice->subtotal : $computedSubtotal;
+    $discountTotal = $isFiltered ? 0.0 : (float) $invoice->discount_total;
+    $finalTotal = $isFiltered
+        ? (isset($filteredDisplayTotal) ? (float) $filteredDisplayTotal : $computedSubtotal)
+        : ((float) $invoice->final_total > 0 ? (float) $invoice->final_total : max(0, $subtotal - $discountTotal));
+    $originalBillTotal = (float) $invoice->final_total;
     $paidAmount = (float) $invoice->paid_amount;
     $balanceAmount = (float) $invoice->balance_amount;
 @endphp
@@ -37,7 +44,14 @@
             <div class="min-w-0">
                 <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px] sm:tracking-[0.12em]">Invoice Ref</p>
                 <p class="mt-0.5 break-all font-black text-slate-950 sm:mt-1">{{ $invoice->invoice_number }}</p>
-                <p class="mt-0.5 text-slate-600 sm:mt-1">Items: {{ $billedItems->count() }}</p>
+                <p class="mt-0.5 text-slate-600 sm:mt-1">
+                    @if ($isFiltered)
+                        {{ $billedItems->count() }} filtered item{{ $billedItems->count() === 1 ? '' : 's' }}
+                        <span class="text-slate-400">(of {{ $invoice->items->count() }} total)</span>
+                    @else
+                        Items: {{ $billedItems->count() }}
+                    @endif
+                </p>
             </div>
             <div class="text-right">
                 <div class="flex items-center justify-end gap-1.5 mb-1">
@@ -110,9 +124,15 @@
                 </div>
             @endif
             <div class="flex items-center justify-between font-black text-slate-950 text-xs sm:text-sm pt-1 border-t border-slate-200">
-                <span>Net Invoice Total</span>
+                <span>{{ $isFiltered ? 'Filtered Total' : 'Net Invoice Total' }}</span>
                 <span>Rs. {{ number_format($finalTotal, 2) }}</span>
             </div>
+            @if ($isFiltered && $originalBillTotal > 0)
+                <div class="flex items-center justify-between text-slate-500 text-[9px] sm:text-[10px]">
+                    <span>Original Bill Total</span>
+                    <span>Rs. {{ number_format($originalBillTotal, 2) }}</span>
+                </div>
+            @endif
             <div class="flex items-center justify-between text-emerald-700 font-bold">
                 <span>Paid Amount</span>
                 <span>Rs. {{ number_format($paidAmount, 2) }}</span>
