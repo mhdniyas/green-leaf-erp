@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Api\Purchasing\SupplierController;
+use App\Http\Controllers\Api\Purchasing\VendorAdvanceController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutSettingsController;
 use App\Http\Controllers\Api\Warehouse\WarehouseScopedLoadoutController;
@@ -101,6 +102,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::apiResource('grns', GoodsReceivedController::class)->only(['index', 'store', 'show']);
             Route::apiResource('invoices', PurchaseInvoiceController::class)->only(['index', 'store', 'show']);
             Route::patch('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
+            Route::apiResource('vendor-advances', VendorAdvanceController::class)->only(['index', 'store', 'show']);
         });
     });
 });
