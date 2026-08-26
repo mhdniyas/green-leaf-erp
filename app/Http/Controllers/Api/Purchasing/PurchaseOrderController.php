@@ -29,9 +29,11 @@ class PurchaseOrderController extends Controller
             'search' => ['nullable', 'string', 'max:120'],
             'status' => ['nullable', 'string'],
             'date' => ['nullable', 'date'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $orders = $this->service->paginateFiltered($validated);
+        $perPage = (int) ($validated['per_page'] ?? 15);
+        $orders = $this->service->paginateFiltered($validated, $perPage);
 
         \Log::info('Purchasing orders index requested', [
             'url' => $request->fullUrl(),

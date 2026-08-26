@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Repositories\Inventory\ProductRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -270,5 +271,89 @@ class ProductService
     private function formatMeasureLabelNumber(float $value): string
     {
         return rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
+    }
+
+    /**
+     * @return array{products: array<int, array<string, mixed>>, deleted_or_inactive_ids: array<int, int>, sync_token: string, server_time: string}
+     */
+    public function syncCatalogue(?string $updatedAfter = null): array
+    {
+        $now = now()->toIso8601String();
+        $query = Product::query()
+            ->with(['category:id,name', 'orderUnits:id,product_id,unit,is_base,conversion_to_base'])
+            ->ordered();
+
+        if ($updatedAfter) {
+            try {
+                $updatedAfterDate = Carbon::parse($updatedAfter);
+            } catch (\Throwable) {
+                $updatedAfterDate = null;
+            }
+
+            if ($updatedAfterDate) {
+                // Fetch changed/new active products
+                $changedProducts = (clone $query)
+                    ->where('is_active', true)
+                    ->where('updated_at', '>', $updatedAfterDate)
+                    ->get();
+
+                // Fetch IDs of products that became inactive or were soft-deleted since updatedAfter
+                $deletedOrInactiveIds = Product::withTrashed()
+                    ->where('updated_at', '>', $updatedAfterDate)
+                    ->where(function ($q) {
+                        $q->whereNotNull('deleted_at')
+                            ->orWhere('is_active', false);
+                    })
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->values()
+                    ->all();
+
+                $productsData = $changedProducts->map(fn (Product $p) => $this->formatProductForSync($p))->values()->all();
+
+                return [
+                    'products' => $productsData,
+                    'deleted_or_inactive_ids' => $deletedOrInactiveIds,
+                    'sync_token' => $now,
+                    'server_time' => $now,
+                ];
+            }
+        }
+
+        // Full Sync: All active non-deleted products
+        $allActive = $query->where('is_active', true)->get();
+        $productsData = $allActive->map(fn (Product $p) => $this->formatProductForSync($p))->values()->all();
+
+        return [
+            'products' => $productsData,
+            'deleted_or_inactive_ids' => [],
+            'sync_token' => $now,
+            'server_time' => $now,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatProductForSync(Product $product): array
+    {
+        $allowedUnits = $product->orderUnits->pluck('unit')->unique()->values()->all();
+        if (empty($allowedUnits) && $product->unit) {
+            $allowedUnits = [$product->unit];
+        } elseif (! in_array($product->unit, $allowedUnits, true) && $product->unit) {
+            array_unshift($allowedUnits, $product->unit);
+        }
+
+        return [
+            'id' => $product->id,
+            'public_uuid' => $product->public_uuid,
+            'sku' => $product->sku,
+            'name' => $product->name,
+            'unit' => $product->unit ?? 'KG',
+            'allowed_units' => $allowedUnits,
+            'category' => $product->category?->name ?? 'General',
+            'is_active' => (bool) $product->is_active,
+            'updated_at' => $product->updated_at?->toIso8601String(),
+        ];
     }
 }

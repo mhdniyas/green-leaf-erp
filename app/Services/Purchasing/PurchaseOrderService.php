@@ -33,15 +33,25 @@ class PurchaseOrderService
         $status = $filters['status'] ?? null;
         $date = $filters['date'] ?? null;
 
+        /** @var array<int, string>|null $statusList */
+        $statusList = match (true) {
+            $status === 'pending' => [
+                POStatus::Approved->value,
+                POStatus::SentToSupplier->value,
+                POStatus::PartiallyReceived->value,
+            ],
+            $status === 'received' => [
+                POStatus::Received->value,
+                POStatus::Closed->value,
+            ],
+            is_string($status) && str_contains($status, ',') => explode(',', $status),
+            is_string($status) && $status !== '' => [$status],
+            default => null,
+        };
+
         return $this->repository->query()
             ->with(['supplier', 'createdBy', 'items.product'])
-            ->when($status, function ($query) use ($status) {
-                if (str_contains($status, ',')) {
-                    return $query->whereIn('status', explode(',', $status));
-                }
-
-                return $query->where('status', $status);
-            })
+            ->when($statusList !== null, fn ($query) => $query->whereIn('status', $statusList))
             ->when($date, fn ($query) => $query->whereDate('order_date', $date))
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($subQuery) use ($search): void {

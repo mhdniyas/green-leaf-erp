@@ -21,6 +21,17 @@ class ProductController extends Controller
         private readonly ProductService $service,
     ) {}
 
+    public function sync(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'updated_after' => ['nullable', 'string'],
+        ]);
+
+        $result = $this->service->syncCatalogue($validated['updated_after'] ?? null);
+
+        return ApiResponse::success($result);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $products = $this->service->paginate(

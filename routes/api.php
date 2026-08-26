@@ -85,6 +85,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
         // ── Inventory ─────────────────────────────────────────────────────────
         Route::prefix('inventory')->name('inventory.')->group(function () {
             Route::apiResource('categories', CategoryController::class);
+            Route::get('products/sync', [ProductController::class, 'sync'])->name('products.sync');
             Route::apiResource('products', ProductController::class);
             Route::apiResource('batches', StockBatchController::class)->except(['update']);
             Route::post('batches/{batch}/sort', SortBatchController::class)->name('batches.sort');
