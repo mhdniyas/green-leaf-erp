@@ -12,7 +12,7 @@
         $showAdminDeliveryOverride = ($canOverride ?? false) && ! $isDeliveryReviewPending;
         $canReviewDelivery = ($canEdit ?? false) && ($isDeliveryReviewPending || $showAdminDeliveryOverride);
         $isFinalized = $isFinalized ?? $invoice->isFinalized();
-        $canEditBill = ! $isFinalized && (auth()->user()?->hasRole('admin') || auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('purchaser'));
+        $canEditBill = ! $isFinalized;
         $canEditPrices = $canEditBill && (auth()->user()?->hasRole('admin') || auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('purchaser'));
         $canEditDiscount = $canManageInvoiceMoney && ! $isFinalized && ! $isDeliveryReviewPending;
         $formatUnit = fn (?string $unit): string => \App\Models\ProductUnit::normalizeUnit($unit) === 'piece'
@@ -30,13 +30,37 @@
         $subtotal = round((float) $invoice->subtotal, 2);
         $finalTotal = round((float) $invoice->final_total, 2);
         $invoiceStatus = $isFinalized ? 'FINALIZED' : strtoupper(str_replace('_', ' ', (string) $invoice->status));
+        $activityChanges = ($activities ?? collect())
+            ->filter(fn ($activity) => in_array(data_get($activity->properties, 'source'), ['admin_item_adjustment', 'admin_discount'], true));
+        $latestActivities = $activityChanges->take(5);
+        $remainingActivities = max(0, $activityChanges->count() - $latestActivities->count());
+        $itemChanges = $activityChanges
+            ->filter(fn ($activity) => data_get($activity->properties, 'source') === 'admin_item_adjustment')
+            ->keyBy(fn ($activity) => (int) data_get($activity->properties, 'after.item_id'));
+        $changeLines = function ($activity) use ($money): array {
+            $before = data_get($activity->properties, 'before', []);
+            $after = data_get($activity->properties, 'after', []);
+            $lines = [];
+
+            if (data_get($before, 'qty') !== data_get($after, 'qty')) {
+                $lines[] = 'Qty '.rtrim(rtrim(number_format((float) data_get($before, 'qty'), 4), '0'), '.').' -> '.rtrim(rtrim(number_format((float) data_get($after, 'qty'), 4), '0'), '.');
+            }
+
+            if (data_get($before, 'price') !== data_get($after, 'price')) {
+                $lines[] = 'Price '.$money(data_get($before, 'price')).' -> '.$money(data_get($after, 'price'));
+            }
+
+            if (data_get($before, 'discount_total') !== data_get($after, 'discount_total')) {
+                $lines[] = 'Discount '.$money(data_get($before, 'discount_total')).' -> '.$money(data_get($after, 'discount_total'));
+            }
+
+            return $lines;
+        };
         $reviewAction = $invoice->order
             ? ($isDeliveryReviewPending
                 ? route('requisitions.delivery.approve', $invoice->order->order_number)
                 : route('purchasing.shop-invoices.finalize-on-behalf', $invoice))
             : null;
-        $latestActivities = ($activities ?? collect())->take(5);
-        $remainingActivities = max(0, ($activities ?? collect())->count() - $latestActivities->count());
         $overallNote = $invoice->delivery_note
             ?: $invoice->order?->delivery_notes
             ?: $invoice->order?->manager_note
@@ -66,9 +90,15 @@
                             <p class="mt-1 text-sm font-semibold text-slate-600">{{ $invoice->shop?->code ?? $invoice->shop?->warehouse_tag }}</p>
                         </div>
                         <div class="flex flex-col gap-2 sm:items-end">
-                            <span class="w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-slate-700">
-                                {{ $invoiceStatus }}
-                            </span>
+                            @if ($isFinalized)
+                                <span class="w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+                                    FINALIZED BILL
+                                </span>
+                            @else
+                                <span class="w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-slate-700">
+                                    {{ $invoiceStatus }}
+                                </span>
+                            @endif
                             @if (! ($shopSubmitted ?? false) && ! $isFinalized)
                                 <span class="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black text-amber-800">
                                     Shop not submitted
@@ -93,14 +123,22 @@
                     </div>
 
                     @if ($isFinalized)
-                        <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-semibold text-emerald-900">
-                            FINALIZED
-                            @if ($invoice->finalizedBy)
-                                by {{ $invoice->finalizedBy->name }}
-                            @endif
-                            @if ($invoice->finalized_at)
-                                at {{ $invoice->finalized_at->format('d M Y, h:i A') }}
-                            @endif
+                        <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-950">
+                            <p class="font-black uppercase tracking-[0.14em]">FINALIZED BILL</p>
+                            <div class="mt-3 grid gap-3 sm:grid-cols-3">
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Finalized By</p>
+                                    <p class="mt-1 font-black">{{ $invoice->finalizedBy?->name ?? 'System' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Finalized At</p>
+                                    <p class="mt-1 font-black">{{ $invoice->finalized_at?->format('d M Y, h:i A') ?? 'Recorded' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Final Amount</p>
+                                    <p class="mt-1 font-black">{{ $money($finalTotal) }}</p>
+                                </div>
+                            </div>
                         </div>
                     @endif
                 </div>
@@ -125,14 +163,18 @@
                                 $price = round((float) $item->unit_price, 2);
                                 $productName = $item->product?->name ?? $item->product_name;
                                 $lineTotal = $lineAmount($item);
+                                $itemChange = $itemChanges->get((int) $item->id);
+                                $itemChangeLines = $itemChange ? $changeLines($itemChange) : [];
                             @endphp
 
-                            @if ($canEditBill)
+                            @if (! $invoice->isFinalized())
                                 <button
                                     type="button"
                                     class="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left transition hover:bg-cyan-50 focus:bg-cyan-50 focus:outline-hidden sm:grid-cols-[minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3"
                                     data-item-edit
-                                    data-item-id="{{ $item->shop_order_item_id }}"
+                                    data-item-id="{{ $item->id }}"
+                                    data-order-item-id="{{ $item->shop_order_item_id }}"
+                                    data-action="{{ route('purchasing.shop-invoices.items.update', [$invoice, $item]) }}"
                                     data-product-id="{{ $item->product_id }}"
                                     data-product-name="{{ $productName }}"
                                     data-unit="{{ $formatUnit($item->unit) }}"
@@ -147,6 +189,9 @@
                                     <span class="min-w-0">
                                         <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
                                         <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">{{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
+                                        @if ($itemChangeLines !== [])
+                                            <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
+                                        @endif
                                     </span>
                                     <span class="text-right text-sm font-black text-slate-950 sm:hidden" data-row-amount>{{ $money($lineTotal) }}</span>
                                     <span class="hidden text-right text-sm font-bold text-slate-800 sm:block" data-row-qty>{{ $displayQty }}</span>
@@ -159,6 +204,9 @@
                                     <span class="min-w-0">
                                         <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
                                         <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">{{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
+                                        @if ($itemChangeLines !== [])
+                                            <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
+                                        @endif
                                     </span>
                                     <span class="text-right text-sm font-black text-slate-950 sm:hidden">{{ $money($lineTotal) }}</span>
                                     <span class="hidden text-right text-sm font-bold text-slate-800 sm:block">{{ $displayQty }}</span>
@@ -228,10 +276,22 @@
 
             <div class="mt-3 space-y-2">
                 @forelse ($latestActivities as $activity)
+                    @php
+                        $source = data_get($activity->properties, 'source');
+                        $product = data_get($activity->properties, 'after.product_name');
+                        $reason = data_get($activity->properties, 'reason');
+                        $lines = $changeLines($activity);
+                    @endphp
                     <div class="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
                         <span class="font-black text-slate-950">{{ optional($activity->created_at)->format('d M H:i') }}</span>
                         <span class="font-semibold"> - {{ $activity->causer?->name ?? 'System' }}</span>
-                        <span class="block text-xs font-semibold text-slate-500">{{ $activity->description }}</span>
+                        <span class="block text-xs font-black text-slate-600">{{ $product ?: ($source === 'admin_discount' ? 'Discount' : $activity->description) }}</span>
+                        @foreach ($lines as $line)
+                            <span class="block text-xs font-semibold text-slate-500">{{ $line }}</span>
+                        @endforeach
+                        @if ($reason)
+                            <span class="block text-xs font-semibold text-slate-500">Note: {{ $reason }}</span>
+                        @endif
                     </div>
                 @empty
                     <p class="text-sm font-semibold text-slate-500">No change history recorded.</p>
@@ -242,11 +302,23 @@
                 <details class="mt-3">
                     <summary class="cursor-pointer text-sm font-black text-cyan-700">View Full History</summary>
                     <div class="mt-2 space-y-2">
-                        @foreach (($activities ?? collect())->skip(5) as $activity)
+                        @foreach ($activityChanges->skip(5) as $activity)
+                            @php
+                                $source = data_get($activity->properties, 'source');
+                                $product = data_get($activity->properties, 'after.product_name');
+                                $reason = data_get($activity->properties, 'reason');
+                                $lines = $changeLines($activity);
+                            @endphp
                             <div class="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
                                 <span class="font-black text-slate-950">{{ optional($activity->created_at)->format('d M H:i') }}</span>
                                 <span class="font-semibold"> - {{ $activity->causer?->name ?? 'System' }}</span>
-                                <span class="block text-xs font-semibold text-slate-500">{{ $activity->description }}</span>
+                                <span class="block text-xs font-black text-slate-600">{{ $product ?: ($source === 'admin_discount' ? 'Discount' : $activity->description) }}</span>
+                                @foreach ($lines as $line)
+                                    <span class="block text-xs font-semibold text-slate-500">{{ $line }}</span>
+                                @endforeach
+                                @if ($reason)
+                                    <span class="block text-xs font-semibold text-slate-500">Note: {{ $reason }}</span>
+                                @endif
                             </div>
                         @endforeach
                     </div>
@@ -261,7 +333,7 @@
             @foreach ($invoice->items as $item)
                 @php
                     $formQty = $finalQuantity($item);
-                    $inventoryAction = $formQty < (float) ($item->orderItem?->loaded_qty ?? $item->delivered_qty ?? $formQty) ? 'add_back' : 'none';
+                    $inventoryAction = 'none';
                 @endphp
                 <input type="hidden" name="approved_delivered_qty[{{ $item->shop_order_item_id }}]" id="approved-delivered-qty-{{ $item->shop_order_item_id }}" value="{{ $formQty }}">
                 <input type="hidden" name="item_inventory_actions[{{ $item->shop_order_item_id }}]" value="{{ $inventoryAction }}">
@@ -446,7 +518,7 @@
 
                 const finalQty = itemModal.querySelector('[data-item-final-qty]').value || '0';
                 const finalPrice = itemModal.querySelector('[data-item-final-price]').value || '0';
-                const qtyInput = document.getElementById(`approved-delivered-qty-${activeItemButton.dataset.itemId}`);
+                const qtyInput = document.getElementById(`approved-delivered-qty-${activeItemButton.dataset.orderItemId}`);
 
                 if (qtyInput) {
                     qtyInput.value = finalQty;
@@ -454,46 +526,22 @@
                     activeItemButton.querySelectorAll('[data-row-qty]').forEach((node) => node.textContent = trimNumber(finalQty));
                 }
 
-                const priceForm = document.getElementById('invoice-price-form');
-                const originalPrice = Number(activeItemButton.dataset.originalPrice || 0);
-                const newPrice = Number(finalPrice || 0);
+                const response = await fetch(activeItemButton.dataset.action, {
+                    method: 'PATCH',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        final_qty: Number(finalQty || 0),
+                        final_price: Number(finalPrice || 0),
+                        note: 'Invoice item edit',
+                    }),
+                });
 
-                if (priceForm && activeItemButton.dataset.productId && newPrice > 0 && Math.abs(newPrice - originalPrice) > 0.0001) {
-                    document.getElementById('invoice-price-product-id').value = activeItemButton.dataset.productId;
-                    document.getElementById('invoice-price-selling-price').value = finalPrice;
-                    document.getElementById('invoice-price-price-unit').value = activeItemButton.dataset.priceUnit || activeItemButton.dataset.unit || '';
-
-                    const response = await fetch(priceForm.action, {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: {
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': csrfToken,
-                        },
-                        body: JSON.stringify({
-                            prices: [{
-                                product_id: Number(activeItemButton.dataset.productId),
-                                selling_price: newPrice,
-                                price_unit: activeItemButton.dataset.priceUnit || activeItemButton.dataset.unit || '',
-                                reason: 'Invoice item price edit',
-                            }],
-                        }),
-                    });
-
-                    if (!response.ok) {
-                        window.location.reload();
-
-                        return;
-                    }
-
-                    activeItemButton.dataset.finalPrice = finalPrice;
-                    activeItemButton.querySelectorAll('[data-row-price]').forEach((node) => node.textContent = money(newPrice));
-                }
-
-                const amount = Number(finalQty || 0) * Number(finalPrice || 0);
-                activeItemButton.querySelectorAll('[data-row-amount]').forEach((node) => node.textContent = money(amount));
-                closeItemModal();
+                window.location.reload();
             });
 
             const discountModal = document.querySelector('[data-discount-modal]');

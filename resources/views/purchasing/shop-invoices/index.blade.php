@@ -46,22 +46,22 @@
             </form>
         </div>
 
-        <div class="grid grid-cols-4 gap-2">
+        <div class="grid gap-2 sm:grid-cols-4">
             <div class="rounded-2xl border border-slate-100 bg-white p-3 shadow-xs">
-                <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">All</p>
+                <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Bills</p>
                 <p class="mt-1 text-lg font-black text-slate-950">{{ $allInvoicesCount }}</p>
             </div>
             <div class="rounded-2xl border border-rose-100 bg-white p-3 shadow-xs">
-                <p class="text-[10px] font-black uppercase tracking-wider text-rose-500">Review</p>
-                <p class="mt-1 text-lg font-black text-rose-700">{{ $pendingApprovalCount }}</p>
+                <p class="text-[10px] font-black uppercase tracking-wider text-rose-500">Pending / Review</p>
+                <p class="mt-1 text-lg font-black text-rose-700">{{ $pendingReviewBillsCount }}</p>
             </div>
-            <div class="rounded-2xl border border-amber-100 bg-white p-3 shadow-xs">
-                <p class="text-[10px] font-black uppercase tracking-wider text-amber-500">Adjusted</p>
-                <p class="mt-1 text-lg font-black text-amber-700">{{ $varianceCount }}</p>
+            <div class="rounded-2xl border border-emerald-100 bg-white p-3 shadow-xs">
+                <p class="text-[10px] font-black uppercase tracking-wider text-emerald-600">Finalized Bills</p>
+                <p class="mt-1 text-lg font-black text-emerald-700">{{ $finalizedBillsCount }}</p>
             </div>
             <div class="rounded-2xl border border-cyan-100 bg-white p-3 shadow-xs">
-                <p class="text-[10px] font-black uppercase tracking-wider text-cyan-500">Notes</p>
-                <p class="mt-1 text-lg font-black text-cyan-700">{{ $shopNotesCount }}</p>
+                <p class="text-[10px] font-black uppercase tracking-wider text-cyan-500">Total Finalized Amount</p>
+                <p class="mt-1 text-lg font-black text-cyan-700">Rs. {{ number_format((float) $totalFinalizedAmount, 2) }}</p>
             </div>
         </div>
 
@@ -93,7 +93,7 @@
                                     <div class="min-w-0">
                                         <div class="flex flex-wrap items-center gap-2">
                                             <p class="font-mono text-sm font-black text-cyan-700">{{ $invoice->invoice_number }}</p>
-                                            <span class="rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $statusTone($label) }}">{{ $label }}</span>
+                                            <span class="rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $statusTone($label) }}">{{ strtoupper($label) }}</span>
                                         </div>
                                         <p class="mt-1 text-xs font-semibold text-slate-500">
                                             Original Rs. {{ number_format($originalTotal, 2) }}
@@ -110,7 +110,7 @@
 
                                     <div class="flex items-center gap-2 sm:justify-end">
                                         <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 hover:bg-slate-50">PDF</a>
-                                        <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-900 px-3 text-xs font-black text-white hover:bg-slate-800">Review Bill</a>
+                                        <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-900 px-3 text-xs font-black text-white hover:bg-slate-800">{{ $label === 'Finalized' ? 'View Bill' : 'Review Bill' }}</a>
                                     </div>
                                 </article>
                             @endforeach

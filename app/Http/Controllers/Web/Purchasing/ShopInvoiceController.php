@@ -9,9 +9,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\RepriceShopInvoiceRequest;
 use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
 use App\Models\ShopInvoice;
+use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -46,6 +48,9 @@ class ShopInvoiceController extends Controller
 
         $invoices = $invoiceQuery->paginate(20);
         $invoicesByShop = $invoices->getCollection()->groupBy(fn (ShopInvoice $invoice): string => (string) ($invoice->shop?->name ?? 'Unknown Shop'));
+        $finalizedInvoiceScope = fn ($query) => $query
+            ->whereNotNull('finalized_at')
+            ->orWhereIn('status', ['finalized', 'payment_pending', 'paid']);
         $pendingApprovalCount = $baseInvoiceQuery()
             ->whereHas('order', fn ($query) => $query
                 ->where('delivery_status', 'pending_approval')
@@ -70,6 +75,12 @@ class ShopInvoiceController extends Controller
         $paymentPendingCount = $baseInvoiceQuery()
             ->where('balance_amount', '>', 0)
             ->count();
+        $finalizedBillsCount = $baseInvoiceQuery()
+            ->where($finalizedInvoiceScope)
+            ->count();
+        $totalFinalizedAmount = round((float) $baseInvoiceQuery()
+            ->where($finalizedInvoiceScope)
+            ->sum('final_total'), 2);
 
         return view('purchasing.shop-invoices.index', [
             'invoices' => $invoices,
@@ -82,6 +93,9 @@ class ShopInvoiceController extends Controller
             'varianceCount' => $varianceCount,
             'paymentPendingCount' => $paymentPendingCount,
             'deliveryReviewCount' => $pendingApprovalCount,
+            'finalizedBillsCount' => $finalizedBillsCount,
+            'pendingReviewBillsCount' => max(0, $baseInvoiceQuery()->count() - $finalizedBillsCount),
+            'totalFinalizedAmount' => $totalFinalizedAmount,
         ]);
     }
 
@@ -196,6 +210,42 @@ class ShopInvoiceController extends Controller
 
         return redirect()->route('purchasing.shop-invoices.show', $invoice)
             ->with('success', 'Daily invoice prices refreshed.');
+    }
+
+    public function updateItem(Request $request, ShopInvoice $invoice, ShopInvoiceItem $item): JsonResponse|RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
+
+        if ((int) $item->shop_invoice_id !== (int) $invoice->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'final_qty' => ['required', 'numeric', 'min:0'],
+            'final_price' => ['required', 'numeric', 'min:0.01'],
+            'note' => [$invoice->isFinalized() ? 'required' : 'nullable', 'string', 'max:1000'],
+        ]);
+
+        $updatedInvoice = $this->shopInvoiceService->updateItemFinalQuantityAndPrice(
+            $invoice,
+            $item,
+            (float) $validated['final_qty'],
+            (float) $validated['final_price'],
+            (int) $request->user()->id,
+            $validated['note'] ?? null,
+        );
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'subtotal' => (float) $updatedInvoice->subtotal,
+                'discount_total' => (float) $updatedInvoice->discount_total,
+                'final_total' => (float) $updatedInvoice->final_total,
+            ]);
+        }
+
+        return redirect()->route('purchasing.shop-invoices.show', $invoice)
+            ->with('success', 'Invoice item updated and bill total recalculated.');
     }
 
     public function revertApproval(Request $request, ShopInvoice $invoice): RedirectResponse
