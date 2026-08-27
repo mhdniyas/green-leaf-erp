@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Models\User;
 use App\Services\Finance\PurchaserFinanceService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -58,7 +59,7 @@ final class PurchaseReportingService
     {
         $items = $this->filteredItems($filters);
         $rows = match ($section) {
-            'purchasers' => $this->purchaserRows($items, $filters),
+            'purchasers' => $this->purchaserRows($items, $filters + ['include_zero_activity' => true]),
             'vendors' => $this->vendorRows($items),
             'categories' => $this->categoryRows($items),
             'invoices' => $this->invoiceRows($items),
@@ -270,7 +271,10 @@ final class PurchaseReportingService
     private function purchaserRows(Builder $items, array $filters): Builder
     {
         $purchaserUsers = User::query()
-            ->whereHas('roles', fn ($q) => $q->where('name', 'purchaser'))
+            ->where(function ($query): void {
+                $query->whereHas('roles', fn ($roles) => $roles->where('name', 'purchaser'))
+                    ->orWhereIn('id', DB::table('purchaser_carts')->select('user_id'));
+            })
             ->when(! empty($filters['search']) && ($filters['search_scope'] ?? 'invoices') === 'purchasers', function ($query) use ($filters): void {
                 $query->where('name', 'like', '%'.$filters['search'].'%');
             })
@@ -282,8 +286,10 @@ final class PurchaseReportingService
 
         return DB::query()->fromSub($purchaserUsers, 'base_purchasers')
             ->leftJoinSub($purchases, 'purchaser_purchases', 'purchaser_purchases.purchaser_id', '=', 'base_purchasers.purchaser_id')
+            ->when(empty($filters['include_zero_activity']), fn (Builder $query) => $query->whereNotNull('purchaser_purchases.purchaser_id'))
+            ->leftJoinSub($this->purchaserFinanceService->balanceRows($filters['start_date'] ?? '', $filters['end_date'] ?? ''), 'period_funding', 'period_funding.purchaser_id', '=', 'base_purchasers.purchaser_id')
             ->leftJoinSub($this->purchaserFinanceService->balanceRows(), 'purchaser_funding', 'purchaser_funding.purchaser_id', '=', 'base_purchasers.purchaser_id')
-            ->selectRaw('base_purchasers.purchaser_id, base_purchasers.purchaser_public_uuid, base_purchasers.purchaser_name, COALESCE(purchaser_purchases.invoice_count, 0) as invoice_count, COALESCE(purchaser_purchases.cash_purchase, 0) as cash_purchase, COALESCE(purchaser_purchases.credit_purchase, 0) as credit_purchase, COALESCE(purchaser_purchases.total_purchase, 0) as total_purchase, COALESCE(purchaser_funding.cash_given, 0) as funding, COALESCE(purchaser_funding.cash_used, 0) as funding_used, COALESCE(purchaser_funding.remaining_advance, 0) as balance');
+            ->selectRaw('base_purchasers.purchaser_id, base_purchasers.purchaser_public_uuid, base_purchasers.purchaser_name, COALESCE(purchaser_purchases.invoice_count, 0) as invoice_count, COALESCE(purchaser_purchases.cash_purchase, 0) as cash_purchase, COALESCE(purchaser_purchases.credit_purchase, 0) as credit_purchase, COALESCE(purchaser_purchases.total_purchase, 0) as total_purchase, COALESCE(period_funding.transaction_count, 0) as transaction_count, COALESCE(period_funding.cash_given, 0) as funding, COALESCE(period_funding.cash_used, 0) as funding_used, COALESCE(purchaser_funding.remaining_advance, 0) as balance');
     }
 
     private function categoryRows(Builder $items): Builder

@@ -28,11 +28,13 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\VendorSettlement;
+use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Cashbook\ReconciliationAutoMatchSuggestionService;
 use App\Services\Cashbook\ReconciliationTransactionQuery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -319,6 +321,81 @@ final class ReconciliationLandingPageV2Test extends TestCase
 
         $this->assertTrue($available->fresh()->is_finalized);
         $this->assertSame('reconciled', $stale->fresh()->status);
+    }
+
+    public function test_month_reset_preserves_finance_and_uses_statement_dates_with_legacy_and_manual_matches(): void
+    {
+        $service = app(CompanyPaymentReconciliationService::class);
+        $entries = [];
+        foreach (['matched', 'reconciled', 'partially_matched'] as $index => $status) {
+            $credit = $this->purchaserFunding('RESET-'.$index, 100 + $index);
+            $journal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $credit->id)->firstOrFail();
+            $entry = $this->statement('out', 100 + $index, '2026-08-31', $this->bank, 'RESET-'.$index);
+            $entry->update(['source' => $index === 0 ? 'purchaser_funding' : 'imported', 'import_file_name' => 'fixture.csv', 'source_type' => PurchaserCredit::class, 'source_id' => $credit->id, 'journal_entry_id' => $journal->id, 'status' => $status, 'is_finalized' => $index === 1, 'matched_amount' => 100 + $index]);
+            $entries[] = $entry;
+        }
+        $septemberCredit = $this->purchaserFunding('SEPTEMBER-SOURCE', 100);
+        $septemberJournal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $septemberCredit->id)->firstOrFail();
+        $september = $this->statement('out', 100, '2026-09-01', $this->bank, 'SEPTEMBER');
+        $september->update(['journal_entry_id' => $septemberJournal->id, 'source_type' => PurchaserCredit::class, 'source_id' => $septemberCredit->id, 'status' => 'reconciled', 'is_finalized' => true]);
+        $manual = $this->statement('out', 55, '2026-08-01', $this->cash, 'MANUAL');
+        $manual->update(['source' => 'manual', 'status' => 'reconciled', 'is_finalized' => true]);
+        $before = [PurchaserCredit::count(), CompanyAccountStatementEntry::count(), JournalEntry::count(), JournalTransaction::count(), JournalTransaction::sum('amount'), PurchaserCredit::sum('amount')];
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.finance.reconciliation.reset-month'), ['month' => '2026-08', 'confirmation' => 'CLEAR AUGUST 2026'])
+            ->assertRedirect()->assertSessionHas('success', 'August 2026 reset: 3 imported matches cleared, 1 manual counterparts skipped, 0 failures.');
+
+        foreach ($entries as $entry) {
+            $this->assertSame('unmatched', $entry->fresh()->status);
+            $this->assertNull($entry->fresh()->journal_entry_id);
+        }
+        $this->assertTrue($september->fresh()->is_finalized);
+        $this->assertTrue($manual->fresh()->is_finalized);
+        $this->assertSame($before, [PurchaserCredit::count(), CompanyAccountStatementEntry::count(), JournalEntry::count(), JournalTransaction::count(), JournalTransaction::sum('amount'), PurchaserCredit::sum('amount')]);
+        $activity = Activity::where('log_name', 'reconciliation')->get()->first(fn ($activity) => $activity->properties->get('cleared_count') === 3);
+        $this->assertNotNull($activity);
+        $this->assertEquals($this->admin->id, $activity->causer_id);
+        $this->assertSame('monthly_reconciliation_reset', $activity->properties->get('action'));
+        $this->assertSame(1, $activity->properties->get('skipped_count'));
+        $this->assertSame('2026-08', $activity->properties->get('month'));
+        $this->get(route('admin.cashbook.finance.reconciliation', ['month' => '2026-08', 'status' => 'SUGGESTED']))->assertOk()->assertSee('RESET-1');
+        $rows = app(ReconciliationTransactionQuery::class)->paginate(Request::create('/', 'GET'), '2026-08-01', '2026-08-31');
+        $this->assertSame('NEEDS_REVIEW', $rows->firstWhere('reference', 'RESET-1')->reconciliation_status);
+        $suggestions = app(ReconciliationAutoMatchSuggestionService::class)->suggest(collect([$this->suggestionRow('out', 101, 'RESET-1')]), 10);
+        $this->assertSame('SUGGESTED', $suggestions[0]->reconciliation_status);
+        $this->assertSame(0, $service->resetMonthReconciliation('2026-08', $this->admin->id)['cleared']);
+    }
+
+    public function test_month_reset_clears_replacement_match_without_changing_september_duplicate_state(): void
+    {
+        $service = app(CompanyPaymentReconciliationService::class);
+        $original = $this->purchaserFunding('ORIGINAL', 500);
+        $replacement = $this->purchaserFunding('REPLACEMENT', 500);
+        $journal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $original->id)->firstOrFail();
+        $replacementJournal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $replacement->id)->firstOrFail();
+        $statement = $this->statement('out', 500, '2026-08-27', $this->bank, 'REPLACEMENT');
+        $service->reconcileStatementJournal($statement, $journal, 500, $this->admin->id);
+        $service->replaceStatementJournalMatch($statement->fresh(), $replacementJournal, 500, $this->admin->id);
+        $duplicate = $this->statement('out', 500, '2026-09-01', $this->bank, 'DUPLICATE');
+        $duplicate->update(['duplicate_status' => 'manual_cleared', 'duplicate_of_statement_entry_id' => $statement->id]);
+        $before = $duplicate->fresh()->toArray();
+        $this->assertSame(1, $service->resetMonthReconciliation('2026-08', $this->admin->id)['cleared']);
+        $this->assertNull($statement->fresh()->source_id);
+        $this->assertSame($before, $duplicate->fresh()->toArray());
+        $this->assertModelExists($journal);
+        $this->assertModelExists($replacementJournal);
+    }
+
+    public function test_month_reset_requires_exact_month_confirmation_and_admin_authority(): void
+    {
+        $url = route('admin.cashbook.finance.reconciliation.reset-month');
+        foreach (['', 'CLEAR JULY 2026'] as $confirmation) {
+            $this->actingAs($this->admin)->post($url, ['month' => '2026-08', 'confirmation' => $confirmation])->assertSessionHasErrors('confirmation');
+        }
+        $viewer = User::factory()->create();
+        Role::firstOrCreate(['name' => 'manager']);
+        $viewer->assignRole('manager');
+        $this->actingAs($viewer)->post($url, ['month' => '2026-08', 'confirmation' => 'CLEAR AUGUST 2026'])->assertForbidden();
     }
 
     private function transactionReference(string $reference): string

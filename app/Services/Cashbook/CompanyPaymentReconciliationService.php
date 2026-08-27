@@ -178,16 +178,16 @@ class CompanyPaymentReconciliationService
         });
     }
 
-    public function unmatchStatementJournal(CompanyAccountStatementEntry $statementEntry, int $userId): CompanyAccountStatementEntry
+    public function unmatchStatementJournal(CompanyAccountStatementEntry $statementEntry, int $userId, ?string $month = null): CompanyAccountStatementEntry
     {
-        return DB::transaction(function () use ($statementEntry, $userId): CompanyAccountStatementEntry {
+        return DB::transaction(function () use ($statementEntry, $userId, $month): CompanyAccountStatementEntry {
             $statementEntry = CompanyAccountStatementEntry::query()
                 ->with(['companyAccount', 'journalEntry', 'reconciliations.paymentRequest'])
                 ->whereKey($statementEntry->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if (! $statementEntry->is_finalized && $statementEntry->status === 'unmatched' && $statementEntry->journal_entry_id === null) {
+            if (! $statementEntry->is_finalized && $statementEntry->status === 'unmatched' && $statementEntry->journal_entry_id === null && $statementEntry->source_id === null && $statementEntry->reconciliations->isEmpty()) {
                 throw ValidationException::withMessages([
                     'statement_entry_id' => 'This statement entry is not currently reconciled.',
                 ]);
@@ -229,6 +229,7 @@ class CompanyPaymentReconciliationService
 
                 CompanyAccountStatementEntry::query()
                     ->where('duplicate_of_statement_entry_id', $statementEntry->id)
+                    ->when($month !== null, fn ($query) => $query->whereDate('transaction_date', '>=', Carbon::parse($month.'-01')->startOfMonth()->toDateString())->whereDate('transaction_date', '<=', Carbon::parse($month.'-01')->endOfMonth()->toDateString()))
                     ->update([
                         'status' => 'unmatched',
                         'duplicate_status' => 'clear',
@@ -282,12 +283,14 @@ class CompanyPaymentReconciliationService
 
             $statementEntries = CompanyAccountStatementEntry::query()
                 ->with(['companyAccount', 'journalEntry', 'reconciliations.paymentRequest'])
-                ->whereBetween('transaction_date', [$monthStart, $monthEnd])
+                ->whereDate('transaction_date', '>=', $monthStart)
+                ->whereDate('transaction_date', '<=', $monthEnd)
                 ->where(function ($query): void {
                     $query->where('is_finalized', true)
                         ->orWhereIn('status', ['matched', 'reconciled', 'partially_matched'])
                         ->orWhereNotNull('journal_entry_id')
-                        ->orWhereNotNull('source_id');
+                        ->orWhereNotNull('source_id')
+                        ->orWhereHas('reconciliations');
                 })
                 ->lockForUpdate()
                 ->get();
@@ -307,49 +310,7 @@ class CompanyPaymentReconciliationService
                     $oldJournalEntryId = $entry->journal_entry_id;
                     $oldStatus = $entry->status;
 
-                    if ($oldSourceType === VendorSettlement::class && $oldSourceId) {
-                        VendorSettlement::query()->whereKey($oldSourceId)->update([
-                            'reconciliation_status' => 'pending',
-                            'is_finalized' => false,
-                            'finalized_at' => null,
-                        ]);
-                    }
-
-                    if ($oldSourceType === DirectCompanySale::class && $oldSourceId) {
-                        DirectCompanySale::query()->whereKey($oldSourceId)->update([
-                            'reconciliation_status' => 'pending',
-                            'is_finalized' => false,
-                            'finalized_at' => null,
-                        ]);
-                    }
-
-                    if ($entry->reconciliations->isNotEmpty()) {
-                        $payments = $entry->reconciliations->pluck('paymentRequest')->filter();
-                        $entry->reconciliations()->delete();
-                        foreach ($payments as $payment) {
-                            $this->refreshPaymentReconciliationTotals($payment);
-                        }
-                    }
-
-                    CompanyAccountStatementEntry::query()
-                        ->where('duplicate_of_statement_entry_id', $entry->id)
-                        ->update([
-                            'status' => 'unmatched',
-                            'duplicate_status' => 'clear',
-                            'duplicate_of_statement_entry_id' => null,
-                        ]);
-
-                    $entry->journal_entry_id = null;
-                    $entry->source = 'imported';
-                    $entry->source_type = null;
-                    $entry->source_id = null;
-                    $entry->matched_amount = 0;
-                    $entry->status = 'unmatched';
-                    $entry->is_finalized = false;
-                    $entry->finalized_at = null;
-                    $entry->reconciled_by = null;
-                    $entry->reconciled_at = null;
-                    $entry->save();
+                    $this->unmatchStatementJournal($entry, $userId, $month);
 
                     Log::info('Reconciliation match cleared during month reset', [
                         'statement_entry_id' => $entry->id,
@@ -393,6 +354,7 @@ class CompanyPaymentReconciliationService
             }
 
             Log::info('Reconciliation month reset batch completed', [
+                'action' => 'monthly_reconciliation_reset',
                 'actor' => $userId,
                 'month' => $month,
                 'timestamp' => now()->toIso8601String(),
@@ -407,7 +369,7 @@ class CompanyPaymentReconciliationService
                         'month' => $month,
                         'cleared_count' => $clearedCount,
                         'skipped_count' => $skippedCount,
-                        'action' => 'monthly_reconciliation_reset_batch',
+                        'action' => 'monthly_reconciliation_reset',
                     ])
                     ->log("Batch reconciliation reset completed for month {$month}: {$clearedCount} cleared, {$skippedCount} skipped.");
             }

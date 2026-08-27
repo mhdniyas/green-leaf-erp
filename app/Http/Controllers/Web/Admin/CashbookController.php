@@ -94,6 +94,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -2102,6 +2103,7 @@ final class CashbookController extends Controller
     public function updatePurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
     {
         $this->ensureMainAdmin($request);
+        abort_unless($request->user()->isMainAdmin() || $request->user()->hasRole('admin'), 403);
 
         abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
 
@@ -2114,50 +2116,17 @@ final class CashbookController extends Controller
             'description' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $account = CompanyAccount::query()->whereKey($validated['company_account_id'] ?? 0)->where('enabled', true)->first();
+        if (! $account || $account->account_type !== strtolower($validated['payment_source'])) {
+            throw ValidationException::withMessages(['company_account_id' => 'Select an enabled company account matching the payment source.']);
+        }
+
         DB::transaction(function () use ($credit, $validated, $purchaser, $request): void {
             /** @var PurchaserCredit $credit */
             $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
             $newAmount = round((float) $validated['amount'], 2);
             $oldAmount = round((float) $credit->amount, 2);
-            $newDate = $validated['business_date'];
-            $oldDate = $credit->business_date?->format('Y-m-d');
-            $newSource = $validated['payment_source'];
-            $oldSource = $credit->payment_source;
-            $newAccountId = (int) ($validated['company_account_id'] ?? 0);
-            $oldAccountId = (int) ($credit->company_account_id ?? 0);
-
-            $isReconciled = CompanyAccountStatementEntry::query()
-                ->where('source_type', PurchaserCredit::class)
-                ->where('source_id', $credit->id)
-                ->where('is_finalized', true)
-                ->exists();
-
-            if ($isReconciled) {
-                if (abs($newAmount - $oldAmount) > 0.009 || $newDate !== $oldDate || $newSource !== $oldSource || ($newAccountId > 0 && $newAccountId !== $oldAccountId)) {
-                    throw ValidationException::withMessages([
-                        'amount' => 'This funding is reconciled. Unmatch it before changing Amount or Account.',
-                    ]);
-                }
-
-                $credit->update([
-                    'reference' => $validated['reference'] ?? null,
-                    'description' => $validated['description'] ?? 'Company funding to purchaser',
-                ]);
-
-                $journalEntry = JournalEntry::query()
-                    ->where('source_type', PurchaserCredit::class)
-                    ->where('source_id', $credit->id)
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($journalEntry instanceof JournalEntry) {
-                    $journalEntry->update([
-                        'reference' => $validated['reference'] ?: "PURCH-FUND-{$credit->id}",
-                    ]);
-                }
-
-                return;
-            }
+            app(PurchaserFinanceService::class)->assertFundingMutable($credit);
 
             $credit->update([
                 'amount' => $newAmount,
@@ -2168,48 +2137,11 @@ final class CashbookController extends Controller
                 'description' => $validated['description'] ?? 'Company funding to purchaser',
             ]);
 
-            // Sync JournalEntry and transactions
-            $journalEntry = JournalEntry::query()
-                ->where('source_type', PurchaserCredit::class)
-                ->where('source_id', $credit->id)
-                ->lockForUpdate()
-                ->first();
-
-            if ($journalEntry instanceof JournalEntry) {
-                $journalEntry->update([
-                    'entry_date' => $validated['business_date'],
-                    'reference' => $validated['reference'] ?: "PURCH-FUND-{$credit->id}",
-                    'description' => 'Company funding given to purchaser '.($purchaser->name ?? '#'.$purchaser->id),
-                    'primary_amount' => $newAmount,
-                ]);
-
-                $advanceAccountId = Account::query()->where('code', '1300')->value('id');
-                $cashAccountId = $validated['payment_source'] === 'Cash'
-                    ? Account::query()->where('code', '1010')->value('id')
-                    : Account::query()->where('code', '1020')->value('id');
-
-                if ($advanceAccountId && $cashAccountId) {
-                    $journalEntry->transactions()->delete();
-                    $journalEntry->transactions()->createMany([
-                        [
-                            'account_id' => $advanceAccountId,
-                            'type' => 'debit',
-                            'amount' => $newAmount,
-                        ],
-                        [
-                            'account_id' => $cashAccountId,
-                            'type' => 'credit',
-                            'amount' => $newAmount,
-                        ],
-                    ]);
-                }
-            }
+            app(JournalService::class)->recordPurchaserCredit($credit, updateExisting: true);
 
             Log::info('Purchaser funding updated', [
                 'purchaser_id' => $purchaser->id,
                 'credit_id' => $credit->id,
-                'old_amount' => $oldAmount,
-                'new_amount' => $newAmount,
                 'actor' => $request->user()->id,
                 'timestamp' => now()->toIso8601String(),
             ]);
@@ -2244,6 +2176,7 @@ final class CashbookController extends Controller
         PurchaserFinanceService $purchaserFinanceService
     ): RedirectResponse {
         $this->ensureMainAdmin($request);
+        abort_unless($request->user()->isMainAdmin() || $request->user()->hasRole('admin'), 403);
 
         abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
 
@@ -2255,35 +2188,8 @@ final class CashbookController extends Controller
         DB::transaction(function () use ($credit, $purchaser, $validated, $request, $purchaserFinanceService): void {
             $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
 
-            $statementEntry = CompanyAccountStatementEntry::query()
-                ->where('source_type', PurchaserCredit::class)
-                ->where('source_id', $credit->id)
-                ->where('is_finalized', true)
-                ->lockForUpdate()
-                ->first();
-
-            if ($statementEntry) {
-                if ($statementEntry->source === 'manual') {
-                    throw ValidationException::withMessages([
-                        'credit' => 'Manual cash/statement counterparts represent committed cashbook ledger movements and cannot be deleted.',
-                    ]);
-                }
-
-                throw ValidationException::withMessages([
-                    'credit' => 'This funding is reconciled. Unmatch it before deleting or reversing.',
-                ]);
-            }
-
-            $summary = $purchaserFinanceService->summaryFor((int) $purchaser->id);
-            $remainingAdvance = (float) $summary['remaining_advance'];
+            $purchaserFinanceService->assertFundingMutable($credit);
             $creditAmount = (float) $credit->amount;
-
-            if (($remainingAdvance - $creditAmount) < -0.009) {
-                $usedAmount = round($creditAmount - max(0.0, $remainingAdvance), 2);
-                throw ValidationException::withMessages([
-                    'credit' => '₹'.number_format($usedAmount, 2).' of this funding has already been used against purchase bills and cannot be deleted.',
-                ]);
-            }
 
             $journalEntry = JournalEntry::query()
                 ->where('source_type', PurchaserCredit::class)
@@ -2298,13 +2204,11 @@ final class CashbookController extends Controller
 
             $credit->delete();
 
-            Log::info('Purchaser funding deleted/reversed', [
+            Log::info('Purchaser funding deleted', [
                 'purchaser_id' => $purchaser->id,
                 'credit_id' => $credit->id,
-                'amount' => $creditAmount,
                 'actor' => $request->user()->id,
                 'reason' => $validated['reason'],
-                'notes' => $validated['notes'] ?? null,
                 'timestamp' => now()->toIso8601String(),
             ]);
 
@@ -2319,7 +2223,7 @@ final class CashbookController extends Controller
                         'notes' => $validated['notes'] ?? null,
                         'action' => 'delete_funding',
                     ])
-                    ->log('Purchaser funding of ₹'.number_format($creditAmount, 2)." deleted/reversed for {$purchaser->name}");
+                    ->log('Purchaser funding of ₹'.number_format($creditAmount, 2)." deleted for {$purchaser->name}");
             }
         }, attempts: 3);
 
@@ -2329,7 +2233,7 @@ final class CashbookController extends Controller
                 'period' => 'month',
                 'tab' => 'finance',
             ])
-            ->with('success', 'Purchaser funding of ₹'.number_format((float) $credit->amount, 2).' deleted/reversed successfully.');
+            ->with('success', 'Purchaser funding of ₹'.number_format((float) $credit->amount, 2).' deleted successfully.');
     }
 
     public function purchaserFundingCandidates(Request $request, User $purchaser, PurchaserCredit $credit, PurchaserFinanceService $purchaserFinanceService): JsonResponse
@@ -3695,13 +3599,14 @@ final class CashbookController extends Controller
     public function resetMonthReconciliation(Request $request): RedirectResponse
     {
         $this->ensureMainAdmin($request);
+        abort_unless($request->user()->isMainAdmin() || $request->user()->hasRole('admin'), 403);
 
         $validated = $request->validate([
             'month' => ['required', 'string', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
             'confirmation' => ['required', 'string'],
         ]);
 
-        $monthDate = Carbon::createFromFormat('Y-m', $validated['month']);
+        $monthDate = Carbon::createFromFormat('!Y-m', $validated['month']);
         $expectedPhrase = 'CLEAR '.strtoupper($monthDate->format('F Y'));
 
         if (trim(strtoupper((string) $validated['confirmation'])) !== $expectedPhrase) {

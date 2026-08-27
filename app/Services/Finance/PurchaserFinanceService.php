@@ -5,15 +5,104 @@ declare(strict_types=1);
 namespace App\Services\Finance;
 
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\JournalEntry;
 use App\Models\PurchaserCredit;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class PurchaserFinanceService
 {
+    private const FUNDING_SOURCE_TYPE = PurchaserCredit::class;
+
+    /**
+     * No per-funding allocation exists: protect funding with subsequent usage or
+     * insufficient pooled advance, rather than guessing which entry paid a bill.
+     */
+    public function assertFundingMutable(PurchaserCredit $credit): void
+    {
+        $reason = $this->fundingMutationBlockReason($credit, lock: true);
+
+        if ($reason !== null) {
+            throw ValidationException::withMessages(['credit' => $reason]);
+        }
+    }
+
+    public function fundingMutationBlockReason(PurchaserCredit $credit, bool $lock = false): ?string
+    {
+        $journalsQuery = JournalEntry::query()->withCount('reconciliations')
+            ->where('source_type', self::FUNDING_SOURCE_TYPE)
+            ->where('source_id', $credit->id);
+
+        if ($lock) {
+            $journalsQuery->lockForUpdate();
+        }
+
+        $journals = $journalsQuery->get();
+        $journalIds = $journals->modelKeys();
+
+        $currentStatementQuery = CompanyAccountStatementEntry::query()
+            ->where(function ($query) use ($credit, $journalIds): void {
+                $query->where(function ($source) use ($credit): void {
+                    $source->whereIn('source_type', [self::FUNDING_SOURCE_TYPE, 'purchaser_funding'])
+                        ->where('source_id', $credit->id);
+                });
+
+                if ($journalIds !== []) {
+                    $query->orWhereIn('journal_entry_id', $journalIds);
+                }
+            })
+            ->where(function ($query): void {
+                $query->where('is_finalized', true)
+                    ->orWhereIn('status', ['matched', 'reconciled', 'partially_matched'])
+                    ->orWhere('matched_amount', '>', 0)
+                    ->orWhere('source', 'manual');
+            });
+
+        if ($lock) {
+            $currentStatementQuery->lockForUpdate();
+        }
+
+        $currentStatement = $currentStatementQuery->orderByDesc('is_finalized')->orderByDesc('matched_amount')->first();
+
+        if ($currentStatement instanceof CompanyAccountStatementEntry) {
+            $isImported = $currentStatement->source === 'imported'
+                || ! empty($currentStatement->import_file_name)
+                || ! empty($currentStatement->import_fingerprint);
+
+            return $isImported
+                ? 'Matched to imported statement — unmatch first.'
+                : 'Manual cash or statement counterpart — editing is protected.';
+        }
+
+        if ($journals->contains(fn (JournalEntry $journal): bool => $journal->reconciliations_count > 0)) {
+            return 'Manual reconciliation allocation exists — editing is protected.';
+        }
+
+        if ($credit->purchase_invoice_id || $journals->count() !== 1 || $journals->first()->source_event !== 'purchaser_funding') {
+            return 'Historical funding dependency — editing is protected.';
+        }
+
+        $movementsQuery = PurchaserCredit::query()->where('purchaser_id', $credit->purchaser_id)->orderBy('id');
+        if ($lock) {
+            $movementsQuery->lockForUpdate();
+        }
+
+        $movements = $movementsQuery->get();
+        $balance = $movements->sum(fn (PurchaserCredit $movement): float => $movement->type === 'in' ? (float) $movement->amount : -(float) $movement->amount);
+        $subsequentUsage = $movements->contains(fn (PurchaserCredit $movement): bool => $movement->type === 'out'
+            && $movement->business_date >= $credit->business_date);
+
+        if ($subsequentUsage || $balance + 0.009 < (float) $credit->amount) {
+            return 'Used by purchase bills — editing is protected.';
+        }
+
+        return null;
+    }
+
     public function cashMovementSumSubquery(string $type, string $startDate = '', string $endDate = ''): Builder
     {
         return DB::table('purchaser_credits')
@@ -44,7 +133,7 @@ final class PurchaserFinanceService
     public function balanceRows(string $startDate = '', string $endDate = ''): Builder
     {
         return DB::table('purchaser_credits')
-            ->selectRaw("purchaser_id, SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as cash_given, SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) as cash_used, SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as remaining_advance")
+            ->selectRaw("purchaser_id, COUNT(*) as transaction_count, SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as cash_given, SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) as cash_used, SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as remaining_advance")
             ->when($startDate !== '', fn (Builder $query) => $query->whereDate('business_date', '>=', $startDate))
             ->when($endDate !== '', fn (Builder $query) => $query->whereDate('business_date', '<=', $endDate))
             ->groupBy('purchaser_id');
@@ -205,6 +294,61 @@ final class PurchaserFinanceService
                 reconcilers.name as reconciled_by_name,
                 statements.reconciled_at
             ")
+            ->selectRaw("(
+                credits.purchase_invoice_id IS NOT NULL
+                OR EXISTS (SELECT 1 FROM purchaser_credits used WHERE used.purchaser_id = credits.purchaser_id AND used.type = 'out' AND used.business_date >= credits.business_date)
+                OR (SELECT COALESCE(SUM(CASE WHEN balance.type = 'in' THEN balance.amount ELSE -balance.amount END), 0) FROM purchaser_credits balance WHERE balance.purchaser_id = credits.purchaser_id) + 0.009 < credits.amount
+                OR (SELECT COUNT(*) FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id) != 1
+                OR NOT EXISTS (SELECT 1 FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id AND funding_journal.source_event = 'purchaser_funding')
+                OR EXISTS (SELECT 1 FROM cashbook_company_payment_reconciliations allocation JOIN journal_entries allocation_journal ON allocation_journal.id = allocation.journal_entry_id WHERE allocation_journal.source_type = ? AND allocation_journal.source_id = credits.id)
+                OR EXISTS (
+                    SELECT 1 FROM cashbook_company_account_statement_entries linked
+                    WHERE (
+                        (linked.source_type IN (?, ?) AND linked.source_id = credits.id)
+                        OR linked.journal_entry_id IN (SELECT id FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id)
+                    )
+                    AND (
+                        linked.is_finalized = 1
+                        OR linked.status IN ('matched', 'reconciled', 'partially_matched')
+                        OR linked.matched_amount > 0
+                        OR linked.source = 'manual'
+                    )
+                )
+            ) as funding_action_blocked", [PurchaserCredit::class, PurchaserCredit::class, PurchaserCredit::class, PurchaserCredit::class, 'purchaser_funding', PurchaserCredit::class])
+            ->selectRaw("
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM cashbook_company_account_statement_entries linked
+                        WHERE (
+                            (linked.source_type IN (?, ?) AND linked.source_id = credits.id)
+                            OR linked.journal_entry_id IN (SELECT id FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id)
+                        )
+                        AND (
+                            linked.is_finalized = 1
+                            OR linked.status IN ('matched', 'reconciled', 'partially_matched')
+                            OR linked.matched_amount > 0
+                        )
+                        AND (linked.source = 'imported' OR linked.import_file_name IS NOT NULL OR linked.import_fingerprint IS NOT NULL)
+                    ) THEN 'Matched to imported statement — unmatch first.'
+                    WHEN EXISTS (
+                        SELECT 1 FROM cashbook_company_account_statement_entries linked
+                        WHERE (
+                            (linked.source_type IN (?, ?) AND linked.source_id = credits.id)
+                            OR linked.journal_entry_id IN (SELECT id FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id)
+                        )
+                        AND linked.source = 'manual'
+                    ) THEN 'Manual cash or statement counterpart — editing is protected.'
+                    WHEN EXISTS (SELECT 1 FROM cashbook_company_payment_reconciliations allocation JOIN journal_entries allocation_journal ON allocation_journal.id = allocation.journal_entry_id WHERE allocation_journal.source_type = ? AND allocation_journal.source_id = credits.id) THEN 'Manual reconciliation allocation exists — editing is protected.'
+                    WHEN credits.purchase_invoice_id IS NOT NULL
+                        OR (SELECT COUNT(*) FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id) != 1
+                        OR NOT EXISTS (SELECT 1 FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id AND funding_journal.source_event = 'purchaser_funding')
+                    THEN 'Historical funding dependency — editing is protected.'
+                    WHEN EXISTS (SELECT 1 FROM purchaser_credits used WHERE used.purchaser_id = credits.purchaser_id AND used.type = 'out' AND used.business_date >= credits.business_date)
+                        OR (SELECT COALESCE(SUM(CASE WHEN balance.type = 'in' THEN balance.amount ELSE -balance.amount END), 0) FROM purchaser_credits balance WHERE balance.purchaser_id = credits.purchaser_id) + 0.009 < credits.amount
+                    THEN 'Used by purchase bills — editing is protected.'
+                    ELSE NULL
+                END as funding_action_block_reason
+            ", [PurchaserCredit::class, 'purchaser_funding', PurchaserCredit::class, PurchaserCredit::class, 'purchaser_funding', PurchaserCredit::class, PurchaserCredit::class, PurchaserCredit::class, PurchaserCredit::class])
             ->orderByDesc('credits.business_date')
             ->orderByDesc('credits.id')
             ->paginate(20, ['*'], 'finance_page')

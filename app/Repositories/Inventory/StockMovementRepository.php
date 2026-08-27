@@ -56,6 +56,10 @@ class StockMovementRepository extends BaseRepository
         ];
 
         $movementsStock = $this->query()
+            ->where(function ($query): void {
+                $query->where('stock_movements.grade', '!=', ProductGrade::Unsorted->value)
+                    ->orWhereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
+            })
             ->join('products', 'stock_movements.product_id', '=', 'products.id')
             ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
             ->selectRaw(

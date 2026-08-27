@@ -360,7 +360,7 @@ class JournalService
      * Purchaser credit (cash advance given to purchaser).
      * Debit Purchaser Advances (1300), Credit Cash (1010) / Bank (1020).
      */
-    public function recordPurchaserCredit(PurchaserCredit $credit): JournalEntry
+    public function recordPurchaserCredit(PurchaserCredit $credit, bool $updateExisting = false): JournalEntry
     {
         $credit->loadMissing('purchaser');
         $amount = round((float) $credit->amount, 2);
@@ -386,6 +386,23 @@ class JournalService
             sourceId: $credit->id,
             sourceEvent: 'purchaser_funding',
         );
+
+        if ($updateExisting) {
+            return DB::transaction(function () use ($data, $credit): JournalEntry {
+                $lines = $this->validatedLines($data->lines);
+                $entry = JournalEntry::query()
+                    ->where('source_type', PurchaserCredit::class)
+                    ->where('source_id', $credit->id)
+                    ->where('source_event', 'purchaser_funding')
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $entry->update($data->toArray());
+                $entry->transactions()->delete();
+                $entry->transactions()->createMany($lines);
+
+                return $entry->fresh('transactions.account');
+            });
+        }
 
         return $this->createEntry($data, (int) ($credit->created_by ?: 1));
     }

@@ -14,6 +14,8 @@ use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\PurchaserFinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -618,6 +620,11 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
 
         $this->reconciliationService->reconcileStatementJournal($importedStmt, $je, 45000.00, $this->admin->id);
 
+        $matchedRow = collect($this->purchaserFinanceService->transactionsFor($this->purchaser->id, '2026-08-01', '2026-08-31')->items())->firstWhere('id', $credit->id);
+        $this->assertSame('matched', $matchedRow->status);
+        $this->assertTrue((bool) $matchedRow->funding_action_blocked);
+        $this->assertSame('Matched to imported statement — unmatch first.', $matchedRow->funding_action_block_reason);
+
         // 18. Trace endpoint check
         $traceRes = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchasers.funding.trace', [
             'purchaser' => $this->purchaser->public_uuid,
@@ -644,7 +651,10 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
 
         // Funding transaction returns to UNMATCHED
         $tx = $this->purchaserFinanceService->transactionsFor($this->purchaser->id, '2026-08-01', '2026-08-31');
-        $this->assertEquals('unmatched', collect($tx->items())->firstWhere('id', $credit->id)->status);
+        $unmatchedRow = collect($tx->items())->firstWhere('id', $credit->id);
+        $this->assertEquals('unmatched', $unmatchedRow->status);
+        $this->assertFalse((bool) $unmatchedRow->funding_action_blocked);
+        $this->assertNull($unmatchedRow->funding_action_block_reason);
 
         // 21. Block unmatching manual counterpart
         $creditManual = PurchaserCredit::query()->create([
@@ -762,6 +772,187 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
         $this->assertEquals($jeA->id, $statement->journal_entry_id);
     }
 
+    private function mutableFunding(): PurchaserCredit
+    {
+        $credit = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id, 'type' => 'in', 'amount' => 100000,
+            'business_date' => '2026-08-20', 'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id, 'created_by' => $this->admin->id,
+        ]);
+        app(JournalService::class)->recordPurchaserCredit($credit);
+
+        return $credit;
+    }
+
+    public function test_unused_duplicate_funding_deletes_with_reason_audit_and_refreshes_totals(): void
+    {
+        $original = $this->mutableFunding();
+        $duplicate = $this->mutableFunding();
+        $url = route('admin.cashbook.finance.purchasers.funding.delete', [$this->purchaser->public_uuid, $duplicate->id]);
+        $this->actingAs($this->admin)->post($url)->assertSessionHasErrors('reason');
+        $this->post($url, ['reason' => 'duplicate_entry', 'notes' => 'Duplicate fixture'])->assertRedirect()->assertSessionHas('success');
+        $this->assertModelExists($original);
+        $this->assertModelMissing($duplicate);
+        $this->assertFalse(JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $duplicate->id)->exists());
+        $this->assertEquals(100000, $this->purchaserFinanceService->summaryFor($this->purchaser->id)['remaining_advance']);
+        $activity = Activity::where('log_name', 'purchaser_finance')->latest('id')->firstOrFail();
+        $this->assertEquals($this->admin->id, $activity->causer_id);
+        $this->assertSame('duplicate_entry', $activity->properties->get('reason'));
+        $this->assertEquals($duplicate->id, $activity->properties->get('credit_id'));
+    }
+
+    public function test_unmatched_unused_funding_with_stale_statement_source_link_remains_editable_and_deletable(): void
+    {
+        $credit = $this->mutableFunding();
+        $journal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $credit->id)->firstOrFail();
+        $untouchedCredit = $this->mutableFunding();
+        $untouchedJournal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $untouchedCredit->id)->firstOrFail();
+
+        $staleStatement = CompanyAccountStatementEntry::query()->create([
+            'company_account_id' => $this->bankAccount->id,
+            'transaction_date' => '2026-08-20',
+            'direction' => 'out',
+            'amount' => 100000,
+            'source' => 'imported',
+            'source_type' => PurchaserCredit::class,
+            'source_id' => $credit->id,
+            'journal_entry_id' => null,
+            'status' => 'unmatched',
+            'matched_amount' => 0,
+            'is_finalized' => false,
+            'import_file_name' => 'statement.csv',
+        ]);
+
+        $row = $this->purchaserFinanceService->transactionsFor($this->purchaser->id, '2026-08-01', '2026-08-31')->firstWhere('id', $credit->id);
+        $this->assertSame('unmatched', $row->status);
+        $this->assertFalse((bool) $row->funding_action_blocked);
+        $this->assertNull($row->funding_action_block_reason);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.finance.purchase.purchasers.show', [
+                'purchaser' => $this->purchaser->public_uuid,
+                'period' => 'month',
+                'tab' => 'finance',
+            ]))
+            ->assertOk()
+            ->assertSee('UNMATCHED')
+            ->assertSee('openEditFundingModal('.$credit->id, false)
+            ->assertSee('openDeleteFundingModal('.$credit->id, false)
+            ->assertSee('Match Statement')
+            ->assertSee('Add Cash/Statement')
+            ->assertDontSee('Edit/Delete blocked');
+
+        $this->post(route('admin.cashbook.finance.purchasers.funding.update', [$this->purchaser->public_uuid, $credit->id]), [
+            'amount' => 100000,
+            'business_date' => '2026-08-27',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'UTR-100K',
+            'description' => 'Updated actual scenario funding',
+        ])->assertRedirect()->assertSessionHas('success');
+
+        $credit->refresh();
+        $this->assertEquals('2026-08-27', $credit->business_date->format('Y-m-d'));
+        $this->assertSame('UTR-100K', $credit->reference);
+        $this->assertEquals(100000, (float) $journal->fresh()->primary_amount);
+        $this->assertModelExists($staleStatement);
+
+        $statementBefore = $staleStatement->fresh()->toArray();
+        $untouchedCreditBefore = $untouchedCredit->fresh()->toArray();
+        $untouchedJournalBefore = $untouchedJournal->fresh()->toArray();
+
+        $this->post(route('admin.cashbook.finance.purchasers.funding.delete', [$this->purchaser->public_uuid, $credit->id]), [
+            'reason' => 'duplicate_entry',
+            'notes' => 'Regression delete',
+        ])->assertRedirect()->assertSessionHas('success');
+
+        $this->assertModelMissing($credit);
+        $this->assertFalse(JournalEntry::whereKey($journal->id)->exists());
+        $this->assertSame($statementBefore, $staleStatement->fresh()->toArray());
+        $this->assertSame($untouchedCreditBefore, $untouchedCredit->fresh()->toArray());
+        $this->assertSame($untouchedJournalBefore, $untouchedJournal->fresh()->toArray());
+        $this->assertEquals(100000, $this->purchaserFinanceService->summaryFor($this->purchaser->id)['remaining_advance']);
+    }
+
+    public function test_unmatched_funding_with_expected_default_account_selected_stays_editable(): void
+    {
+        $credit = $this->mutableFunding();
+
+        $row = $this->purchaserFinanceService->transactionsFor($this->purchaser->id, '2026-08-01', '2026-08-31')->firstWhere('id', $credit->id);
+
+        $this->assertSame('unmatched', $row->status);
+        $this->assertSame($this->bankAccount->id, (int) $row->company_account_id);
+        $this->assertFalse((bool) $row->funding_action_blocked);
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.update', [$this->purchaser->public_uuid, $credit->id]), [
+            'amount' => 100000,
+            'business_date' => '2026-08-20',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'DEFAULT-ACCOUNT-OK',
+        ])->assertRedirect()->assertSessionHas('success');
+    }
+
+    #[DataProvider('protectedFundingStates')]
+    public function test_edit_and_delete_protect_linked_consumed_and_historical_funding(string $state): void
+    {
+        $credit = $this->mutableFunding();
+        $journal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $credit->id)->firstOrFail();
+        if (in_array($state, ['matched', 'reconciled', 'partially_matched', 'manual', 'legacy', 'journal_only'], true)) {
+            CompanyAccountStatementEntry::query()->create([
+                'company_account_id' => $this->bankAccount->id, 'transaction_date' => '2026-08-20',
+                'direction' => 'out', 'amount' => 100000, 'source' => $state === 'manual' ? 'manual' : 'imported',
+                'source_type' => $state === 'legacy' ? 'purchaser_funding' : ($state === 'journal_only' ? null : PurchaserCredit::class),
+                'source_id' => $state === 'journal_only' ? null : $credit->id,
+                'journal_entry_id' => $journal->id, 'status' => $state === 'partially_matched' ? $state : 'matched', 'is_finalized' => $state === 'reconciled',
+            ]);
+        } elseif (in_array($state, ['partially_consumed', 'fully_consumed', 'replenished'], true)) {
+            PurchaserCredit::query()->create(['purchaser_id' => $this->purchaser->id, 'type' => 'out', 'amount' => $state === 'fully_consumed' ? 100000 : 100, 'business_date' => '2026-08-21']);
+            if ($state === 'replenished') {
+                $this->mutableFunding();
+            }
+        } else {
+            $journal->update(['source_event' => 'historical']);
+        }
+        $before = [$credit->fresh()->toArray(), $journal->fresh()->toArray(), CompanyAccountStatementEntry::count()];
+        $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.update', [$this->purchaser->public_uuid, $credit->id]), [
+            'amount' => 10, 'business_date' => '2026-08-20', 'payment_source' => 'Bank', 'company_account_id' => $this->bankAccount->id,
+        ])->assertSessionHasErrors('credit');
+        $this->post(route('admin.cashbook.finance.purchasers.funding.delete', [$this->purchaser->public_uuid, $credit->id]), ['reason' => 'duplicate_entry'])->assertSessionHasErrors('credit');
+        $this->assertSame($before, [$credit->fresh()->toArray(), $journal->fresh()->toArray(), CompanyAccountStatementEntry::count()]);
+        $row = $this->purchaserFinanceService->transactionsFor($this->purchaser->id, '2026-08-01', '2026-08-31')->firstWhere('id', $credit->id);
+        $this->assertTrue((bool) $row->funding_action_blocked);
+    }
+
+    public static function protectedFundingStates(): array
+    {
+        return array_map(fn (string $state): array => [$state], ['matched', 'reconciled', 'partially_matched', 'manual', 'legacy', 'journal_only', 'partially_consumed', 'fully_consumed', 'replenished', 'historical']);
+    }
+
+    public function test_funding_edit_rejects_invalid_account_without_changing_credit_or_journal(): void
+    {
+        $credit = $this->mutableFunding();
+        $journal = JournalEntry::where('source_type', PurchaserCredit::class)->where('source_id', $credit->id)->firstOrFail();
+        $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.update', [$this->purchaser->public_uuid, $credit->id]), [
+            'amount' => 50, 'business_date' => '2026-08-20', 'payment_source' => 'Bank', 'company_account_id' => $this->cashAccount->id,
+        ])->assertSessionHasErrors('company_account_id');
+        $this->assertEquals(100000, $credit->fresh()->amount);
+        $this->assertEquals(100000, $journal->fresh()->primary_amount);
+    }
+
+    public function test_funding_mutations_block_view_only_roles_and_cross_purchaser_access(): void
+    {
+        $credit = $this->mutableFunding();
+        $viewer = User::factory()->create();
+        Role::firstOrCreate(['name' => 'manager']);
+        $viewer->assignRole('manager');
+        foreach (['update', 'delete'] as $action) {
+            $this->actingAs($viewer)->post(route('admin.cashbook.finance.purchasers.funding.'.$action, [$this->purchaser->public_uuid, $credit->id]))->assertForbidden();
+            $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.'.$action, [$this->otherPurchaser->public_uuid, $credit->id]))->assertNotFound();
+        }
+        $this->assertModelExists($credit);
+    }
+
     public function test_edit_purchaser_funding_updates_credit_and_journal_entry(): void
     {
         $credit = PurchaserCredit::query()->create([
@@ -812,6 +1003,7 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
         $this->assertEquals($this->cashAccount->id, $credit->company_account_id);
         $this->assertEquals('CASH-EDITED-35K', $credit->reference);
         $this->assertEquals('Updated funding note', $credit->description);
+        $this->assertEquals(35000, $this->purchaserFinanceService->summaryFor($this->purchaser->id)['remaining_advance']);
 
         $je->refresh();
         $this->assertEquals(35000.00, (float) $je->primary_amount);
@@ -821,7 +1013,7 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
         $this->assertEquals(35000.00, (float) $je->transactions()->where('type', 'credit')->value('amount'));
     }
 
-    public function test_edit_purchaser_funding_unlinks_statement_if_amount_modified_while_matched(): void
+    public function test_edit_purchaser_funding_blocks_amount_changes_while_matched(): void
     {
         $credit = PurchaserCredit::query()->create([
             'purchaser_id' => $this->purchaser->id,
@@ -864,11 +1056,12 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
                 'description' => 'Matched funding modified amount',
             ])
             ->assertRedirect()
-            ->assertSessionHas('success');
+            ->assertSessionHasErrors('credit');
 
         $statement->refresh();
-        $this->assertFalse((bool) $statement->is_finalized);
-        $this->assertEquals('unmatched', $statement->status);
-        $this->assertNull($statement->journal_entry_id);
+        $this->assertTrue((bool) $statement->is_finalized);
+        $this->assertEquals('reconciled', $statement->status);
+        $this->assertEquals($je->id, $statement->journal_entry_id);
+        $this->assertEquals(20000, $credit->fresh()->amount);
     }
 }

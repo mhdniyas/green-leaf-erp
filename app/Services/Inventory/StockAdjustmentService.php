@@ -183,9 +183,13 @@ class StockAdjustmentService
             $positiveTypes = [StockMovementType::In->value, StockMovementType::SaleReversal->value];
             $negativeTypes = [StockMovementType::Out->value, StockMovementType::Wastage->value, StockMovementType::Sale->value, StockMovementType::Adjustment->value];
             $lots = StockMovement::query()->where('product_id', $productId)
+                ->where(function ($query): void {
+                    $query->where('grade', '!=', ProductGrade::Unsorted->value)
+                        ->orWhereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
+                })
                 ->selectRaw('batch_id, warehouse_id, grade, MAX(cost_per_unit) as cost_per_unit, SUM(CASE WHEN type IN (?, ?) THEN quantity WHEN type IN (?, ?, ?, ?) THEN -quantity ELSE 0 END) as available_quantity', [...$positiveTypes, ...$negativeTypes])
                 ->groupBy('batch_id', 'warehouse_id', 'grade')->havingRaw('ABS(available_quantity) > 0.0001')->lockForUpdate()->get();
-            $pending = StockBatch::query()->where('product_id', $productId)->where('status', BatchStatus::Pending->value)->where('warehouse_receive_pending', false)->lockForUpdate()->get();
+            $pending = StockBatch::query()->where('product_id', $productId)->where('status', BatchStatus::Pending->value)->lockForUpdate()->get();
             foreach ($pending as $batch) {
                 $writtenOff = (float) StockMovement::query()->where('batch_id', $batch->id)->where('grade', ProductGrade::Unsorted->value)->whereIn('type', [StockMovementType::Wastage->value, StockMovementType::Adjustment->value])->sum('quantity');
                 $available = max(0.0, (float) $batch->remaining_qty - $writtenOff);

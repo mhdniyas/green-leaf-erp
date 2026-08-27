@@ -222,12 +222,19 @@
                             <td class="p-3 text-right">
                                 @if($movement->type === 'in')
                                     <div class="flex items-center justify-end gap-1.5 flex-wrap">
+                                @if($movement->funding_action_blocked)
+                                    <span class="text-[10px] text-slate-500">{{ $movement->funding_action_block_reason ?: 'Editing is protected for this funding.' }}</span>
+                                @endif
+                                @if(!$movement->funding_action_blocked && (auth()->user()->isMainAdmin() || auth()->user()->hasRole('admin')))
                                         <button type="button" onclick="openEditFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}', '{{ $movement->status }}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition">
                                             <i data-lucide="pencil" class="h-3 w-3"></i> Edit
                                         </button>
+                                @endif
+                                @if(!$movement->funding_action_blocked && (auth()->user()->isMainAdmin() || auth()->user()->hasRole('admin')))
                                         <button type="button" onclick="openDeleteFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->company_account ?: ($movement->payment_source ?: '—')) }}', '{{ $movement->status }}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-sm transition">
                                             <i data-lucide="trash-2" class="h-3 w-3"></i> Delete
                                         </button>
+                                @endif
                                         @if($movement->status === 'unmatched')
                                             <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="inline-flex items-center gap-1 rounded bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-600 shadow-sm transition">
                                                 <i data-lucide="git-merge" class="h-3 w-3"></i> Match Statement
@@ -283,8 +290,15 @@
                                 @elseif(in_array($movement->status, ['matched', 'manual_cash', 'manual_statement'], true))
                                     <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">{{ str_replace('_', ' ', $movement->status) }}</span>
                                 @endif
+                                @if($movement->funding_action_blocked)
+                                    <span class="text-[10px] text-slate-500">{{ $movement->funding_action_block_reason ?: 'Editing is protected for this funding.' }}</span>
+                                @endif
+                                @if(!$movement->funding_action_blocked && (auth()->user()->isMainAdmin() || auth()->user()->hasRole('admin')))
                                 <button type="button" onclick="openEditFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}', '{{ $movement->status }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Edit</button>
+                                @endif
+                                @if(!$movement->funding_action_blocked && (auth()->user()->isMainAdmin() || auth()->user()->hasRole('admin')))
                                 <button type="button" onclick="openDeleteFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->company_account ?: ($movement->payment_source ?: '—')) }}', '{{ $movement->status }}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
+                                @endif
                                 @if($movement->status === 'unmatched')
                                     <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white">Match</button>
                                     <button type="button" onclick="openManualEntryModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ $movement->company_account_id }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Add Manual</button>
@@ -473,7 +487,7 @@
                 </button>
             </div>
             
-            <form id="editFundingForm" method="POST" action="" class="flex flex-col flex-1 overflow-hidden">
+            <form id="editFundingForm" method="POST" action="" class="flex flex-col flex-1 overflow-hidden" onsubmit="return confirmEditFundingSave()">
                 @csrf
                 <div class="p-5 space-y-3.5 overflow-y-auto flex-1 text-xs">
                     <div id="editFundingMatchedWarning" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
@@ -536,14 +550,14 @@
             <div class="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-5 py-4">
                 <div class="flex items-center gap-2">
                     <i data-lucide="alert-triangle" class="h-5 w-5 text-rose-700"></i>
-                    <h3 class="font-black text-rose-950">DELETE PURCHASER FUNDING?</h3>
+                    <h3 id="deleteFundingTitle" class="font-black text-rose-950">Delete purchaser funding?</h3>
                 </div>
                 <button type="button" onclick="closeDeleteFundingModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                     <i data-lucide="x" class="h-5 w-5"></i>
                 </button>
             </div>
             
-            <form id="deleteFundingForm" method="POST" action="" class="p-5 space-y-4 text-xs">
+            <form id="deleteFundingForm" method="POST" action="" class="p-5 space-y-4 text-xs" onsubmit="return confirmDeleteFundingSubmit()">
                 @csrf
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-1.5 text-slate-700">
                     <div class="flex justify-between">
@@ -566,7 +580,7 @@
 
                 <div id="deleteFundingMatchedWarning" class="hidden rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
                     <i data-lucide="alert-circle" class="inline h-4 w-4 mr-1 text-rose-700"></i>
-                    <strong>Cannot Delete:</strong> This funding is currently reconciled. You must unmatch it before deleting.
+                    <strong>Safe delete only:</strong> This removes the funding and its corresponding safe journal movement. Reconciled, used, or historical funding is never deleted.
                 </div>
 
                 <div>
@@ -728,8 +742,6 @@
     <script>
         function openEditFundingModal(creditId, purchaserUuid, date, amount, source, accountId, ref, desc, status) {
             const modal = document.getElementById('editFundingModal');
-            const isReconciled = ['matched', 'manual_cash', 'manual_statement'].includes(status);
-
             const amountInput = document.getElementById('editFundingAmount');
             const dateInput = document.getElementById('editFundingDate');
             const sourceSelect = document.getElementById('editFundingSource');
@@ -742,21 +754,12 @@
             document.getElementById('editFundingReference').value = ref || '';
             document.getElementById('editFundingDescription').value = desc || '';
 
-            amountInput.readOnly = isReconciled;
-            dateInput.readOnly = isReconciled;
-            sourceSelect.disabled = isReconciled;
-            accountSelect.disabled = isReconciled;
-
             const warningEl = document.getElementById('editFundingMatchedWarning');
-            if (isReconciled) {
-                warningEl.classList.remove('hidden');
-                warningEl.innerHTML = '<i data-lucide="alert-triangle" class="inline h-4 w-4 mr-1 text-amber-700"></i><strong>Reconciled:</strong> Critical fields (Amount, Date, Source, Account) cannot be changed while reconciled. Please unmatch the funding first if you need to alter financial amounts.';
-            } else {
-                warningEl.classList.add('hidden');
-            }
+            warningEl.classList.add('hidden');
 
             const form = document.getElementById('editFundingForm');
             form.action = `/admin/cashbook/finance/purchasers/${purchaserUuid}/funding/${creditId}/update`;
+            form.dataset.confirmAmount = Number(amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
             modal.classList.remove('hidden');
             modal.classList.add('flex');
@@ -769,9 +772,16 @@
             modal.classList.remove('flex');
         }
 
+        function confirmEditFundingSave() {
+            const form = document.getElementById('editFundingForm');
+            return confirm(`Save changes to ₹${form.dataset.confirmAmount || '0.00'} purchaser funding?`);
+        }
+
         function openDeleteFundingModal(creditId, purchaserUuid, date, amount, account, status) {
             const modal = document.getElementById('deleteFundingModal');
-            document.getElementById('deleteFundingAmount').textContent = '₹' + Number(amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const formattedAmount = Number(amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('deleteFundingTitle').textContent = `Delete ₹${formattedAmount} purchaser funding?`;
+            document.getElementById('deleteFundingAmount').textContent = '₹' + formattedAmount;
             document.getElementById('deleteFundingDate').textContent = date;
             document.getElementById('deleteFundingAccount').textContent = account || '—';
 
@@ -791,6 +801,7 @@
 
             const form = document.getElementById('deleteFundingForm');
             form.action = `/admin/cashbook/finance/purchasers/${purchaserUuid}/funding/${creditId}/delete`;
+            form.dataset.confirmAmount = formattedAmount;
 
             modal.classList.remove('hidden');
             modal.classList.add('flex');
@@ -801,6 +812,14 @@
             const modal = document.getElementById('deleteFundingModal');
             modal.classList.add('hidden');
             modal.classList.remove('flex');
+        }
+
+        function confirmDeleteFundingSubmit() {
+            const form = document.getElementById('deleteFundingForm');
+            return confirm(
+                `Delete ₹${form.dataset.confirmAmount || '0.00'} purchaser funding?\n\n` +
+                'This removes the funding and its corresponding safe journal movement. Reconciled, used, or historical funding will not be deleted.'
+            );
         }
         let currentCreditId = null;
         let currentPurchaserUuid = null;

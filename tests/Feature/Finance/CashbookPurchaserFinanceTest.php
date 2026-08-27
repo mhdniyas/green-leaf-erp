@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Finance\JournalService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -67,6 +68,31 @@ class CashbookPurchaserFinanceTest extends TestCase
         Account::query()->firstOrCreate(['code' => '2100'], ['name' => 'Accounts Payable', 'type' => 'liability', 'is_active' => true]);
 
         $this->purchaseInvoiceService = app(PurchaseInvoiceService::class);
+    }
+
+    public function test_purchaser_list_includes_zero_activity_and_keeps_period_totals_separate_from_current_balance(): void
+    {
+        $this->travelTo(Carbon::parse('2026-08-27'));
+        $empty = User::factory()->create(['name' => 'Zero Activity Purchaser']);
+        $empty->assignRole('purchaser');
+        PurchaserCredit::query()->create(['purchaser_id' => $this->purchaser->id, 'type' => 'in', 'amount' => 1000, 'business_date' => '2026-08-26']);
+        PurchaserCredit::query()->create(['purchaser_id' => $this->purchaser->id, 'type' => 'out', 'amount' => 100, 'business_date' => '2026-08-27']);
+        $url = route('admin.cashbook.finance.purchase.purchasers', ['period' => 'today']);
+        $response = $this->actingAs($this->admin)->get($url)->assertOk()->assertSee($empty->name)->assertSee('Current Advance')->assertSee('₹0.00');
+        $rows = $response->viewData('sectionData')['rows'];
+        $this->assertSame(2, $rows->total());
+        $row = $rows->firstWhere('purchaser_id', $this->purchaser->id);
+        $this->assertEquals(0, $row->funding);
+        $this->assertEquals(100, $row->funding_used);
+        $this->assertEquals(900, $row->balance);
+        $this->assertEquals(1, $row->transaction_count);
+        $zero = $rows->firstWhere('purchaser_id', $empty->id);
+        $this->assertEquals(0, $zero->funding);
+        $this->assertEquals(0, $zero->funding_used);
+        $this->assertEquals(0, $zero->transaction_count);
+        $this->get($url.'&search=Zero')->assertOk()->assertViewHas('sectionData', fn ($data) => $data['rows']->total() === 1);
+        $this->get(route('admin.cashbook.finance.purchase.purchasers', ['period' => 'yesterday']))->assertOk()
+            ->assertViewHas('sectionData', fn ($data) => (float) $data['rows']->firstWhere('purchaser_id', $this->purchaser->id)->funding === 1000.0);
     }
 
     public function test_company_funding_creates_cashbook_journal_and_starts_unmatched(): void

@@ -1073,7 +1073,9 @@
                                     </div>
                                     <div class="mt-3 space-y-3">
                                         @forelse($eligibleShopPayments as $candidate)
-                                            @php($payment = $candidate['payment'])
+                                            @php
+                                                $payment = $candidate['payment'];
+                                            @endphp
                                             <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.classify-shop-payment', $classifyStatement) }}" data-classification-action="shop-payment" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                                                 @csrf
                                                 <input type="hidden" name="payment_request_ref" value="{{ $payment->secureRouteKey() }}">
