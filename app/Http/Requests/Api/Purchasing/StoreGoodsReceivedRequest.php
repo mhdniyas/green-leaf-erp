@@ -24,6 +24,7 @@ class StoreGoodsReceivedRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'client_submission_id' => ['sometimes', 'nullable', 'string', 'max:100'],
             'purchase_order_id' => ['nullable', 'integer', 'exists:purchase_orders,id'],
             'destination_shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],

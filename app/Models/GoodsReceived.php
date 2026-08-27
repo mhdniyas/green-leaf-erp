@@ -47,6 +47,8 @@ class GoodsReceived extends Model
         'notes',
         'is_extra',
         'purchase_grade',
+        'client_submission_id',
+        'submission_payload_hash',
     ];
 
     protected $attributes = [

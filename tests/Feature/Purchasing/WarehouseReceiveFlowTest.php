@@ -311,7 +311,7 @@ class WarehouseReceiveFlowTest extends TestCase
         $response->assertOk()
             ->assertSee('Cashbook Inventory')
             ->assertSee('Bill Pending')
-            ->assertSee('Loadout Not Billed');
+            ->assertSee('Loadout Without Bill');
     }
 
     public function test_advance_goods_receipt_without_po_creates_bill_pending_receipt_and_stock_batches_for_multiple_products(): void
