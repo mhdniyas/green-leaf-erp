@@ -112,12 +112,12 @@ class ApiWarehouseLoadoutController extends Controller
                     $query->where('sorting_status', 'loaded');
                 },
             ])
+            ->where('order_source', '!=', 'admin_direct_purchase')
             ->whereHas('items')
             ->when($selectedDate, fn ($query) => $query->whereDate('business_date', $selectedDate))
             ->when($selectedShopId, fn ($query) => $query->where('shop_id', $selectedShopId))
-            ->when($selectedSource === 'all', fn ($query) => $query->where('order_source', '!=', 'admin_direct_purchase'))
             ->when($selectedSource === 'shop', fn ($query) => $query->where('order_source', 'shop_owner'))
-            ->when($selectedSource === 'direct', fn ($query) => $query->whereIn('order_source', ['admin_direct_purchase', 'direct_sale']))
+            ->when($selectedSource === 'direct', fn ($query) => $query->where('order_source', 'direct_sale'))
             ->when($selectedCategoryIds, function ($query) use ($selectedCategoryIds): void {
                 $query->whereHas('items.product', fn ($productQuery) => $productQuery->whereIn('category_id', $selectedCategoryIds));
             })

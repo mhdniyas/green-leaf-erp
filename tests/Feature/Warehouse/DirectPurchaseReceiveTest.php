@@ -233,4 +233,162 @@ class DirectPurchaseReceiveTest extends TestCase
 
         $response->assertNotFound();
     }
+
+    public function test_checklist_pending_tab_includes_direct_purchase_and_loadout_tab_excludes_it(): void
+    {
+        $today = now()->toDateString();
+
+        $directOrder = ShopOrder::create([
+            'order_number' => 'RQ-20260827-DP-PENDING',
+            'order_source' => 'admin_direct_purchase',
+            'business_date' => $today,
+            'created_by' => $this->receiver->id,
+            'state' => 'approved',
+            'delivery_status' => 'pending_delivery',
+            'is_allocation_completed' => false,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $directOrder->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 30.00,
+            'approved_qty' => 30.00,
+            'unit' => 'KG',
+        ]);
+
+        $shopOrder = ShopOrder::create([
+            'order_number' => 'RQ-20260827-SHOP-LOADOUT',
+            'order_source' => 'shop_owner',
+            'business_date' => $today,
+            'created_by' => $this->receiver->id,
+            'state' => 'approved',
+            'delivery_status' => 'pending_delivery',
+            'is_allocation_completed' => false,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 40.00,
+            'approved_qty' => 40.00,
+            'unit' => 'KG',
+        ]);
+
+        // Pending receive tab must include direct purchase order
+        $responsePending = $this->actingAs($this->receiver)
+            ->getJson("/warehouse-receiver/tab/pending?date={$today}");
+
+        $responsePending->assertOk();
+        $pendingData = $responsePending->json();
+        $directOrderNumbers = collect($pendingData['pending_direct_orders'])->pluck('order_number')->all();
+        $this->assertContains('RQ-20260827-DP-PENDING', $directOrderNumbers);
+
+        // Loadout tab must contain shop order but NEVER direct purchase
+        $responseLoadout = $this->actingAs($this->receiver)
+            ->getJson("/warehouse-receiver/tab/loadout?date={$today}");
+
+        $responseLoadout->assertOk();
+        $loadoutData = $responseLoadout->json();
+        $loadoutOrderNumbers = collect($loadoutData['orders'])->pluck('order_number')->all();
+        $this->assertContains('RQ-20260827-SHOP-LOADOUT', $loadoutOrderNumbers);
+        $this->assertNotContains('RQ-20260827-DP-PENDING', $loadoutOrderNumbers);
+
+        // Deliveries tab must also exclude direct purchase
+        $responseDeliveries = $this->actingAs($this->receiver)
+            ->getJson("/warehouse-receiver/tab/deliveries?date={$today}");
+
+        $responseDeliveries->assertOk();
+        $deliveriesData = $responseDeliveries->json();
+        $deliveriesOrderNumbers = collect($deliveriesData['orders'])->pluck('order_number')->all();
+        $this->assertContains('RQ-20260827-SHOP-LOADOUT', $deliveriesOrderNumbers);
+        $this->assertNotContains('RQ-20260827-DP-PENDING', $deliveriesOrderNumbers);
+    }
+
+    public function test_loadout_details_page_rejects_direct_purchase_with_404(): void
+    {
+        $today = now()->toDateString();
+
+        $directOrder = ShopOrder::create([
+            'order_number' => 'RQ-20260827-DP-BLOCK',
+            'order_source' => 'admin_direct_purchase',
+            'business_date' => $today,
+            'created_by' => $this->receiver->id,
+            'state' => 'approved',
+            'delivery_status' => 'pending_delivery',
+        ]);
+
+        $shopOrder = ShopOrder::create([
+            'order_number' => 'RQ-20260827-SHOP-ALLOW',
+            'order_source' => 'shop_owner',
+            'business_date' => $today,
+            'created_by' => $this->receiver->id,
+            'state' => 'approved',
+            'delivery_status' => 'pending_delivery',
+        ]);
+
+        // Direct purchase must 404 on loadout details
+        $this->actingAs($this->receiver)
+            ->get("/warehouse-receiver/loadout/{$directOrder->id}")
+            ->assertNotFound();
+
+        // Shop order must 200 on loadout details
+        $this->actingAs($this->receiver)
+            ->get("/warehouse-receiver/loadout/{$shopOrder->id}")
+            ->assertOk();
+    }
+
+    public function test_partial_loadout_appears_in_loadout_tab(): void
+    {
+        $today = now()->toDateString();
+
+        $product2 = Product::create([
+            'name' => 'Fresh Onion',
+            'sku' => 'ONI-01',
+            'unit' => 'KG',
+            'category_id' => $this->product->category_id,
+            'default_warehouse_id' => $this->warehouse->id,
+            'is_active' => true,
+        ]);
+
+        $partialOrder = ShopOrder::create([
+            'order_number' => 'RQ-20260827-PARTIAL',
+            'order_source' => 'shop_owner',
+            'business_date' => $today,
+            'created_by' => $this->receiver->id,
+            'state' => 'approved',
+            'delivery_status' => 'pending_delivery',
+        ]);
+
+        // Item 1 loaded
+        ShopOrderItem::create([
+            'shop_order_id' => $partialOrder->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'approved_qty' => 10.00,
+            'loaded_qty' => 10.00,
+            'sorting_status' => 'loaded',
+            'unit' => 'KG',
+        ]);
+
+        // Item 2 not loaded
+        ShopOrderItem::create([
+            'shop_order_id' => $partialOrder->id,
+            'product_id' => $product2->id,
+            'requested_qty' => 20.00,
+            'approved_qty' => 20.00,
+            'loaded_qty' => 0.00,
+            'sorting_status' => 'pending',
+            'unit' => 'KG',
+        ]);
+
+        $response = $this->actingAs($this->receiver)
+            ->getJson("/warehouse-receiver/tab/loadout?date={$today}");
+
+        $response->assertOk();
+        $orderData = collect($response->json('orders'))->firstWhere('order_number', 'RQ-20260827-PARTIAL');
+        $this->assertNotNull($orderData);
+        $this->assertEquals('Partially Loaded', $orderData['loading_status']);
+        $this->assertEquals(2, $orderData['total_items_count']);
+        $this->assertEquals(1, $orderData['loaded_items_count']);
+    }
 }

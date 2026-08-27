@@ -249,6 +249,7 @@ class WarehouseReceiverController extends Controller
 
         $orders = ShopOrder::whereDate('business_date', $date)
             ->where('state', 'approved')
+            ->where('order_source', '!=', 'admin_direct_purchase')
             ->with(['shop:id,name,code,warehouse_tag,contact_phone,contact_name'])
             ->withCount([
                 'items as total_items_count',
@@ -305,6 +306,7 @@ class WarehouseReceiverController extends Controller
         }
 
         $orders = ShopOrder::whereDate('business_date', $date)
+            ->where('order_source', '!=', 'admin_direct_purchase')
             ->with([
                 'shop:id,name,code,warehouse_tag',
                 'items:id,shop_order_id,product_id,approved_qty,requested_qty,loaded_qty,sorting_status,product_grade,unit,loadout_discrepancy_type,loadout_discrepancy_note',
@@ -677,6 +679,8 @@ class WarehouseReceiverController extends Controller
     public function loadoutDetails(ShopOrder $order, Request $request): View
     {
         $this->authorizeReceiverAccess($request);
+
+        abort_if($order->isAdminDirectPurchase(), 404);
 
         $order->load(['shop', 'items.product']);
 

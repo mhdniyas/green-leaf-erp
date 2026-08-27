@@ -38,11 +38,11 @@ class WarehouseScopedLoadoutService
 
         $orders = ShopOrder::query()
             ->whereIn('delivery_status', $this->visibleDeliveryStatuses())
+            ->where('order_source', '!=', 'admin_direct_purchase')
             ->whereDate('business_date', $date)
             ->when(isset($filters['shop_id']), fn (Builder $query) => $query->where('shop_id', (int) $filters['shop_id']))
-            ->when($source === 'all', fn (Builder $query) => $query->where('order_source', '!=', 'admin_direct_purchase'))
             ->when($source === 'shop', fn (Builder $query) => $query->where('order_source', 'shop_owner'))
-            ->when($source === 'direct', fn (Builder $query) => $query->whereIn('order_source', ['admin_direct_purchase', 'direct_sale']))
+            ->when($source === 'direct', fn (Builder $query) => $query->where('order_source', 'direct_sale'))
             ->whereHas('items', $warehouseItems)
             ->when($search !== '', function (Builder $query) use ($search, $warehouse): void {
                 $query->where(function (Builder $searchQuery) use ($search, $warehouse): void {

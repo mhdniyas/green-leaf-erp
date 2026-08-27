@@ -82,12 +82,12 @@ class ShopOrderLoadoutRepository extends BaseRepository
                 'partially_delivered',
                 'delivery_issue',
             ])
+            ->where('order_source', '!=', 'admin_direct_purchase')
             ->whereHas('items')
             ->when($date, fn (Builder $query) => $query->whereDate('business_date', $date))
             ->when($shopId, fn (Builder $query) => $query->where('shop_id', $shopId))
-            ->when($source === 'all', fn (Builder $query) => $query->where('order_source', '!=', 'admin_direct_purchase'))
             ->when($source === 'shop', fn (Builder $query) => $query->where('order_source', 'shop_owner'))
-            ->when($source === 'direct', fn (Builder $query) => $query->whereIn('order_source', ['admin_direct_purchase', 'direct_sale']))
+            ->when($source === 'direct', fn (Builder $query) => $query->where('order_source', 'direct_sale'))
             ->when($categoryIds !== null && $categoryIds !== [], function (Builder $query) use ($categoryIds): void {
                 $query->whereHas('items.product', fn (Builder $productQuery) => $productQuery->whereIn('category_id', $categoryIds));
             })
