@@ -60,21 +60,21 @@ class GoodsReceivedController extends Controller
         );
     }
 
-    public function show(GoodsReceived $goodsReceived): JsonResponse
+    public function show(GoodsReceived $grn): JsonResponse
     {
-        Gate::authorize('view', $goodsReceived);
+        Gate::authorize('view', $grn);
 
         return ApiResponse::success(
-            new GoodsReceivedResource($goodsReceived->load(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'updatedBy', 'purchaseInvoices']))
+            new GoodsReceivedResource($grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'updatedBy', 'purchaseInvoices']))
         );
     }
 
-    public function linkBill(Request $request, GoodsReceived $goodsReceived): JsonResponse
+    public function linkBill(Request $request, GoodsReceived $grn): JsonResponse
     {
-        return $this->matchBill($request, $goodsReceived);
+        return $this->matchBill($request, $grn);
     }
 
-    public function matchBill(Request $request, GoodsReceived $goodsReceived): JsonResponse
+    public function matchBill(Request $request, GoodsReceived $grn): JsonResponse
     {
         $this->authorizeAdminOrPurchaser($request);
 
@@ -87,7 +87,7 @@ class GoodsReceivedController extends Controller
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $updated = $this->service->matchBill($goodsReceived, $validated, (int) $request->user()->id);
+        $updated = $this->service->matchBill($grn, $validated, (int) $request->user()->id);
 
         return ApiResponse::success(
             new GoodsReceivedResource($updated),
@@ -108,7 +108,7 @@ class GoodsReceivedController extends Controller
         );
     }
 
-    public function updateItems(Request $request, GoodsReceived $goodsReceived): JsonResponse
+    public function updateItems(Request $request, GoodsReceived $grn): JsonResponse
     {
         $this->authorizeAdminOrPurchaser($request);
 
@@ -118,7 +118,7 @@ class GoodsReceivedController extends Controller
             'items.*.received_qty' => ['required', 'numeric', 'min:0'],
         ]);
 
-        $updated = $this->service->updateItems($goodsReceived, $validated['items'], (int) $request->user()->id);
+        $updated = $this->service->updateItems($grn, $validated['items'], (int) $request->user()->id);
 
         return ApiResponse::success(
             new GoodsReceivedResource($updated),

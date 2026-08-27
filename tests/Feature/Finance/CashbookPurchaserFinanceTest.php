@@ -69,7 +69,7 @@ class CashbookPurchaserFinanceTest extends TestCase
         $this->purchaseInvoiceService = app(PurchaseInvoiceService::class);
     }
 
-    public function test_company_funding_creates_cashbook_journal_and_auto_finalizes_statement(): void
+    public function test_company_funding_creates_cashbook_journal_and_starts_unmatched(): void
     {
         $response = $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.store', $this->purchaser->public_uuid), [
             'amount' => 50000.00,
@@ -99,10 +99,25 @@ class CashbookPurchaserFinanceTest extends TestCase
         $this->assertEquals('1300', $journalEntry->transactions->firstWhere('type', 'debit')->account->code);
         $this->assertEquals('1020', $journalEntry->transactions->firstWhere('type', 'credit')->account->code);
 
-        // After fix: system-first path auto-finalizes via reconcileStatementJournal.
+        // Starts unmatched (no synthetic auto-finalized statement entry)
+        $statementEntry = CompanyAccountStatementEntry::query()->where('journal_entry_id', $journalEntry->id)->first();
+        $this->assertNull($statementEntry, 'New funding must start without auto-created statement entry');
+
+        // Now explicitly match with manual cash/statement counterpart
+        $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.match-manual', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'credit' => $credit->id,
+        ]), [
+            'amount' => 50000.00,
+            'business_date' => '2026-08-22',
+            'company_account_id' => $this->bankCompanyAccount->id,
+            'reference' => 'FUND-UTR-001',
+            'description' => 'Weekly purchase advance counterpart',
+        ])->assertRedirect();
+
         $statementEntry = CompanyAccountStatementEntry::query()->where('journal_entry_id', $journalEntry->id)->firstOrFail();
         $this->assertEquals('out', $statementEntry->direction);
-        $this->assertSame('purchaser_funding', $statementEntry->source);
+        $this->assertSame('manual', $statementEntry->source);
         $this->assertSame(PurchaserCredit::class, $statementEntry->source_type);
         $this->assertSame($credit->id, $statementEntry->source_id);
         $this->assertTrue($statementEntry->is_finalized);
@@ -115,7 +130,7 @@ class CashbookPurchaserFinanceTest extends TestCase
         $this->assertEquals('finalized', $journalEntry->reconciliation_status);
     }
 
-    public function test_system_first_purchaser_funding_appears_in_approved_transactions(): void
+    public function test_system_first_purchaser_funding_appears_in_approved_transactions_when_reconciled(): void
     {
         $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.store', $this->purchaser->public_uuid), [
             'amount' => 75000.00,
@@ -132,6 +147,16 @@ class CashbookPurchaserFinanceTest extends TestCase
             ->where('source_id', $credit->id)
             ->where('source_event', 'purchaser_funding')
             ->firstOrFail();
+
+        // Match manual counterpart
+        $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.match-manual', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'credit' => $credit->id,
+        ]), [
+            'amount' => 75000.00,
+            'business_date' => '2026-08-22',
+            'company_account_id' => $this->bankCompanyAccount->id,
+        ])->assertRedirect();
 
         // Must appear exactly once in Approved Transactions
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.journal'));
@@ -407,6 +432,7 @@ class CashbookPurchaserFinanceTest extends TestCase
             'purchaser_submitted_by' => $purchaser->id,
             'invoice_number' => $invoiceNumber,
             'amount' => $amount,
+            'status' => 'pending',
             'discount_amount' => 0.00,
             'paid_amount' => 0.00,
             'payment_method' => 'Cash',

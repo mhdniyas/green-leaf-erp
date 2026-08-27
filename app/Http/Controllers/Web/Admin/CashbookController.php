@@ -2060,19 +2060,14 @@ final class CashbookController extends Controller
 
             $journalEntry = $journalService->recordPurchaserCredit($credit);
 
-            if (! empty($validated['company_account_id'])) {
-                $statementEntry = $this->companyPaymentReconciliationService->createStatementEntry([
-                    'company_account_id' => (int) $validated['company_account_id'],
-                    'transaction_date' => $validated['business_date'],
-                    'direction' => 'out',
-                    'amount' => round((float) $validated['amount'], 2),
-                    'reference' => $validated['reference'] ?? "PURCH-FUND-{$credit->id}",
-                    'narration' => 'Company funding to purchaser '.$purchaser->name,
-                    'source' => 'purchaser_funding',
-                    'source_type' => PurchaserCredit::class,
-                    'source_id' => $credit->id,
-                    'notes' => $validated['description'] ?? null,
-                ], (int) $request->user()->id);
+            if (! empty($validated['statement_entry_id'])) {
+                $statementEntry = CompanyAccountStatementEntry::query()
+                    ->whereKey((int) $validated['statement_entry_id'])
+                    ->where('direction', 'out')
+                    ->where('is_finalized', false)
+                    ->where('status', 'unmatched')
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
                 $this->companyPaymentReconciliationService->reconcileStatementJournal(
                     $statementEntry,
@@ -2080,6 +2075,11 @@ final class CashbookController extends Controller
                     round((float) $validated['amount'], 2),
                     (int) $request->user()->id,
                 );
+
+                $credit->update([
+                    'company_account_id' => $statementEntry->company_account_id,
+                    'payment_source' => $statementEntry->companyAccount?->account_type === 'cash' ? 'Cash' : 'Bank',
+                ]);
             }
 
             return $credit;
@@ -2092,6 +2092,287 @@ final class CashbookController extends Controller
                 'tab' => 'finance',
             ])
             ->with('success', 'Purchaser funding of ₹'.number_format((float) $credit->amount, 2).' recorded.');
+    }
+
+    public function purchaserFundingCandidates(Request $request, User $purchaser, PurchaserCredit $credit, PurchaserFinanceService $purchaserFinanceService): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $graceDays = max(0, min(90, (int) $request->input('grace_days', 30)));
+        $search = trim((string) $request->input('search', ''));
+
+        $candidates = $purchaserFinanceService->candidateStatementsForCredit($credit, $graceDays, $search);
+
+        return response()->json([
+            'credit' => [
+                'id' => $credit->id,
+                'amount' => (float) $credit->amount,
+                'business_date' => $credit->business_date?->toDateString(),
+                'reference' => $credit->reference,
+                'description' => $credit->description,
+                'company_account_id' => $credit->company_account_id,
+            ],
+            'candidates' => $candidates->map(fn (array $item) => [
+                'id' => $item['statement']->id,
+                'public_uuid' => $item['statement']->public_uuid,
+                'account_name' => $item['statement']->companyAccount?->name ?? 'Company Account',
+                'account_type' => $item['statement']->companyAccount?->account_type ?? 'bank',
+                'transaction_date' => $item['statement']->transaction_date?->toDateString(),
+                'amount' => (float) $item['statement']->amount,
+                'reference' => $item['statement']->reference ?: '—',
+                'narration' => $item['statement']->narration ?: '—',
+                'status' => $item['statement']->status,
+                'is_exact_amount' => $item['is_exact_amount'],
+                'score' => $item['score'],
+            ]),
+        ]);
+    }
+
+    public function matchStatementPurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $validated = $request->validate([
+            'statement_entry_id' => ['required', 'integer', 'exists:cashbook_company_account_statement_entries,id'],
+        ]);
+
+        DB::transaction(function () use ($credit, $validated, $request): void {
+            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+
+            $journalEntry = JournalEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->with('transactions.account')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $alreadyReconciled = CompanyAccountStatementEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->where('is_finalized', true)
+                ->exists();
+
+            if ($alreadyReconciled) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'This purchaser funding transaction is already reconciled.',
+                ]);
+            }
+
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->with('companyAccount')
+                ->whereKey((int) $validated['statement_entry_id'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($statementEntry->direction !== 'out' || $statementEntry->is_finalized || $statementEntry->status !== 'unmatched' || $statementEntry->journal_entry_id !== null) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'The selected statement entry cannot be matched.',
+                ]);
+            }
+
+            $amount = round((float) $credit->amount, 2);
+            $stmtAmount = round((float) $statementEntry->amount, 2);
+
+            if ($stmtAmount < $amount - 0.01) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'The selected statement entry amount is less than the funding amount.',
+                ]);
+            }
+
+            $this->companyPaymentReconciliationService->reconcileStatementJournal(
+                $statementEntry,
+                $journalEntry,
+                $amount,
+                (int) $request->user()->id,
+            );
+
+            $credit->update([
+                'company_account_id' => $statementEntry->company_account_id,
+                'payment_source' => $statementEntry->companyAccount?->account_type === 'cash' ? 'Cash' : 'Bank',
+            ]);
+        }, attempts: 3);
+
+        return redirect()->back()->with('success', 'Purchaser funding matched to statement entry.');
+    }
+
+    public function matchManualPurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'reference' => ['nullable', 'string', 'max:160'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        DB::transaction(function () use ($credit, $validated, $request, $purchaser): void {
+            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+
+            $journalEntry = JournalEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->with('transactions.account')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $alreadyReconciled = CompanyAccountStatementEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->where('is_finalized', true)
+                ->exists();
+
+            if ($alreadyReconciled) {
+                throw ValidationException::withMessages([
+                    'company_account_id' => 'This purchaser funding transaction is already reconciled.',
+                ]);
+            }
+
+            $companyAccount = CompanyAccount::query()
+                ->whereKey((int) $validated['company_account_id'])
+                ->where('enabled', true)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $statementEntry = $this->companyPaymentReconciliationService->createStatementEntry([
+                'company_account_id' => $companyAccount->id,
+                'transaction_date' => $validated['business_date'],
+                'direction' => 'out',
+                'amount' => round((float) $validated['amount'], 2),
+                'reference' => $validated['reference'] ?? "CASH-{$credit->id}",
+                'narration' => $validated['description'] ?? 'Cash given to purchaser '.$purchaser->name,
+                'source' => 'manual',
+                'source_type' => PurchaserCredit::class,
+                'source_id' => $credit->id,
+                'notes' => $validated['notes'] ?? null,
+            ], (int) $request->user()->id);
+
+            $this->companyPaymentReconciliationService->reconcileStatementJournal(
+                $statementEntry,
+                $journalEntry,
+                round((float) $validated['amount'], 2),
+                (int) $request->user()->id,
+            );
+
+            $credit->update([
+                'company_account_id' => $companyAccount->id,
+                'payment_source' => $companyAccount->account_type === 'cash' ? 'Cash' : 'Bank',
+            ]);
+        }, attempts: 3);
+
+        return redirect()->back()->with('success', 'Manual cash/statement entry created and matched.');
+    }
+
+    public function tracePurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $statement = CompanyAccountStatementEntry::query()
+            ->with(['companyAccount', 'reconciledBy'])
+            ->where('source_type', PurchaserCredit::class)
+            ->where('source_id', $credit->id)
+            ->where('is_finalized', true)
+            ->first();
+
+        if (! $statement) {
+            return response()->json([
+                'reconciled' => false,
+                'purchaser' => [
+                    'name' => $purchaser->name,
+                    'public_uuid' => $purchaser->public_uuid,
+                ],
+                'funding' => [
+                    'id' => $credit->id,
+                    'reference' => $credit->reference ?: "PURCH-FUND-{$credit->id}",
+                    'business_date' => $credit->business_date?->toDateString(),
+                    'amount' => (float) $credit->amount,
+                ],
+            ]);
+        }
+
+        $isImported = $statement->source === 'imported' || ! empty($statement->import_file_name) || ! empty($statement->import_fingerprint);
+        $accountType = $statement->companyAccount?->account_type ?? 'bank';
+        $sourceClassification = match (true) {
+            $isImported => 'Imported Statement',
+            $accountType === 'cash' => 'Manual Cash',
+            default => 'Manual Statement',
+        };
+
+        return response()->json([
+            'reconciled' => true,
+            'purchaser' => [
+                'name' => $purchaser->name,
+                'public_uuid' => $purchaser->public_uuid,
+            ],
+            'funding' => [
+                'id' => $credit->id,
+                'reference' => $credit->reference ?: "PURCH-FUND-{$credit->id}",
+                'business_date' => $credit->business_date?->toDateString(),
+                'amount' => (float) $credit->amount,
+            ],
+            'matched_account' => [
+                'name' => $statement->companyAccount?->name ?? 'Company Account',
+                'account_type' => $accountType,
+            ],
+            'statement' => [
+                'id' => $statement->id,
+                'public_uuid' => $statement->public_uuid,
+                'transaction_date' => $statement->transaction_date?->toDateString(),
+                'amount' => (float) $statement->amount,
+                'reference' => $statement->reference ?: '—',
+                'narration' => $statement->narration ?: '—',
+                'notes' => $statement->notes ?: '—',
+                'source_classification' => $sourceClassification,
+                'is_imported' => $isImported,
+                'import_file_name' => $statement->import_file_name,
+            ],
+            'audit' => [
+                'matched_by' => $statement->reconciledBy?->name ?? 'System',
+                'matched_at' => $statement->reconciled_at?->toDateTimeString() ?? $statement->finalized_at?->toDateTimeString() ?? '—',
+            ],
+            'can_unmatch' => $isImported,
+        ]);
+    }
+
+    public function unmatchPurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        DB::transaction(function () use ($credit, $request): void {
+            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->where('is_finalized', true)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $statementEntry) {
+                throw ValidationException::withMessages([
+                    'credit' => 'No active reconciliation match found for this funding transaction.',
+                ]);
+            }
+
+            $this->companyPaymentReconciliationService->unmatchStatementJournal(
+                $statementEntry,
+                (int) $request->user()->id,
+            );
+        }, attempts: 3);
+
+        return redirect()->back()->with('success', 'Reconciliation unlinked successfully.');
     }
 
     public function companyFinanceVendorCredit(Request $request): RedirectResponse

@@ -125,7 +125,9 @@ class CompanyPaymentReconciliationService
 
             $statementEntry->matched_amount = round((float) $statementEntry->matched_amount + $clearedAmount, 2);
             $statementEntry->journal_entry_id = $journalEntry->id;
-            $statementEntry->source = $this->cashbookSourceForJournal($journalEntry) ?? $statementEntry->source;
+            $statementEntry->source = in_array($statementEntry->source, ['imported', 'manual'], true)
+                ? $statementEntry->source
+                : ($this->cashbookSourceForJournal($journalEntry) ?? $statementEntry->source);
             $statementEntry->source_type = $journalEntry->source_type ?: $statementEntry->source_type;
             $statementEntry->source_id = $journalEntry->source_id ?: $statementEntry->source_id;
             $statementEntry->status = $statementEntry->matched_amount >= ((float) $statementEntry->amount - 0.01)
@@ -168,6 +170,47 @@ class CompanyPaymentReconciliationService
             }
 
             return $statementEntry->fresh(['companyAccount', 'journalEntry.transactions.account']);
+        });
+    }
+
+    public function unmatchStatementJournal(CompanyAccountStatementEntry $statementEntry, int $userId): CompanyAccountStatementEntry
+    {
+        return DB::transaction(function () use ($statementEntry): CompanyAccountStatementEntry {
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->with(['companyAccount', 'journalEntry'])
+                ->whereKey($statementEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $statementEntry->is_finalized && $statementEntry->status === 'unmatched' && $statementEntry->journal_entry_id === null) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'This statement entry is not currently reconciled.',
+                ]);
+            }
+
+            $isImported = $statementEntry->source === 'imported'
+                || ! empty($statementEntry->import_file_name)
+                || ! empty($statementEntry->import_fingerprint);
+
+            if ($isImported) {
+                $statementEntry->journal_entry_id = null;
+                $statementEntry->source = 'imported';
+                $statementEntry->source_type = null;
+                $statementEntry->source_id = null;
+                $statementEntry->matched_amount = 0;
+                $statementEntry->status = 'unmatched';
+                $statementEntry->is_finalized = false;
+                $statementEntry->finalized_at = null;
+                $statementEntry->reconciled_by = null;
+                $statementEntry->reconciled_at = null;
+                $statementEntry->save();
+            } else {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'Manual cash/statement counterparts represent committed cashbook ledger movements and cannot be unlinked.',
+                ]);
+            }
+
+            return $statementEntry->fresh(['companyAccount', 'journalEntry']);
         });
     }
 
