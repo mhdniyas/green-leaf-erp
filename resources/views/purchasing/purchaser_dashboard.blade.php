@@ -255,7 +255,7 @@
 
                             <details class="mt-3 rounded-2xl bg-slate-50">
                                 <summary class="cursor-pointer list-none px-3 py-3 text-center text-xs font-black text-slate-950">Place Order</summary>
-                                <form id="{{ $billFormId }}" action="{{ route('purchaser.carts.submit') }}" method="POST" class="space-y-2 border-t border-slate-200 p-3">
+                                <form id="{{ $billFormId }}" action="{{ route('purchaser.carts.submit') }}" method="POST" onsubmit="if(this.dataset.submitting) return false; this.dataset.submitting='true'; const btn = this.querySelector('button[type=submit]'); if(btn) { btn.disabled = true; btn.innerText = 'Submitting...'; }" class="space-y-2 border-t border-slate-200 p-3">
                                     @csrf
                                     <input type="hidden" name="business_date" value="{{ $date }}">
                                     <input type="hidden" name="cart_id" value="{{ $cart['id'] }}">

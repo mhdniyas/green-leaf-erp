@@ -730,7 +730,23 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $cart = $this->ownedCart($request, $cart, ['draft']);
+        $cart = PurchaserCart::query()
+            ->whereKey($cart->id)
+            ->where('user_id', $request->user()->id)
+            ->with(['supplier', 'items.product.category', 'goodsReceived', 'purchaseInvoice'])
+            ->firstOrFail();
+
+        if ($cart->status === 'submitted' || $cart->purchase_invoice_id || $cart->purchaseInvoice) {
+            if ($cart->purchaseInvoice) {
+                return redirect()
+                    ->route('purchaser.invoices.show', $cart->purchaseInvoice)
+                    ->with('info', 'Cart has already been submitted.');
+            }
+
+            return redirect()
+                ->route('purchaser.vendors', ['date' => $cart->business_date->format('Y-m-d')])
+                ->with('info', 'Cart has already been submitted.');
+        }
 
         if ($cart->items->isEmpty()) {
             return redirect()
@@ -2072,14 +2088,18 @@ class PurchaserDashboardController extends Controller
     {
         $date = Carbon::parse($request->validated('business_date'));
         $user = $request->user();
+        $cartId = $request->integer('cart_id');
 
         /** @var PurchaserCart $cart */
         $cart = PurchaserCart::query()
-            ->whereKey($request->integer('cart_id'))
+            ->whereKey($cartId)
             ->where('user_id', $user->id)
-            ->where('status', 'draft')
-            ->with(['items.product', 'supplier'])
+            ->with(['items.product', 'supplier', 'purchaseInvoice'])
             ->firstOrFail();
+
+        if ($cart->status === 'submitted' || $cart->purchase_invoice_id || $cart->purchaseInvoice) {
+            return $this->resolveSubmitRedirect($request, $date, 'Cart was already submitted.');
+        }
 
         if ($cart->items->isEmpty()) {
             return redirect()
@@ -2094,7 +2114,85 @@ class PurchaserDashboardController extends Controller
             $supplier->update(['credit_approved' => true]);
         }
 
-        DB::transaction(function () use ($request, $cart, $user, $date, $supplier, $paymentMethod): void {
+        $rawBillNumber = trim((string) $request->validated('bill_number'));
+        $userProvidedBillNumber = $rawBillNumber !== '' && ! str_starts_with(strtoupper($rawBillNumber), 'PENDING-BILL-');
+
+        if ($userProvidedBillNumber) {
+            $normalizedBillNumber = strtolower($rawBillNumber);
+            $existingVendorInvoice = PurchaseInvoice::query()
+                ->where('supplier_id', $supplier->id)
+                ->notCancelled()
+                ->whereRaw('LOWER(TRIM(invoice_number)) = ?', [$normalizedBillNumber])
+                ->first();
+
+            if ($existingVendorInvoice instanceof PurchaseInvoice) {
+                $cart->update([
+                    'supplier_id' => $supplier->id,
+                    'bill_number' => $existingVendorInvoice->invoice_number,
+                    'status' => 'submitted',
+                    'purchase_invoice_id' => $existingVendorInvoice->id,
+                    'goods_received_id' => $existingVendorInvoice->goods_received_id,
+                    'submitted_at' => now(),
+                ]);
+
+                $duplicateMsg = sprintf(
+                    'Duplicate Vendor Bill: Bill no. "%s" already exists for vendor "%s" (Existing Bill #%s, Amount: ₹%s).',
+                    $rawBillNumber,
+                    $supplier->name,
+                    $existingVendorInvoice->invoice_number,
+                    number_format((float) $existingVendorInvoice->amount, 2)
+                );
+
+                return $this->resolveSubmitRedirect($request, $date, $duplicateMsg);
+            }
+        }
+
+        DB::transaction(function () use ($request, $cartId, $user, $date, $supplier, $paymentMethod, $userProvidedBillNumber, $rawBillNumber): void {
+            /** @var PurchaserCart $cart */
+            $cart = PurchaserCart::query()
+                ->whereKey($cartId)
+                ->where('user_id', $user->id)
+                ->with(['items.product', 'supplier', 'purchaseInvoice'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($cart->status === 'submitted' || $cart->purchase_invoice_id || $cart->purchaseInvoice) {
+                return;
+            }
+
+            $existingInvoice = PurchaseInvoice::query()->where('purchaser_cart_id', $cart->id)->first();
+            if ($existingInvoice instanceof PurchaseInvoice) {
+                $cart->update([
+                    'status' => 'submitted',
+                    'purchase_invoice_id' => $existingInvoice->id,
+                ]);
+
+                return;
+            }
+
+            if ($userProvidedBillNumber) {
+                $normalizedBillNumber = strtolower($rawBillNumber);
+                $existingVendorInvoice = PurchaseInvoice::query()
+                    ->where('supplier_id', $supplier->id)
+                    ->notCancelled()
+                    ->whereRaw('LOWER(TRIM(invoice_number)) = ?', [$normalizedBillNumber])
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingVendorInvoice instanceof PurchaseInvoice) {
+                    $cart->update([
+                        'supplier_id' => $supplier->id,
+                        'bill_number' => $existingVendorInvoice->invoice_number,
+                        'status' => 'submitted',
+                        'purchase_invoice_id' => $existingVendorInvoice->id,
+                        'goods_received_id' => $existingVendorInvoice->goods_received_id,
+                        'purchase_order_id' => $existingVendorInvoice->goodsReceived?->purchase_order_id,
+                    ]);
+
+                    return;
+                }
+            }
+
             $cartItemsData = collect($request->input('items', []));
             foreach ($cart->items as $cartItem) {
                 $itemInput = $cartItemsData->get((string) $cartItem->id, []);
@@ -2270,7 +2368,7 @@ class PurchaserDashboardController extends Controller
             $this->vendorPriceService->syncMany(
                 $supplier->id,
                 ($cart->purchase_grade ?? 'A') === 'A'
-                    ? $cart->items->map(fn (PurchaserCartItem $item): array => [
+                    ? collect($cart->items)->map(fn (PurchaserCartItem $item): array => [
                         'product_id' => (int) $item->product_id,
                         'unit_price' => (float) $item->unit_price,
                     ])->all()
@@ -2290,24 +2388,29 @@ class PurchaserDashboardController extends Controller
             }
         });
 
+        return $this->resolveSubmitRedirect($request, $date, 'Cart submitted successfully.');
+    }
+
+    private function resolveSubmitRedirect(Request $request, Carbon $date, string $message): RedirectResponse
+    {
         if ($request->string('return_to')->toString() === 'history') {
             return redirect()
                 ->route('purchaser.history', array_filter([
                     'date' => $request->string('date', $date->format('Y-m-d'))->toString(),
                     'tab' => $request->string('tab', 'today')->toString(),
                 ]))
-                ->with('success', 'Cart submitted successfully.');
+                ->with('success', $message);
         }
 
         if ($request->string('return_to')->toString() === 'suppliers') {
             return redirect()
                 ->route('purchaser.suppliers', ['date' => $request->string('date', $date->format('Y-m-d'))->toString()])
-                ->with('success', 'Cart submitted successfully.');
+                ->with('success', $message);
         }
 
         return redirect()
             ->route('purchaser.vendors', ['date' => $date->format('Y-m-d'), 'tab' => 'pending'])
-            ->with('success', 'Cart submitted successfully.');
+            ->with('success', $message);
     }
 
     private function resolveCartPurchaseSource(string $currentSource, string $incomingSource): string

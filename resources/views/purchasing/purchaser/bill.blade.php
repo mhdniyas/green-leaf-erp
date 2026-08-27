@@ -41,7 +41,7 @@
             </form>
         @endif
 
-        <form id="bill-main-form" action="{{ route('purchaser.carts.submit') }}" method="POST" class="space-y-4">
+        <form id="bill-main-form" action="{{ route('purchaser.carts.submit') }}" method="POST" onsubmit="if(this.dataset.submitting) return false; this.dataset.submitting='true';" class="space-y-4">
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
             <input type="hidden" name="cart_id" value="{{ $cart->id }}">
@@ -487,17 +487,31 @@
                 }
             };
 
-            window.submitBillPaymentForm = () => {
+            let isSubmittingBill = false;
+            window.submitBillPaymentForm = (btn) => {
+                if (isSubmittingBill) return false;
+
+                const form = document.getElementById('bill-main-form');
+                if (!form) return false;
+
+                if (form.dataset.submitting === 'true') return false;
+                form.dataset.submitting = 'true';
+                isSubmittingBill = true;
+
                 const modalBillInput = document.getElementById('modal_bill_number');
                 const hiddenBillInput = document.getElementById('bill_number_hidden');
                 if (modalBillInput && hiddenBillInput) {
                     hiddenBillInput.value = modalBillInput.value;
                 }
 
-                const form = document.getElementById('bill-main-form');
-                if (form) {
-                    form.submit();
+                const submitBtn = btn || document.getElementById('confirm-submit-btn') || document.querySelector('#paymentModal button[onclick*="submitBillPaymentForm"]');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.classList.add('opacity-50', 'pointer-events-none');
+                    submitBtn.innerText = 'Submitting...';
                 }
+
+                form.submit();
             };
 
             document.getElementById('additional_paid_amount')?.addEventListener('input', window.updatePaymentModalStatus);
