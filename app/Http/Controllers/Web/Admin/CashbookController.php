@@ -2114,28 +2114,49 @@ final class CashbookController extends Controller
             'description' => ['nullable', 'string', 'max:255'],
         ]);
 
-        DB::transaction(function () use ($credit, $validated, $purchaser): void {
+        DB::transaction(function () use ($credit, $validated, $purchaser, $request): void {
             /** @var PurchaserCredit $credit */
             $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
             $newAmount = round((float) $validated['amount'], 2);
             $oldAmount = round((float) $credit->amount, 2);
+            $newDate = $validated['business_date'];
+            $oldDate = $credit->business_date?->format('Y-m-d');
+            $newSource = $validated['payment_source'];
+            $oldSource = $credit->payment_source;
+            $newAccountId = (int) ($validated['company_account_id'] ?? 0);
+            $oldAccountId = (int) ($credit->company_account_id ?? 0);
 
-            // If amount changed and statement was finalized/reconciled, unlink the statement match so amounts remain consistent
-            if (abs($newAmount - $oldAmount) > 0.009) {
-                CompanyAccountStatementEntry::query()
+            $isReconciled = CompanyAccountStatementEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->where('is_finalized', true)
+                ->exists();
+
+            if ($isReconciled) {
+                if (abs($newAmount - $oldAmount) > 0.009 || $newDate !== $oldDate || $newSource !== $oldSource || ($newAccountId > 0 && $newAccountId !== $oldAccountId)) {
+                    throw ValidationException::withMessages([
+                        'amount' => 'This funding is reconciled. Unmatch it before changing Amount or Account.',
+                    ]);
+                }
+
+                $credit->update([
+                    'reference' => $validated['reference'] ?? null,
+                    'description' => $validated['description'] ?? 'Company funding to purchaser',
+                ]);
+
+                $journalEntry = JournalEntry::query()
                     ->where('source_type', PurchaserCredit::class)
                     ->where('source_id', $credit->id)
-                    ->update([
-                        'is_finalized' => false,
-                        'status' => 'unmatched',
-                        'journal_entry_id' => null,
-                        'source_type' => null,
-                        'source_id' => null,
-                        'matched_amount' => 0,
-                        'finalized_at' => null,
-                        'reconciled_by' => null,
-                        'reconciled_at' => null,
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($journalEntry instanceof JournalEntry) {
+                    $journalEntry->update([
+                        'reference' => $validated['reference'] ?: "PURCH-FUND-{$credit->id}",
                     ]);
+                }
+
+                return;
             }
 
             $credit->update([
@@ -2183,6 +2204,28 @@ final class CashbookController extends Controller
                     ]);
                 }
             }
+
+            Log::info('Purchaser funding updated', [
+                'purchaser_id' => $purchaser->id,
+                'credit_id' => $credit->id,
+                'old_amount' => $oldAmount,
+                'new_amount' => $newAmount,
+                'actor' => $request->user()->id,
+                'timestamp' => now()->toIso8601String(),
+            ]);
+
+            if (function_exists('activity')) {
+                activity('purchaser_finance')
+                    ->causedBy($request->user())
+                    ->performedOn($purchaser)
+                    ->withProperties([
+                        'credit_id' => $credit->id,
+                        'old_amount' => $oldAmount,
+                        'new_amount' => $newAmount,
+                        'action' => 'update_funding',
+                    ])
+                    ->log("Purchaser funding #{$credit->id} updated for {$purchaser->name}");
+            }
         });
 
         return redirect()
@@ -2192,6 +2235,101 @@ final class CashbookController extends Controller
                 'tab' => 'finance',
             ])
             ->with('success', 'Purchaser funding of ₹'.number_format((float) $validated['amount'], 2).' updated successfully.');
+    }
+
+    public function deletePurchaserFunding(
+        Request $request,
+        User $purchaser,
+        PurchaserCredit $credit,
+        PurchaserFinanceService $purchaserFinanceService
+    ): RedirectResponse {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'in:duplicate_entry,wrong_entry,other,Duplicate Entry,Wrong Entry,Other'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        DB::transaction(function () use ($credit, $purchaser, $validated, $request, $purchaserFinanceService): void {
+            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->where('is_finalized', true)
+                ->lockForUpdate()
+                ->first();
+
+            if ($statementEntry) {
+                if ($statementEntry->source === 'manual') {
+                    throw ValidationException::withMessages([
+                        'credit' => 'Manual cash/statement counterparts represent committed cashbook ledger movements and cannot be deleted.',
+                    ]);
+                }
+
+                throw ValidationException::withMessages([
+                    'credit' => 'This funding is reconciled. Unmatch it before deleting or reversing.',
+                ]);
+            }
+
+            $summary = $purchaserFinanceService->summaryFor((int) $purchaser->id);
+            $remainingAdvance = (float) $summary['remaining_advance'];
+            $creditAmount = (float) $credit->amount;
+
+            if (($remainingAdvance - $creditAmount) < -0.009) {
+                $usedAmount = round($creditAmount - max(0.0, $remainingAdvance), 2);
+                throw ValidationException::withMessages([
+                    'credit' => '₹'.number_format($usedAmount, 2).' of this funding has already been used against purchase bills and cannot be deleted.',
+                ]);
+            }
+
+            $journalEntry = JournalEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($journalEntry instanceof JournalEntry) {
+                $journalEntry->transactions()->delete();
+                $journalEntry->delete();
+            }
+
+            $credit->delete();
+
+            Log::info('Purchaser funding deleted/reversed', [
+                'purchaser_id' => $purchaser->id,
+                'credit_id' => $credit->id,
+                'amount' => $creditAmount,
+                'actor' => $request->user()->id,
+                'reason' => $validated['reason'],
+                'notes' => $validated['notes'] ?? null,
+                'timestamp' => now()->toIso8601String(),
+            ]);
+
+            if (function_exists('activity')) {
+                activity('purchaser_finance')
+                    ->causedBy($request->user())
+                    ->performedOn($purchaser)
+                    ->withProperties([
+                        'credit_id' => $credit->id,
+                        'amount' => $creditAmount,
+                        'reason' => $validated['reason'],
+                        'notes' => $validated['notes'] ?? null,
+                        'action' => 'delete_funding',
+                    ])
+                    ->log('Purchaser funding of ₹'.number_format($creditAmount, 2)." deleted/reversed for {$purchaser->name}");
+            }
+        }, attempts: 3);
+
+        return redirect()
+            ->route('admin.cashbook.finance.purchase.purchasers.show', [
+                'purchaser' => $purchaser->public_uuid,
+                'period' => 'month',
+                'tab' => 'finance',
+            ])
+            ->with('success', 'Purchaser funding of ₹'.number_format((float) $credit->amount, 2).' deleted/reversed successfully.');
     }
 
     public function purchaserFundingCandidates(Request $request, User $purchaser, PurchaserCredit $credit, PurchaserFinanceService $purchaserFinanceService): JsonResponse
@@ -3552,6 +3690,46 @@ final class CashbookController extends Controller
         ]);
 
         return $this->companyFinanceReconciliation($request);
+    }
+
+    public function resetMonthReconciliation(Request $request): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'month' => ['required', 'string', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'confirmation' => ['required', 'string'],
+        ]);
+
+        $monthDate = Carbon::createFromFormat('Y-m', $validated['month']);
+        $expectedPhrase = 'CLEAR '.strtoupper($monthDate->format('F Y'));
+
+        if (trim(strtoupper((string) $validated['confirmation'])) !== $expectedPhrase) {
+            throw ValidationException::withMessages([
+                'confirmation' => "Please type '{$expectedPhrase}' to confirm clearing reconciliation.",
+            ]);
+        }
+
+        $result = $this->companyPaymentReconciliationService->resetMonthReconciliation(
+            $validated['month'],
+            (int) $request->user()->id,
+        );
+
+        $message = "{$monthDate->format('F Y')} reset: {$result['cleared']} imported matches cleared, {$result['skipped']} manual counterparts skipped, 0 failures.";
+
+        $redirect = redirect()
+            ->route('admin.cashbook.finance.reconciliation', [
+                'month' => $validated['month'],
+                'workspace' => 'transactions',
+                'status' => 'NEEDS_REVIEW',
+            ])
+            ->with('success', $message);
+
+        if ($result['skipped'] > 0) {
+            $redirect->with('skipped_reconciliations', $result['skipped_entries']);
+        }
+
+        return $redirect;
     }
 
     public function pendingReconciliationCandidates(Request $request): JsonResponse

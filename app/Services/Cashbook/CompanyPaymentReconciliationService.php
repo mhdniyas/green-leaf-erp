@@ -17,6 +17,7 @@ use App\Models\JournalEntry;
 use App\Models\PayrollPayment;
 use App\Models\PurchaserCredit;
 use App\Models\ShopInvoicePaymentRequest;
+use App\Models\User;
 use App\Models\VendorSettlement;
 use App\Services\Finance\JournalService;
 use Illuminate\Support\Carbon;
@@ -179,9 +180,9 @@ class CompanyPaymentReconciliationService
 
     public function unmatchStatementJournal(CompanyAccountStatementEntry $statementEntry, int $userId): CompanyAccountStatementEntry
     {
-        return DB::transaction(function () use ($statementEntry): CompanyAccountStatementEntry {
+        return DB::transaction(function () use ($statementEntry, $userId): CompanyAccountStatementEntry {
             $statementEntry = CompanyAccountStatementEntry::query()
-                ->with(['companyAccount', 'journalEntry'])
+                ->with(['companyAccount', 'journalEntry', 'reconciliations.paymentRequest'])
                 ->whereKey($statementEntry->id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -197,6 +198,43 @@ class CompanyPaymentReconciliationService
                 || ! empty($statementEntry->import_fingerprint);
 
             if ($isImported) {
+                $oldSourceType = $statementEntry->source_type;
+                $oldSourceId = $statementEntry->source_id;
+                $oldJournalEntryId = $statementEntry->journal_entry_id;
+                $oldStatus = $statementEntry->status;
+
+                if ($oldSourceType === VendorSettlement::class && $oldSourceId) {
+                    VendorSettlement::query()->whereKey($oldSourceId)->update([
+                        'reconciliation_status' => 'pending',
+                        'is_finalized' => false,
+                        'finalized_at' => null,
+                    ]);
+                }
+
+                if ($oldSourceType === DirectCompanySale::class && $oldSourceId) {
+                    DirectCompanySale::query()->whereKey($oldSourceId)->update([
+                        'reconciliation_status' => 'pending',
+                        'is_finalized' => false,
+                        'finalized_at' => null,
+                    ]);
+                }
+
+                if ($statementEntry->reconciliations->isNotEmpty()) {
+                    $payments = $statementEntry->reconciliations->pluck('paymentRequest')->filter();
+                    $statementEntry->reconciliations()->delete();
+                    foreach ($payments as $payment) {
+                        $this->refreshPaymentReconciliationTotals($payment);
+                    }
+                }
+
+                CompanyAccountStatementEntry::query()
+                    ->where('duplicate_of_statement_entry_id', $statementEntry->id)
+                    ->update([
+                        'status' => 'unmatched',
+                        'duplicate_status' => 'clear',
+                        'duplicate_of_statement_entry_id' => null,
+                    ]);
+
                 $statementEntry->journal_entry_id = null;
                 $statementEntry->source = 'imported';
                 $statementEntry->source_type = null;
@@ -208,6 +246,17 @@ class CompanyPaymentReconciliationService
                 $statementEntry->reconciled_by = null;
                 $statementEntry->reconciled_at = null;
                 $statementEntry->save();
+
+                Log::info('Reconciliation match unlinked', [
+                    'statement_entry_id' => $statementEntry->id,
+                    'old_source_type' => $oldSourceType,
+                    'old_source_id' => $oldSourceId,
+                    'old_journal_entry_id' => $oldJournalEntryId,
+                    'previous_status' => $oldStatus,
+                    'actor' => $userId,
+                    'timestamp' => now()->toIso8601String(),
+                    'reason' => 'manual_unmatch',
+                ]);
             } else {
                 throw ValidationException::withMessages([
                     'statement_entry_id' => 'Manual cash/statement counterparts represent committed cashbook ledger movements and cannot be unlinked.',
@@ -215,6 +264,160 @@ class CompanyPaymentReconciliationService
             }
 
             return $statementEntry->fresh(['companyAccount', 'journalEntry']);
+        });
+    }
+
+    /**
+     * Resets reconciliation matches for a selected month.
+     * Clears imported matches back to unmatched / needs review, and safely skips manual counterparts.
+     *
+     * @return array{cleared: int, skipped: int, skipped_entries: list<array<string, mixed>>, month: string}
+     */
+    public function resetMonthReconciliation(string $month, int $userId): array
+    {
+        return DB::transaction(function () use ($month, $userId): array {
+            $selectedMonth = Carbon::parse($month.'-01');
+            $monthStart = $selectedMonth->copy()->startOfMonth()->toDateString();
+            $monthEnd = $selectedMonth->copy()->endOfMonth()->toDateString();
+
+            $statementEntries = CompanyAccountStatementEntry::query()
+                ->with(['companyAccount', 'journalEntry', 'reconciliations.paymentRequest'])
+                ->whereBetween('transaction_date', [$monthStart, $monthEnd])
+                ->where(function ($query): void {
+                    $query->where('is_finalized', true)
+                        ->orWhereIn('status', ['matched', 'reconciled', 'partially_matched'])
+                        ->orWhereNotNull('journal_entry_id')
+                        ->orWhereNotNull('source_id');
+                })
+                ->lockForUpdate()
+                ->get();
+
+            $clearedCount = 0;
+            $skippedCount = 0;
+            $skippedEntries = [];
+
+            foreach ($statementEntries as $entry) {
+                $isImported = $entry->source === 'imported'
+                    || ! empty($entry->import_file_name)
+                    || ! empty($entry->import_fingerprint);
+
+                if ($isImported) {
+                    $oldSourceType = $entry->source_type;
+                    $oldSourceId = $entry->source_id;
+                    $oldJournalEntryId = $entry->journal_entry_id;
+                    $oldStatus = $entry->status;
+
+                    if ($oldSourceType === VendorSettlement::class && $oldSourceId) {
+                        VendorSettlement::query()->whereKey($oldSourceId)->update([
+                            'reconciliation_status' => 'pending',
+                            'is_finalized' => false,
+                            'finalized_at' => null,
+                        ]);
+                    }
+
+                    if ($oldSourceType === DirectCompanySale::class && $oldSourceId) {
+                        DirectCompanySale::query()->whereKey($oldSourceId)->update([
+                            'reconciliation_status' => 'pending',
+                            'is_finalized' => false,
+                            'finalized_at' => null,
+                        ]);
+                    }
+
+                    if ($entry->reconciliations->isNotEmpty()) {
+                        $payments = $entry->reconciliations->pluck('paymentRequest')->filter();
+                        $entry->reconciliations()->delete();
+                        foreach ($payments as $payment) {
+                            $this->refreshPaymentReconciliationTotals($payment);
+                        }
+                    }
+
+                    CompanyAccountStatementEntry::query()
+                        ->where('duplicate_of_statement_entry_id', $entry->id)
+                        ->update([
+                            'status' => 'unmatched',
+                            'duplicate_status' => 'clear',
+                            'duplicate_of_statement_entry_id' => null,
+                        ]);
+
+                    $entry->journal_entry_id = null;
+                    $entry->source = 'imported';
+                    $entry->source_type = null;
+                    $entry->source_id = null;
+                    $entry->matched_amount = 0;
+                    $entry->status = 'unmatched';
+                    $entry->is_finalized = false;
+                    $entry->finalized_at = null;
+                    $entry->reconciled_by = null;
+                    $entry->reconciled_at = null;
+                    $entry->save();
+
+                    Log::info('Reconciliation match cleared during month reset', [
+                        'statement_entry_id' => $entry->id,
+                        'month' => $month,
+                        'old_source_type' => $oldSourceType,
+                        'old_source_id' => $oldSourceId,
+                        'old_journal_entry_id' => $oldJournalEntryId,
+                        'previous_status' => $oldStatus,
+                        'action' => 'monthly_reconciliation_reset',
+                        'actor' => $userId,
+                        'timestamp' => now()->toIso8601String(),
+                    ]);
+
+                    if (function_exists('activity')) {
+                        activity('reconciliation')
+                            ->causedBy(User::find($userId))
+                            ->performedOn($entry)
+                            ->withProperties([
+                                'statement_entry_id' => $entry->id,
+                                'month' => $month,
+                                'old_source_type' => $oldSourceType,
+                                'old_source_id' => $oldSourceId,
+                                'old_journal_entry_id' => $oldJournalEntryId,
+                                'previous_status' => $oldStatus,
+                                'action' => 'monthly_reconciliation_reset',
+                            ])
+                            ->log("Reconciliation reset for statement entry #{$entry->id} ({$month})");
+                    }
+
+                    $clearedCount++;
+                } else {
+                    $skippedCount++;
+                    $skippedEntries[] = [
+                        'id' => $entry->id,
+                        'reference' => $entry->reference ?: '—',
+                        'amount' => (float) $entry->amount,
+                        'source' => $entry->source,
+                        'reason' => 'Manual cash/statement counterpart protected',
+                    ];
+                }
+            }
+
+            Log::info('Reconciliation month reset batch completed', [
+                'actor' => $userId,
+                'month' => $month,
+                'timestamp' => now()->toIso8601String(),
+                'cleared_count' => $clearedCount,
+                'skipped_count' => $skippedCount,
+            ]);
+
+            if (function_exists('activity')) {
+                activity('reconciliation')
+                    ->causedBy(User::find($userId))
+                    ->withProperties([
+                        'month' => $month,
+                        'cleared_count' => $clearedCount,
+                        'skipped_count' => $skippedCount,
+                        'action' => 'monthly_reconciliation_reset_batch',
+                    ])
+                    ->log("Batch reconciliation reset completed for month {$month}: {$clearedCount} cleared, {$skippedCount} skipped.");
+            }
+
+            return [
+                'cleared' => $clearedCount,
+                'skipped' => $skippedCount,
+                'skipped_entries' => $skippedEntries,
+                'month' => $month,
+            ];
         });
     }
 

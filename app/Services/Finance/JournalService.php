@@ -594,10 +594,11 @@ class JournalService
 
         $wastageAccountId = $this->getAccountIdByCode('5200');
         $cogsAccountId = $this->getAccountIdByCode('5100');
+        $amount = round((float) $wastage->quantity * (float) $wastage->cost_per_kg, 2);
 
         $lines = [
-            ['account_id' => $wastageAccountId, 'type' => 'debit', 'amount' => (float) $wastage->quantity * (float) $wastage->cost_per_kg],
-            ['account_id' => $cogsAccountId, 'type' => 'credit', 'amount' => (float) $wastage->quantity * (float) $wastage->cost_per_kg],
+            ['account_id' => $wastageAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $cogsAccountId, 'type' => 'credit', 'amount' => $amount],
         ];
 
         $data = new JournalEntryData(

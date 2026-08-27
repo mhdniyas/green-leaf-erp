@@ -125,6 +125,29 @@
             </div>
         @endif
 
+        @if(session('skipped_reconciliations'))
+            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-amber-900">Protected Manual Counterparts Skipped ({{ count(session('skipped_reconciliations')) }})</span>
+                    <button type="button" onclick="document.getElementById('skipped-reconciliations-list').classList.toggle('hidden')" class="text-xs font-black text-amber-800 underline">View Skipped</button>
+                </div>
+                <div id="skipped-reconciliations-list" class="hidden mt-3 space-y-1">
+                    @foreach(session('skipped_reconciliations') as $skipped)
+                        <div class="rounded-lg border border-amber-200/60 bg-white/80 p-2.5 flex items-center justify-between font-mono text-[11px]">
+                            <div>
+                                <span class="font-bold text-slate-800">{{ $skipped['reference'] }}</span>
+                                <span class="text-slate-500">({{ $skipped['source'] }})</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="font-bold text-slate-900">₹{{ number_format($skipped['amount'], 2) }}</span>
+                                <span class="text-amber-700 text-[10px] font-sans font-semibold">{{ $skipped['reason'] }}</span>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
+
         @unless($classifyStatement)
         <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -162,6 +185,9 @@
                     <a href="{{ route('admin.staff.advance-payments.index') }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Salary Advance</a>
                 </div>
             </details>
+            <button type="button" onclick="openClearMonthModal()" class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-4 text-xs font-black text-rose-700 shadow-sm hover:bg-rose-100">
+                <i data-lucide="rotate-ccw" class="h-4 w-4 text-rose-600"></i> Clear Reconciliation
+            </button>
             <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'statements', 'month' => $month]) }}" class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-500 shadow-sm hover:bg-slate-50">
                 <i data-lucide="file-search" class="h-4 w-4"></i> Manage Statements
             </a>
@@ -1159,4 +1185,70 @@
             </div>
         </section>
     @endif
+
+    @php
+        $formattedMonth = \Carbon\Carbon::parse($month.'-01')->format('F Y');
+        $expectedConfirm = 'CLEAR ' . strtoupper($formattedMonth);
+    @endphp
+
+    {{-- ── Clear Month Reconciliation Modal ─────────────────────────────── --}}
+    <div id="clearMonthModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div class="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-5 py-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="alert-triangle" class="h-5 w-5 text-rose-700"></i>
+                    <h3 class="font-black text-rose-950">CLEAR {{ strtoupper($formattedMonth) }} RECONCILIATION?</h3>
+                </div>
+                <button type="button" onclick="closeClearMonthModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.reset-month') }}" class="p-5 space-y-4 text-xs">
+                @csrf
+                <input type="hidden" name="month" value="{{ $month }}">
+
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2 text-slate-700">
+                    <p class="font-black text-slate-900">This will:</p>
+                    <ul class="list-disc pl-4 space-y-1 text-slate-600">
+                        <li>Remove statement ↔ ERP transaction matches for <strong>{{ $formattedMonth }}</strong></li>
+                        <li>Return affected ERP transactions to <strong>Needs Review / Unmatched</strong></li>
+                        <li>Return eligible statement rows to <strong>Unmatched</strong></li>
+                        <li>Preserve all original money transactions, statement rows, journals, balances, and audit history</li>
+                    </ul>
+                    <p class="pt-1 text-[11px] font-semibold text-slate-500">
+                        It will <strong>NOT</strong> delete transactions, bank statements, or journal entries, or change transaction amounts.
+                    </p>
+                </div>
+
+                <div class="space-y-1.5">
+                    <label for="clearMonthConfirmation" class="block font-bold text-slate-700">
+                        Type to confirm: <span class="font-mono font-black text-rose-700 select-all">{{ $expectedConfirm }}</span>
+                    </label>
+                    <input id="clearMonthConfirmation" name="confirmation" type="text" required placeholder="{{ $expectedConfirm }}" class="min-h-11 w-full rounded-lg border border-slate-300 px-3 font-mono text-xs font-bold text-slate-900 tracking-wider" oninput="document.getElementById('btnConfirmClearMonth').disabled = this.value.trim().toUpperCase() !== '{{ $expectedConfirm }}'">
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                    <button type="button" onclick="closeClearMonthModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button id="btnConfirmClearMonth" type="submit" disabled class="rounded-lg bg-rose-700 px-4 py-2 text-xs font-black text-white hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">Clear Reconciliation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openClearMonthModal() {
+            const modal = document.getElementById('clearMonthModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        }
+        function closeClearMonthModal() {
+            const modal = document.getElementById('clearMonthModal');
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+    </script>
 @endsection

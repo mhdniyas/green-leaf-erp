@@ -197,7 +197,7 @@
                             <td class="p-3 text-slate-600">{{ $movement->movement_reference ?: '—' }}</td>
                             <td class="p-3">
                                 @if($movement->type === 'out')
-                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">Advance Utilized</span>
+                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">advance utilized</span>
                                 @elseif($movement->status === 'unmatched')
                                     <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">UNMATCHED</span>
                                 @elseif($movement->status === 'matched')
@@ -224,6 +224,9 @@
                                     <div class="flex items-center justify-end gap-1.5 flex-wrap">
                                         <button type="button" onclick="openEditFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}', '{{ $movement->status }}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition">
                                             <i data-lucide="pencil" class="h-3 w-3"></i> Edit
+                                        </button>
+                                        <button type="button" onclick="openDeleteFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->company_account ?: ($movement->payment_source ?: '—')) }}', '{{ $movement->status }}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-sm transition">
+                                            <i data-lucide="trash-2" class="h-3 w-3"></i> Delete
                                         </button>
                                         @if($movement->status === 'unmatched')
                                             <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="inline-flex items-center gap-1 rounded bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-600 shadow-sm transition">
@@ -272,7 +275,7 @@
                     <p class="text-slate-500 font-mono">{{ $movement->movement_reference ?: '—' }}</p>
                     <div class="pt-1 flex items-center justify-between gap-2 flex-wrap">
                         @if($movement->type === 'out')
-                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">Advance Utilized</span>
+                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">advance utilized</span>
                         @else
                             <div class="flex items-center gap-1.5 flex-wrap">
                                 @if($movement->status === 'unmatched')
@@ -281,6 +284,7 @@
                                     <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">{{ str_replace('_', ' ', $movement->status) }}</span>
                                 @endif
                                 <button type="button" onclick="openEditFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}', '{{ $movement->status }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Edit</button>
+                                <button type="button" onclick="openDeleteFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->company_account ?: ($movement->payment_source ?: '—')) }}', '{{ $movement->status }}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
                                 @if($movement->status === 'unmatched')
                                     <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white">Match</button>
                                     <button type="button" onclick="openManualEntryModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ $movement->company_account_id }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Add Manual</button>
@@ -526,6 +530,67 @@
         </div>
     </div>
 
+    {{-- ── Delete Purchaser Funding Modal ─────────────────────────────── --}}
+    <div id="deleteFundingModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div class="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-5 py-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="alert-triangle" class="h-5 w-5 text-rose-700"></i>
+                    <h3 class="font-black text-rose-950">DELETE PURCHASER FUNDING?</h3>
+                </div>
+                <button type="button" onclick="closeDeleteFundingModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            
+            <form id="deleteFundingForm" method="POST" action="" class="p-5 space-y-4 text-xs">
+                @csrf
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-1.5 text-slate-700">
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Purchaser:</span>
+                        <span class="font-bold text-slate-900">{{ $record->name }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Amount:</span>
+                        <span id="deleteFundingAmount" class="font-mono font-black text-rose-700 text-sm">₹0.00</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Date:</span>
+                        <span id="deleteFundingDate" class="font-mono font-bold text-slate-800">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Account:</span>
+                        <span id="deleteFundingAccount" class="font-semibold text-slate-800">—</span>
+                    </div>
+                </div>
+
+                <div id="deleteFundingMatchedWarning" class="hidden rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+                    <i data-lucide="alert-circle" class="inline h-4 w-4 mr-1 text-rose-700"></i>
+                    <strong>Cannot Delete:</strong> This funding is currently reconciled. You must unmatch it before deleting.
+                </div>
+
+                <div>
+                    <label for="deleteFundingReason" class="mb-1 block font-bold text-slate-700">Reason for Deletion <span class="text-rose-600">*</span></label>
+                    <select id="deleteFundingReason" name="reason" required class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                        <option value="Duplicate Entry">Duplicate Entry (accidental double entry)</option>
+                        <option value="Wrong Entry">Wrong Entry / Incorrect purchaser</option>
+                        <option value="Other">Other Reason</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="deleteFundingNotes" class="mb-1 block font-bold text-slate-700">Audit Notes (Optional)</label>
+                    <textarea id="deleteFundingNotes" name="notes" rows="2" placeholder="Provide extra context for audit trail" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-800"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                    <button type="button" onclick="closeDeleteFundingModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button id="btnConfirmDeleteFunding" type="submit" class="rounded-lg bg-rose-700 px-4 py-2 text-xs font-black text-white hover:bg-rose-600 shadow-sm">Delete Funding</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     {{-- ── Add Cash / Manual Statement Modal ─────────────────────────────── --}}
     <div id="manualEntryModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
         <div class="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
@@ -663,16 +728,29 @@
     <script>
         function openEditFundingModal(creditId, purchaserUuid, date, amount, source, accountId, ref, desc, status) {
             const modal = document.getElementById('editFundingModal');
-            document.getElementById('editFundingAmount').value = Number(amount).toFixed(2);
-            document.getElementById('editFundingDate').value = date;
-            document.getElementById('editFundingSource').value = source || 'Bank';
-            document.getElementById('editFundingAccount').value = accountId || '';
+            const isReconciled = ['matched', 'manual_cash', 'manual_statement'].includes(status);
+
+            const amountInput = document.getElementById('editFundingAmount');
+            const dateInput = document.getElementById('editFundingDate');
+            const sourceSelect = document.getElementById('editFundingSource');
+            const accountSelect = document.getElementById('editFundingAccount');
+
+            amountInput.value = Number(amount).toFixed(2);
+            dateInput.value = date;
+            sourceSelect.value = source || 'Bank';
+            accountSelect.value = accountId || '';
             document.getElementById('editFundingReference').value = ref || '';
             document.getElementById('editFundingDescription').value = desc || '';
 
+            amountInput.readOnly = isReconciled;
+            dateInput.readOnly = isReconciled;
+            sourceSelect.disabled = isReconciled;
+            accountSelect.disabled = isReconciled;
+
             const warningEl = document.getElementById('editFundingMatchedWarning');
-            if (status === 'matched') {
+            if (isReconciled) {
                 warningEl.classList.remove('hidden');
+                warningEl.innerHTML = '<i data-lucide="alert-triangle" class="inline h-4 w-4 mr-1 text-amber-700"></i><strong>Reconciled:</strong> Critical fields (Amount, Date, Source, Account) cannot be changed while reconciled. Please unmatch the funding first if you need to alter financial amounts.';
             } else {
                 warningEl.classList.add('hidden');
             }
@@ -687,6 +765,40 @@
 
         function closeEditFundingModal() {
             const modal = document.getElementById('editFundingModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function openDeleteFundingModal(creditId, purchaserUuid, date, amount, account, status) {
+            const modal = document.getElementById('deleteFundingModal');
+            document.getElementById('deleteFundingAmount').textContent = '₹' + Number(amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('deleteFundingDate').textContent = date;
+            document.getElementById('deleteFundingAccount').textContent = account || '—';
+
+            const warningEl = document.getElementById('deleteFundingMatchedWarning');
+            const confirmBtn = document.getElementById('btnConfirmDeleteFunding');
+            const isReconciled = ['matched', 'manual_cash', 'manual_statement'].includes(status);
+
+            if (isReconciled) {
+                warningEl.classList.remove('hidden');
+                confirmBtn.disabled = true;
+                confirmBtn.classList.add('opacity-40', 'cursor-not-allowed');
+            } else {
+                warningEl.classList.add('hidden');
+                confirmBtn.disabled = false;
+                confirmBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+            }
+
+            const form = document.getElementById('deleteFundingForm');
+            form.action = `/admin/cashbook/finance/purchasers/${purchaserUuid}/funding/${creditId}/delete`;
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeDeleteFundingModal() {
+            const modal = document.getElementById('deleteFundingModal');
             modal.classList.add('hidden');
             modal.classList.remove('flex');
         }

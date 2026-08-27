@@ -269,9 +269,21 @@ final class PurchaseReportingService
     /** @param array<string, mixed> $filters */
     private function purchaserRows(Builder $items, array $filters): Builder
     {
-        $purchases = DB::query()->fromSub($items, 'purchase_items')->selectRaw("purchaser_id, purchaser_public_uuid, purchaser_name, COUNT(DISTINCT invoice_id) as invoice_count, SUM(CASE WHEN payment_class = 'cash' THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = 'credit' THEN item_net ELSE 0 END) as credit_purchase, SUM(item_net) as total_purchase")->groupBy('purchaser_id', 'purchaser_public_uuid', 'purchaser_name');
+        $purchaserUsers = User::query()
+            ->whereHas('roles', fn ($q) => $q->where('name', 'purchaser'))
+            ->when(! empty($filters['search']) && ($filters['search_scope'] ?? 'invoices') === 'purchasers', function ($query) use ($filters): void {
+                $query->where('name', 'like', '%'.$filters['search'].'%');
+            })
+            ->select('id as purchaser_id', 'public_uuid as purchaser_public_uuid', 'name as purchaser_name');
 
-        return DB::query()->fromSub($purchases, 'purchaser_purchases')->leftJoinSub($this->purchaserFinanceService->balanceRows(), 'purchaser_funding', 'purchaser_funding.purchaser_id', '=', 'purchaser_purchases.purchaser_id')->selectRaw('purchaser_purchases.*, COALESCE(purchaser_funding.cash_given, 0) as funding, COALESCE(purchaser_funding.cash_used, 0) as funding_used, COALESCE(purchaser_funding.remaining_advance, 0) as balance');
+        $purchases = DB::query()->fromSub($items, 'purchase_items')
+            ->selectRaw('purchaser_id, COUNT(DISTINCT invoice_id) as invoice_count, SUM(CASE WHEN payment_class = "cash" THEN item_net ELSE 0 END) as cash_purchase, SUM(CASE WHEN payment_class = "credit" THEN item_net ELSE 0 END) as credit_purchase, SUM(item_net) as total_purchase')
+            ->groupBy('purchaser_id');
+
+        return DB::query()->fromSub($purchaserUsers, 'base_purchasers')
+            ->leftJoinSub($purchases, 'purchaser_purchases', 'purchaser_purchases.purchaser_id', '=', 'base_purchasers.purchaser_id')
+            ->leftJoinSub($this->purchaserFinanceService->balanceRows(), 'purchaser_funding', 'purchaser_funding.purchaser_id', '=', 'base_purchasers.purchaser_id')
+            ->selectRaw('base_purchasers.purchaser_id, base_purchasers.purchaser_public_uuid, base_purchasers.purchaser_name, COALESCE(purchaser_purchases.invoice_count, 0) as invoice_count, COALESCE(purchaser_purchases.cash_purchase, 0) as cash_purchase, COALESCE(purchaser_purchases.credit_purchase, 0) as credit_purchase, COALESCE(purchaser_purchases.total_purchase, 0) as total_purchase, COALESCE(purchaser_funding.cash_given, 0) as funding, COALESCE(purchaser_funding.cash_used, 0) as funding_used, COALESCE(purchaser_funding.remaining_advance, 0) as balance');
     }
 
     private function categoryRows(Builder $items): Builder

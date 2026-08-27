@@ -690,6 +690,7 @@ Route::middleware('auth')->group(function () {
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/salary-payment', [CashbookController::class, 'classifySalaryPaymentStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-salary-payment');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/salary-advance', [CashbookController::class, 'classifySalaryAdvanceStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-salary-advance');
             Route::get('finance/reconciliation/statements/{statement:public_uuid}/create', [CashbookController::class, 'createCompanyFinanceReconciliationTransaction'])->whereUuid('statement')->name('finance.reconciliation.create-transaction');
+            Route::post('finance/reconciliation/reset-month', [CashbookController::class, 'resetMonthReconciliation'])->name('finance.reconciliation.reset-month');
             Route::get('finance/reconciliation/pending-candidates', [CashbookController::class, 'pendingReconciliationCandidates'])->name('finance.reconciliation.pending-candidates');
             Route::get('finance/reconciliation/{statementRef?}', [CashbookController::class, 'companyFinanceReconciliation'])->name('finance.reconciliation');
             Route::post('finance/reconciliation/{statementRef}/match', [CashbookController::class, 'matchStatementReconciliation'])->name('finance.reconciliation.match');
@@ -735,6 +736,8 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/purchasers/{purchaser:public_uuid}/details', [CashbookController::class, 'companyFinancePurchaserDetails'])->name('finance.purchasers.details');
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding', [CashbookController::class, 'storePurchaserFunding'])->name('finance.purchasers.funding.store');
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/update', [CashbookController::class, 'updatePurchaserFunding'])->name('finance.purchasers.funding.update');
+            Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/delete', [CashbookController::class, 'deletePurchaserFunding'])->name('finance.purchasers.funding.delete');
+            Route::delete('finance/purchasers/{purchaser:public_uuid}/funding/{credit}', [CashbookController::class, 'deletePurchaserFunding']);
             Route::get('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/candidates', [CashbookController::class, 'purchaserFundingCandidates'])->name('finance.purchasers.funding.candidates');
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/match-statement', [CashbookController::class, 'matchStatementPurchaserFunding'])->name('finance.purchasers.funding.match-statement');
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/replace-match', [CashbookController::class, 'replaceMatchPurchaserFunding'])->name('finance.purchasers.funding.replace-match');
@@ -744,6 +747,8 @@ Route::middleware('auth')->group(function () {
 
             // Direct aliases under /finance/purchase/purchasers/
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/update', [CashbookController::class, 'updatePurchaserFunding']);
+            Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/delete', [CashbookController::class, 'deletePurchaserFunding']);
+            Route::delete('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}', [CashbookController::class, 'deletePurchaserFunding']);
             Route::get('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/candidates', [CashbookController::class, 'purchaserFundingCandidates']);
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/match-statement', [CashbookController::class, 'matchStatementPurchaserFunding']);
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/replace-match', [CashbookController::class, 'replaceMatchPurchaserFunding']);
