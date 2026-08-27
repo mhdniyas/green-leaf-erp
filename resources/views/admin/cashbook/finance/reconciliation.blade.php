@@ -150,7 +150,7 @@
         </nav>
 
         @if($workspaceTab === 'needs_reconciliation')
-            <section x-data="{ detail: null, reconcile: null, candidates: [], loading: false }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
+            <section x-data="{ detail: null, reconcile: null, candidates: [], reconciled: [], counts: {pending: 0, reconciled: 0}, tab: 'pending', loading: false }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
                 <div class="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
                     <div><h2 class="text-base font-black text-slate-950">Needs Reconciliation</h2><p class="mt-1 text-xs font-semibold text-slate-500">ERP cash and bank activity waiting for real statement movement.</p></div>
                     <span class="font-mono text-xs font-bold text-slate-400">{{ $pendingSources->total() }} rows</span>
@@ -162,7 +162,7 @@
                         @endphp
                         <article class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                             <div class="flex items-start justify-between gap-3"><div class="min-w-0"><p class="font-black text-slate-950">{{ $source['source'] }}</p><p class="mt-1 truncate text-xs font-bold text-slate-600">{{ $source['counterparty'] }}</p><p class="mt-1 text-[11px] font-bold text-slate-400">{{ $source['date'] }} / {{ $source['method'] }} / {{ $source['account'] }} / {{ $source['reference_label'] }}</p></div><strong class="shrink-0 font-mono text-lg text-slate-950">₹{{ number_format($source['amount'], 2) }}</strong></div>
-                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Pending Reconciliation</span><div class="flex gap-2"><button type="button" @click='detail = @json($source)' class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">View Details</button><button type="button" data-candidate-url="{{ $candidateUrl }}" @click='reconcile = @json($source); candidates = []; loading = true; fetch($el.dataset.candidateUrl).then(response => response.json()).then(data => candidates = data.candidates).finally(() => loading = false)' class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Reconcile</button></div></div>
+                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Pending Reconciliation</span><div class="flex gap-2"><button type="button" @click='detail = @json($source)' class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">View Details</button><button type="button" data-candidate-url="{{ $candidateUrl }}" @click="reconcile = @json($source); candidates = []; reconciled = []; counts = {pending: 0, reconciled: 0}; tab = 'pending'; loading = true; fetch($el.dataset.candidateUrl).then(response => response.json()).then(data => { candidates = data.candidates || []; reconciled = data.reconciled || []; counts = data.counts || {pending: candidates.length, reconciled: reconciled.length}; }).finally(() => loading = false)" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Reconcile</button></div></div>
                         </article>
                     @empty
                         <p class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">No pending cash or bank transactions for this filter.</p>
@@ -178,9 +178,70 @@
                 </div>
                 <div x-cloak x-show="reconcile" @keydown.escape.window="reconcile = null" class="fixed inset-0 z-50 flex items-end bg-slate-950/50 p-3 sm:items-center sm:justify-center" role="dialog" aria-modal="true">
                     <div @click.outside="reconcile = null" class="max-h-full w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
-                        <div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Reconcile Transaction</p><h2 class="mt-1 text-xl font-black text-slate-950">Transaction Summary</h2></div><button type="button" @click="reconcile = null" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</button></div>
+                        <div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Reconcile Transaction</p><h2 class="mt-1 text-xl font-black text-slate-950">Match With Statement</h2></div><button type="button" @click="reconcile = null" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</button></div>
                         <div class="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3"><template x-for="[label, value] in [['Source', reconcile?.source], ['Counterparty', reconcile?.counterparty], ['Amount', '₹' + Number(reconcile?.amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})], ['Date', reconcile?.date], ['Method', reconcile?.method], ['Reference', reconcile?.reference_label]]" :key="label"><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400" x-text="label"></span><strong class="mt-1 block break-words text-slate-900" x-text="value"></strong></div></template></div><div class="mt-3 rounded-xl bg-slate-50 p-3 text-xs"><span class="block font-bold text-slate-400">Description / Note</span><strong class="mt-1 block break-words text-slate-900" x-text="reconcile?.description"></strong></div>
-                        <h3 class="mt-5 text-sm font-black text-slate-950">Matching Statement Movements</h3><p x-show="loading" class="mt-3 text-sm font-bold text-slate-500">Loading statement matches...</p><div x-show="!loading" class="mt-3 space-y-2"><template x-for="candidate in candidates" :key="candidate.match_url"><article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><p class="font-black text-slate-950" x-text="candidate.account"></p><p class="mt-1 text-xs font-semibold text-slate-600"><span x-text="candidate.date"></span> / <span x-text="candidate.reference || candidate.narration || 'No reference'"></span></p><p class="mt-1 text-xs text-slate-500" x-text="candidate.narration"></p></div><strong class="font-mono text-lg" x-text="'₹' + Number(candidate.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></strong></div><form method="POST" :action="candidate.match_url" class="mt-3">@csrf<input type="hidden" :name="reconcile.kind === 'shop_payment' ? 'payment_request_ref' : 'candidate_ref'" :value="reconcile.reference"><button class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Match &amp; Finalize</button></form></article></template><p x-show="candidates.length === 0" class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No matching statement found for selected amount.</p></div>
+
+                        <div class="mt-5 flex items-center justify-between border-b border-slate-200 pb-2">
+                            <h3 class="text-sm font-black text-slate-950">Matching Statement Movements</h3>
+                            <div class="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+                                <button type="button" @click="tab = 'pending'" :class="tab === 'pending' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="rounded-lg px-2.5 py-1 text-xs font-black transition" x-text="'Pending (' + counts.pending + ')'"></button>
+                                <button type="button" @click="tab = 'reconciled'" :class="tab === 'reconciled' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="rounded-lg px-2.5 py-1 text-xs font-black transition" x-text="'Already Reconciled (' + counts.reconciled + ')'"></button>
+                            </div>
+                        </div>
+
+                        <p x-show="loading" class="mt-4 text-sm font-bold text-slate-500">Loading statement matches...</p>
+
+                        <div x-show="!loading && tab === 'pending'" class="mt-3 space-y-2">
+                            <template x-for="candidate in candidates" :key="candidate.id">
+                                <article class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                    <div class="flex justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700" x-text="candidate.account"></span>
+                                                <span :class="candidate.date_match === 'exact' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'" class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em]" x-text="candidate.date_badge_text"></span>
+                                            </div>
+                                            <p class="mt-2 text-xs font-semibold text-slate-600"><span x-text="candidate.date"></span> / <span x-text="candidate.reference || candidate.narration || 'No reference'"></span></p>
+                                            <p class="mt-0.5 text-xs text-slate-500" x-text="candidate.narration"></p>
+                                        </div>
+                                        <strong class="font-mono text-lg shrink-0" x-text="'₹' + Number(candidate.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></strong>
+                                    </div>
+                                    <form method="POST" :action="candidate.match_url" class="mt-3">
+                                        @csrf
+                                        <input type="hidden" :name="reconcile.kind === 'shop_payment' ? 'payment_request_ref' : 'candidate_ref'" :value="reconcile.reference">
+                                        <button class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white hover:bg-slate-800">Match &amp; Finalize</button>
+                                    </form>
+                                </article>
+                            </template>
+                            <p x-show="candidates.length === 0" class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No pending statement movements found with exact amount.</p>
+                        </div>
+
+                        <div x-show="!loading && tab === 'reconciled'" class="mt-3 space-y-2">
+                            <template x-for="candidate in reconciled" :key="candidate.id">
+                                <article class="rounded-2xl border border-amber-200 bg-amber-50/40 p-3">
+                                    <div class="flex justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700" x-text="candidate.account"></span>
+                                                <span :class="candidate.date_match === 'exact' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'" class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em]" x-text="candidate.date_badge_text"></span>
+                                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase text-amber-800">Currently Reconciled</span>
+                                            </div>
+                                            <p class="mt-2 text-xs font-semibold text-slate-600"><span x-text="candidate.date"></span> / <span x-text="candidate.reference || candidate.narration || 'No reference'"></span></p>
+                                            <div class="mt-2 rounded-xl bg-white border border-amber-100 p-2 text-xs">
+                                                <span class="font-bold text-amber-900">Current Match:</span> <span class="text-amber-800 font-semibold" x-text="candidate.matched_to || 'Reconciled Entry'"></span>
+                                                <span class="text-amber-600 text-[11px] block mt-0.5" x-text="'Finalized ' + (candidate.matched_date || '—')"></span>
+                                            </div>
+                                        </div>
+                                        <strong class="font-mono text-lg shrink-0" x-text="'₹' + Number(candidate.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></strong>
+                                    </div>
+                                    <form method="POST" :action="candidate.match_url" onsubmit="return confirm('Replace existing statement match? The old transaction will return to Pending Reconciliation.')" class="mt-3">
+                                        @csrf
+                                        <input type="hidden" :name="reconcile.kind === 'shop_payment' ? 'payment_request_ref' : 'candidate_ref'" :value="reconcile.reference">
+                                        <button class="rounded-xl bg-amber-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white hover:bg-amber-700">Replace Match</button>
+                                    </form>
+                                </article>
+                            </template>
+                            <p x-show="reconciled.length === 0" class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No previously reconciled statement movements found with exact amount.</p>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -529,55 +590,105 @@
                 </section>
 
                 @unless($isCreateTransactionPage)
-                    <section data-classification-action="match-existing" class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    @php
+                        $pendingCandidates = $matchExistingCandidates['pending'] ?? [];
+                        $reconciledCandidates = $matchExistingCandidates['reconciled'] ?? [];
+                        $counts = $matchExistingCandidates['counts'] ?? [
+                            'pending' => count($pendingCandidates),
+                            'reconciled' => count($reconciledCandidates),
+                            'exact_date_pending' => 0,
+                            'exact_date_reconciled' => 0,
+                        ];
+                        $exactPending = array_filter($pendingCandidates, fn ($c) => $c['date_match'] === 'exact');
+                        $otherPending = array_filter($pendingCandidates, fn ($c) => $c['date_match'] !== 'exact');
+                    @endphp
+                    <section data-classification-action="match-existing" x-data="{ activeTab: 'pending' }" class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                         <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div>
-                                <h3 class="text-base font-black text-slate-950">Possible Matches</h3>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-base font-black text-slate-950">Possible Matches</h3>
+                                    <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Match Existing Transaction</span>
+                                </div>
                                 <p class="mt-1 text-xs font-semibold text-slate-500">
-                                    {{ $matchExistingCandidates->count() }} possible {{ Str::plural('match', $matchExistingCandidates->count()) }} found for ₹{{ number_format((float) $classifyStatement->amount, 2) }}.
+                                    {{ $counts['pending'] + $counts['reconciled'] }} exact-amount {{ Str::plural('candidate', $counts['pending'] + $counts['reconciled']) }} found for ₹{{ number_format((float) $classifyStatement->amount, 2) }}.
                                 </p>
                             </div>
-                            <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Match Existing Transaction</span>
+                            <div class="flex items-center gap-1 rounded-xl bg-white p-1 shadow-sm border border-slate-200">
+                                <button type="button" @click="activeTab = 'pending'" :class="activeTab === 'pending' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="rounded-lg px-3 py-1.5 text-xs font-black transition">
+                                    Pending ({{ $counts['pending'] }})
+                                </button>
+                                <button type="button" @click="activeTab = 'reconciled'" :class="activeTab === 'reconciled' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="rounded-lg px-3 py-1.5 text-xs font-black transition">
+                                    Already Reconciled ({{ $counts['reconciled'] }})
+                                </button>
+                            </div>
                         </div>
 
-                        @if($matchExistingCandidates->isEmpty())
-                            <div class="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
-                                <p class="text-sm font-black text-slate-900">No existing transaction found for this movement.</p>
-                                <p class="mt-1 text-xs font-semibold text-slate-500">Create a new transaction from this same imported statement. No duplicate statement row will be created.</p>
-                            </div>
-                        @else
-                            <div class="mt-4 grid grid-cols-1 gap-3">
-                                @foreach($matchExistingCandidates as $candidate)
-                                    @php
-                                        $journalEntry = $candidate['journal_entry'];
-                                        $cashBankTransaction = $journalEntry->transactions->first(fn ($transaction) => in_array($transaction->account?->code, ['1010', '1020'], true));
-                                    @endphp
-                                    <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.match-existing', $classifyStatement) }}" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                                        @csrf
-                                        <input type="hidden" name="candidate_ref" value="{{ $candidate['candidate_ref'] }}">
-                                        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                                            <div class="min-w-0">
-                                                <div class="flex flex-wrap items-center gap-2">
-                                                    <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">{{ $journalEntry->source_label }}</span>
-                                                    @if($loop->first)
-                                                        <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">Best Match</span>
-                                                    @endif
-                                                </div>
-                                                <p class="mt-3 font-mono text-lg font-black text-slate-950">{{ $journalEntry->reference ?: $journalEntry->formatted_reference }}</p>
-                                                <p class="mt-1 break-words text-xs font-semibold text-slate-600">{{ $journalEntry->description ?: 'No description' }}</p>
-                                                <div class="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Date</strong><br>{{ $journalEntry->entry_date?->format('Y-m-d') }}</span>
-                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Amount</strong><br>₹{{ number_format($candidate['floating_amount'], 2) }}</span>
-                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Account</strong><br>{{ $cashBankTransaction?->account?->name }}</span>
-                                                    <span class="rounded-lg bg-slate-50 px-2 py-2"><strong>Status</strong><br>{{ $journalEntry->reconciliation_status_label }}</span>
-                                                </div>
-                                            </div>
-                                            <button type="submit" class="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800 sm:w-auto">Match & Finalize</button>
+                        <!-- Pending Matches Tab -->
+                        <div x-show="activeTab === 'pending'" class="mt-4 space-y-4">
+                            @if(empty($pendingCandidates))
+                                <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
+                                    <p class="text-sm font-black text-slate-900">No unmatched pending transaction found for this movement.</p>
+                                    @if(!empty($reconciledCandidates))
+                                        <p class="mt-1 text-xs font-semibold text-amber-700">Check the <strong>Already Reconciled</strong> tab above to view and replace existing matches.</p>
+                                    @else
+                                        <p class="mt-1 text-xs font-semibold text-slate-500">Create a new transaction from this same imported statement. No duplicate statement row will be created.</p>
+                                    @endif
+                                </div>
+                            @else
+                                @if(!empty($exactPending))
+                                    <div>
+                                        <div class="mb-2 flex items-center gap-2">
+                                            <span class="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-black uppercase text-white tracking-wider">
+                                                <i data-lucide="check" class="h-3 w-3"></i> Best Match (Exact Date)
+                                            </span>
+                                            <span class="text-xs font-semibold text-slate-500">Same amount and identical date</span>
                                         </div>
-                                    </form>
-                                @endforeach
-                            </div>
-                        @endif
+                                        <div class="grid grid-cols-1 gap-3">
+                                            @foreach($exactPending as $candidate)
+                                                @include('admin.cashbook.finance._candidate_journal_card', ['candidate' => $candidate, 'classifyStatement' => $classifyStatement, 'isReconciled' => false])
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+
+                                @if(!empty($otherPending))
+                                    <div>
+                                        @if(!empty($exactPending))
+                                            <div class="mb-2 flex items-center gap-2">
+                                                <span class="inline-flex items-center gap-1 rounded-md bg-slate-200 px-2 py-0.5 text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                                                    Other Same-Amount Matches
+                                                </span>
+                                                <span class="text-xs font-semibold text-slate-500">Different date proximity</span>
+                                            </div>
+                                        @endif
+                                        <div class="grid grid-cols-1 gap-3">
+                                            @foreach($otherPending as $candidate)
+                                                @include('admin.cashbook.finance._candidate_journal_card', ['candidate' => $candidate, 'classifyStatement' => $classifyStatement, 'isReconciled' => false])
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+                            @endif
+                        </div>
+
+                        <!-- Already Reconciled Tab -->
+                        <div x-show="activeTab === 'reconciled'" x-cloak class="mt-4 space-y-4">
+                            @if(empty($reconciledCandidates))
+                                <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center">
+                                    <p class="text-sm font-black text-slate-900">No previously reconciled transactions found with exact amount.</p>
+                                </div>
+                            @else
+                                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+                                    <i data-lucide="info" class="inline h-4 w-4 mr-1 text-amber-700"></i>
+                                    Replacing a match will unlink the statement from the previous transaction and link it to the selected one. The previous transaction will return to <strong>Needs Action</strong> queue.
+                                </div>
+                                <div class="grid grid-cols-1 gap-3">
+                                    @foreach($reconciledCandidates as $candidate)
+                                        @include('admin.cashbook.finance._candidate_journal_card', ['candidate' => $candidate, 'classifyStatement' => $classifyStatement, 'isReconciled' => true])
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
 
                         <div class="sticky bottom-0 -mx-4 -mb-4 mt-5 border-t border-slate-200 bg-white/95 p-4 backdrop-blur sm:static sm:mx-0 sm:mb-0 sm:rounded-2xl sm:border sm:bg-white">
                             <a href="{{ $createTransactionUrl }}" class="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50">

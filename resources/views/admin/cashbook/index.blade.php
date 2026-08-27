@@ -603,7 +603,7 @@
                                         <label class="block text-xs font-semibold text-slate-700 mb-1">Company Cash / Bank</label>
                                         <select id="pay-shop-company-account" class="w-full bg-white text-xs font-semibold text-slate-800 px-3 py-2 rounded-xl border border-slate-300">
                                             @foreach($companyAccounts as $companyAccount)
-                                                <option value="{{ $companyAccount->public_uuid }}">{{ $companyAccount->name }} ({{ strtoupper($companyAccount->account_type) }})</option>
+                                                <option value="{{ $companyAccount->public_uuid }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($companyAccount, old('company_account_uuid'), $companyAccounts, null, 'public_uuid'))>{{ $companyAccount->name }} ({{ strtoupper($companyAccount->account_type) }})</option>
                                             @endforeach
                                         </select>
                                     </div>

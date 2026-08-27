@@ -194,7 +194,7 @@
                                         <select name="company_account_uuid" class="h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-950 outline-none transition focus:border-cyan-400 focus:ring-4 focus:ring-cyan-100" required>
                                             <option value="">Select account</option>
                                             @foreach($companyAccounts as $companyAccount)
-                                                <option value="{{ $companyAccount->public_uuid }}">{{ $companyAccount->name }} · {{ strtoupper($companyAccount->account_type) }} · Rs. {{ number_format((float) $companyAccount->current_balance, 2) }}</option>
+                                                <option value="{{ $companyAccount->public_uuid }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($companyAccount, old('company_account_uuid'), $companyAccounts, null, 'public_uuid'))>{{ $companyAccount->name }} · {{ strtoupper($companyAccount->account_type) }} · Rs. {{ number_format((float) $companyAccount->current_balance, 2) }}</option>
                                             @endforeach
                                         </select>
                                     </label>

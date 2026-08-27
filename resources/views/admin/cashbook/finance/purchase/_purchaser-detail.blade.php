@@ -147,7 +147,7 @@
                 <select id="funding-account" name="company_account_id" class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                     <option value="">Select account (Optional)</option>
                     @foreach($companyAccounts as $account)
-                        <option value="{{ $account->id }}">{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
+                        <option value="{{ $account->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($account, old('company_account_id'), $companyAccounts))>{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
                     @endforeach
                 </select>
             </div>
@@ -222,6 +222,9 @@
                             <td class="p-3 text-right">
                                 @if($movement->type === 'in')
                                     <div class="flex items-center justify-end gap-1.5 flex-wrap">
+                                        <button type="button" onclick="openEditFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}', '{{ $movement->status }}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition">
+                                            <i data-lucide="pencil" class="h-3 w-3"></i> Edit
+                                        </button>
                                         @if($movement->status === 'unmatched')
                                             <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="inline-flex items-center gap-1 rounded bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-600 shadow-sm transition">
                                                 <i data-lucide="git-merge" class="h-3 w-3"></i> Match Statement
@@ -270,18 +273,22 @@
                     <div class="pt-1 flex items-center justify-between gap-2 flex-wrap">
                         @if($movement->type === 'out')
                             <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">Advance Utilized</span>
-                        @elseif($movement->status === 'unmatched')
-                            <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">UNMATCHED</span>
+                        @else
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white">Match</button>
-                                <button type="button" onclick="openManualEntryModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ $movement->company_account_id }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Add Manual</button>
-                            </div>
-                        @elseif(in_array($movement->status, ['matched', 'manual_cash', 'manual_statement'], true))
-                            <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">{{ str_replace('_', ' ', $movement->status) }}</span>
-                            <div class="flex items-center gap-1.5">
-                                <button type="button" onclick="openViewMatchModal({{ $movement->id }}, '{{ $record->public_uuid }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">View Match</button>
-                                @if($movement->status === 'matched')
-                                    <button type="button" onclick="openUnmatchModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->statement_account_name ?? '') }}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Unmatch</button>
+                                @if($movement->status === 'unmatched')
+                                    <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">UNMATCHED</span>
+                                @elseif(in_array($movement->status, ['matched', 'manual_cash', 'manual_statement'], true))
+                                    <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">{{ str_replace('_', ' ', $movement->status) }}</span>
+                                @endif
+                                <button type="button" onclick="openEditFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}', '{{ $movement->status }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Edit</button>
+                                @if($movement->status === 'unmatched')
+                                    <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white">Match</button>
+                                    <button type="button" onclick="openManualEntryModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ $movement->company_account_id }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Add Manual</button>
+                                @elseif(in_array($movement->status, ['matched', 'manual_cash', 'manual_statement'], true))
+                                    <button type="button" onclick="openViewMatchModal({{ $movement->id }}, '{{ $record->public_uuid }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">View Match</button>
+                                    @if($movement->status === 'matched')
+                                        <button type="button" onclick="openUnmatchModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->statement_account_name ?? '') }}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Unmatch</button>
+                                    @endif
                                 @endif
                             </div>
                         @endif
@@ -371,101 +378,197 @@
                     <i data-lucide="x" class="h-5 w-5"></i>
                 </button>
             </div>
-            <form id="matchStatementForm" method="POST" action="">
+            
+            <form id="matchStatementForm" method="POST" action="" class="flex flex-col flex-1 overflow-hidden">
                 @csrf
-                <div class="p-5 space-y-4">
-                    <div class="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 text-xs space-y-1">
+                <input type="hidden" id="matchStatementIdInput" name="statement_entry_id" value="">
+                
+                <div class="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                    <!-- Funding Summary Card -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-1.5 text-xs">
                         <div class="flex items-center justify-between">
-                            <span class="font-bold text-slate-600">Purchaser Funding</span>
+                            <span class="font-bold text-slate-500 uppercase text-[10px] tracking-wider">Purchaser Funding</span>
                             <span id="matchFundingAmount" class="font-mono font-black text-emerald-800 text-sm">₹0.00</span>
                         </div>
-                        <div class="flex items-center justify-between text-slate-500">
-                            <span>Purchaser: <strong>{{ $record->name }}</strong></span>
-                            <span id="matchFundingDate">2026-08-27</span>
-                        </div>
-                        <div id="matchFundingRefRow" class="text-slate-500 flex justify-between">
-                            <span>Reference:</span>
-                            <span id="matchFundingRef" class="font-mono font-medium text-slate-700">—</span>
+                        <div class="grid grid-cols-2 gap-2 text-slate-600">
+                            <div>Purchaser: <strong class="text-slate-900" id="matchFundingPurchaser">{{ $record->name }}</strong></div>
+                            <div class="text-right">Date: <strong class="text-slate-900" id="matchFundingDate">2026-08-27</strong></div>
+                            <div>Account: <strong class="text-slate-900" id="matchFundingAccount">—</strong></div>
+                            <div class="text-right">Ref: <strong class="font-mono text-slate-900" id="matchFundingRef">—</strong></div>
                         </div>
                     </div>
 
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <label class="text-[11px] font-black uppercase text-slate-600">Candidate Statement Entries (OUT)</label>
-                            <span id="matchCandidatesCount" class="text-[10px] font-bold text-slate-400">Loading...</span>
+                    <!-- Tabs: Pending vs Already Reconciled -->
+                    <div class="flex items-center justify-between border-b border-slate-200 pb-2">
+                        <div class="flex gap-2">
+                            <button type="button" id="tabPendingBtn" onclick="switchMatchTab('pending')" class="rounded-lg px-3 py-1.5 font-black text-xs bg-emerald-700 text-white shadow-sm transition">
+                                Pending (<span id="pendingCountBadge">0</span>)
+                            </button>
+                            <button type="button" id="tabReconciledBtn" onclick="switchMatchTab('reconciled')" class="rounded-lg px-3 py-1.5 font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                                Already Reconciled (<span id="reconciledCountBadge">0</span>)
+                            </button>
                         </div>
-                        <div id="matchCandidatesLoading" class="py-8 text-center text-xs text-slate-400">
-                            <i data-lucide="loader-2" class="h-5 w-5 animate-spin mx-auto mb-1 text-slate-400"></i>
-                            Searching candidate bank statements...
+                        <!-- Local search filter -->
+                        <div class="relative w-44">
+                            <input type="text" id="matchLocalSearch" oninput="filterCandidateList()" placeholder="Filter ref/narration..." class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
                         </div>
-                        <div id="matchCandidatesList" class="hidden max-h-60 space-y-2 overflow-y-auto pr-1">
-                            {{-- Populated dynamically --}}
+                    </div>
+
+                    <!-- Loading State -->
+                    <div id="matchCandidatesLoading" class="py-12 text-center text-xs text-slate-400">
+                        <i data-lucide="loader-2" class="h-6 w-6 animate-spin mx-auto mb-2 text-emerald-600"></i>
+                        Loading candidate statement entries...
+                    </div>
+
+                    <!-- Error State -->
+                    <div id="matchCandidatesError" class="hidden rounded-xl border border-rose-200 bg-rose-50 p-4 text-center text-xs text-rose-800 font-medium">
+                        Failed to load candidates. Please try again.
+                    </div>
+
+                    <!-- Pending Section -->
+                    <div id="pendingCandidatesSection" class="hidden space-y-2">
+                        <div id="pendingCandidatesList" class="space-y-2 max-h-72 overflow-y-auto pr-1"></div>
+                        <div id="pendingCandidatesEmpty" class="hidden rounded-xl border border-dashed border-slate-200 p-8 text-center text-slate-400">
+                            No unmatched OUT statement entries of exact amount found.
                         </div>
-                        <div id="matchCandidatesEmpty" class="hidden rounded-lg border border-dashed border-slate-200 p-6 text-center text-xs text-slate-400">
-                            No matching statement entries found. You can create a manual cash/statement entry instead.
+                    </div>
+
+                    <!-- Reconciled Section -->
+                    <div id="reconciledCandidatesSection" class="hidden space-y-2">
+                        <div id="reconciledCandidatesList" class="space-y-2 max-h-72 overflow-y-auto pr-1"></div>
+                        <div id="reconciledCandidatesEmpty" class="hidden rounded-xl border border-dashed border-slate-200 p-8 text-center text-slate-400">
+                            No reconciled OUT statement entries of exact amount found.
                         </div>
                     </div>
                 </div>
-                <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3.5">
-                    <button type="button" onclick="closeMatchStatementModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
-                    <button id="confirmMatchBtn" type="submit" disabled class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed">Confirm Match</button>
+
+                <!-- Footer & Action Confirmation Area -->
+                <div class="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3.5 shrink-0">
+                    <div id="selectedStatementSummary" class="text-xs text-slate-500 font-medium truncate max-w-sm">
+                        Select a candidate above to proceed
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="closeMatchStatementModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                        <button id="confirmMatchBtn" type="button" onclick="submitMatchForm()" disabled class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed">Confirm Match</button>
+                    </div>
                 </div>
             </form>
         </div>
     </div>
 
-    {{-- ── Add Manual Entry Modal ────────────────────────────────────────── --}}
-    <div id="manualEntryModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+    {{-- ── Edit Funding Modal ────────────────────────────────────────── --}}
+    <div id="editFundingModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
         <div class="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
                 <div class="flex items-center gap-2">
+                    <i data-lucide="pencil" class="h-5 w-5 text-emerald-700"></i>
+                    <h3 class="font-black text-slate-900">Edit Purchaser Funding</h3>
+                </div>
+                <button type="button" onclick="closeEditFundingModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            
+            <form id="editFundingForm" method="POST" action="" class="flex flex-col flex-1 overflow-hidden">
+                @csrf
+                <div class="p-5 space-y-3.5 overflow-y-auto flex-1 text-xs">
+                    <div id="editFundingMatchedWarning" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        <i data-lucide="alert-triangle" class="inline h-4 w-4 mr-1 text-amber-700"></i>
+                        <strong>Note:</strong> This funding is currently matched to a statement. Changing the amount will unlink the statement and return it to Pending Reconciliation.
+                    </div>
+
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div>
+                            <label for="editFundingAmount" class="mb-1 block font-bold text-slate-600">Amount (₹)</label>
+                            <input id="editFundingAmount" name="amount" type="number" step="0.01" min="0.01" required class="min-h-11 w-full rounded-lg border border-slate-300 px-3 font-mono text-sm font-bold text-slate-900">
+                        </div>
+                        <div>
+                            <label for="editFundingDate" class="mb-1 block font-bold text-slate-600">Date</label>
+                            <input id="editFundingDate" name="business_date" type="date" required class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-800">
+                        </div>
+                    </div>
+
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div>
+                            <label for="editFundingSource" class="mb-1 block font-bold text-slate-600">Source</label>
+                            <select id="editFundingSource" name="payment_source" class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                                <option value="Bank">Bank</option>
+                                <option value="Cash">Cash</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="editFundingAccount" class="mb-1 block font-bold text-slate-600">Company Account</label>
+                            <select id="editFundingAccount" name="company_account_id" class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                                <option value="">Select account (Optional)</option>
+                                @foreach($companyAccounts as $account)
+                                    <option value="{{ $account->id }}">{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="editFundingReference" class="mb-1 block font-bold text-slate-600">Reference</label>
+                        <input id="editFundingReference" name="reference" type="text" maxlength="160" placeholder="UTR or voucher" class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                    </div>
+
+                    <div>
+                        <label for="editFundingDescription" class="mb-1 block font-bold text-slate-600">Note / Description</label>
+                        <input id="editFundingDescription" name="description" type="text" maxlength="255" placeholder="Funding note" class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3.5 shrink-0">
+                    <button type="button" onclick="closeEditFundingModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600 shadow-sm">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- ── Add Cash / Manual Statement Modal ─────────────────────────────── --}}
+    <div id="manualEntryModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div class="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
+                <div class="flex items-center gap-2">
                     <i data-lucide="plus-circle" class="h-5 w-5 text-emerald-700"></i>
-                    <h3 class="font-black text-slate-900">Add Cash / Statement Entry</h3>
+                    <h3 class="font-black text-slate-900">Add Cash / Statement Row</h3>
                 </div>
                 <button type="button" onclick="closeManualEntryModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                     <i data-lucide="x" class="h-5 w-5"></i>
                 </button>
             </div>
-            <form id="manualEntryForm" method="POST" action="">
+            <form id="manualEntryForm" method="POST" action="" class="p-5 space-y-3.5 text-xs">
                 @csrf
-                <div class="p-5 space-y-3.5 text-xs">
-                    <p class="text-slate-500">Create an auditable cashbook counterpart and atomically reconcile this purchaser funding.</p>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="mb-1 block font-bold text-slate-600">Amount</label>
-                            <input id="manualAmount" name="amount" type="number" step="0.01" min="0.01" required class="min-h-10 w-full rounded-lg border border-slate-300 px-3 font-mono font-bold text-slate-900">
-                        </div>
-                        <div>
-                            <label class="mb-1 block font-bold text-slate-600">Date</label>
-                            <input id="manualDate" name="business_date" type="date" required class="min-h-10 w-full rounded-lg border border-slate-300 px-3 font-bold text-slate-800">
-                        </div>
+                <div>
+                    <label class="mb-1 block font-bold text-slate-600">Company Account</label>
+                    <select id="manualCompanyAccount" name="company_account_id" required class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                        @foreach($companyAccounts as $account)
+                            <option value="{{ $account->id }}">{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="mb-1 block font-bold text-slate-600">Amount (₹)</label>
+                        <input id="manualAmount" name="amount" type="number" step="0.01" min="0.01" required readonly class="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-100 px-3 font-mono text-xs font-bold text-slate-800 cursor-not-allowed">
                     </div>
                     <div>
-                        <label class="mb-1 block font-bold text-slate-600">Source Account</label>
-                        <select id="manualCompanyAccount" name="company_account_id" required class="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 font-bold text-slate-800">
-                            @foreach($companyAccounts as $account)
-                                <option value="{{ $account->id }}">
-                                    {{ $account->name }} ({{ strtoupper($account->account_type) }})
-                                </option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label class="mb-1 block font-bold text-slate-600">Reference (Optional)</label>
-                        <input id="manualRef" name="reference" type="text" maxlength="160" placeholder="e.g. CASH-001 or UTR" class="min-h-10 w-full rounded-lg border border-slate-300 px-3 font-semibold text-slate-800">
-                    </div>
-                    <div>
-                        <label class="mb-1 block font-bold text-slate-600">Description</label>
-                        <input id="manualDesc" name="description" type="text" maxlength="255" value="Cash given to purchaser {{ $record->name }}" class="min-h-10 w-full rounded-lg border border-slate-300 px-3 font-semibold text-slate-800">
-                    </div>
-                    <div>
-                        <label class="mb-1 block font-bold text-slate-600">Notes (Optional)</label>
-                        <textarea id="manualNotes" name="notes" rows="2" maxlength="1000" placeholder="Additional audit notes..." class="w-full rounded-lg border border-slate-300 p-2.5 font-medium text-slate-800"></textarea>
+                        <label class="mb-1 block font-bold text-slate-600">Date</label>
+                        <input id="manualDate" name="transaction_date" type="date" required class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-800">
                     </div>
                 </div>
-                <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3.5">
+                <div>
+                    <label class="mb-1 block font-bold text-slate-600">Reference / Voucher</label>
+                    <input id="manualRef" name="reference" type="text" maxlength="160" placeholder="Voucher or counter ref" class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                </div>
+                <div>
+                    <label class="mb-1 block font-bold text-slate-600">Narration / Note</label>
+                    <input id="manualNarration" name="narration" type="text" maxlength="255" placeholder="Cash disbursement note" class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
                     <button type="button" onclick="closeManualEntryModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
-                    <button type="submit" class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600">Create & Match</button>
+                    <button type="submit" class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600 shadow-sm">Add &amp; Match</button>
                 </div>
             </form>
         </div>
@@ -476,184 +579,379 @@
         <div class="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
                 <div class="flex items-center gap-2">
-                    <i data-lucide="file-check" class="h-5 w-5 text-emerald-700"></i>
+                    <i data-lucide="eye" class="h-5 w-5 text-emerald-700"></i>
                     <h3 class="font-black text-slate-900">Reconciliation Trace</h3>
                 </div>
                 <button type="button" onclick="closeViewMatchModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                     <i data-lucide="x" class="h-5 w-5"></i>
                 </button>
             </div>
-            <div class="p-5 space-y-4 text-xs">
-                <div id="viewTraceLoading" class="py-8 text-center text-slate-400">
-                    <i data-lucide="loader-2" class="h-5 w-5 animate-spin mx-auto mb-1 text-slate-400"></i>
+            <div class="p-5 text-xs">
+                <div id="viewTraceLoading" class="py-12 text-center text-xs text-slate-400">
+                    <i data-lucide="loader-2" class="h-6 w-6 animate-spin mx-auto mb-2 text-emerald-600"></i>
                     Loading reconciliation trace...
                 </div>
                 <div id="viewTraceContent" class="hidden space-y-4">
-                    {{-- Funding side --}}
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
-                        <div class="flex items-center justify-between font-bold text-slate-600">
-                            <span>Purchaser Funding Transaction</span>
-                            <span id="traceFundingAmount" class="font-mono text-sm font-black text-emerald-800">₹0.00</span>
-                        </div>
-                        <div class="flex items-center justify-between text-slate-500">
-                            <span>Purchaser: <strong id="tracePurchaserName">{{ $record->name }}</strong></span>
-                            <span id="traceFundingDate">—</span>
-                        </div>
-                        <div class="flex items-center justify-between text-slate-500">
-                            <span>Reference:</span>
-                            <span id="traceFundingRef" class="font-mono font-medium text-slate-700">—</span>
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2">
+                        <span class="font-bold text-slate-500 uppercase text-[10px] tracking-wider">Funding Details</span>
+                        <div class="grid grid-cols-2 gap-2 text-slate-600">
+                            <div>Amount: <strong id="traceFundingAmount" class="font-mono text-slate-900 font-bold">—</strong></div>
+                            <div>Date: <strong id="traceFundingDate" class="text-slate-900">—</strong></div>
+                            <div class="col-span-2">Ref: <strong id="traceFundingRef" class="font-mono text-slate-900">—</strong></div>
                         </div>
                     </div>
 
-                    {{-- Matched Counterpart side --}}
-                    <div class="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3 space-y-2">
+                    <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5 space-y-2">
                         <div class="flex items-center justify-between">
-                            <span id="traceSourceBadge" class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-900">Matched</span>
-                            <span id="traceStmtAmount" class="font-mono text-sm font-black text-slate-900">₹0.00</span>
+                            <span class="font-bold text-emerald-800 uppercase text-[10px] tracking-wider">Matched Statement Movement</span>
+                            <span id="traceSourceBadge" class="rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">—</span>
                         </div>
-                        <div class="grid grid-cols-2 gap-2 text-slate-600 pt-1 border-t border-emerald-100">
-                            <div>
-                                <span class="block text-[10px] text-slate-400 uppercase font-black">Matched Account</span>
-                                <strong id="traceAccountName" class="text-slate-800">—</strong>
-                            </div>
-                            <div>
-                                <span class="block text-[10px] text-slate-400 uppercase font-black">Statement Date</span>
-                                <strong id="traceStmtDate" class="text-slate-800">—</strong>
-                            </div>
-                            <div>
-                                <span class="block text-[10px] text-slate-400 uppercase font-black">Reference</span>
-                                <span id="traceStmtRef" class="font-mono font-medium text-slate-800">—</span>
-                            </div>
-                            <div>
-                                <span class="block text-[10px] text-slate-400 uppercase font-black">Narration / Note</span>
-                                <span id="traceStmtNarration" class="text-slate-800 truncate block">—</span>
-                            </div>
+                        <div class="grid grid-cols-2 gap-2 text-slate-600">
+                            <div>Account: <strong id="traceAccountName" class="text-slate-900 font-bold">—</strong></div>
+                            <div>Statement Date: <strong id="traceStmtDate" class="text-slate-900">—</strong></div>
+                            <div>Amount: <strong id="traceStmtAmount" class="font-mono text-emerald-800 font-black">—</strong></div>
+                            <div>Statement Ref: <strong id="traceStmtRef" class="font-mono text-slate-900">—</strong></div>
+                            <div class="col-span-2">Narration: <span id="traceStmtNarration" class="text-slate-700 font-medium">—</span></div>
                         </div>
                     </div>
 
-                    {{-- Audit metadata --}}
-                    <div class="rounded-lg border border-slate-100 bg-white p-3 text-[11px] text-slate-500 space-y-1">
-                        <div class="flex justify-between">
-                            <span>Reconciled By:</span>
-                            <strong id="traceAuditActor" class="text-slate-700">—</strong>
-                        </div>
-                        <div class="flex justify-between">
-                            <span>Reconciled At:</span>
-                            <span id="traceAuditTime" class="font-mono text-slate-700">—</span>
-                        </div>
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600 flex justify-between">
+                        <span>Matched By: <strong id="traceAuditActor" class="text-slate-800">—</strong></span>
+                        <span>Matched At: <strong id="traceAuditTime" class="text-slate-800">—</strong></span>
                     </div>
                 </div>
             </div>
             <div class="flex items-center justify-end border-t border-slate-200 bg-slate-50 px-5 py-3.5">
-                <button type="button" onclick="closeViewMatchModal()" class="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white hover:bg-slate-700">Close</button>
+                <button type="button" onclick="closeViewMatchModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Close</button>
             </div>
         </div>
     </div>
 
-    {{-- ── Unmatch Modal ─────────────────────────────────────────────────── --}}
+    {{-- ── Unmatch Confirmation Modal ────────────────────────────────────── --}}
     <div id="unmatchModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
         <div class="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div class="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-5 py-4">
+            <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
                 <div class="flex items-center gap-2">
-                    <i data-lucide="alert-triangle" class="h-5 w-5 text-rose-700"></i>
-                    <h3 class="font-black text-rose-950">Confirm Unmatch</h3>
+                    <i data-lucide="unlink" class="h-5 w-5 text-rose-700"></i>
+                    <h3 class="font-black text-slate-900">Unmatch Statement</h3>
                 </div>
-                <button type="button" onclick="closeUnmatchModal()" class="rounded-lg p-1 text-rose-400 hover:bg-rose-100 hover:text-rose-700">
+                <button type="button" onclick="closeUnmatchModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                     <i data-lucide="x" class="h-5 w-5"></i>
                 </button>
             </div>
-            <form id="unmatchForm" method="POST" action="">
+            <form id="unmatchForm" method="POST" action="" class="p-5 space-y-3.5 text-xs">
                 @csrf
-                <div class="p-5 text-xs text-slate-600 space-y-3">
-                    <p>Are you sure you want to unmatch this statement entry from purchaser funding?</p>
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
-                        <div class="flex justify-between font-bold text-slate-700">
-                            <span>Funding Amount:</span>
-                            <span id="unmatchAmount" class="font-mono">₹0.00</span>
-                        </div>
-                        <div class="flex justify-between text-slate-500">
-                            <span>Date:</span>
-                            <span id="unmatchDate">—</span>
-                        </div>
-                        <div class="flex justify-between text-slate-500">
-                            <span>Account:</span>
-                            <span id="unmatchAccount">—</span>
-                        </div>
-                    </div>
-                    <p class="text-[11px] text-slate-500 italic">Financial transactions and purchaser balance will remain unchanged. The statement entry will return to an unmatched state.</p>
+                <p class="text-slate-600 leading-relaxed">
+                    Are you sure you want to unmatch this purchaser funding transaction?
+                </p>
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-slate-700 space-y-1">
+                    <div>Funding Amount: <strong id="unmatchAmount" class="font-mono text-slate-900 font-bold">₹0.00</strong></div>
+                    <div>Business Date: <strong id="unmatchDate" class="text-slate-900">—</strong></div>
+                    <div>Matched Account: <strong id="unmatchAccount" class="text-slate-900">—</strong></div>
                 </div>
-                <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3.5">
+                <p class="text-[11px] text-slate-500">
+                    The statement movement will safely return to <strong class="text-slate-700">UNMATCHED</strong> in the cashbook reconciliation queue.
+                </p>
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
                     <button type="button" onclick="closeUnmatchModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
-                    <button type="submit" class="rounded-lg bg-rose-700 px-4 py-2 text-xs font-black text-white hover:bg-rose-600">Unmatch</button>
+                    <button type="submit" class="rounded-lg bg-rose-700 px-4 py-2 text-xs font-black text-white hover:bg-rose-600 shadow-sm">Confirm Unmatch</button>
                 </div>
             </form>
         </div>
     </div>
 
     <script>
+        function openEditFundingModal(creditId, purchaserUuid, date, amount, source, accountId, ref, desc, status) {
+            const modal = document.getElementById('editFundingModal');
+            document.getElementById('editFundingAmount').value = Number(amount).toFixed(2);
+            document.getElementById('editFundingDate').value = date;
+            document.getElementById('editFundingSource').value = source || 'Bank';
+            document.getElementById('editFundingAccount').value = accountId || '';
+            document.getElementById('editFundingReference').value = ref || '';
+            document.getElementById('editFundingDescription').value = desc || '';
+
+            const warningEl = document.getElementById('editFundingMatchedWarning');
+            if (status === 'matched') {
+                warningEl.classList.remove('hidden');
+            } else {
+                warningEl.classList.add('hidden');
+            }
+
+            const form = document.getElementById('editFundingForm');
+            form.action = `/admin/cashbook/finance/purchasers/${purchaserUuid}/funding/${creditId}/update`;
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeEditFundingModal() {
+            const modal = document.getElementById('editFundingModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+        let currentCreditId = null;
+        let currentPurchaserUuid = null;
+        let currentActiveTab = 'pending';
+        let currentSelectionType = 'pending';
+        let cachedData = null;
+        let selectedCandidate = null;
+
         function openMatchStatementModal(creditId, purchaserUuid, date, amount, ref, account) {
+            currentCreditId = creditId;
+            currentPurchaserUuid = purchaserUuid;
+            currentActiveTab = 'pending';
+            currentSelectionType = 'pending';
+            cachedData = null;
+            selectedCandidate = null;
+
             const modal = document.getElementById('matchStatementModal');
             document.getElementById('matchFundingAmount').textContent = '₹' + Number(amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
             document.getElementById('matchFundingDate').textContent = date;
             document.getElementById('matchFundingRef').textContent = ref || '—';
+            document.getElementById('matchFundingAccount').textContent = account || '—';
+            document.getElementById('matchStatementIdInput').value = '';
+            document.getElementById('matchLocalSearch').value = '';
+            document.getElementById('selectedStatementSummary').textContent = 'Select a candidate above to proceed';
             
-            const form = document.getElementById('matchStatementForm');
-            form.action = `/admin/cashbook/finance/purchase/purchasers/${purchaserUuid}/funding/${creditId}/match-statement`;
-            
-            const listEl = document.getElementById('matchCandidatesList');
-            const loadingEl = document.getElementById('matchCandidatesLoading');
-            const emptyEl = document.getElementById('matchCandidatesEmpty');
-            const countEl = document.getElementById('matchCandidatesCount');
             const confirmBtn = document.getElementById('confirmMatchBtn');
-            
-            listEl.innerHTML = '';
-            listEl.classList.add('hidden');
-            emptyEl.classList.add('hidden');
-            loadingEl.classList.remove('hidden');
-            countEl.textContent = 'Searching...';
             confirmBtn.disabled = true;
-            
+            confirmBtn.textContent = 'Confirm Match';
+            confirmBtn.className = 'rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed';
+
+            document.getElementById('matchCandidatesLoading').classList.remove('hidden');
+            document.getElementById('matchCandidatesError').classList.add('hidden');
+            document.getElementById('pendingCandidatesSection').classList.add('hidden');
+            document.getElementById('reconciledCandidatesSection').classList.add('hidden');
+
             modal.classList.remove('hidden');
             modal.classList.add('flex');
-            
-            fetch(`/admin/cashbook/finance/purchase/purchasers/${purchaserUuid}/funding/${creditId}/candidates`)
-                .then(res => res.json())
+
+            fetch(`/admin/cashbook/finance/purchasers/${purchaserUuid}/funding/${creditId}/candidates`)
+                .then(res => {
+                    if (!res.ok) throw new Error('Network error');
+                    return res.json();
+                })
                 .then(data => {
-                    loadingEl.classList.add('hidden');
-                    const candidates = data.candidates || [];
-                    countEl.textContent = `${candidates.length} candidate(s)`;
+                    cachedData = data;
+                    document.getElementById('matchCandidatesLoading').classList.add('hidden');
+                    document.getElementById('pendingCountBadge').textContent = data.counts?.pending ?? 0;
+                    document.getElementById('reconciledCountBadge').textContent = data.counts?.reconciled ?? 0;
                     
-                    if (candidates.length === 0) {
-                        emptyEl.classList.remove('hidden');
-                        return;
+                    if (data.funding) {
+                        document.getElementById('matchFundingAmount').textContent = data.funding.formatted_amount;
+                        document.getElementById('matchFundingDate').textContent = data.funding.business_date;
+                        document.getElementById('matchFundingAccount').textContent = data.funding.account_name;
+                        document.getElementById('matchFundingRef').textContent = data.funding.reference;
                     }
-                    
-                    listEl.innerHTML = candidates.map((cand, idx) => `
-                        <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/25 cursor-pointer transition">
-                            <input type="radio" name="statement_entry_id" value="${cand.id}" class="mt-1 text-emerald-700 focus:ring-emerald-500" ${idx === 0 ? 'checked' : ''} onchange="document.getElementById('confirmMatchBtn').disabled = false">
-                            <div class="flex-1 text-xs space-y-1">
-                                <div class="flex items-center justify-between">
-                                    <strong class="text-slate-900">${cand.account_name} <span class="text-[10px] font-normal text-slate-500 uppercase">(${cand.account_type})</span></strong>
-                                    <span class="font-mono font-black ${cand.is_exact_amount ? 'text-emerald-700' : 'text-slate-800'}">₹${Number(cand.amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                                </div>
-                                <div class="flex justify-between text-slate-500 text-[11px]">
-                                    <span>Date: ${cand.transaction_date}</span>
-                                    <span>Ref: <strong class="font-mono text-slate-700">${cand.reference}</strong></span>
-                                </div>
-                                ${cand.narration && cand.narration !== '—' ? `<p class="text-[11px] text-slate-600 truncate">${cand.narration}</p>` : ''}
-                            </div>
-                        </label>
-                    `).join('');
-                    
-                    listEl.classList.remove('hidden');
-                    confirmBtn.disabled = false;
+
+                    renderCandidates();
+                    switchMatchTab(data.counts?.pending > 0 ? 'pending' : (data.counts?.reconciled > 0 ? 'reconciled' : 'pending'));
                     if (window.lucide) lucide.createIcons();
                 })
-                .catch(() => {
-                    loadingEl.classList.add('hidden');
-                    emptyEl.classList.remove('hidden');
-                    emptyEl.textContent = 'Failed to load candidates. Please try again.';
+                .catch(err => {
+                    document.getElementById('matchCandidatesLoading').classList.add('hidden');
+                    document.getElementById('matchCandidatesError').classList.remove('hidden');
                 });
+        }
+
+        function switchMatchTab(tab) {
+            currentActiveTab = tab;
+            const pendingBtn = document.getElementById('tabPendingBtn');
+            const reconciledBtn = document.getElementById('tabReconciledBtn');
+            const pendingSection = document.getElementById('pendingCandidatesSection');
+            const reconciledSection = document.getElementById('reconciledCandidatesSection');
+
+            if (tab === 'pending') {
+                pendingBtn.className = 'rounded-lg px-3 py-1.5 font-black text-xs bg-emerald-700 text-white shadow-sm transition';
+                reconciledBtn.className = 'rounded-lg px-3 py-1.5 font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition';
+                pendingSection.classList.remove('hidden');
+                reconciledSection.classList.add('hidden');
+            } else {
+                reconciledBtn.className = 'rounded-lg px-3 py-1.5 font-black text-xs bg-rose-700 text-white shadow-sm transition';
+                pendingBtn.className = 'rounded-lg px-3 py-1.5 font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition';
+                reconciledSection.classList.remove('hidden');
+                pendingSection.classList.add('hidden');
+            }
+        }
+
+        function renderCandidates() {
+            if (!cachedData) return;
+            const query = document.getElementById('matchLocalSearch').value.toLowerCase().trim();
+
+            const renderCard = (item, type) => {
+                const isSelected = selectedCandidate?.id === item.id;
+                const isReconciled = type === 'reconciled';
+                const isExact = item.date_match === 'exact';
+
+                const borderClass = isSelected
+                    ? (isReconciled ? 'border-rose-600 bg-rose-50/50' : 'border-emerald-600 bg-emerald-50/50')
+                    : (isReconciled ? 'border-slate-200 bg-white hover:border-rose-500 hover:bg-slate-50' : 'border-slate-200 bg-white hover:border-emerald-500 hover:bg-slate-50');
+
+                const radioClass = isReconciled ? 'text-rose-700 focus:ring-rose-500' : 'text-emerald-700 focus:ring-emerald-500';
+                const amountClass = isReconciled ? 'text-rose-700' : 'text-emerald-700';
+
+                const dateBadgeClass = isExact
+                    ? 'rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[9px] font-black text-emerald-800 uppercase tracking-wide'
+                    : 'rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-bold text-slate-600 uppercase tracking-wide';
+
+                const actionBtn = isReconciled
+                    ? `<button type="button" onclick="selectCandidate(${item.id}, 'reconciled')" class="rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-black text-white hover:bg-rose-700">Replace Match</button>`
+                    : `<button type="button" onclick="selectCandidate(${item.id}, 'pending')" class="rounded-lg bg-emerald-100 px-2.5 py-1 text-[11px] font-black text-emerald-800 hover:bg-emerald-200">Select</button>`;
+
+                return `
+                    <label class="flex items-start gap-3 p-3.5 rounded-xl border ${borderClass} cursor-pointer transition shadow-xs">
+                        <input type="radio" name="candidate_radio" value="${item.id}" ${isSelected ? 'checked' : ''} onchange="selectCandidate(${item.id}, '${type}')" class="mt-1 ${radioClass}">
+                        <div class="flex-1 space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <strong class="text-slate-900 font-bold">${item.account_name} <span class="text-[10px] text-slate-500 uppercase font-normal">(${item.account_type})</span></strong>
+                                <span class="font-mono font-black ${amountClass} text-sm">${item.formatted_amount}</span>
+                            </div>
+                            <div class="flex items-center justify-between text-slate-500 text-[11px]">
+                                <div class="flex items-center gap-2">
+                                    <span>Date: <strong class="text-slate-800">${item.transaction_date}</strong></span>
+                                    <span class="${dateBadgeClass}">${item.date_badge_text}</span>
+                                </div>
+                                <span>Ref: <strong class="font-mono text-slate-800">${item.reference}</strong></span>
+                            </div>
+                            ${item.narration && item.narration !== '—' ? `<p class="text-[11px] text-slate-600 truncate">${item.narration}</p>` : ''}
+                            
+                            ${isReconciled ? `
+                                <div class="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-950 space-y-0.5">
+                                    <div>Currently Matched To: <strong>${item.matched_to}</strong></div>
+                                    <div class="text-[10px] text-amber-800">Matched On: ${item.matched_date} by ${item.matched_by}</div>
+                                </div>
+                            ` : ''}
+
+                            <div class="pt-1 flex items-center justify-between">
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black text-slate-600">${item.status}</span>
+                                ${actionBtn}
+                            </div>
+                        </div>
+                    </label>
+                `;
+            };
+
+            const renderGroupedList = (items, type, listEl, emptyEl) => {
+                const filtered = (items || []).filter(item => {
+                    if (!query) return true;
+                    return (item.reference && item.reference.toLowerCase().includes(query)) ||
+                           (item.narration && item.narration.toLowerCase().includes(query)) ||
+                           (item.account_name && item.account_name.toLowerCase().includes(query)) ||
+                           (item.matched_to && item.matched_to.toLowerCase().includes(query));
+                });
+
+                if (filtered.length === 0) {
+                    listEl.innerHTML = '';
+                    emptyEl.classList.remove('hidden');
+                    return;
+                }
+
+                emptyEl.classList.add('hidden');
+
+                const exactItems = filtered.filter(item => item.date_match === 'exact');
+                const otherItems = filtered.filter(item => item.date_match !== 'exact');
+
+                if (exactItems.length > 0 && otherItems.length > 0) {
+                    listEl.innerHTML = `
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-800 px-1 pt-1">
+                                <i data-lucide="sparkles" class="h-3.5 w-3.5"></i>
+                                BEST MATCH (EXACT DATE)
+                            </div>
+                            <div class="space-y-2">
+                                ${exactItems.map(item => renderCard(item, type)).join('')}
+                            </div>
+                        </div>
+                        <div class="space-y-2 pt-2 border-t border-slate-100">
+                            <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                                OTHER SAME-AMOUNT MATCHES
+                            </div>
+                            <div class="space-y-2">
+                                ${otherItems.map(item => renderCard(item, type)).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (exactItems.length > 0) {
+                    listEl.innerHTML = `
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-800 px-1 pt-1">
+                                <i data-lucide="sparkles" class="h-3.5 w-3.5"></i>
+                                BEST MATCH (EXACT DATE)
+                            </div>
+                            <div class="space-y-2">
+                                ${exactItems.map(item => renderCard(item, type)).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    listEl.innerHTML = `
+                        <div class="space-y-2">
+                            <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                                SAME-AMOUNT MATCHES
+                            </div>
+                            <div class="space-y-2">
+                                ${otherItems.map(item => renderCard(item, type)).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+            };
+
+            renderGroupedList(cachedData.pending, 'pending', document.getElementById('pendingCandidatesList'), document.getElementById('pendingCandidatesEmpty'));
+            renderGroupedList(cachedData.reconciled, 'reconciled', document.getElementById('reconciledCandidatesList'), document.getElementById('reconciledCandidatesEmpty'));
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function filterCandidateList() {
+            renderCandidates();
+        }
+
+        function selectCandidate(id, type) {
+            currentSelectionType = type;
+            const pool = type === 'pending' ? (cachedData?.pending || []) : (cachedData?.reconciled || []);
+            selectedCandidate = pool.find(item => item.id === id);
+            if (!selectedCandidate) return;
+
+            document.getElementById('matchStatementIdInput').value = id;
+            const confirmBtn = document.getElementById('confirmMatchBtn');
+            const summaryEl = document.getElementById('selectedStatementSummary');
+            confirmBtn.disabled = false;
+
+            if (type === 'pending') {
+                confirmBtn.textContent = 'Confirm Match';
+                confirmBtn.className = 'rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600 shadow-sm';
+                summaryEl.innerHTML = `Selected: <strong>${selectedCandidate.account_name}</strong> · ${selectedCandidate.transaction_date} · <span class="font-mono font-bold">${selectedCandidate.formatted_amount}</span>`;
+            } else {
+                confirmBtn.textContent = 'Replace Match';
+                confirmBtn.className = 'rounded-lg bg-rose-700 px-4 py-2 text-xs font-black text-white hover:bg-rose-600 shadow-sm';
+                summaryEl.innerHTML = `<span class="text-rose-700 font-bold">Replace Match:</span> Unlinks ${selectedCandidate.matched_to} (returns to Unmatched)`;
+            }
+
+            renderCandidates();
+        }
+
+        function submitMatchForm() {
+            if (!selectedCandidate || !currentCreditId || !currentPurchaserUuid) return;
+
+            const form = document.getElementById('matchStatementForm');
+
+            if (currentSelectionType === 'reconciled') {
+                const confirmed = confirm(
+                    `Replace Existing Match?\n\n` +
+                    `Statement: ${selectedCandidate.account_name} (${selectedCandidate.formatted_amount})\n` +
+                    `Current Match: ${selectedCandidate.matched_to}\n` +
+                    `New Match: Purchaser Funding #${currentCreditId}\n\n` +
+                    `The previously matched transaction will safely return to UNMATCHED in reconciliation.\n\nProceed?`
+                );
+                if (!confirmed) return;
+
+                form.action = `/admin/cashbook/finance/purchasers/${currentPurchaserUuid}/funding/${currentCreditId}/replace-match`;
+            } else {
+                form.action = `/admin/cashbook/finance/purchasers/${currentPurchaserUuid}/funding/${currentCreditId}/match-statement`;
+            }
+
+            form.submit();
         }
 
         function closeMatchStatementModal() {
@@ -669,6 +967,11 @@
             document.getElementById('manualRef').value = ref || '';
             if (accountId) {
                 document.getElementById('manualCompanyAccount').value = accountId;
+            } else {
+                const defaultAccountId = '{{ App\Models\Cashbook\CompanyAccount::resolveSelectedId(null, $companyAccounts) ?? '' }}';
+                if (defaultAccountId) {
+                    document.getElementById('manualCompanyAccount').value = defaultAccountId;
+                }
             }
             
             const form = document.getElementById('manualEntryForm');

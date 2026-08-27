@@ -117,7 +117,7 @@
                             <select name="company_account_id" id="company_account_id" required class="min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
                                 <option value="">Select Account</option>
                                 @foreach($companyAccounts as $account)
-                                    <option value="{{ $account->id }}" @selected(old('company_account_id') == $account->id)>{{ $account->name }}</option>
+                                    <option value="{{ $account->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($account, old('company_account_id'), $companyAccounts))>{{ $account->name }}</option>
                                 @endforeach
                             </select>
                         </div>

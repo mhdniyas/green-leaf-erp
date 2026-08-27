@@ -66,7 +66,7 @@
                     <select class="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900" name="company_account_uuid">
                         <option value="">Select enabled bank account</option>
                         @foreach($companyAccounts->where('account_type', 'bank') as $companyAccount)
-                            <option value="{{ $companyAccount->public_uuid }}" @selected(old('company_account_uuid') === $companyAccount->public_uuid)>{{ $companyAccount->name }}</option>
+                            <option value="{{ $companyAccount->public_uuid }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($companyAccount, old('company_account_uuid'), $companyAccounts->where('account_type', 'bank'), 'bank', 'public_uuid'))>{{ $companyAccount->name }}</option>
                         @endforeach
                     </select>
                 </label>

@@ -202,7 +202,7 @@
                     <select name="company_account_id" required class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800">
                         <option value="">Select account</option>
                         @foreach($companyAccounts as $account)
-                            <option value="{{ $account->id }}">{{ $account->name }}</option>
+                            <option value="{{ $account->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($account, old('company_account_id'), $companyAccounts))>{{ $account->name }}</option>
                         @endforeach
                     </select>
                     <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">

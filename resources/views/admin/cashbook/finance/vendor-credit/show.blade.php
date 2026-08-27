@@ -57,7 +57,7 @@
                     <label class="text-xs font-bold text-slate-700">Allocation Order<select x-model="allocationOrder" name="allocation_order" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"><option value="oldest">Oldest First</option><option value="newest">Newest First</option></select></label>
                     <label class="text-xs font-bold text-slate-700">Payment Date<input x-model="paymentDate" name="payment_date" type="date" value="{{ now()->toDateString() }}" required :readonly="paymentSource === 'statement'" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 font-mono"></label>
                     <label class="text-xs font-bold text-slate-700">Payment Method<select name="payment_method" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"><option value="Bank">Bank</option><option value="Cash">Cash</option><option value="Online">Online</option><option value="GPay">GPay</option></select></label>
-                    <label class="text-xs font-bold text-slate-700">Company Account<select x-model="companyAccountId" name="company_account_id" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"><option value="">Optional: finalize Cashbook movement</option>@foreach($companyAccounts as $acc)<option value="{{ $acc->id }}">{{ $acc->name }} ({{ strtoupper($acc->account_type) }})</option>@endforeach</select></label>
+                    <label class="text-xs font-bold text-slate-700">Company Account<select x-model="companyAccountId" name="company_account_id" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"><option value="">Optional: finalize Cashbook movement</option>@foreach($companyAccounts as $acc)<option value="{{ $acc->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($acc, old('company_account_id'), $companyAccounts))>{{ $acc->name }} ({{ strtoupper($acc->account_type) }})</option>@endforeach</select></label>
                     <label class="text-xs font-bold text-slate-700">Reference<input x-model="reference" name="reference" type="text" :readonly="paymentSource === 'statement'" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"></label>
                 </div>
                 <div x-show="paymentSource === 'statement'" class="rounded-xl border border-sky-200 bg-sky-50 p-3"><label class="block text-xs font-bold text-slate-700">Existing OUT Statement Transaction<select x-model="statementEntryId" name="statement_entry_id" @change="selectStatement($event)" class="mt-1 min-h-11 w-full rounded-lg border border-sky-300 bg-white px-3 font-mono text-xs"><option value="">Select statement transaction</option>@foreach($statementTransactions as $statement)<option value="{{ $statement->id }}" data-account="{{ $statement->company_account_id }}" data-amount="{{ $statement->amount }}" data-date="{{ $statement->transaction_date?->toDateString() }}" data-reference="{{ $statement->reference }}">{{ $statement->companyAccount?->name }} | {{ $statement->transaction_date?->format('d M') }} | {{ $statement->reference ?: $statement->narration }} | OUT | ₹{{ number_format($statement->amount, 2) }}</option>@endforeach</select></label><p class="mt-1 text-[11px] font-semibold text-sky-800">Statement amount, date, account, and reference become authoritative.</p></div>
@@ -252,7 +252,7 @@
                         <select name="company_account_id" class="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                             <option value="">Select Account (Default)</option>
                             @foreach($companyAccounts as $acc)
-                                <option value="{{ $acc->id }}">{{ $acc->name }} ({{ strtoupper($acc->account_type) }})</option>
+                                <option value="{{ $acc->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($acc, old('company_account_id'), $companyAccounts))>{{ $acc->name }} ({{ strtoupper($acc->account_type) }})</option>
                             @endforeach
                         </select>
                     </div>
@@ -275,7 +275,7 @@
     <script>
         function vendorSettlement(candidates) {
             return {
-                showPayModal: false, selectedInvoice: null, payAmount: 0, cash: 0, paymentSource: 'company', statementEntryId: '', companyAccountId: '', paymentDate: '{{ now()->toDateString() }}', reference: '',
+                showPayModal: false, selectedInvoice: null, payAmount: 0, cash: 0, paymentSource: 'company', statementEntryId: '', companyAccountId: '{{ App\Models\Cashbook\CompanyAccount::resolveSelectedId(old('company_account_id'), $companyAccounts) ?? '' }}', paymentDate: '{{ now()->toDateString() }}', reference: '',
                 useAdvance: false, differenceTreatment: 'outstanding', allocationOrder: 'oldest',
                 rows: candidates.map(row => ({ ...row, selected: false })),
                 rupees(value) { return `₹${Number(value || 0).toFixed(2)}` },

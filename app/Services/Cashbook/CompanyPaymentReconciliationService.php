@@ -19,7 +19,10 @@ use App\Models\PurchaserCredit;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\VendorSettlement;
 use App\Services\Finance\JournalService;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class CompanyPaymentReconciliationService
@@ -212,6 +215,455 @@ class CompanyPaymentReconciliationService
 
             return $statementEntry->fresh(['companyAccount', 'journalEntry']);
         });
+    }
+
+    public function replaceStatementJournalMatch(
+        CompanyAccountStatementEntry $statementEntry,
+        JournalEntry $newJournalEntry,
+        float $amount,
+        int $userId
+    ): CompanyAccountStatementEntry {
+        return DB::transaction(function () use ($statementEntry, $newJournalEntry, $amount, $userId): CompanyAccountStatementEntry {
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->with(['companyAccount', 'journalEntry'])
+                ->whereKey($statementEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $newJournalEntry = JournalEntry::query()
+                ->with('transactions.account')
+                ->whereKey($newJournalEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $oldJournalEntryId = $statementEntry->journal_entry_id;
+            $oldSourceType = $statementEntry->source_type;
+            $oldSourceId = $statementEntry->source_id;
+
+            // If statement is not linked to any journal entry, just regular reconcile
+            if ($oldJournalEntryId === null) {
+                return $this->reconcileStatementJournal($statementEntry, $newJournalEntry, $amount, $userId);
+            }
+
+            if ($oldJournalEntryId === $newJournalEntry->id) {
+                if ($statementEntry->is_finalized) {
+                    throw ValidationException::withMessages([
+                        'candidate_ref' => 'This transaction is already matched to this statement.',
+                    ]);
+                }
+
+                return $statementEntry;
+            }
+
+            if ($oldSourceType === VendorSettlement::class && $oldSourceId) {
+                VendorSettlement::query()->whereKey($oldSourceId)->update([
+                    'reconciliation_status' => 'pending',
+                    'is_finalized' => false,
+                    'finalized_at' => null,
+                ]);
+            }
+
+            if ($oldSourceType === DirectCompanySale::class && $oldSourceId) {
+                DirectCompanySale::query()->whereKey($oldSourceId)->update([
+                    'reconciliation_status' => 'pending',
+                    'is_finalized' => false,
+                    'finalized_at' => null,
+                ]);
+            }
+
+            // Link to new journal entry
+            $statementEntry->journal_entry_id = $newJournalEntry->id;
+            $statementEntry->source_type = $newJournalEntry->source_type;
+            $statementEntry->source_id = $newJournalEntry->source_id;
+            $statementEntry->matched_amount = $amount;
+            $statementEntry->status = 'matched';
+            $statementEntry->is_finalized = true;
+            $statementEntry->finalized_at = now();
+            $statementEntry->reconciled_by = $userId;
+            $statementEntry->reconciled_at = now();
+            $statementEntry->save();
+
+            if ($newJournalEntry->source_type === PurchaserCredit::class && $newJournalEntry->source_id) {
+                PurchaserCredit::query()->whereKey($newJournalEntry->source_id)->update([
+                    'company_account_id' => $statementEntry->company_account_id,
+                    'payment_source' => $statementEntry->companyAccount?->account_type === 'cash' ? 'Cash' : 'Bank',
+                ]);
+            }
+
+            if ($newJournalEntry->source_type === VendorSettlement::class && $newJournalEntry->source_id) {
+                VendorSettlement::query()->whereKey($newJournalEntry->source_id)->update([
+                    'reconciliation_status' => 'finalized',
+                    'is_finalized' => true,
+                    'finalized_at' => now(),
+                ]);
+            }
+
+            if ($newJournalEntry->source_type === DirectCompanySale::class && $newJournalEntry->source_id) {
+                DirectCompanySale::query()->whereKey($newJournalEntry->source_id)->update([
+                    'reconciliation_status' => 'finalized',
+                    'is_finalized' => true,
+                    'finalized_at' => now(),
+                ]);
+            }
+
+            Log::info('Reconciliation match replaced', [
+                'statement_entry_id' => $statementEntry->id,
+                'old_source_type' => $oldSourceType,
+                'old_source_id' => $oldSourceId,
+                'old_journal_entry_id' => $oldJournalEntryId,
+                'new_source_type' => $newJournalEntry->source_type,
+                'new_source_id' => $newJournalEntry->source_id,
+                'new_journal_entry_id' => $newJournalEntry->id,
+                'actor' => $userId,
+                'timestamp' => now()->toIso8601String(),
+                'reason' => 'reconciliation_match_replaced',
+            ]);
+
+            return $statementEntry->fresh(['companyAccount', 'journalEntry.transactions.account']);
+        });
+    }
+
+    /**
+     * @return array<int, class-string>
+     */
+    public function matchableCashbookSourceTypes(): array
+    {
+        return [
+            ShopInvoicePaymentRequest::class,
+            DirectCompanySale::class,
+            CompanyAccountingEntry::class,
+            VendorSettlement::class,
+            PurchaserCredit::class,
+            ShopLedgerTransaction::class,
+            PayrollPayment::class,
+            CompanyPayableSettlement::class,
+        ];
+    }
+
+    /**
+     * Finds statement candidates for a given cashbook/journal source.
+     *
+     * @return array{
+     *     pending: list<array<string, mixed>>,
+     *     reconciled: list<array<string, mixed>>,
+     *     counts: array{
+     *         pending: int,
+     *         reconciled: int,
+     *         exact_date_pending: int,
+     *         exact_date_reconciled: int
+     *     }
+     * }
+     */
+    public function findStatementCandidates(
+        ?int $companyAccountId,
+        float $amount,
+        string $direction,
+        \DateTimeInterface|string|null $referenceDate = null,
+        ?string $search = null
+    ): array {
+        $amount = round($amount, 2);
+        $referenceDate = $referenceDate ? Carbon::parse($referenceDate) : today();
+        $referenceDateString = $referenceDate->toDateString();
+        $search = trim((string) $search);
+
+        $pendingEntries = CompanyAccountStatementEntry::query()
+            ->with('companyAccount')
+            ->where('direction', $direction)
+            ->where('amount', $amount)
+            ->where('is_finalized', false)
+            ->where('status', 'unmatched')
+            ->whereNull('journal_entry_id')
+            ->when($companyAccountId !== null && $companyAccountId > 0, fn ($query) => $query->where('company_account_id', $companyAccountId))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(fn ($sub) => $sub->where('reference', 'like', '%'.$search.'%')->orWhere('narration', 'like', '%'.$search.'%'));
+            })
+            ->get();
+
+        $reconciledEntries = CompanyAccountStatementEntry::query()
+            ->with(['companyAccount', 'journalEntry', 'reconciledBy'])
+            ->where('direction', $direction)
+            ->where('amount', $amount)
+            ->where(function ($query): void {
+                $query->where('is_finalized', true)
+                    ->orWhere('status', '!=', 'unmatched')
+                    ->orWhereNotNull('journal_entry_id');
+            })
+            ->when($companyAccountId !== null && $companyAccountId > 0, fn ($query) => $query->where('company_account_id', $companyAccountId))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(fn ($sub) => $sub->where('reference', 'like', '%'.$search.'%')->orWhere('narration', 'like', '%'.$search.'%'));
+            })
+            ->get();
+
+        $mapStatement = function (CompanyAccountStatementEntry $stmt, string $status) use ($referenceDate, $referenceDateString): array {
+            $stmtDate = $stmt->transaction_date;
+            $diffDays = 99999;
+            $isExactDate = false;
+
+            if ($stmtDate !== null) {
+                $diffDays = (int) abs($stmtDate->diffInDays($referenceDate, false));
+                $isExactDate = ($diffDays === 0);
+            }
+
+            $dateMatch = $isExactDate ? 'exact' : 'other';
+            $dateBadgeText = $isExactDate
+                ? 'EXACT DATE'
+                : ($diffDays === 1 ? '1 DAY AWAY' : ($diffDays < 99999 ? "{$diffDays} DAYS AWAY" : 'NO DATE'));
+
+            $item = [
+                'id' => $stmt->id,
+                'public_uuid' => $stmt->public_uuid,
+                'transaction_date' => $stmt->transaction_date?->format('d M Y') ?? '—',
+                'raw_date' => $stmt->transaction_date?->toDateString() ?? '',
+                'funding_date' => $referenceDateString,
+                'date_match' => $dateMatch,
+                'date_difference_days' => $diffDays,
+                'date_badge_text' => $dateBadgeText,
+                'account_name' => $stmt->companyAccount?->name ?? 'Company Account',
+                'account_type' => $stmt->companyAccount?->account_type ?? 'bank',
+                'reference' => $stmt->reference ?: '—',
+                'narration' => $stmt->narration ?: $stmt->notes ?: '—',
+                'amount' => (float) $stmt->amount,
+                'formatted_amount' => '₹'.number_format((float) $stmt->amount, 2),
+                'status' => $status,
+            ];
+
+            if ($status === 'MATCHED') {
+                $matchedTo = 'Reconciled Entry #'.$stmt->id;
+                if ($stmt->source_type === PurchaserCredit::class && $stmt->source_id) {
+                    $matchedCredit = PurchaserCredit::with('purchaser')->find($stmt->source_id);
+                    $matchedTo = 'Purchaser Funding #'.$stmt->source_id.($matchedCredit?->purchaser ? ' ('.$matchedCredit->purchaser->name.')' : '');
+                } elseif ($stmt->journalEntry) {
+                    $matchedTo = $stmt->journalEntry->formatted_reference.($stmt->journalEntry->description ? ' ('.$stmt->journalEntry->description.')' : '');
+                }
+
+                $item['matched_to'] = $matchedTo;
+                $item['matched_date'] = $stmt->reconciled_at?->format('d M Y H:i') ?? $stmt->finalized_at?->format('d M Y H:i') ?? '—';
+                $item['matched_by'] = $stmt->reconciledBy?->name ?? 'System';
+            }
+
+            return $item;
+        };
+
+        $sortCandidates = function (array $a, array $b): int {
+            // 1. EXACT DATE first
+            $aExact = $a['date_match'] === 'exact' ? 0 : 1;
+            $bExact = $b['date_match'] === 'exact' ? 0 : 1;
+            if ($aExact !== $bExact) {
+                return $aExact <=> $bExact;
+            }
+
+            // 2. Smallest absolute date difference
+            if ($a['date_difference_days'] !== $b['date_difference_days']) {
+                return $a['date_difference_days'] <=> $b['date_difference_days'];
+            }
+
+            // 3. transaction_date DESC
+            $dateCompare = strcmp((string) ($b['raw_date'] ?? ''), (string) ($a['raw_date'] ?? ''));
+            if ($dateCompare !== 0) {
+                return $dateCompare;
+            }
+
+            // 4. id DESC
+            return $b['id'] <=> $a['id'];
+        };
+
+        $pendingList = $pendingEntries->map(fn (CompanyAccountStatementEntry $stmt) => $mapStatement($stmt, 'UNMATCHED'))->all();
+        usort($pendingList, $sortCandidates);
+
+        $reconciledList = $reconciledEntries->map(fn (CompanyAccountStatementEntry $stmt) => $mapStatement($stmt, 'MATCHED'))->all();
+        usort($reconciledList, $sortCandidates);
+
+        $exactPendingCount = count(array_filter($pendingList, fn ($item) => $item['date_match'] === 'exact'));
+        $exactReconciledCount = count(array_filter($reconciledList, fn ($item) => $item['date_match'] === 'exact'));
+
+        return [
+            'pending' => $pendingList,
+            'reconciled' => $reconciledList,
+            'counts' => [
+                'pending' => count($pendingList),
+                'reconciled' => count($reconciledList),
+                'exact_date_pending' => $exactPendingCount,
+                'exact_date_reconciled' => $exactReconciledCount,
+            ],
+        ];
+    }
+
+    /**
+     * Finds journal candidates for a given statement entry.
+     *
+     * @return array{
+     *     pending: list<array<string, mixed>>,
+     *     reconciled: list<array<string, mixed>>,
+     *     counts: array{
+     *         pending: int,
+     *         reconciled: int,
+     *         exact_date_pending: int,
+     *         exact_date_reconciled: int
+     *     }
+     * }
+     */
+    public function findJournalCandidatesForStatement(
+        CompanyAccountStatementEntry $statementEntry,
+        ?string $search = null
+    ): array {
+        $statementEntry->loadMissing(['companyAccount']);
+        $statementDate = $statementEntry->transaction_date ?: today();
+        $statementDateString = $statementDate->toDateString();
+        $statementAmount = round((float) $statementEntry->amount - (float) $statementEntry->matched_amount, 2);
+        $expectedCode = $statementEntry->companyAccount?->account_type === 'cash' ? '1010' : '1020';
+        $cashBankType = $statementEntry->direction === 'in' ? 'debit' : 'credit';
+        $search = trim((string) $search);
+
+        $pendingEntries = JournalEntry::query()
+            ->with(['transactions.account', 'statementEntries.companyAccount', 'createdBy'])
+            ->whereIn('source_type', $this->matchableCashbookSourceTypes())
+            ->whereHas('transactions', fn ($query) => $query
+                ->where('type', $cashBankType)
+                ->whereHas('account', fn ($accountQuery) => $accountQuery->where('code', $expectedCode)))
+            ->whereDoesntHave('statementEntries', fn ($query) => $query->where('is_finalized', true))
+            ->when($search !== '', function ($query) use ($search): void {
+                $numericSearch = is_numeric($search) ? round((float) $search, 2) : null;
+                $query->where(function ($sub) use ($numericSearch, $search): void {
+                    $sub->where('reference', 'like', '%'.$search.'%')
+                        ->orWhere('description', 'like', '%'.$search.'%')
+                        ->orWhere('source_event', 'like', '%'.$search.'%');
+
+                    if ($numericSearch !== null) {
+                        $sub->orWhereHas('transactions', fn ($txQuery) => $txQuery->where('amount', $numericSearch));
+                    }
+                });
+            })
+            ->get()
+            ->filter(function (JournalEntry $journalEntry) use ($statementAmount): bool {
+                $openAmount = round((float) $journalEntry->primary_amount - (float) $journalEntry->statementEntries->sum('matched_amount'), 2);
+
+                return abs($openAmount - $statementAmount) <= 0.01;
+            });
+
+        $reconciledEntries = JournalEntry::query()
+            ->with(['transactions.account', 'statementEntries.companyAccount', 'createdBy'])
+            ->whereIn('source_type', $this->matchableCashbookSourceTypes())
+            ->whereHas('transactions', fn ($query) => $query
+                ->where('type', $cashBankType)
+                ->whereHas('account', fn ($accountQuery) => $accountQuery->where('code', $expectedCode)))
+            ->whereHas('statementEntries', fn ($query) => $query->where('is_finalized', true))
+            ->when($search !== '', function ($query) use ($search): void {
+                $numericSearch = is_numeric($search) ? round((float) $search, 2) : null;
+                $query->where(function ($sub) use ($numericSearch, $search): void {
+                    $sub->where('reference', 'like', '%'.$search.'%')
+                        ->orWhere('description', 'like', '%'.$search.'%')
+                        ->orWhere('source_event', 'like', '%'.$search.'%');
+
+                    if ($numericSearch !== null) {
+                        $sub->orWhereHas('transactions', fn ($txQuery) => $txQuery->where('amount', $numericSearch));
+                    }
+                });
+            })
+            ->get()
+            ->filter(function (JournalEntry $journalEntry) use ($statementEntry): bool {
+                return abs((float) $journalEntry->primary_amount - (float) $statementEntry->amount) <= 0.01;
+            });
+
+        $mapJournal = function (JournalEntry $journal, string $status) use ($statementDate, $statementDateString): array {
+            $entryDate = $journal->entry_date;
+            $diffDays = 99999;
+            $isExactDate = false;
+
+            if ($entryDate !== null) {
+                $diffDays = (int) abs($entryDate->diffInDays($statementDate, false));
+                $isExactDate = ($diffDays === 0);
+            }
+
+            $dateMatch = $isExactDate ? 'exact' : 'other';
+            $dateBadgeText = $isExactDate
+                ? 'EXACT DATE'
+                : ($diffDays === 1 ? '1 DAY AWAY' : ($diffDays < 99999 ? "{$diffDays} DAYS AWAY" : 'NO DATE'));
+
+            $cashBankTransaction = $journal->transactions->first(fn ($tx) => in_array($tx->account?->code, ['1010', '1020'], true));
+            $accountName = $cashBankTransaction?->account?->name ?? 'Cash/Bank Account';
+            $accountType = $cashBankTransaction?->account?->code === '1010' ? 'cash' : 'bank';
+
+            $openAmount = round((float) $journal->primary_amount - (float) $journal->statementEntries->sum('matched_amount'), 2);
+
+            $item = [
+                'id' => $journal->id,
+                'journal_entry' => $journal,
+                'candidate_ref' => rtrim(strtr(base64_encode(Crypt::encryptString('journal-entry:'.$journal->getKey())), '+/', '-_'), '='),
+                'formatted_reference' => $journal->reference ?: $journal->formatted_reference,
+                'reference' => $journal->reference ?: $journal->formatted_reference,
+                'source_label' => $journal->source_label,
+                'source_type' => $journal->source_type,
+                'source_id' => $journal->source_id,
+                'description' => $journal->description ?: 'No description',
+                'entry_date' => $journal->entry_date?->format('d M Y') ?? '—',
+                'raw_date' => $journal->entry_date?->toDateString() ?? '',
+                'statement_date' => $statementDateString,
+                'date_match' => $dateMatch,
+                'date_difference_days' => $diffDays,
+                'date_badge_text' => $dateBadgeText,
+                'account_name' => $accountName,
+                'account_type' => $accountType,
+                'amount' => (float) $journal->primary_amount,
+                'floating_amount' => max(0, $openAmount),
+                'formatted_amount' => '₹'.number_format((float) $journal->primary_amount, 2),
+                'status' => $status,
+                'reconciliation_status_label' => $journal->reconciliation_status_label,
+            ];
+
+            if ($status === 'MATCHED') {
+                $finalizedStmt = $journal->statementEntries->firstWhere('is_finalized', true);
+                $item['matched_statement_id'] = $finalizedStmt?->id;
+                $item['matched_statement_ref'] = $finalizedStmt?->reference ?: '—';
+                $item['matched_to'] = $finalizedStmt ? 'Statement #'.$finalizedStmt->id.' ('.$finalizedStmt->companyAccount?->name.')' : 'Reconciled Statement';
+                $item['matched_date'] = $finalizedStmt?->finalized_at?->format('d M Y H:i') ?? '—';
+                $item['matched_by'] = $finalizedStmt?->reconciledBy?->name ?? 'System';
+            }
+
+            return $item;
+        };
+
+        $sortCandidates = function (array $a, array $b): int {
+            // 1. EXACT DATE first
+            $aExact = $a['date_match'] === 'exact' ? 0 : 1;
+            $bExact = $b['date_match'] === 'exact' ? 0 : 1;
+            if ($aExact !== $bExact) {
+                return $aExact <=> $bExact;
+            }
+
+            // 2. Smallest absolute date difference
+            if ($a['date_difference_days'] !== $b['date_difference_days']) {
+                return $a['date_difference_days'] <=> $b['date_difference_days'];
+            }
+
+            // 3. entry_date DESC
+            $dateCompare = strcmp((string) ($b['raw_date'] ?? ''), (string) ($a['raw_date'] ?? ''));
+            if ($dateCompare !== 0) {
+                return $dateCompare;
+            }
+
+            // 4. id DESC
+            return $b['id'] <=> $a['id'];
+        };
+
+        $pendingList = $pendingEntries->map(fn (JournalEntry $journal) => $mapJournal($journal, 'UNMATCHED'))->values()->all();
+        usort($pendingList, $sortCandidates);
+
+        $reconciledList = $reconciledEntries->map(fn (JournalEntry $journal) => $mapJournal($journal, 'MATCHED'))->values()->all();
+        usort($reconciledList, $sortCandidates);
+
+        $exactPendingCount = count(array_filter($pendingList, fn ($item) => $item['date_match'] === 'exact'));
+        $exactReconciledCount = count(array_filter($reconciledList, fn ($item) => $item['date_match'] === 'exact'));
+
+        return [
+            'pending' => $pendingList,
+            'reconciled' => $reconciledList,
+            'counts' => [
+                'pending' => count($pendingList),
+                'reconciled' => count($reconciledList),
+                'exact_date_pending' => $exactPendingCount,
+                'exact_date_reconciled' => $exactReconciledCount,
+            ],
+        ];
     }
 
     /** @param array{company_account_id:int,statement_entry_id?:int,transaction_date:string,reference?:string|null,narration?:string|null,notes?:string|null} $input */

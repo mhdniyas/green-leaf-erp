@@ -6,6 +6,7 @@ namespace App\Services\Finance;
 
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\PurchaserCredit;
+use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -211,64 +212,53 @@ final class PurchaserFinanceService
     }
 
     /** @return Collection<int, array{statement: CompanyAccountStatementEntry, is_exact_amount: bool, score: int}> */
-    public function candidateStatementsForCredit(PurchaserCredit $credit, int $graceDays = 30, string $search = ''): Collection
+    public function __construct(
+        private readonly CompanyPaymentReconciliationService $reconciliationService,
+    ) {}
+
+    /**
+     * @return array{
+     *     funding: array<string, mixed>,
+     *     pending: list<array<string, mixed>>,
+     *     reconciled: list<array<string, mixed>>,
+     *     counts: array{
+     *         pending: int,
+     *         reconciled: int,
+     *         exact_date_pending: int,
+     *         exact_date_reconciled: int
+     *     }
+     * }
+     */
+    public function candidateStatementsForCredit(PurchaserCredit $credit): array
     {
-        $creditDate = $credit->business_date ?: today();
-        $startDate = $creditDate->copy()->subDays($graceDays)->toDateString();
-        $endDate = $creditDate->copy()->addDays($graceDays)->toDateString();
+        $credit->loadMissing(['purchaser', 'companyAccount']);
         $creditAmount = round((float) $credit->amount, 2);
+        $fundingDate = $credit->business_date ?: today();
 
-        return CompanyAccountStatementEntry::query()
-            ->with('companyAccount')
-            ->where('direction', 'out')
-            ->where('is_finalized', false)
-            ->where('status', 'unmatched')
-            ->whereNull('journal_entry_id')
-            ->whereNull('source_type')
-            ->whereBetween('transaction_date', [$startDate, $endDate])
-            ->when($search !== '', function ($query) use ($search): void {
-                $numericSearch = is_numeric($search) ? round((float) $search, 2) : null;
-                $query->where(function ($sub) use ($numericSearch, $search): void {
-                    $sub->where('reference', 'like', '%'.$search.'%')
-                        ->orWhere('narration', 'like', '%'.$search.'%');
-                    if ($numericSearch !== null) {
-                        $sub->orWhere('amount', $numericSearch);
-                    }
-                });
-            })
-            ->latest('transaction_date')
-            ->limit(50)
-            ->get()
-            ->map(function (CompanyAccountStatementEntry $stmt) use ($credit, $creditAmount, $creditDate): array {
-                $stmtAmount = round((float) $stmt->amount, 2);
-                $score = 0;
+        $candidates = $this->reconciliationService->findStatementCandidates(
+            companyAccountId: $credit->company_account_id,
+            amount: $creditAmount,
+            direction: 'out',
+            referenceDate: $fundingDate,
+        );
 
-                if (abs($stmtAmount - $creditAmount) <= 0.01) {
-                    $score += 70;
-                }
-
-                if ($stmt->transaction_date) {
-                    $score += max(0, 20 - abs($stmt->transaction_date->diffInDays($creditDate)));
-                }
-
-                if ($credit->company_account_id && (int) $stmt->company_account_id === (int) $credit->company_account_id) {
-                    $score += 10;
-                }
-
-                $creditRef = strtolower(trim((string) ($credit->reference ?? '')));
-                $stmtRef = strtolower(trim((string) ($stmt->reference ?? '').' '.(string) ($stmt->narration ?? '')));
-                if ($creditRef !== '' && $stmtRef !== '' && (str_contains($stmtRef, $creditRef) || str_contains($creditRef, $stmtRef))) {
-                    $score += 15;
-                }
-
-                return [
-                    'statement' => $stmt,
-                    'is_exact_amount' => abs($stmtAmount - $creditAmount) <= 0.01,
-                    'score' => $score,
-                ];
-            })
-            ->sortByDesc('score')
-            ->values();
+        return [
+            'funding' => [
+                'id' => $credit->id,
+                'amount' => (float) $credit->amount,
+                'formatted_amount' => '₹'.number_format((float) $credit->amount, 2),
+                'business_date' => $credit->business_date?->format('d M Y') ?? $credit->business_date?->toDateString(),
+                'raw_date' => $credit->business_date?->toDateString(),
+                'purchaser_name' => $credit->purchaser?->name ?? 'Purchaser',
+                'account_name' => $credit->companyAccount?->name ?? ($credit->payment_source ?: 'Any Account'),
+                'company_account_id' => $credit->company_account_id,
+                'reference' => $credit->reference ?: '—',
+                'description' => $credit->description ?: 'Company funding to purchaser',
+            ],
+            'pending' => $candidates['pending'],
+            'reconciled' => $candidates['reconciled'],
+            'counts' => $candidates['counts'],
+        ];
     }
 
     private function creditPurchaseRowsQuery(int $purchaserId, string $startDate = '', string $endDate = ''): Builder

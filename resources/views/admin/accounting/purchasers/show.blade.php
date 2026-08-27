@@ -87,7 +87,7 @@
                             <select id="company_account_id" name="company_account_id" class="mt-2 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">
                                 <option value="">No statement row</option>
                                 @foreach($companyAccounts as $account)
-                                    <option value="{{ $account->id }}">{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
+                                    <option value="{{ $account->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($account, old('company_account_id'), $companyAccounts))>{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
                                 @endforeach
                             </select>
                         </div>

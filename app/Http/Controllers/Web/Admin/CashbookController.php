@@ -21,6 +21,7 @@ use App\Http\Requests\Cashbook\UpdateEntryRequest;
 use App\Http\Requests\Cashbook\UpdatePresetSettingRequest;
 use App\Http\Requests\Cashbook\UpdateRuleRequest;
 use App\Http\Requests\Cashbook\VoidEntryRequest;
+use App\Models\Account;
 use App\Models\BusinessSetting;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
@@ -1168,7 +1169,7 @@ final class CashbookController extends Controller
             ->get();
         $selectedAccount = $accountId
             ? $companyAccounts->firstWhere('id', $accountId)
-            : $companyAccounts->firstWhere('account_type', 'bank');
+            : ($companyAccounts->where('account_type', 'bank')->firstWhere('is_default', true) ?? $companyAccounts->firstWhere('account_type', 'bank'));
         $company = config('greenleaf');
         $currentShop = $shops->first();
 
@@ -1371,14 +1372,17 @@ final class CashbookController extends Controller
         $kind = (string) $request->input('find_kind');
         $reference = (string) $request->input('find_ref');
         if (! in_array($kind, ['journal', 'shop_payment'], true) || $reference === '') {
-            return [null, collect()];
+            return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
         }
 
         if ($kind === 'shop_payment') {
             $payment = ShopInvoicePaymentRequest::query()->with(['shop', 'reconciliations'])->withExists('allocations')
                 ->whereKey($this->decodeFinanceRouteKey($reference, 'shop-payment'))->firstOrFail();
             $source = ['kind' => $kind, 'reference' => $reference, 'source' => 'Shop Payment', 'counterparty' => $payment->shop?->name ?? 'Shop', 'amount' => $this->shopPaymentFloatingAmount($payment), 'direction' => 'in', 'date' => $payment->payment_date?->toDateString() ?? '', 'method' => $payment->paymentMethodLabel(), 'reference_label' => $payment->payment_reference ?: 'No reference', 'description' => $payment->shop_note ?: 'No note provided', 'details' => ['Shop Name' => $payment->shop?->name ?? 'Shop', 'Amount Submitted' => '₹'.number_format((float) $payment->requested_amount, 2), 'Payment Method' => $payment->paymentMethodLabel(), 'Reference / Cheque No' => $payment->payment_reference ?: 'No reference', 'Submitted Date' => $payment->payment_date?->format('Y-m-d') ?? '—', 'Notes' => $payment->shop_note ?: '—', 'Current Status' => 'Pending Reconciliation']];
-            $expectedAccountType = $payment->payment_method === 'cash' ? 'cash' : 'bank';
+            $direction = 'in';
+            $amount = (float) $source['amount'];
+            $date = $payment->payment_date ?: today();
+            $companyAccountId = null;
         } else {
             $journal = JournalEntry::query()->with(['transactions.account', 'statementEntries'])->whereKey($this->decodeFinanceRouteKey($reference, 'journal-entry'))->firstOrFail();
             $cashTransaction = $journal->transactions->first(fn ($transaction) => in_array($transaction->account?->code, ['1010', '1020'], true));
@@ -1399,24 +1403,21 @@ final class CashbookController extends Controller
                 'Cash / Bank Account' => $cashTransaction->account?->name ?? '—',
             ];
             $source = ['kind' => $kind, 'reference' => $reference, 'source' => preg_replace('/ #\\d+$/', '', $journal->source_label) ?: 'Cashbook Transaction', 'counterparty' => $journal->description ?: $journal->reference ?: 'Company transaction', 'amount' => round($journal->primary_amount - (float) $journal->statementEntries->sum('matched_amount'), 2), 'direction' => $cashTransaction->type === 'debit' ? 'in' : 'out', 'date' => $journal->entry_date?->toDateString() ?? '', 'method' => $cashTransaction->account?->code === '1010' ? 'Cash' : 'Bank', 'reference_label' => $journal->reference ?: $journal->formatted_reference, 'description' => $journal->description ?: 'No description provided', 'details' => $details];
-            $expectedAccountType = $cashTransaction->account?->code === '1010' ? 'cash' : 'bank';
+            $direction = $source['direction'];
+            $amount = (float) $source['amount'];
+            $date = $journal->entry_date ?: today();
+            $companyAccountId = $companyEntry?->company_account_id;
         }
 
-        $date = Carbon::parse($source['date'] ?: today());
-        $dateDistanceOrder = DB::connection()->getDriverName() === 'sqlite'
-            ? 'abs(julianday(transaction_date) - julianday(?))'
-            : 'abs(datediff(transaction_date, ?))';
+        $candidatesData = $this->companyPaymentReconciliationService->findStatementCandidates(
+            companyAccountId: $companyAccountId,
+            amount: $amount,
+            direction: $direction,
+            referenceDate: $date,
+            search: $search
+        );
 
-        $candidates = CompanyAccountStatementEntry::query()->with('companyAccount')
-            ->where('is_finalized', false)->where('status', 'unmatched')->whereNull('journal_entry_id')->whereNull('source_type')
-            ->where('direction', $source['direction'])->where('amount', $source['amount'])
-            ->whereHas('companyAccount', fn (Builder $query) => $query->where('enabled', true)->where('account_type', $expectedAccountType))
-            ->whereBetween('transaction_date', [$date->copy()->subDays($graceDays), $date->copy()->addDays($graceDays)])
-            ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $sub) => $sub->where('reference', 'like', '%'.$search.'%')->orWhere('narration', 'like', '%'.$search.'%')))
-            ->orderByRaw($dateDistanceOrder, [$date->toDateString()])
-            ->limit(30)->get();
-
-        return [$source, $candidates];
+        return [$source, $candidatesData];
     }
 
     /**
@@ -2094,40 +2095,146 @@ final class CashbookController extends Controller
             ->with('success', 'Purchaser funding of ₹'.number_format((float) $credit->amount, 2).' recorded.');
     }
 
+    public function updatePurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'payment_source' => ['required', 'string', 'in:Bank,Cash'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'reference' => ['nullable', 'string', 'max:160'],
+            'description' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        DB::transaction(function () use ($credit, $validated, $purchaser): void {
+            /** @var PurchaserCredit $credit */
+            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+            $newAmount = round((float) $validated['amount'], 2);
+            $oldAmount = round((float) $credit->amount, 2);
+
+            // If amount changed and statement was finalized/reconciled, unlink the statement match so amounts remain consistent
+            if (abs($newAmount - $oldAmount) > 0.009) {
+                CompanyAccountStatementEntry::query()
+                    ->where('source_type', PurchaserCredit::class)
+                    ->where('source_id', $credit->id)
+                    ->update([
+                        'is_finalized' => false,
+                        'status' => 'unmatched',
+                        'journal_entry_id' => null,
+                        'source_type' => null,
+                        'source_id' => null,
+                        'matched_amount' => 0,
+                        'finalized_at' => null,
+                        'reconciled_by' => null,
+                        'reconciled_at' => null,
+                    ]);
+            }
+
+            $credit->update([
+                'amount' => $newAmount,
+                'business_date' => $validated['business_date'],
+                'payment_source' => $validated['payment_source'],
+                'company_account_id' => $validated['company_account_id'] ?? null,
+                'reference' => $validated['reference'] ?? null,
+                'description' => $validated['description'] ?? 'Company funding to purchaser',
+            ]);
+
+            // Sync JournalEntry and transactions
+            $journalEntry = JournalEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($journalEntry instanceof JournalEntry) {
+                $journalEntry->update([
+                    'entry_date' => $validated['business_date'],
+                    'reference' => $validated['reference'] ?: "PURCH-FUND-{$credit->id}",
+                    'description' => 'Company funding given to purchaser '.($purchaser->name ?? '#'.$purchaser->id),
+                    'primary_amount' => $newAmount,
+                ]);
+
+                $advanceAccountId = Account::query()->where('code', '1300')->value('id');
+                $cashAccountId = $validated['payment_source'] === 'Cash'
+                    ? Account::query()->where('code', '1010')->value('id')
+                    : Account::query()->where('code', '1020')->value('id');
+
+                if ($advanceAccountId && $cashAccountId) {
+                    $journalEntry->transactions()->delete();
+                    $journalEntry->transactions()->createMany([
+                        [
+                            'account_id' => $advanceAccountId,
+                            'type' => 'debit',
+                            'amount' => $newAmount,
+                        ],
+                        [
+                            'account_id' => $cashAccountId,
+                            'type' => 'credit',
+                            'amount' => $newAmount,
+                        ],
+                    ]);
+                }
+            }
+        });
+
+        return redirect()
+            ->route('admin.cashbook.finance.purchase.purchasers.show', [
+                'purchaser' => $purchaser->public_uuid,
+                'period' => 'month',
+                'tab' => 'finance',
+            ])
+            ->with('success', 'Purchaser funding of ₹'.number_format((float) $validated['amount'], 2).' updated successfully.');
+    }
+
     public function purchaserFundingCandidates(Request $request, User $purchaser, PurchaserCredit $credit, PurchaserFinanceService $purchaserFinanceService): JsonResponse
     {
         $this->ensureMainAdmin($request);
 
         abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
 
-        $graceDays = max(0, min(90, (int) $request->input('grace_days', 30)));
-        $search = trim((string) $request->input('search', ''));
+        $data = $purchaserFinanceService->candidateStatementsForCredit($credit);
 
-        $candidates = $purchaserFinanceService->candidateStatementsForCredit($credit, $graceDays, $search);
+        return response()->json($data);
+    }
 
-        return response()->json([
-            'credit' => [
-                'id' => $credit->id,
-                'amount' => (float) $credit->amount,
-                'business_date' => $credit->business_date?->toDateString(),
-                'reference' => $credit->reference,
-                'description' => $credit->description,
-                'company_account_id' => $credit->company_account_id,
-            ],
-            'candidates' => $candidates->map(fn (array $item) => [
-                'id' => $item['statement']->id,
-                'public_uuid' => $item['statement']->public_uuid,
-                'account_name' => $item['statement']->companyAccount?->name ?? 'Company Account',
-                'account_type' => $item['statement']->companyAccount?->account_type ?? 'bank',
-                'transaction_date' => $item['statement']->transaction_date?->toDateString(),
-                'amount' => (float) $item['statement']->amount,
-                'reference' => $item['statement']->reference ?: '—',
-                'narration' => $item['statement']->narration ?: '—',
-                'status' => $item['statement']->status,
-                'is_exact_amount' => $item['is_exact_amount'],
-                'score' => $item['score'],
-            ]),
+    public function replaceMatchPurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $validated = $request->validate([
+            'statement_entry_id' => ['required', 'integer', 'exists:cashbook_company_account_statement_entries,id'],
         ]);
+
+        DB::transaction(function () use ($credit, $validated, $request): void {
+            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+
+            $journalEntry = JournalEntry::query()
+                ->where('source_type', PurchaserCredit::class)
+                ->where('source_id', $credit->id)
+                ->with('transactions.account')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->whereKey((int) $validated['statement_entry_id'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $this->companyPaymentReconciliationService->replaceStatementJournalMatch(
+                $statementEntry,
+                $journalEntry,
+                (float) $credit->amount,
+                (int) $request->user()->id
+            );
+        });
+
+        return redirect()->back()->with('success', 'Purchaser funding statement match replaced successfully.');
     }
 
     public function matchStatementPurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
@@ -3139,7 +3246,7 @@ final class CashbookController extends Controller
         $eligibleShopPayments = collect();
         $matchExistingCandidates = $classifyStatement instanceof CompanyAccountStatementEntry
             ? $this->possibleExistingJournalCandidatesForStatement($classifyStatement, $graceDays, $search)
-            : collect();
+            : ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]];
 
         if ($classifyStatement instanceof CompanyAccountStatementEntry && $request->boolean('create_transaction')) {
             $recentCompanyAccountingEntries = CompanyAccountingEntry::query()
@@ -3358,17 +3465,51 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        [, $candidates] = $this->pendingSourceStatementFinder($request, 10, '');
+        [, $candidatesData] = $this->pendingSourceStatementFinder($request, 10, (string) $request->input('search', ''));
+
+        if (! is_array($candidatesData)) {
+            return response()->json([
+                'candidates' => [],
+                'reconciled' => [],
+                'counts' => [
+                    'pending' => 0,
+                    'reconciled' => 0,
+                    'exact_date_pending' => 0,
+                    'exact_date_reconciled' => 0,
+                ],
+            ]);
+        }
+
+        $mapCandidate = fn (array $cand): array => [
+            'id' => $cand['id'],
+            'public_uuid' => $cand['public_uuid'],
+            'date' => $cand['transaction_date'],
+            'raw_date' => $cand['raw_date'],
+            'date_match' => $cand['date_match'],
+            'date_difference_days' => $cand['date_difference_days'],
+            'date_badge_text' => $cand['date_badge_text'],
+            'account' => $cand['account_name'],
+            'account_type' => $cand['account_type'],
+            'amount' => $cand['amount'],
+            'formatted_amount' => $cand['formatted_amount'],
+            'reference' => $cand['reference'],
+            'narration' => $cand['narration'],
+            'status' => $cand['status'],
+            'matched_to' => $cand['matched_to'] ?? null,
+            'matched_date' => $cand['matched_date'] ?? null,
+            'matched_by' => $cand['matched_by'] ?? null,
+            'match_url' => route('admin.cashbook.finance.reconciliation.'.($request->input('find_kind') === 'shop_payment' ? 'classify-shop-payment' : 'match-existing'), ['statement' => $cand['public_uuid']]),
+        ];
 
         return response()->json([
-            'candidates' => $candidates->map(fn (CompanyAccountStatementEntry $statement): array => [
-                'date' => $statement->transaction_date?->toDateString(),
-                'account' => $statement->companyAccount?->name,
-                'amount' => (float) $statement->amount,
-                'reference' => $statement->reference,
-                'narration' => $statement->narration,
-                'match_url' => route('admin.cashbook.finance.reconciliation.'.($request->input('find_kind') === 'shop_payment' ? 'classify-shop-payment' : 'match-existing'), $statement),
-            ])->values(),
+            'candidates' => array_map($mapCandidate, $candidatesData['pending'] ?? []),
+            'reconciled' => array_map($mapCandidate, $candidatesData['reconciled'] ?? []),
+            'counts' => $candidatesData['counts'] ?? [
+                'pending' => count($candidatesData['pending'] ?? []),
+                'reconciled' => count($candidatesData['reconciled'] ?? []),
+                'exact_date_pending' => 0,
+                'exact_date_reconciled' => 0,
+            ],
         ]);
     }
 
@@ -3658,16 +3799,14 @@ final class CashbookController extends Controller
             'candidate_ref' => ['required', 'string'],
         ]);
 
-        DB::transaction(function () use ($request, $statement, $validated): void {
+        $isReplaced = false;
+
+        DB::transaction(function () use ($request, $statement, $validated, &$isReplaced): void {
             $statement = CompanyAccountStatementEntry::query()
                 ->with('companyAccount')
                 ->whereKey($statement->id)
                 ->lockForUpdate()
                 ->firstOrFail();
-
-            if ($statement->is_finalized || $statement->status !== 'unmatched' || $statement->journal_entry_id !== null || $statement->source_type !== null) {
-                throw ValidationException::withMessages(['statement' => 'This statement row cannot be matched to an existing transaction.']);
-            }
 
             $journalEntry = JournalEntry::query()
                 ->with(['transactions.account', 'statementEntries'])
@@ -3679,27 +3818,44 @@ final class CashbookController extends Controller
                 throw ValidationException::withMessages(['candidate_ref' => 'Selected transaction is not supported for Cashbook matching.']);
             }
 
-            $openAmount = round((float) $journalEntry->primary_amount - (float) $journalEntry->statementEntries->sum('matched_amount'), 2);
-            $statementAmount = round((float) $statement->amount - (float) $statement->matched_amount, 2);
+            $statementAmount = round((float) $statement->amount, 2);
+            $journalAmount = round((float) $journalEntry->primary_amount, 2);
 
-            if (abs($openAmount - $statementAmount) > 0.01) {
-                throw ValidationException::withMessages(['candidate_ref' => 'Statement amount must match the selected transaction open amount.']);
+            if (abs($journalAmount - $statementAmount) > 0.01) {
+                throw ValidationException::withMessages(['candidate_ref' => 'Statement amount must match the selected transaction amount.']);
             }
 
-            $this->companyPaymentReconciliationService->reconcileStatementJournal(
-                $statement,
-                $journalEntry,
-                $statementAmount,
-                (int) $request->user()->id,
-            );
+            $isReconciledJournal = $journalEntry->statementEntries->where('is_finalized', true)->isNotEmpty();
+            $isReconciledStatement = $statement->is_finalized || $statement->journal_entry_id !== null;
+
+            if ($isReconciledJournal || $isReconciledStatement) {
+                $isReplaced = true;
+                $this->companyPaymentReconciliationService->replaceStatementJournalMatch(
+                    $statement,
+                    $journalEntry,
+                    $statementAmount,
+                    (int) $request->user()->id,
+                );
+            } else {
+                $this->companyPaymentReconciliationService->reconcileStatementJournal(
+                    $statement,
+                    $journalEntry,
+                    $statementAmount,
+                    (int) $request->user()->id,
+                );
+            }
         }, attempts: 3);
+
+        $message = $isReplaced
+            ? 'Statement match replaced successfully. Previous transaction returned to pending reconciliation.'
+            : 'Statement matched to existing transaction and finalized.';
 
         return redirect()
             ->route('admin.cashbook.finance.reconciliation', [
                 'company_account_uuid' => $statement->fresh('companyAccount')?->companyAccount?->public_uuid,
                 'month' => $statement->transaction_date?->format('Y-m'),
             ])
-            ->with('success', 'Statement matched to existing transaction and finalized.');
+            ->with('success', $message);
     }
 
     public function matchStatementReconciliation(Request $request, string $statementRef): RedirectResponse
@@ -6932,69 +7088,21 @@ PY;
             ->values();
     }
 
-    private function possibleExistingJournalCandidatesForStatement(CompanyAccountStatementEntry $statementEntry, int $graceDays, string $search): Collection
+    /**
+     * @return array{
+     *     pending: list<array<string, mixed>>,
+     *     reconciled: list<array<string, mixed>>,
+     *     counts: array{
+     *         pending: int,
+     *         reconciled: int,
+     *         exact_date_pending: int,
+     *         exact_date_reconciled: int
+     *     }
+     * }
+     */
+    private function possibleExistingJournalCandidatesForStatement(CompanyAccountStatementEntry $statementEntry, int $graceDays, string $search): array
     {
-        $statementDate = $statementEntry->transaction_date ?: today();
-        $startDate = $statementDate->copy()->subDays($graceDays)->toDateString();
-        $endDate = $statementDate->copy()->addDays($graceDays)->toDateString();
-        $statementAmount = round((float) $statementEntry->amount - (float) $statementEntry->matched_amount, 2);
-        $expectedCode = $statementEntry->companyAccount?->account_type === 'cash' ? '1010' : '1020';
-        $cashBankType = $statementEntry->direction === 'in' ? 'debit' : 'credit';
-
-        return JournalEntry::query()
-            ->with(['transactions.account', 'statementEntries.companyAccount', 'createdBy'])
-            ->whereIn('source_type', $this->matchableCashbookSourceTypes())
-            ->whereDate('entry_date', '>=', $startDate)
-            ->whereDate('entry_date', '<=', $endDate)
-            ->whereHas('transactions', fn (Builder $query) => $query
-                ->where('type', $cashBankType)
-                ->whereHas('account', fn (Builder $accountQuery) => $accountQuery->where('code', $expectedCode)))
-            ->whereDoesntHave('statementEntries', fn (Builder $query) => $query->where('is_finalized', true))
-            ->when($search !== '', function (Builder $query) use ($search): void {
-                $numericSearch = is_numeric($search) ? round((float) $search, 2) : null;
-
-                $query->where(function (Builder $sub) use ($numericSearch, $search): void {
-                    $sub->where('reference', 'like', '%'.$search.'%')
-                        ->orWhere('description', 'like', '%'.$search.'%')
-                        ->orWhere('source_event', 'like', '%'.$search.'%');
-
-                    if ($numericSearch !== null) {
-                        $sub->orWhereHas('transactions', fn (Builder $transactionQuery) => $transactionQuery->where('amount', $numericSearch));
-                    }
-                });
-            })
-            ->latest('entry_date')
-            ->limit(100)
-            ->get()
-            ->map(function (JournalEntry $journalEntry) use ($statementEntry, $statementAmount): array {
-                $openAmount = round((float) $journalEntry->primary_amount - (float) $journalEntry->statementEntries->sum('matched_amount'), 2);
-                $score = 0;
-
-                if (abs($openAmount - $statementAmount) <= 0.01) {
-                    $score += 70;
-                }
-
-                if ($journalEntry->entry_date && $statementEntry->transaction_date) {
-                    $score += max(0, 20 - abs($journalEntry->entry_date->diffInDays($statementEntry->transaction_date)));
-                }
-
-                $statementText = Str::of(trim(($statementEntry->reference ?? '').' '.($statementEntry->narration ?? '')))->lower()->toString();
-                $journalText = Str::of(trim(($journalEntry->reference ?? '').' '.($journalEntry->description ?? '')))->lower()->toString();
-                if ($statementText !== '' && $journalText !== '' && (str_contains($statementText, Str::lower((string) $journalEntry->reference)) || str_contains($statementText, Str::lower((string) $journalEntry->description)))) {
-                    $score += 25;
-                }
-
-                return [
-                    'journal_entry' => $journalEntry,
-                    'candidate_ref' => $this->secureJournalEntryKey($journalEntry),
-                    'floating_amount' => max(0, $openAmount),
-                    'score' => $score,
-                ];
-            })
-            ->filter(fn (array $item): bool => abs((float) $item['floating_amount'] - $statementAmount) <= 0.01)
-            ->sortByDesc('score')
-            ->take(30)
-            ->values();
+        return $this->companyPaymentReconciliationService->findJournalCandidatesForStatement($statementEntry, $search);
     }
 
     /**
@@ -7002,16 +7110,7 @@ PY;
      */
     private function matchableCashbookSourceTypes(): array
     {
-        return [
-            ShopInvoicePaymentRequest::class,
-            DirectCompanySale::class,
-            CompanyAccountingEntry::class,
-            VendorSettlement::class,
-            PurchaserCredit::class,
-            ShopLedgerTransaction::class,
-            PayrollPayment::class,
-            CompanyPayableSettlement::class,
-        ];
+        return $this->companyPaymentReconciliationService->matchableCashbookSourceTypes();
     }
 
     private function secureJournalEntryKey(JournalEntry $journalEntry): string
