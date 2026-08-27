@@ -371,4 +371,22 @@ class ShopOrder extends Model
     {
         return 'order_number';
     }
+
+    public function getRouteKey(): mixed
+    {
+        return $this->order_number ?: $this->getKey();
+    }
+
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        $field ??= $this->getRouteKeyName();
+
+        $query = $this->newQuery()->where($field, $value);
+
+        if ($field === 'order_number' && is_numeric($value)) {
+            $query->orWhere($this->getKeyName(), (int) $value);
+        }
+
+        return $query->first();
+    }
 }

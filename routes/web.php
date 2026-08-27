@@ -592,6 +592,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/receive-grns/all', [WarehouseReceiverController::class, 'processReceiveAllGrns'])->name('process-receive-grns.all');
         Route::get('/receive-grn/{grn}', [WarehouseReceiverController::class, 'receiveGrnForm'])->name('receive-grn');
         Route::post('/receive-grn/{grn}', [WarehouseReceiverController::class, 'processReceiveGrn'])->name('process-receive-grn');
+        Route::get('/direct-purchase/{order}/receive', [WarehouseReceiverController::class, 'receiveDirectPurchaseForm'])->name('direct-purchase.receive-form');
         Route::post('/direct-purchase/{order}/receive', [WarehouseReceiverController::class, 'receiveDirectPurchase'])->name('direct-purchase.receive');
         Route::get('/loadout/{order}', [WarehouseReceiverController::class, 'loadoutDetails'])->name('loadout.show');
         Route::post('/loadout/item/{item}', [WarehouseReceiverController::class, 'loadoutItem'])->name('loadout.item');

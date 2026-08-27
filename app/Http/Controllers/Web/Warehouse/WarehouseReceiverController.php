@@ -379,6 +379,18 @@ class WarehouseReceiverController extends Controller
         ]);
     }
 
+    public function receiveDirectPurchaseForm(ShopOrder $order, Request $request): View
+    {
+        $this->authorizeReceiverAccess($request);
+
+        abort_unless($order->isAdminDirectPurchase(), 404);
+
+        $order->loadMissing(['items.product.category']);
+        $warehouses = Warehouse::active()->orderBy('name')->get();
+
+        return view('warehouse-receiver.receive_direct_purchase', compact('order', 'warehouses'));
+    }
+
     public function receiveDirectPurchase(ShopOrder $order, Request $request): RedirectResponse
     {
         $this->authorizeReceiverAccess($request);
