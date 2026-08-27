@@ -31,6 +31,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -284,8 +285,7 @@ class AdminCashbookReportsController extends Controller
             : [];
 
         $query = $this->glBillsQuery($shopIds, $dateRange['start'], $dateRange['end'], $selectedProductFilter, $filterProductIds);
-        $totalInvoices = (clone $query)->get();
-        $this->annotateGlBillsInvoices($totalInvoices, $filterProductIds);
+        $totals = $this->glBillsTotalsFromQuery($query, $filterProductIds);
 
         $invoices = $paginate
             ? $query->paginate(15)->withQueryString()
@@ -302,7 +302,7 @@ class AdminCashbookReportsController extends Controller
             'selectedProductFilterUuid' => $selectedProductFilterUuid,
             'filterProductIds' => $filterProductIds,
             'invoices' => $invoices,
-            'totals' => $this->glBillsTotals($totalInvoices, $filterProductIds),
+            'totals' => $totals,
             'timeframe' => $timeframe,
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
@@ -398,6 +398,35 @@ class AdminCashbookReportsController extends Controller
             'total_paid' => 0.00,
             'total_balance' => 0.00,
             'count' => 0,
+        ];
+    }
+
+    /**
+     * @param  array<int, int>  $filterProductIds
+     * @return array{total_billed: float, total_paid: float, total_balance: float, count: int}
+     */
+    private function glBillsTotalsFromQuery(Builder $query, array $filterProductIds): array
+    {
+        if ($filterProductIds === []) {
+            return [
+                'total_billed' => round((float) (clone $query)->reorder()->sum('final_total'), 2),
+                'total_paid' => round((float) (clone $query)->reorder()->sum('paid_amount'), 2),
+                'total_balance' => round((float) (clone $query)->reorder()->sum('balance_amount'), 2),
+                'count' => (int) (clone $query)->reorder()->count(),
+            ];
+        }
+
+        $totalBilled = (clone $query)
+            ->reorder()
+            ->join('shop_invoice_items', 'shop_invoice_items.shop_invoice_id', '=', 'shop_invoices.id')
+            ->whereIn('shop_invoice_items.product_id', $filterProductIds)
+            ->sum(DB::raw('COALESCE(shop_invoice_items.final_line_total, COALESCE(shop_invoice_items.delivered_price_quantity, shop_invoice_items.price_quantity, shop_invoice_items.delivered_qty, 0) * COALESCE(shop_invoice_items.unit_price, 0))'));
+
+        return [
+            'total_billed' => round((float) $totalBilled, 2),
+            'total_paid' => round((float) (clone $query)->reorder()->sum('paid_amount'), 2),
+            'total_balance' => round((float) (clone $query)->reorder()->sum('balance_amount'), 2),
+            'count' => (int) (clone $query)->reorder()->count(),
         ];
     }
 
