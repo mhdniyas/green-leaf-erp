@@ -13,6 +13,8 @@ class GoodsReceivedSummaryResource extends JsonResource
     public function toArray(Request $request): array
     {
         $receivedDate = $this->received_at ? Carbon::parse($this->received_at) : null;
+        $isBillPending = $this->isBillPending();
+        $source = $this->sourceLabel();
 
         return [
             'id' => $this->id,
@@ -21,19 +23,22 @@ class GoodsReceivedSummaryResource extends JsonResource
             'warehouse_id' => $this->warehouse_id,
             'grn_number' => $this->grn_number,
             'status' => $this->status,
-            'bill_status' => $this->bill_status ?: 'bill_pending',
+            'source' => $source,
+            'bill_status' => $this->bill_status ?: ($isBillPending ? 'bill_pending' : 'bill_available'),
             'bill_number' => $this->bill_number,
-            'is_bill_pending' => true,
-            'status_label' => 'BILL PENDING',
+            'is_bill_pending' => $isBillPending,
+            'status_label' => $isBillPending ? 'BILL PENDING' : 'RECEIVED WITH BILL',
+            'inventory_posted' => true,
             'received_by' => $this->received_by,
             'received_by_name' => $this->receivedBy?->name ?? 'Receiver',
             'age_days' => $receivedDate ? $receivedDate->diffInDays(now()) : 0,
-            'supplier_name' => $this->purchaseOrder?->supplier?->name ?? 'Direct Advance Receipt',
+            'supplier_name' => $this->purchaseOrder?->supplier?->name ?? ($source === 'ADVANCE' ? 'Direct Advance Receipt' : 'Vendor'),
             'supplier_id' => $this->purchaseOrder?->supplier_id,
             'destination_shop_name' => $this->destinationShop?->name ?? $this->purchaseOrder?->destinationShop?->name ?? 'Central Warehouse',
             'received_at' => $this->received_at?->toDateString(),
-            'total_items_count' => (int) ($this->items_count ?? 0),
-            'total_received_qty' => (float) ($this->items_sum_received_qty ?? 0),
+            'received_at_formatted' => $this->approved_at?->format('h:i A') ?? ($this->created_at?->format('h:i A') ?? ''),
+            'total_items_count' => (int) ($this->items_count ?? ($this->relationLoaded('items') ? $this->items->count() : 0)),
+            'total_received_qty' => (float) ($this->items_sum_received_qty ?? ($this->relationLoaded('items') ? $this->items->sum('received_qty') : 0.0)),
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
         ];

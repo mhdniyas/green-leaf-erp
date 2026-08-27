@@ -176,4 +176,17 @@ class GoodsReceived extends Model
     {
         return $this->bill_status === 'bill_pending' || ! $this->purchaseInvoices()->exists();
     }
+
+    public function sourceLabel(): string
+    {
+        if ($this->purchase_order_id === null) {
+            return 'ADVANCE';
+        }
+
+        if ($this->purchaseOrder?->purchaserCart?->purchase_source === 'green_leaf_direct_purchase') {
+            return 'DIRECT PURCHASE';
+        }
+
+        return 'NORMAL PO';
+    }
 }
