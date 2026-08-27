@@ -69,6 +69,8 @@ use App\Services\Cashbook\CompanyAccountingCashbookService;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\DirectCompanySaleInventoryService;
+use App\Services\Cashbook\ReconciliationAutoMatchSuggestionService;
+use App\Services\Cashbook\ReconciliationTransactionQuery;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use App\Services\Cashbook\ShopPettyFundingService;
 use App\Services\Finance\CompanyPayableService;
@@ -114,6 +116,8 @@ final class CashbookController extends Controller
         private readonly CashbookShopSyncService $shopSyncService,
         private readonly CollectionGroupPostingService $collectionGroupPostingService,
         private readonly CompanyPaymentReconciliationService $companyPaymentReconciliationService,
+        private readonly ReconciliationTransactionQuery $reconciliationTransactionQuery,
+        private readonly ReconciliationAutoMatchSuggestionService $reconciliationAutoMatchSuggestionService,
         private readonly ShopPaymentLedgerReconciliationService $shopPaymentLedgerReconciliationService,
         private readonly ShopPettyFundingService $shopPettyFundingService,
         private readonly CompanyAccountingCashbookService $companyAccountingCashbookService,
@@ -3078,15 +3082,95 @@ final class CashbookController extends Controller
         $direction = in_array((string) $request->input('direction', 'all'), ['all', 'in', 'out'], true)
             ? (string) $request->input('direction', 'all')
             : 'all';
-        $queueStatus = in_array((string) $request->input('status', 'needs_action'), ['needs_action', 'unmatched', 'pending', 'partial', 'finalized_today'], true)
-            ? (string) $request->input('status', 'needs_action')
-            : 'needs_action';
-        $workspaceTab = in_array((string) $request->input('workspace'), ['needs_reconciliation', 'statements', 'history'], true)
+        $queueStatus = in_array((string) $request->input('status', 'NEEDS_REVIEW'), ['NEEDS_REVIEW', 'SUGGESTED', 'RECONCILED', 'needs_action', 'unmatched', 'pending', 'partial', 'finalized_today'], true)
+            ? (string) $request->input('status', 'NEEDS_REVIEW')
+            : 'NEEDS_REVIEW';
+        $workspaceTab = in_array((string) $request->input('workspace'), ['transactions', 'needs_reconciliation', 'statements', 'history'], true)
             ? (string) $request->input('workspace')
-            : 'statements';
+            : 'transactions';
+        if ($workspaceTab === 'needs_reconciliation' && (! $request->filled('find_kind') || ! $request->filled('find_ref'))) {
+            $workspaceTab = 'transactions';
+        }
         $search = $workspaceTab === 'statements'
             ? trim((string) $request->input('search', ''))
             : '';
+        $transactionSearch = $workspaceTab === 'transactions'
+            ? trim((string) $request->input('search', ''))
+            : '';
+        $statementSearch = trim((string) $request->input('statement_search', ''));
+        $activeTransactionType = (string) $request->input('type', 'all');
+        $transactionRows = new LengthAwarePaginator([], 0, 25);
+        $transactionCounts = $this->reconciliationTransactionQuery->counts($request, $monthStart, $monthEnd);
+        if ($workspaceTab === 'transactions' && $queueStatus === 'RECONCILED') {
+            $transactionRows = $this->reconciliationTransactionQuery->paginate($request, $monthStart, $monthEnd);
+        }
+        if ($workspaceTab === 'transactions' && $queueStatus !== 'RECONCILED') {
+            $perPage = 25;
+            $page = LengthAwarePaginator::resolveCurrentPage();
+            $startIndex = ($page - 1) * $perPage;
+            $visibleRows = collect();
+            $matchedCount = 0;
+            $suggestedCount = 0;
+            $needsReviewCount = 0;
+            $sourceCount = $this->reconciliationTransactionQuery->unreconciledCount($request, $monthStart, $monthEnd);
+
+            for ($offset = 0; $offset < $sourceCount; $offset += 100) {
+                $rows = $this->reconciliationTransactionQuery->unreconciledChunk($request, $monthStart, $monthEnd, $offset, 100);
+                $suggestions = $this->reconciliationAutoMatchSuggestionService->suggest($rows, $graceDays);
+
+                foreach ($suggestions as $suggestion) {
+                    if ($suggestion->reconciliation_status === 'SUGGESTED') {
+                        $suggestedCount++;
+                    } else {
+                        $needsReviewCount++;
+                    }
+
+                    if ($suggestion->reconciliation_status !== $queueStatus) {
+                        continue;
+                    }
+
+                    if ($matchedCount >= $startIndex && $visibleRows->count() < $perPage) {
+                        $visibleRows->push($suggestion);
+                    }
+                    $matchedCount++;
+                }
+            }
+
+            $transactionCounts = [
+                'needs_review' => $needsReviewCount,
+                'suggested' => $suggestedCount,
+                'reconciled' => $this->reconciliationTransactionQuery->reconciledCount($request, $monthStart, $monthEnd),
+            ];
+            $transactionRows = new LengthAwarePaginator($visibleRows, $matchedCount, $perPage, $page, [
+                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'query' => $request->query(),
+            ]);
+        }
+        if ($workspaceTab === 'transactions' && $queueStatus === 'RECONCILED') {
+            $suggestedCount = 0;
+            $needsReviewCount = 0;
+            $sourceCount = $this->reconciliationTransactionQuery->unreconciledCount($request, $monthStart, $monthEnd);
+
+            for ($offset = 0; $offset < $sourceCount; $offset += 100) {
+                $rows = $this->reconciliationTransactionQuery->unreconciledChunk($request, $monthStart, $monthEnd, $offset, 100);
+                foreach ($this->reconciliationAutoMatchSuggestionService->suggest($rows, $graceDays) as $suggestion) {
+                    if ($suggestion->reconciliation_status === 'SUGGESTED') {
+                        $suggestedCount++;
+                    } else {
+                        $needsReviewCount++;
+                    }
+                }
+            }
+
+            $transactionCounts = [
+                'needs_review' => $needsReviewCount,
+                'suggested' => $suggestedCount,
+                'reconciled' => $this->reconciliationTransactionQuery->reconciledCount($request, $monthStart, $monthEnd),
+            ];
+        }
+        $transactionTypeFilters = $direction === 'in'
+            ? $this->reconciliationTransactionQuery->inTypes()
+            : ($direction === 'out' ? $this->reconciliationTransactionQuery->outTypes() : ['all' => 'All']);
         $classifyStatement = null;
 
         if ($request->filled('classify_statement')) {
@@ -3160,7 +3244,9 @@ final class CashbookController extends Controller
                 ->whereBetween('transaction_date', [$monthStart, $monthEnd])
                 ->latest('finalized_at')->latest('id')->paginate(20)->withQueryString()
             : new LengthAwarePaginator([], 0, 20);
-        [$findPendingSource, $findStatementCandidates] = $this->pendingSourceStatementFinder($request, $graceDays, $search);
+        [$findPendingSource, $findStatementCandidateData] = $this->pendingSourceStatementFinder($request, $graceDays, $statementSearch ?: $search);
+        $findStatementCandidates = $findStatementCandidateData['pending'] ?? [];
+        $findReconciledStatementCandidates = $findStatementCandidateData['reconciled'] ?? [];
         $showPendingDetails = $request->boolean('details');
 
         $statementEntries = CompanyAccountStatementEntry::query()
@@ -3411,14 +3497,21 @@ final class CashbookController extends Controller
             'selectedAccountId',
             'selectedAccountUuid',
             'search',
+            'statementSearch',
+            'transactionSearch',
             'direction',
             'queueStatus',
             'workspaceTab',
+            'transactionRows',
+            'transactionCounts',
+            'transactionTypeFilters',
+            'activeTransactionType',
             'summary',
             'pendingSources',
             'historyEntries',
             'findPendingSource',
             'findStatementCandidates',
+            'findReconciledStatementCandidates',
             'showPendingDetails',
             'classifyStatement',
             'statementEntries',
@@ -3799,9 +3892,90 @@ final class CashbookController extends Controller
             'candidate_ref' => ['required', 'string'],
         ]);
 
-        $isReplaced = false;
+        $isReplaced = $this->confirmExistingStatementMatch(
+            $statement,
+            (string) $validated['candidate_ref'],
+            (int) $request->user()->id,
+            allowReplacement: true,
+        );
 
-        DB::transaction(function () use ($request, $statement, $validated, &$isReplaced): void {
+        $message = $isReplaced
+            ? 'Statement match replaced successfully. Previous transaction returned to pending reconciliation.'
+            : 'Statement matched to existing transaction and finalized.';
+
+        return redirect()
+            ->route('admin.cashbook.finance.reconciliation', [
+                'company_account_uuid' => $statement->fresh('companyAccount')?->companyAccount?->public_uuid,
+                'month' => $statement->transaction_date?->format('Y-m'),
+            ])
+            ->with('success', $message);
+    }
+
+    public function confirmSuggestedStatement(Request $request, CompanyAccountStatementEntry $statement): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'candidate_ref' => ['required', 'string'],
+        ]);
+
+        $this->confirmExistingStatementMatch(
+            $statement,
+            (string) $validated['candidate_ref'],
+            (int) $request->user()->id,
+            allowReplacement: false,
+        );
+
+        return redirect()->back()->with('success', 'Suggested statement match confirmed.');
+    }
+
+    public function confirmSuggestedStatements(Request $request): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'matches' => ['required', 'array', 'min:1', 'max:25'],
+            'matches.*.statement_uuid' => ['required', 'uuid'],
+            'matches.*.candidate_ref' => ['required', 'string'],
+        ]);
+
+        $confirmed = 0;
+        $failures = [];
+
+        foreach ($validated['matches'] as $match) {
+            try {
+                $statement = CompanyAccountStatementEntry::query()
+                    ->where('public_uuid', $match['statement_uuid'])
+                    ->firstOrFail();
+                $this->confirmExistingStatementMatch(
+                    $statement,
+                    (string) $match['candidate_ref'],
+                    (int) $request->user()->id,
+                    allowReplacement: false,
+                );
+                $confirmed++;
+            } catch (ValidationException $exception) {
+                $failures[] = $exception->validator->errors()->first();
+            } catch (Throwable $exception) {
+                report($exception);
+                $failures[] = 'Suggested match is no longer available. Review matches and try again.';
+            }
+        }
+
+        $response = redirect()->back()->with('success', "Confirmed {$confirmed} suggested match".($confirmed === 1 ? '' : 'es').'.');
+
+        return $failures === []
+            ? $response
+            : $response->with('reconciliation_failures', $failures);
+    }
+
+    private function confirmExistingStatementMatch(
+        CompanyAccountStatementEntry $statement,
+        string $candidateReference,
+        int $userId,
+        bool $allowReplacement,
+    ): bool {
+        return DB::transaction(function () use ($statement, $candidateReference, $userId, $allowReplacement): bool {
             $statement = CompanyAccountStatementEntry::query()
                 ->with('companyAccount')
                 ->whereKey($statement->id)
@@ -3810,7 +3984,7 @@ final class CashbookController extends Controller
 
             $journalEntry = JournalEntry::query()
                 ->with(['transactions.account', 'statementEntries'])
-                ->whereKey($this->decodeFinanceRouteKey((string) $validated['candidate_ref'], 'journal-entry'))
+                ->whereKey($this->decodeFinanceRouteKey($candidateReference, 'journal-entry'))
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -3829,33 +4003,29 @@ final class CashbookController extends Controller
             $isReconciledStatement = $statement->is_finalized || $statement->journal_entry_id !== null;
 
             if ($isReconciledJournal || $isReconciledStatement) {
-                $isReplaced = true;
+                if (! $allowReplacement) {
+                    throw ValidationException::withMessages(['candidate_ref' => 'Suggested match is no longer available. Review matches and try again.']);
+                }
+
                 $this->companyPaymentReconciliationService->replaceStatementJournalMatch(
                     $statement,
                     $journalEntry,
                     $statementAmount,
-                    (int) $request->user()->id,
+                    $userId,
                 );
+
+                return true;
             } else {
                 $this->companyPaymentReconciliationService->reconcileStatementJournal(
                     $statement,
                     $journalEntry,
                     $statementAmount,
-                    (int) $request->user()->id,
+                    $userId,
                 );
             }
+
+            return false;
         }, attempts: 3);
-
-        $message = $isReplaced
-            ? 'Statement match replaced successfully. Previous transaction returned to pending reconciliation.'
-            : 'Statement matched to existing transaction and finalized.';
-
-        return redirect()
-            ->route('admin.cashbook.finance.reconciliation', [
-                'company_account_uuid' => $statement->fresh('companyAccount')?->companyAccount?->public_uuid,
-                'month' => $statement->transaction_date?->format('Y-m'),
-            ])
-            ->with('success', $message);
     }
 
     public function matchStatementReconciliation(Request $request, string $statementRef): RedirectResponse

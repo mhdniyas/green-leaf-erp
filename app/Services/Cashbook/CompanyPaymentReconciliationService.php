@@ -20,6 +20,7 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Models\VendorSettlement;
 use App\Services\Finance\JournalService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -486,6 +487,51 @@ class CompanyPaymentReconciliationService
                 'exact_date_reconciled' => $exactReconciledCount,
             ],
         ];
+    }
+
+    /**
+     * @param  Collection<int, object>  $transactions
+     * @return Collection<string, Collection<int, CompanyAccountStatementEntry>>
+     */
+    public function findEligibleStatementCandidatePools(Collection $transactions, int $graceDays): Collection
+    {
+        $keys = $transactions
+            ->filter(fn (object $transaction): bool => (int) ($transaction->company_account_id ?? 0) > 0)
+            ->map(fn (object $transaction): array => [
+                'company_account_id' => (int) $transaction->company_account_id,
+                'direction' => (string) $transaction->direction,
+                'amount' => round((float) $transaction->amount, 2),
+            ])
+            ->unique(fn (array $key): string => $key['company_account_id'].'|'.$key['direction'].'|'.$key['amount'])
+            ->values();
+
+        if ($keys->isEmpty()) {
+            return collect();
+        }
+
+        $dates = $transactions->pluck('transaction_date')->filter();
+        $startDate = Carbon::parse((string) $dates->min())->subDays($graceDays)->toDateString();
+        $endDate = Carbon::parse((string) $dates->max())->addDays($graceDays)->toDateString();
+
+        $entries = CompanyAccountStatementEntry::query()
+            ->with('companyAccount')
+            ->where('is_finalized', false)
+            ->where('status', 'unmatched')
+            ->whereNull('journal_entry_id')
+            ->whereBetween('transaction_date', [$startDate, $endDate])
+            ->where(function ($query) use ($keys): void {
+                foreach ($keys as $key) {
+                    $query->orWhere(function ($candidateQuery) use ($key): void {
+                        $candidateQuery
+                            ->where('company_account_id', $key['company_account_id'])
+                            ->where('direction', $key['direction'])
+                            ->where('amount', $key['amount']);
+                    });
+                }
+            })
+            ->get();
+
+        return $entries->groupBy(fn (CompanyAccountStatementEntry $entry): string => $entry->company_account_id.'|'.$entry->direction.'|'.round((float) $entry->amount, 2));
     }
 
     /**

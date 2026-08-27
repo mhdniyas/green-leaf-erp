@@ -116,40 +116,159 @@
             </div>
         @endif
 
+        @if(session('reconciliation_failures'))
+            <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900">
+                <p>Needs Review {{ count(session('reconciliation_failures')) }}</p>
+                @foreach(session('reconciliation_failures') as $failure)
+                    <p class="mt-1">{{ $failure }}</p>
+                @endforeach
+            </div>
+        @endif
+
         @unless($classifyStatement)
         <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <article class="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Awaiting Reconciliation</p>
-                <p class="mt-2 font-mono text-2xl font-black text-emerald-950">{{ number_format($summary['awaiting_count']) }} / ₹{{ number_format($summary['awaiting_amount'], 2) }}</p>
+            <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Reconciliation</p>
+                <p class="mt-2 text-2xl font-black text-slate-950">Transaction Queue</p>
             </article>
-            <article class="rounded-3xl border border-rose-200 bg-gradient-to-br from-rose-50 to-white p-4 shadow-sm">
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Unmatched Statements</p>
-                <p class="mt-2 font-mono text-2xl font-black text-rose-950">{{ number_format($summary['unmatched_statements']) }} / ₹{{ number_format($summary['unmatched_amount'], 2) }}</p>
+            <article class="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">Needs Review</p>
+                <p class="mt-2 font-mono text-2xl font-black text-amber-950">{{ number_format($transactionCounts['needs_review']) }}</p>
             </article>
-            <article class="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm">
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">Partial</p>
-                <p class="mt-2 font-mono text-2xl font-black text-amber-950">{{ number_format($summary['partial_count']) }} / ₹{{ number_format($summary['partial_amount'], 2) }}</p>
+            <article class="rounded-2xl border border-sky-200 bg-sky-50 p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-sky-700">Suggested</p>
+                <p class="mt-2 font-mono text-2xl font-black text-sky-950">{{ number_format($transactionCounts['suggested']) }}</p>
             </article>
-            <article class="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-100 to-white p-4 shadow-sm">
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Finalized This Month</p>
-                <p class="mt-2 font-mono text-2xl font-black text-slate-950">{{ number_format($summary['finalized_month_count']) }} / ₹{{ number_format($summary['finalized_month_amount'], 2) }}</p>
+            <article class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Reconciled</p>
+                <p class="mt-2 font-mono text-2xl font-black text-emerald-950">{{ number_format($transactionCounts['reconciled']) }}</p>
             </article>
         </section>
 
-        <nav class="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="Reconciliation workspace">
-            @foreach(['needs_reconciliation' => 'Needs Reconciliation', 'statements' => 'Statement Movements', 'history' => 'Reconciled History'] as $tab => $label)
-                @php
-                    $workspaceQuery = array_merge(request()->query(), ['workspace' => $tab]);
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <details class="group relative">
+                <summary class="inline-flex min-h-11 cursor-pointer list-none items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">
+                    <i data-lucide="plus" class="h-4 w-4"></i> Record Transaction
+                </summary>
+                <div class="mt-2 grid w-full gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl sm:absolute sm:right-0 sm:z-20 sm:w-64">
+                    <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'income']) }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Other Income</a>
+                    <a href="{{ route('admin.cashbook.finance.direct-sales') }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Direct Sale</a>
+                    <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'expense']) }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Other Expense</a>
+                    <a href="{{ route('admin.cashbook.payables') }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Pay Payable</a>
+                    <a href="{{ route('admin.cashbook.finance.vendor-credit') }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Vendor Payment</a>
+                    <a href="{{ route('admin.cashbook.finance.purchase.purchasers') }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Purchasers</a>
+                    <a href="{{ route('admin.cashbook.index') }}#tab-payments" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Shop Petty</a>
+                    <a href="{{ route('admin.staff.payments.index') }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Salary Payment</a>
+                    <a href="{{ route('admin.staff.advance-payments.index') }}" class="rounded-xl px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Salary Advance</a>
+                </div>
+            </details>
+            <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'statements', 'month' => $month]) }}" class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-500 shadow-sm hover:bg-slate-50">
+                <i data-lucide="file-search" class="h-4 w-4"></i> Manage Statements
+            </a>
+        </div>
 
-                    if ($tab !== 'statements') {
-                        unset($workspaceQuery['search']);
-                    }
-                @endphp
-                <a href="{{ route('admin.cashbook.finance.reconciliation', $workspaceQuery) }}" class="shrink-0 rounded-xl px-4 py-3 text-xs font-black {{ $workspaceTab === $tab ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100' }}">{{ $label }}</a>
-            @endforeach
-        </nav>
+        @if($workspaceTab === 'transactions')
+            <section x-data="{ selected: [] }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
+                <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="grid grid-cols-1 gap-2 lg:grid-cols-[auto_auto_auto_1fr_auto]">
+                    <input type="hidden" name="workspace" value="transactions">
+                    <input type="month" name="month" value="{{ $month }}" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                    <select name="company_account_id" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                        <option value="" @selected(! request()->filled('company_account_id'))>All Company Accounts</option>
+                        @foreach($companyAccounts as $account)
+                            <option value="{{ $account->id }}" @selected(request()->integer('company_account_id') === $account->id)>{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
+                        @endforeach
+                    </select>
+                    <input type="search" name="search" value="{{ $transactionSearch }}" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Search party, reference, description, amount">
+                    <button type="submit" class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-4 text-xs font-black text-white hover:bg-slate-800">
+                        <i data-lucide="filter" class="h-4 w-4"></i> Filter
+                    </button>
+                </form>
 
-        @if($workspaceTab === 'needs_reconciliation')
+                <div class="mt-4 flex flex-wrap gap-2">
+                    @foreach(['all' => 'ALL', 'in' => 'IN', 'out' => 'OUT'] as $tabDirection => $label)
+                        <a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['workspace' => 'transactions', 'direction' => $tabDirection, 'type' => 'all'])) }}" class="rounded-xl px-4 py-2 text-xs font-black {{ $direction === $tabDirection ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">{{ $label }}</a>
+                    @endforeach
+                </div>
+
+                <div class="mt-3 flex flex-wrap gap-2">
+                    @foreach(['SUGGESTED' => 'Suggested', 'NEEDS_REVIEW' => 'Needs Review', 'RECONCILED' => 'Reconciled'] as $statusKey => $label)
+                        <a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['workspace' => 'transactions', 'status' => $statusKey])) }}" class="rounded-xl px-4 py-2 text-xs font-black {{ $queueStatus === $statusKey ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">{{ $label }}</a>
+                    @endforeach
+                </div>
+
+                @if($direction !== 'all')
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        @foreach($transactionTypeFilters as $typeKey => $label)
+                            <a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['workspace' => 'transactions', 'type' => $typeKey])) }}" class="rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] {{ $activeTransactionType === $typeKey ? 'bg-slate-950 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50' }}">{{ $label }}</a>
+                        @endforeach
+                    </div>
+                @endif
+
+                <form id="bulk-confirm-suggestions" method="POST" action="{{ route('admin.cashbook.finance.reconciliation.confirm-suggestions') }}" class="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-3">
+                    @csrf
+                    <p class="text-xs font-bold text-sky-900"><span x-text="selected.length">0</span> selected on this page</p>
+                    <button type="submit" :disabled="selected.length === 0" class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:bg-slate-300">Confirm Selected (<span x-text="selected.length">0</span>)</button>
+                </form>
+
+                <div class="mt-3 space-y-2">
+                    @forelse($transactionRows as $transaction)
+                        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                            <div class="grid gap-3 lg:grid-cols-[7rem_1fr_10rem_8rem_auto] lg:items-center">
+                                <div>
+                                    <p class="font-mono text-sm font-black text-slate-950">{{ \Carbon\Carbon::parse($transaction->transaction_date)->format('d M Y') }}</p>
+                                    <span class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase {{ $transaction->direction === 'in' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800' }}">{{ strtoupper($transaction->direction) }}</span>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="truncate font-black text-slate-950">{{ $transaction->party_name }}</p>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $transaction->transaction_type }} / {{ $transaction->reference ?: 'No reference' }}</p>
+                                    @if($transaction->description)
+                                        <p class="mt-1 truncate text-xs text-slate-500">{{ $transaction->description }}</p>
+                                    @endif
+                                </div>
+                                <p class="text-xs font-bold text-slate-600">{{ $transaction->company_account_name ?: 'Company Account' }}</p>
+                                <p class="font-mono text-lg font-black text-slate-950">₹{{ number_format((float) $transaction->amount, 2) }}</p>
+                                <div class="flex flex-col items-start gap-2 lg:items-end">
+                                    @if($transaction->reconciliation_status === 'RECONCILED')
+                                        <span class="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">✓ Reconciled</span>
+                                        <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->statement_match_summary }}</p>
+                                        @if($transaction->journal_entry_id)
+                                            <a href="{{ route('admin.cashbook.finance.journal.entry-show', $transaction->journal_entry_id) }}" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">View Match</a>
+                                        @endif
+                                    @else
+                                        @if(($transaction->suggestion['status'] ?? null) === 'SUGGESTED')
+                                            <label class="flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-600">
+                                                <input form="bulk-confirm-suggestions" type="checkbox" value="{{ $transaction->suggestion['statement_uuid'] }}" @change="selected = $event.target.checked ? [...selected, $event.target.value] : selected.filter(value => value !== $event.target.value)" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                                                Select
+                                            </label>
+                                            <input form="bulk-confirm-suggestions" type="hidden" name="matches[{{ $transaction->suggestion['statement_uuid'] }}][statement_uuid]" value="{{ $transaction->suggestion['statement_uuid'] }}" x-bind:disabled="! selected.includes('{{ $transaction->suggestion['statement_uuid'] }}')">
+                                            <input form="bulk-confirm-suggestions" type="hidden" name="matches[{{ $transaction->suggestion['statement_uuid'] }}][candidate_ref]" value="{{ $transaction->source_ref }}" x-bind:disabled="! selected.includes('{{ $transaction->suggestion['statement_uuid'] }}')">
+                                            <span class="rounded-full bg-sky-100 px-3 py-1 text-[10px] font-black uppercase text-sky-700">{{ strtoupper($transaction->suggestion['confidence']) }} Confidence</span>
+                                            <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->suggestion['company_account_name'] }} / ₹{{ number_format((float) $transaction->suggestion['statement_amount'], 2) }} / {{ $transaction->suggestion['statement_date'] }}</p>
+                                            <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->suggestion['reason'] }}</p>
+                                            <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.confirm-suggestion', $transaction->suggestion['statement_uuid']) }}">@csrf<input type="hidden" name="candidate_ref" value="{{ $transaction->source_ref }}"><button class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Confirm</button></form>
+                                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : 'journal', 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">{{ $transaction->suggestion['confidence'] === 'likely' ? 'Review' : 'Change Match' }}</a>
+                                            @if($transaction->suggestion['confidence'] === 'likely')
+                                                <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : 'journal', 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">Change Match</a>
+                                            @endif
+                                        @else
+                                            <span class="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-black uppercase text-amber-700">{{ ($transaction->suggestion['status'] ?? null) === 'NO_MATCH' ? 'No Match Found' : 'Needs Review' }}</span>
+                                            <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->suggestion['reason'] ?? 'No eligible statement found.' }}</p>
+                                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : 'journal', 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">{{ ($transaction->suggestion['status'] ?? null) === 'NO_MATCH' ? 'Find Match' : 'Review Matches' }}</a>
+                                        @endif
+                                    @endif
+                                </div>
+                            </div>
+                        </article>
+                    @empty
+                        <p class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">No ERP transactions for this filter.</p>
+                    @endforelse
+                </div>
+
+                @if($transactionRows->hasPages())
+                    <div class="mt-4">{{ $transactionRows->links() }}</div>
+                @endif
+            </section>
+        @elseif($workspaceTab === 'needs_reconciliation')
             <section x-data="{ detail: null, reconcile: null, candidates: [], reconciled: [], counts: {pending: 0, reconciled: 0}, tab: 'pending', loading: false }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
                 <div class="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
                     <div><h2 class="text-base font-black text-slate-950">Needs Reconciliation</h2><p class="mt-1 text-xs font-semibold text-slate-500">ERP cash and bank activity waiting for real statement movement.</p></div>
@@ -162,7 +281,7 @@
                         @endphp
                         <article class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                             <div class="flex items-start justify-between gap-3"><div class="min-w-0"><p class="font-black text-slate-950">{{ $source['source'] }}</p><p class="mt-1 truncate text-xs font-bold text-slate-600">{{ $source['counterparty'] }}</p><p class="mt-1 text-[11px] font-bold text-slate-400">{{ $source['date'] }} / {{ $source['method'] }} / {{ $source['account'] }} / {{ $source['reference_label'] }}</p></div><strong class="shrink-0 font-mono text-lg text-slate-950">₹{{ number_format($source['amount'], 2) }}</strong></div>
-                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Pending Reconciliation</span><div class="flex gap-2"><button type="button" @click='detail = @json($source)' class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">View Details</button><button type="button" data-candidate-url="{{ $candidateUrl }}" @click="reconcile = @json($source); candidates = []; reconciled = []; counts = {pending: 0, reconciled: 0}; tab = 'pending'; loading = true; fetch($el.dataset.candidateUrl).then(response => response.json()).then(data => { candidates = data.candidates || []; reconciled = data.reconciled || []; counts = data.counts || {pending: candidates.length, reconciled: reconciled.length}; }).finally(() => loading = false)" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Reconcile</button></div></div>
+                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Pending Reconciliation</span><div class="flex gap-2"><button type="button" @click='detail = @json($source)' class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">View Details</button><button type="button" data-candidate-url="{{ $candidateUrl }}" @click="reconcile = @json($source); candidates = []; reconciled = []; counts = {pending: 0, reconciled: 0}; tab = 'pending'; loading = true; fetch($el.dataset.candidateUrl).then(response => response.json()).then(data => { candidates = data.candidates || []; reconciled = data.reconciled || []; counts = data.counts || {pending: candidates.length, reconciled: reconciled.length}; }).finally(() => loading = false)" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Find Match</button></div></div>
                         </article>
                     @empty
                         <p class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">No pending cash or bank transactions for this filter.</p>
@@ -178,11 +297,11 @@
                 </div>
                 <div x-cloak x-show="reconcile" @keydown.escape.window="reconcile = null" class="fixed inset-0 z-50 flex items-end bg-slate-950/50 p-3 sm:items-center sm:justify-center" role="dialog" aria-modal="true">
                     <div @click.outside="reconcile = null" class="max-h-full w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
-                        <div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Reconcile Transaction</p><h2 class="mt-1 text-xl font-black text-slate-950">Match With Statement</h2></div><button type="button" @click="reconcile = null" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</button></div>
+                        <div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Match Statement</p><h2 class="mt-1 text-xl font-black text-slate-950">Best Matches</h2></div><button type="button" @click="reconcile = null" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</button></div>
                         <div class="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3"><template x-for="[label, value] in [['Source', reconcile?.source], ['Counterparty', reconcile?.counterparty], ['Amount', '₹' + Number(reconcile?.amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})], ['Date', reconcile?.date], ['Method', reconcile?.method], ['Reference', reconcile?.reference_label]]" :key="label"><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400" x-text="label"></span><strong class="mt-1 block break-words text-slate-900" x-text="value"></strong></div></template></div><div class="mt-3 rounded-xl bg-slate-50 p-3 text-xs"><span class="block font-bold text-slate-400">Description / Note</span><strong class="mt-1 block break-words text-slate-900" x-text="reconcile?.description"></strong></div>
 
                         <div class="mt-5 flex items-center justify-between border-b border-slate-200 pb-2">
-                            <h3 class="text-sm font-black text-slate-950">Matching Statement Movements</h3>
+                            <h3 class="text-sm font-black text-slate-950">Statement Matches</h3>
                             <div class="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
                                 <button type="button" @click="tab = 'pending'" :class="tab === 'pending' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="rounded-lg px-2.5 py-1 text-xs font-black transition" x-text="'Pending (' + counts.pending + ')'"></button>
                                 <button type="button" @click="tab = 'reconciled'" :class="tab === 'reconciled' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="rounded-lg px-2.5 py-1 text-xs font-black transition" x-text="'Already Reconciled (' + counts.reconciled + ')'"></button>
@@ -247,7 +366,7 @@
             </section>
 
             @if($findPendingSource)
-                <section id="reconcile-panel" tabindex="-1" class="rounded-3xl border border-slate-200 bg-white p-4 shadow-xl sm:p-6"><div class="flex items-start justify-between gap-4"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">{{ $showPendingDetails ? 'Transaction Details' : 'Reconcile Transaction' }}</p><h2 class="mt-1 text-xl font-black text-slate-950">Transaction Summary</h2></div><a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['find_kind' => null, 'find_ref' => null, 'details' => null])) }}" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</a></div><div class="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3"><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Source</span><strong>{{ $findPendingSource['source'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Counterparty</span><strong>{{ $findPendingSource['counterparty'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Amount</span><strong class="font-mono">₹{{ number_format($findPendingSource['amount'], 2) }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Date</span><strong>{{ $findPendingSource['date'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Method</span><strong>{{ $findPendingSource['method'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Reference</span><strong>{{ $findPendingSource['reference_label'] }}</strong></div></div><p class="mt-3 text-xs font-semibold text-slate-600">{{ $findPendingSource['description'] }}</p>@if($showPendingDetails)<div class="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">@foreach($findPendingSource['details'] as $label => $value)<div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">{{ $label }}</span><strong class="break-words text-slate-900">{{ $value }}</strong></div>@endforeach</div><a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['details' => null])) }}#reconcile-panel" class="mt-4 inline-flex rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Reconcile</a>@else<h3 class="mt-5 text-sm font-black text-slate-950">Possible Statement Matches</h3><div class="mt-3 space-y-2">@forelse($findStatementCandidates as $statement)<article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><p class="font-black text-slate-950">{{ $statement->companyAccount?->name }}</p><p class="mt-1 text-xs font-semibold text-slate-600">{{ $statement->transaction_date?->format('Y-m-d') }} / {{ $statement->reference ?: $statement->narration ?: 'No reference' }}</p></div><strong class="font-mono text-lg">₹{{ number_format($statement->amount, 2) }}</strong></div><form method="POST" action="{{ $findPendingSource['kind'] === 'shop_payment' ? route('admin.cashbook.finance.reconciliation.classify-shop-payment', $statement) : route('admin.cashbook.finance.reconciliation.match-existing', $statement) }}" class="mt-3">@csrf<input type="hidden" name="{{ $findPendingSource['kind'] === 'shop_payment' ? 'payment_request_ref' : 'candidate_ref' }}" value="{{ $findPendingSource['reference'] }}"><button class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Match &amp; Finalize</button></form></article>@empty<p class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No matching bank/cash movement found yet.<span class="mt-1 block font-semibold text-slate-500">This transaction will remain pending until a matching statement movement is available.</span></p>@endforelse</div>@endif</section>
+                <section id="reconcile-panel" tabindex="-1" class="rounded-3xl border border-slate-200 bg-white p-4 shadow-xl sm:p-6"><div class="flex items-start justify-between gap-4"><div><p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">{{ $showPendingDetails ? 'Transaction Details' : 'Match Statement' }}</p><h2 class="mt-1 text-xl font-black text-slate-950">Transaction Summary</h2></div><a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['find_kind' => null, 'find_ref' => null, 'details' => null, 'statement_search' => null])) }}" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">Close</a></div><div class="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3"><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Source</span><strong>{{ $findPendingSource['source'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Counterparty</span><strong>{{ $findPendingSource['counterparty'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Amount</span><strong class="font-mono">₹{{ number_format($findPendingSource['amount'], 2) }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Date</span><strong>{{ $findPendingSource['date'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Method</span><strong>{{ $findPendingSource['method'] }}</strong></div><div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">Reference</span><strong>{{ $findPendingSource['reference_label'] }}</strong></div></div><p class="mt-3 text-xs font-semibold text-slate-600">{{ $findPendingSource['description'] }}</p>@if($showPendingDetails)<div class="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">@foreach($findPendingSource['details'] as $label => $value)<div class="rounded-xl bg-slate-50 p-3"><span class="block font-bold text-slate-400">{{ $label }}</span><strong class="break-words text-slate-900">{{ $value }}</strong></div>@endforeach</div><a href="{{ route('admin.cashbook.finance.reconciliation', array_merge(request()->query(), ['details' => null])) }}#reconcile-panel" class="mt-4 inline-flex rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Find Match</a>@else<form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="mt-5 grid grid-cols-1 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[1fr_auto]"><input type="hidden" name="workspace" value="needs_reconciliation"><input type="hidden" name="find_kind" value="{{ request('find_kind') }}"><input type="hidden" name="find_ref" value="{{ request('find_ref') }}"><input type="hidden" name="month" value="{{ $month }}"><input type="hidden" name="direction" value="{{ $findPendingSource['direction'] }}"><input type="search" name="statement_search" value="{{ $statementSearch }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800" placeholder="Search statement reference or narration"><button type="submit" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Search Statement</button></form><h3 class="mt-5 text-sm font-black text-slate-950">Best Matches</h3><div class="mt-3 space-y-2">@forelse($findStatementCandidates as $statement)<article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><p class="font-black text-slate-950">{{ $statement['account_name'] }}</p><p class="mt-1 text-xs font-semibold text-slate-600">{{ $statement['transaction_date'] }} / {{ $statement['reference'] !== '—' ? $statement['reference'] : $statement['narration'] }}</p></div><strong class="font-mono text-lg">₹{{ number_format($statement['amount'], 2) }}</strong></div><form method="POST" action="{{ $findPendingSource['kind'] === 'shop_payment' ? route('admin.cashbook.finance.reconciliation.classify-shop-payment', $statement['public_uuid']) : route('admin.cashbook.finance.reconciliation.match-existing', $statement['public_uuid']) }}" class="mt-3">@csrf<input type="hidden" name="{{ $findPendingSource['kind'] === 'shop_payment' ? 'payment_request_ref' : 'candidate_ref' }}" value="{{ $findPendingSource['reference'] }}"><button class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Match</button></form></article>@empty<p class="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-400">No matching bank/cash movement found yet.<span class="mt-1 block font-semibold text-slate-500">This transaction will remain pending until a matching statement movement is available.</span></p>@endforelse</div>@endif</section>
             @endif
         @elseif($workspaceTab === 'history')
             <section class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5"><div class="border-b border-slate-200 pb-3"><h2 class="text-base font-black text-slate-950">Reconciled History</h2><p class="mt-1 text-xs font-semibold text-slate-500">Finalized cash and bank movements for {{ \Carbon\Carbon::parse($monthStart)->format('F Y') }}.</p></div><div class="mt-4 space-y-2">@forelse($historyEntries as $entry)<article class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><div class="flex justify-between gap-3"><div><p class="font-black text-slate-950">{{ $entry->source_label }}</p><p class="mt-1 text-xs font-semibold text-slate-600">{{ $entry->transaction_date?->format('Y-m-d') }} / {{ $entry->companyAccount?->name }} / {{ $entry->reference ?: 'No reference' }}</p><p class="mt-1 text-[10px] font-black uppercase text-emerald-700">Finalized {{ $entry->finalized_at?->format('Y-m-d H:i') }}</p></div><strong class="font-mono text-lg">₹{{ number_format($entry->amount, 2) }}</strong></div></article>@empty<p class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">No finalized movements this month.</p>@endforelse</div>@if($historyEntries->hasPages())<div class="mt-4">{{ $historyEntries->links() }}</div>@endif</section>
@@ -257,32 +376,14 @@
         @if(! $classifyStatement && $workspaceTab === 'statements')
 
         <section class="white-card rounded-3xl border border-slate-200 p-4 shadow-sm">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <h2 class="text-base font-black text-slate-950">Quick Actions</h2>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">System-first actions use existing finance and HR modules. Shop Payment still originates from shop workflow.</p>
+                    <h2 class="text-base font-black text-slate-950">Statement Management</h2>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">Import, inspect, diagnose, and manually review raw bank or cash statement rows.</p>
                 </div>
-                <a href="{{ route('admin.cashbook.finance.journal') }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">View Approved Transactions</a>
-            </div>
-            <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <div class="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
-                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Money In</p>
-                    <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'income']) }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-emerald-700">Other Income</a>
-                        <a href="{{ route('admin.cashbook.finance.direct-sales') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-emerald-700">Direct Sale</a>
-                    </div>
-                </div>
-                <div class="rounded-2xl border border-rose-100 bg-rose-50/60 p-3">
-                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Money Out</p>
-                    <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                        <a href="{{ route('admin.cashbook.finance.income-expense', ['type' => 'expense']) }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Other Expense</a>
-                        <a href="{{ route('admin.cashbook.payables') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Pay Payable</a>
-                        <a href="{{ route('admin.cashbook.finance.vendor-credit') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Vendor Payment</a>
-                        <a href="{{ route('admin.cashbook.finance.purchase.purchasers') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Purchasers</a>
-                        <a href="{{ route('admin.cashbook.index') }}#tab-payments" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Shop Petty</a>
-                        <a href="{{ route('admin.staff.payments.index') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Salary Payment</a>
-                        <a href="{{ route('admin.staff.advance-payments.index') }}" class="rounded-xl bg-white px-3 py-3 text-sm font-black text-slate-900 shadow-sm hover:text-rose-700">Salary Advance</a>
-                    </div>
+                <div class="flex flex-wrap gap-2">
+                    <a href="{{ route('admin.cashbook.finance.reconciliation', ['month' => $month]) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">Back to Reconciliation</a>
+                    <a href="{{ route('admin.cashbook.finance.journal') }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">View Approved Transactions</a>
                 </div>
             </div>
         </section>
