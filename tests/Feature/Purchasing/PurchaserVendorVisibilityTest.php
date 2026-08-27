@@ -165,4 +165,29 @@ class PurchaserVendorVisibilityTest extends TestCase
         $submitResponse->assertSessionHasNoErrors();
         $submitResponse->assertRedirect(route('purchaser.vendors', ['date' => $today, 'tab' => 'pending']));
     }
+
+    public function test_assigning_supplier_to_cancelled_cart_redirects_without_404(): void
+    {
+        $today = now()->format('Y-m-d');
+
+        $cart = PurchaserCart::query()->create([
+            'cart_number' => 'CART-VIS-CANCELLED',
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => null,
+            'business_date' => $today,
+            'status' => 'cancelled',
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->patch(route('purchaser.carts.update-supplier', $cart), [
+                'supplier_id' => $this->vendorB->id,
+                'return_to' => 'vendors',
+            ]);
+
+        $response
+            ->assertRedirect(route('purchaser.vendors', ['date' => $today]))
+            ->assertSessionHasErrors();
+
+        $this->assertNull($cart->fresh()->supplier_id);
+    }
 }

@@ -2052,6 +2052,17 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
+        $cart = PurchaserCart::query()
+            ->whereKey($cart->id)
+            ->where('user_id', $request->user()->id)
+            ->firstOrFail();
+
+        if (! in_array($cart->status, ['draft', 'submitted'], true)) {
+            return redirect()
+                ->route('purchaser.vendors', ['date' => $cart->business_date?->format('Y-m-d')])
+                ->withErrors(['Only draft or submitted carts can be assigned to a supplier.']);
+        }
+
         $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
 
         $returnTo = $request->input('return_to', 'vendors');
