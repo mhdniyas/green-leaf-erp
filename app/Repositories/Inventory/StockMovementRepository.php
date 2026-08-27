@@ -8,12 +8,15 @@ use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Models\Product;
+use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Models\WastageEntry;
 use App\Repositories\BaseRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class StockMovementRepository extends BaseRepository
 {
@@ -102,6 +105,33 @@ class StockMovementRepository extends BaseRepository
             ->with(['product:id,category_id,public_uuid,name,sku,unit,image,buffer_qty,carryover_enabled', 'product.category:id,name'])
             ->get();
 
+        $pendingProductDateKeys = $pendingBatches
+            ->map(fn (StockBatch $batch): string => $batch->product_id.'|'.$batch->received_at->format('Y-m-d'))
+            ->unique()
+            ->values();
+        $pendingProductIds = $pendingBatches->pluck('product_id')->unique()->values();
+        $pendingDates = $pendingBatches->map(fn (StockBatch $batch): string => $batch->received_at->format('Y-m-d'))->unique()->values();
+
+        $allocatedByProductDate = collect();
+        if ($pendingProductIds->isNotEmpty() && $pendingDates->isNotEmpty()) {
+            $allocatedByProductDate = ShopOrderItem::query()
+                ->join('shop_orders', 'shop_orders.id', '=', 'shop_order_items.shop_order_id')
+                ->whereIn('shop_order_items.product_id', $pendingProductIds)
+                ->whereIn('shop_orders.business_date', $pendingDates)
+                ->where('shop_orders.state', 'approved')
+                ->whereIn('shop_order_items.sorting_status', ['allocated', 'loaded'])
+                ->selectRaw('shop_order_items.product_id, DATE(shop_orders.business_date) as business_date, SUM(shop_order_items.approved_qty) as approved_qty')
+                ->groupBy('shop_order_items.product_id', DB::raw('DATE(shop_orders.business_date)'))
+                ->get()
+                ->mapWithKeys(fn ($row): array => [$row->product_id.'|'.$row->business_date => (float) $row->approved_qty]);
+        }
+
+        $wastageByBatch = WastageEntry::query()
+            ->whereIn('batch_id', $pendingBatches->pluck('id'))
+            ->selectRaw('batch_id, SUM(quantity) as quantity')
+            ->groupBy('batch_id')
+            ->pluck('quantity', 'batch_id');
+
         $writeOffByBatch = StockMovement::query()
             ->whereIn('batch_id', $pendingBatches->pluck('id'))
             ->where('grade', ProductGrade::Unsorted->value)
@@ -111,6 +141,7 @@ class StockMovementRepository extends BaseRepository
             ->pluck('quantity', 'batch_id');
 
         $unsortedStock = [];
+        $allocatedConsumedByProductDate = $pendingProductDateKeys->mapWithKeys(fn (string $key): array => [$key => 0.0]);
         foreach ($pendingBatches as $batch) {
             if (! $batch->product) {
                 continue;
@@ -119,7 +150,16 @@ class StockMovementRepository extends BaseRepository
             // Pending batches do not have a sorted stock ledger yet. Their remaining
             // quantity is reduced by allocations and explicit physical write-offs.
             $writeOffQty = (float) ($writeOffByBatch[$batch->id] ?? 0);
-            $qty = max(0.0, (float) $batch->remaining_qty - $writeOffQty);
+            $wastedQty = (float) ($wastageByBatch[$batch->id] ?? 0);
+            $productDateKey = $batch->product_id.'|'.$batch->received_at->format('Y-m-d');
+            $remainingAllocated = max(
+                0.0,
+                (float) ($allocatedByProductDate[$productDateKey] ?? 0.0) - (float) ($allocatedConsumedByProductDate[$productDateKey] ?? 0.0)
+            );
+            $maxAllocatable = max(0.0, (float) $batch->total_kg - $wastedQty);
+            $allocatedQty = min($maxAllocatable, $remainingAllocated);
+            $allocatedConsumedByProductDate[$productDateKey] = (float) ($allocatedConsumedByProductDate[$productDateKey] ?? 0.0) + $allocatedQty;
+            $qty = max(0.0, (float) $batch->total_kg - $wastedQty - $allocatedQty - $writeOffQty);
             if ($qty <= 0.0001) {
                 continue;
             }

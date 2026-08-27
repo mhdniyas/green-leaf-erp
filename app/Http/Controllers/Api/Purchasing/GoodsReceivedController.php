@@ -8,7 +8,9 @@ use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\Purchasing\StoreGoodsReceivedRequest;
 use App\Http\Resources\Purchasing\GoodsReceivedResource;
+use App\Http\Resources\Purchasing\GoodsReceivedSummaryResource;
 use App\Models\GoodsReceived;
+use App\Models\Warehouse;
 use App\Services\Purchasing\GoodsReceivedService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -25,10 +27,19 @@ class GoodsReceivedController extends Controller
     {
         Gate::authorize('viewAny', GoodsReceived::class);
 
-        $filters = $request->only(['bill_status', 'date', 'search']);
-        $grns = $this->service->paginate($filters, (int) $request->input('per_page', 25));
+        $filters = $request->only(['bill_status', 'date', 'search', 'warehouse_id']);
+        if ($request->filled('warehouse_id')) {
+            $warehouse = Warehouse::findOrFail($request->integer('warehouse_id'));
+            abort_unless(
+                $request->user()?->hasRole('admin') || $request->user()?->canAccessWarehouse($warehouse),
+                403,
+                'Unauthorized warehouse access.'
+            );
+        }
+        $perPage = min(max((int) $request->input('per_page', 25), 1), 100);
+        $grns = $this->service->paginate($filters, $perPage);
 
-        return ApiResponse::paginated(GoodsReceivedResource::collection($grns));
+        return ApiResponse::paginated(GoodsReceivedSummaryResource::collection($grns));
     }
 
     public function store(StoreGoodsReceivedRequest $request): JsonResponse

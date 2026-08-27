@@ -9,6 +9,7 @@ enum InvoiceStatus: string
     case Pending = 'pending';
     case Approved = 'approved';
     case Paid = 'paid';
+    case Cancelled = 'cancelled';
 
     public function label(): string
     {
@@ -16,6 +17,7 @@ enum InvoiceStatus: string
             self::Pending => 'Pending Approval',
             self::Approved => 'Approved for Payment',
             self::Paid => 'Paid',
+            self::Cancelled => 'Cancelled',
         };
     }
 
@@ -25,6 +27,7 @@ enum InvoiceStatus: string
             self::Pending => 'bg-amber-100 text-amber-800 border-amber-200',
             self::Approved => 'bg-blue-100 text-blue-800 border-blue-200',
             self::Paid => 'bg-green-100 text-green-800 border-green-200',
+            self::Cancelled => 'bg-rose-100 text-rose-800 border-rose-200',
         };
     }
 }

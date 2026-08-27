@@ -11,6 +11,10 @@ class PurchaseInvoicePolicy
 {
     public function before(User $user, string $ability): ?bool
     {
+        if (in_array($ability, ['update', 'cancel'], true)) {
+            return null;
+        }
+
         return $user->hasRole('admin') ? true : null;
     }
 
@@ -31,6 +35,11 @@ class PurchaseInvoicePolicy
 
     public function update(User $user, PurchaseInvoice $invoice): bool
     {
-        return $user->can('accounting.entry.create');
+        return ! $invoice->isCancelled() && $user->can('accounting.entry.create');
+    }
+
+    public function cancel(User $user, PurchaseInvoice $invoice): bool
+    {
+        return ! $invoice->isCancelled() && $user->can('purchasing.invoice.cancel');
     }
 }

@@ -27,6 +27,7 @@ final class PurchaserFinanceService
             ->leftJoin('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
             ->selectRaw('COALESCE(SUM(purchase_invoices.amount - purchase_invoices.discount_amount), 0)')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->whereRaw('(purchase_invoices.purchaser_submitted_by = users.id OR purchaser_carts.user_id = users.id)')
             ->where(function (Builder $query): void {
                 $query->where('purchase_invoices.payment_method', 'Credit')
@@ -100,6 +101,7 @@ final class PurchaserFinanceService
             ->leftJoin('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
             ->leftJoin('suppliers', 'suppliers.id', '=', 'purchase_invoices.supplier_id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->where(function (Builder $query) use ($purchaserId): void {
                 $query->where('purchase_invoices.purchaser_submitted_by', $purchaserId)
                     ->orWhere('purchaser_carts.user_id', $purchaserId);
@@ -175,6 +177,7 @@ final class PurchaserFinanceService
         return DB::table('purchase_invoices')
             ->leftJoin('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->where(function (Builder $query) use ($purchaserId): void {
                 $query->where('purchase_invoices.purchaser_submitted_by', $purchaserId)
                     ->orWhere('purchaser_carts.user_id', $purchaserId);

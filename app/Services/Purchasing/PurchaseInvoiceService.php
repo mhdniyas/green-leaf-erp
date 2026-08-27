@@ -362,6 +362,7 @@ class PurchaseInvoiceService
     {
         $invoices = PurchaseInvoice::query()
             ->with(['supplier', 'purchaserCart.items', 'goodsReceived.items'])
+            ->notCancelled()
             ->get();
 
         $auditLog = [];

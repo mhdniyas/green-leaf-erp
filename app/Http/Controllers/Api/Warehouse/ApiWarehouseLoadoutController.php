@@ -15,6 +15,7 @@ use App\Models\ShopOrderItem;
 use App\Models\ShopOrderLoadoutState;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Models\Warehouse;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
@@ -54,6 +55,7 @@ class ApiWarehouseLoadoutController extends Controller
             'category_id' => ['nullable', 'integer', 'exists:categories,id'],
             'category_ids' => ['nullable'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $search = trim((string) ($validated['search'] ?? ''));
@@ -74,8 +76,25 @@ class ApiWarehouseLoadoutController extends Controller
         }
 
         $selectedWarehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+        if ($selectedWarehouseId !== null) {
+            $warehouse = Warehouse::findOrFail($selectedWarehouseId);
+            abort_unless(
+                $request->user()?->hasRole('admin') || $request->user()?->canAccessWarehouse($warehouse),
+                403,
+                'Unauthorized warehouse access.'
+            );
+        }
+
+        $itemScope = function ($query) use ($selectedWarehouseId): void {
+            if ($selectedWarehouseId !== null) {
+                $query->whereHas('product', fn ($productQuery) => $productQuery->where('default_warehouse_id', $selectedWarehouseId));
+            }
+        };
+
+        $perPage = (int) ($validated['per_page'] ?? 25);
 
         $orders = ShopOrder::query()
+            ->select(['id', 'shop_id', 'order_number', 'business_date', 'delivery_status', 'order_source', 'created_at', 'updated_at'])
             ->whereIn('delivery_status', [
                 'pending_delivery',
                 'ready_for_dispatch',
@@ -85,7 +104,14 @@ class ApiWarehouseLoadoutController extends Controller
                 'partially_delivered',
                 'delivery_issue',
             ])
-            ->with(['shop', 'items.product.category'])
+            ->with(['shop:id,name,code,warehouse_tag'])
+            ->withCount([
+                'items as total_count' => $itemScope,
+                'items as loaded_count' => function ($query) use ($itemScope): void {
+                    $itemScope($query);
+                    $query->where('sorting_status', 'loaded');
+                },
+            ])
             ->whereHas('items')
             ->when($selectedDate, fn ($query) => $query->whereDate('business_date', $selectedDate))
             ->when($selectedShopId, fn ($query) => $query->where('shop_id', $selectedShopId))
@@ -118,29 +144,31 @@ class ApiWarehouseLoadoutController extends Controller
             })
             ->orderBy('business_date', 'desc')
             ->orderBy('created_at', 'asc')
-            ->get()
-            ->map(function (ShopOrder $shopOrder) {
-                $loadedCount = $shopOrder->items->where('sorting_status', 'loaded')->count();
-                $totalCount = $shopOrder->items->count();
+            ->paginate($perPage);
 
-                return [
-                    'id' => $shopOrder->id,
-                    'order_number' => $shopOrder->order_number,
-                    'business_date' => $shopOrder->business_date->toDateString(),
-                    'delivery_status' => $shopOrder->delivery_status,
-                    'order_source' => $shopOrder->order_source,
-                    'display_name' => $shopOrder->loadoutDisplayName(),
-                    'shop' => $shopOrder->shop ? [
-                        'id' => $shopOrder->shop->id,
-                        'name' => $shopOrder->shop->name,
-                        'code' => $shopOrder->shop->code,
-                        'warehouse_tag' => $shopOrder->shop->warehouse_tag,
-                    ] : null,
-                    'loaded_count' => $loadedCount,
-                    'total_count' => $totalCount,
-                    'progress_percentage' => $totalCount > 0 ? round(($loadedCount / $totalCount) * 100) : 0,
-                ];
-            });
+        $orders->getCollection()->transform(function (ShopOrder $shopOrder) {
+            $loadedCount = (int) ($shopOrder->loaded_count ?? 0);
+            $totalCount = (int) ($shopOrder->total_count ?? 0);
+
+            return [
+                'id' => $shopOrder->id,
+                'order_number' => $shopOrder->order_number,
+                'business_date' => $shopOrder->business_date->toDateString(),
+                'delivery_status' => $shopOrder->delivery_status,
+                'order_source' => $shopOrder->order_source,
+                'display_name' => $shopOrder->loadoutDisplayName(),
+                'shop' => $shopOrder->shop ? [
+                    'id' => $shopOrder->shop->id,
+                    'name' => $shopOrder->shop->name,
+                    'code' => $shopOrder->shop->code,
+                    'warehouse_tag' => $shopOrder->shop->warehouse_tag,
+                ] : null,
+                'loaded_count' => $loadedCount,
+                'total_count' => $totalCount,
+                'progress_percentage' => $totalCount > 0 ? round(($loadedCount / $totalCount) * 100) : 0,
+                'updated_at' => $shopOrder->updated_at?->toDateTimeString(),
+            ];
+        });
         $probe?->checkpoint('orders_query_and_map');
 
         $shops = Shop::query()->whereHas('orders')->orderBy('name')->get(['id', 'name', 'code', 'warehouse_tag']);
@@ -155,9 +183,15 @@ class ApiWarehouseLoadoutController extends Controller
         return response()->json([
             'success' => true,
             'selected_date' => $selectedDate,
-            'orders' => $orders,
+            'orders' => $orders->items(),
             'shops' => $shops,
             'categories' => $categories,
+            'meta' => [
+                'total' => $orders->total(),
+                'per_page' => $orders->perPage(),
+                'current_page' => $orders->currentPage(),
+                'last_page' => $orders->lastPage(),
+            ],
         ]);
     }
 

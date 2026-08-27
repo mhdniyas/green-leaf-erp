@@ -10,6 +10,7 @@ use App\Repositories\Inventory\StockMovementRepository;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class StockController extends Controller
 {
@@ -38,7 +39,9 @@ class StockController extends Controller
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'category_ids' => ['nullable', 'array'],
             'category_ids.*' => ['integer', 'exists:categories,id'],
+            'category' => ['nullable', 'string', 'max:120'],
             'search' => ['nullable', 'string', 'max:120'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $date = $validated['date'] ?? null;
@@ -60,8 +63,23 @@ class StockController extends Controller
         $categoryIds = $validated['category_ids'] ?? ($user?->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null);
 
         $stock = $this->repository->currentStockByProductAndGrade($date, $warehouseId, $categoryIds, $search);
+        if (! empty($validated['category'])) {
+            $category = (string) $validated['category'];
+            $stock = $stock->filter(fn ($item): bool => (string) ($item->category_name ?? '') === $category)->values();
+        }
 
-        return ApiResponse::success($stock);
+        $perPage = (int) ($validated['per_page'] ?? 50);
+        $page = max(1, (int) $request->input('page', 1));
+        $items = $stock->values();
+        $paginated = new LengthAwarePaginator(
+            $items->forPage($page, $perPage)->values(),
+            $items->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        return ApiResponse::paginated($paginated);
     }
 
     /**

@@ -413,6 +413,7 @@ Route::middleware('auth')->group(function () {
         Route::get('invoices/{invoice}/pdf', [PurchaseInvoiceController::class, 'pdf'])->name('invoices.pdf');
         Route::post('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
         Route::patch('invoices/{invoice}/payment', [PurchaseInvoiceController::class, 'updatePayment'])->name('invoices.update-payment');
+        Route::post('invoices/{invoice}/cancel', [PurchaseInvoiceController::class, 'cancel'])->name('invoices.cancel');
         Route::post('invoices/{invoice}/fix-calculation', [PurchaseInvoiceController::class, 'fixCalculation'])->name('invoices.fix-calculation');
         Route::post('invoices/fix-all-calculations', [PurchaseInvoiceController::class, 'fixAllCalculations'])->name('invoices.fix-all-calculations');
         Route::post('invoices/{invoice}/supplier', [PurchaseInvoiceController::class, 'changeSupplier'])->name('invoices.change-supplier');

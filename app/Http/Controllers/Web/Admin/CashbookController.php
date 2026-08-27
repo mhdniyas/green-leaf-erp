@@ -2132,6 +2132,7 @@ final class CashbookController extends Controller
                 'purchase_invoices.id'
             )
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->where(function (Builder $creditQuery): void {
                 $creditQuery
                     ->whereRaw("LOWER(COALESCE(purchase_invoices.payment_method, purchaser_carts.payment_method, '')) = 'credit'")

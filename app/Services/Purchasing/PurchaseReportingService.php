@@ -138,6 +138,7 @@ final class PurchaseReportingService
             ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
             ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->select('categories.id', 'categories.name')
             ->distinct()
             ->orderBy('categories.name')
@@ -149,6 +150,7 @@ final class PurchaseReportingService
             ->join('purchaser_carts', 'purchaser_carts.user_id', '=', 'users.id')
             ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->select('users.id', 'users.name')
             ->distinct()
             ->orderBy('users.name')
@@ -192,6 +194,7 @@ final class PurchaseReportingService
             ->leftJoinSub($cartTotals, 'cart_totals', 'cart_totals.purchaser_cart_id', '=', 'purchaser_carts.id')
             ->leftJoinSub($settlements, 'settlement_totals', 'settlement_totals.purchase_invoice_id', '=', 'purchase_invoices.id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->selectRaw("purchase_invoices.id as invoice_id, purchase_invoices.public_uuid as invoice_public_uuid, purchase_invoices.invoice_number, purchaser_carts.id as purchaser_cart_id, purchaser_carts.business_date, purchase_invoices.supplier_id, suppliers.public_uuid as supplier_public_uuid, suppliers.name as supplier_name, purchaser_carts.user_id as purchaser_id, users.public_uuid as purchaser_public_uuid, users.name as purchaser_name, products.id as product_id, products.name as product_name, products.default_warehouse_id, warehouses.code as warehouse_code, CASE WHEN warehouses.code = 'VEG-WH' THEN 'Vegetables' WHEN warehouses.code = 'FRT-WH' THEN 'Fruits' ELSE 'Other' END as produce_type, categories.id as category_id, categories.name as category_name, purchaser_cart_items.grade, purchaser_cart_items.quantity, purchaser_cart_items.unit_price, {$paymentClass} as payment_class, {$netExpression} as item_net, ({$netExpression} * {$paidExpression} / NULLIF({$invoiceNetExpression}, 0)) as item_paid");
 
         $this->applyFilters($query, $filters);
@@ -291,9 +294,10 @@ final class PurchaseReportingService
     /** @param array<string, mixed> $filters */
     private function unsupportedLegacyCount(array $filters): int
     {
-        $query = DB::table('purchase_invoices')->leftJoin('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')->whereNull('purchase_invoices.deleted_at')->whereNotExists(function (Builder $items): void {
-            $items->selectRaw('1')->from('purchaser_cart_items')->whereColumn('purchaser_cart_items.purchaser_cart_id', 'purchase_invoices.purchaser_cart_id');
-        });
+        $query = DB::table('purchase_invoices')->leftJoin('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')->whereNotExists(function (Builder $items): void {
+                $items->selectRaw('1')->from('purchaser_cart_items')->whereColumn('purchaser_cart_items.purchaser_cart_id', 'purchase_invoices.purchaser_cart_id');
+            });
         if (! empty($filters['start_date'])) {
             $query->whereDate('purchaser_carts.business_date', '>=', $filters['start_date']);
         }

@@ -11,8 +11,11 @@
         $balanceAmount = max(0, $payableTotal - $paidAmount);
         $paymentMethod = $invoice->payment_method ?: ($invoice->purchaserCart?->payment_method ?: 'Credit');
         $supplier = $invoice->supplier;
+        $isCancelled = $invoice->isCancelled();
+        $matchedGrnCount = $invoice->goodsReceived ? 1 : 0;
         
         $statusRibbonText = match(true) {
+            $isCancelled => 'CANCELLED',
             $invoice->status->value === 'paid' => 'PAID',
             $balanceAmount <= 0 => 'PAID',
             $paidAmount > 0 => 'PARTIAL',
@@ -20,6 +23,7 @@
         };
 
         $statusRibbonColor = match($statusRibbonText) {
+            'CANCELLED' => 'bg-rose-700',
             'PAID' => 'bg-emerald-600',
             'PARTIAL' => 'bg-cyan-600',
             default => 'bg-amber-500',
@@ -51,6 +55,9 @@
             <div>
                 <span class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Retail Bill Invoice</span>
                 <h1 class="text-lg font-black text-slate-950">{{ $invoice->invoice_number }}</h1>
+                @if ($isCancelled)
+                    <p class="mt-1 inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Cancelled</p>
+                @endif
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <button onclick="window.print()" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-xs font-black text-slate-700 hover:bg-slate-100">
@@ -230,6 +237,32 @@
                 @endif
 
                 {{-- Actions Panel --}}
+                @if ($isCancelled)
+                    <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-950 shadow-xs">
+                        <p class="text-xs font-black uppercase tracking-[0.16em] text-rose-700">Cancelled Bill</p>
+                        <dl class="mt-3 space-y-2 text-xs">
+                            <div>
+                                <dt class="font-black uppercase tracking-[0.12em] text-rose-700">Reason</dt>
+                                <dd class="mt-0.5 font-semibold">{{ $invoice->cancellation_reason }}</dd>
+                            </div>
+                            @if ($invoice->cancellation_note)
+                                <div>
+                                    <dt class="font-black uppercase tracking-[0.12em] text-rose-700">Explanation</dt>
+                                    <dd class="mt-0.5 font-semibold">{{ $invoice->cancellation_note }}</dd>
+                                </div>
+                            @endif
+                            <div>
+                                <dt class="font-black uppercase tracking-[0.12em] text-rose-700">Cancelled By</dt>
+                                <dd class="mt-0.5 font-semibold">{{ $invoice->cancelledBy?->name ?? 'System' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="font-black uppercase tracking-[0.12em] text-rose-700">Cancelled At</dt>
+                                <dd class="mt-0.5 font-semibold">{{ $invoice->cancelled_at?->format('d M Y, h:i A') }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+                @endif
+
                 @if ($invoice->hasCalculationError())
                     <div class="mb-4 rounded-2xl border border-rose-300 bg-rose-50/90 p-4 text-rose-950 shadow-xs">
                         <div class="flex items-start gap-2.5">
@@ -315,6 +348,16 @@
                             @endif
                         @endcan
 
+                        @can('cancel', $invoice)
+                            <button
+                                type="button"
+                                onclick="openCancelBillModal()"
+                                class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 text-xs font-black text-rose-700 hover:bg-rose-100 transition-colors"
+                            >
+                                Cancel Bill
+                            </button>
+                        @endcan
+
                         <a href="{{ route('purchasing.invoices.index') }}" class="inline-flex h-9 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700 hover:bg-slate-100 transition-colors">
                             ← Back to Invoices
                         </a>
@@ -376,6 +419,7 @@
     </div>
 
     {{-- ===== PAYMENT MODAL ===== --}}
+    @can('update', $invoice)
     <div id="pm-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs" onclick="if(event.target===this)closePaymentModal()">
         <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
             {{-- Modal Header --}}
@@ -515,8 +559,89 @@
             </form>
         </div>
     </div>
+    @endcan
+
+    @can('cancel', $invoice)
+        <div id="cancel-bill-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs" onclick="if(event.target===this)closeCancelBillModal()">
+            <div class="w-full max-w-lg rounded-2xl border border-rose-200 bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b border-rose-100 px-5 py-4">
+                    <div>
+                        <h3 class="text-sm font-black text-rose-950">Cancel Bill</h3>
+                        <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $invoice->invoice_number }} - {{ $invoice->supplier?->name }}</p>
+                    </div>
+                    <button type="button" onclick="closeCancelBillModal()" class="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                <form id="cancel-bill-form" method="POST" action="{{ route('purchasing.invoices.cancel', $invoice) }}">
+                    @csrf
+                    <div class="space-y-4 px-5 py-4">
+                        @error('cancel')
+                            <p class="rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{{ $message }}</p>
+                        @enderror
+
+                        <dl class="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                            <div><dt class="font-black uppercase text-slate-500">Invoice Number</dt><dd class="font-semibold text-slate-950">{{ $invoice->invoice_number }}</dd></div>
+                            <div><dt class="font-black uppercase text-slate-500">Supplier</dt><dd class="font-semibold text-slate-950">{{ $invoice->supplier?->name ?? 'Vendor Pending' }}</dd></div>
+                            <div><dt class="font-black uppercase text-slate-500">Business Date</dt><dd class="font-semibold text-slate-950">{{ $invoice->purchaserCart?->business_date?->format('d M Y') ?? $invoice->created_at->format('d M Y') }}</dd></div>
+                            <div><dt class="font-black uppercase text-slate-500">Invoice Total</dt><dd class="font-semibold text-slate-950">Rs. {{ number_format($payableTotal, 2) }}</dd></div>
+                            <div><dt class="font-black uppercase text-slate-500">Current Status</dt><dd class="font-semibold capitalize text-slate-950">{{ str($invoice->status->value)->replace('_',' ') }}</dd></div>
+                            <div><dt class="font-black uppercase text-slate-500">Matched GRNs</dt><dd class="font-semibold text-slate-950">{{ $matchedGrnCount }}</dd></div>
+                            <div><dt class="font-black uppercase text-slate-500">Payment Status</dt><dd class="font-semibold capitalize text-slate-950">{{ str($invoice->payment_status ?: 'unpaid')->replace('_',' ') }}</dd></div>
+                        </dl>
+
+                        <p class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-900">
+                            Cancel this purchase bill? The bill will remain in audit history. Any eligible accounting effects will be reversed, and matched receipts may return to Bill Pending.
+                        </p>
+
+                        <div>
+                            <label for="cancellation_reason" class="block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Cancellation Reason</label>
+                            <select id="cancellation_reason" name="cancellation_reason" required onchange="toggleCancellationNote()" class="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-950 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-400/20">
+                                @foreach (['Test invoice', 'Duplicate invoice', 'Wrong supplier', 'Wrong amount/items', 'Entered by mistake', 'Other'] as $reason)
+                                    <option value="{{ $reason }}" @selected(old('cancellation_reason') === $reason)>{{ $reason }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div id="cancellation-note-wrap" class="hidden">
+                            <label for="cancellation_note" class="block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Explanation</label>
+                            <textarea id="cancellation_note" name="cancellation_note" rows="3" class="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-950 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-400/20">{{ old('cancellation_note') }}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col-reverse gap-2 border-t border-slate-100 px-5 py-3 sm:flex-row sm:justify-end">
+                        <button type="button" onclick="closeCancelBillModal()" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700 hover:bg-slate-100">Keep Bill</button>
+                        <button type="submit" onclick="this.disabled=true; this.form.submit();" class="inline-flex h-9 items-center justify-center rounded-xl bg-rose-700 px-5 text-xs font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60">Confirm Cancellation</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endcan
 
     <script>
+    function openCancelBillModal() {
+        const overlay = document.getElementById('cancel-bill-overlay');
+        overlay.classList.remove('hidden');
+        overlay.classList.add('flex');
+        toggleCancellationNote();
+    }
+
+    function closeCancelBillModal() {
+        const overlay = document.getElementById('cancel-bill-overlay');
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+    }
+
+    function toggleCancellationNote() {
+        const reason = document.getElementById('cancellation_reason');
+        const wrap = document.getElementById('cancellation-note-wrap');
+        const note = document.getElementById('cancellation_note');
+        const needsNote = reason?.value === 'Other';
+        wrap?.classList.toggle('hidden', !needsNote);
+        if (note) note.required = needsNote;
+    }
+
     function openPaymentModal(fullPay = false) {
         const overlay = document.getElementById('pm-overlay');
         overlay.classList.remove('hidden');

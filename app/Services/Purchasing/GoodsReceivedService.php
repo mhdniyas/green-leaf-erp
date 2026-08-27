@@ -33,16 +33,31 @@ class GoodsReceivedService
     public function paginate(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         $query = $this->repository->query()
+            ->select([
+                'id',
+                'purchase_order_id',
+                'destination_shop_id',
+                'warehouse_id',
+                'grn_number',
+                'status',
+                'bill_status',
+                'bill_number',
+                'received_by',
+                'received_at',
+                'created_at',
+                'updated_at',
+            ])
             ->where('status', '!=', 'draft')
-            ->with(['purchaseOrder.supplier', 'purchaseOrder.destinationShop', 'receivedBy', 'updatedBy', 'items.product', 'purchaseInvoices']);
+            ->with(['purchaseOrder:id,supplier_id,destination_shop_id', 'purchaseOrder.supplier:id,name', 'purchaseOrder.destinationShop:id,name', 'destinationShop:id,name', 'receivedBy:id,name'])
+            ->withCount('items')
+            ->withSum('items', 'received_qty');
 
         if (! empty($filters['bill_status'])) {
             $status = (string) $filters['bill_status'];
             if ($status === 'bill_pending') {
-                $query->where(function ($q): void {
-                    $q->where('bill_status', 'bill_pending')
-                        ->orWhereDoesntHave('purchaseInvoices');
-                });
+                $query->where('bill_status', 'bill_pending')
+                    ->whereDoesntHave('purchaseInvoices')
+                    ->whereNotNull('received_at');
             } elseif ($status === 'bill_available') {
                 $query->where(function ($q): void {
                     $q->where('bill_status', 'bill_available')
@@ -53,6 +68,14 @@ class GoodsReceivedService
 
         if (! empty($filters['date'])) {
             $query->whereDate('received_at', $filters['date']);
+        }
+
+        if (! empty($filters['warehouse_id'])) {
+            $warehouseId = (int) $filters['warehouse_id'];
+            $query->where(function ($q) use ($warehouseId): void {
+                $q->where('warehouse_id', $warehouseId)
+                    ->orWhereHas('items.product', fn ($productQuery) => $productQuery->where('default_warehouse_id', $warehouseId));
+            });
         }
 
         if (! empty($filters['search'])) {

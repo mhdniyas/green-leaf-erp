@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\Purchasing\InvoiceStatus;
 use Database\Factories\PurchaseInvoiceFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -42,6 +43,10 @@ class PurchaseInvoice extends Model
         'purchaser_submitted_by',
         'purchaser_submitted_at',
         'notes',
+        'cancelled_at',
+        'cancelled_by',
+        'cancellation_reason',
+        'cancellation_note',
     ];
 
     protected $casts = [
@@ -50,6 +55,7 @@ class PurchaseInvoice extends Model
         'paid_amount' => 'decimal:2',
         'status' => InvoiceStatus::class,
         'purchaser_submitted_at' => 'datetime',
+        'cancelled_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -128,6 +134,16 @@ class PurchaseInvoice extends Model
         };
     }
 
+    public function scopeNotCancelled(Builder $query): Builder
+    {
+        return $query->where('status', '!=', InvoiceStatus::Cancelled->value);
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->status === InvoiceStatus::Cancelled;
+    }
+
     // Relationships
     public function goodsReceived(): BelongsTo
     {
@@ -167,6 +183,11 @@ class PurchaseInvoice extends Model
     public function purchaserSubmittedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'purchaser_submitted_by');
+    }
+
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     public function itemsGrossTotal(): float

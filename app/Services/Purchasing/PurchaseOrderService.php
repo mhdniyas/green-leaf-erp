@@ -32,6 +32,7 @@ class PurchaseOrderService
         $search = trim((string) ($filters['search'] ?? ''));
         $status = $filters['status'] ?? null;
         $date = $filters['date'] ?? null;
+        $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
 
         /** @var array<int, string>|null $statusList */
         $statusList = match (true) {
@@ -50,9 +51,14 @@ class PurchaseOrderService
         };
 
         return $this->repository->query()
-            ->with(['supplier', 'createdBy', 'items.product'])
+            ->select(['id', 'supplier_id', 'po_number', 'status', 'order_date', 'created_by', 'created_at', 'updated_at'])
+            ->with(['supplier:id,name'])
+            ->withCount('items')
             ->when($statusList !== null, fn ($query) => $query->whereIn('status', $statusList))
             ->when($date, fn ($query) => $query->whereDate('order_date', $date))
+            ->when($warehouseId, function ($query) use ($warehouseId): void {
+                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('default_warehouse_id', $warehouseId));
+            })
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($subQuery) use ($search): void {
                     $subQuery->where('po_number', 'like', "%{$search}%")

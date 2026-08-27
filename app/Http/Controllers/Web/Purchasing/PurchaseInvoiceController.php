@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Actions\Purchasing\CancelPurchaseInvoiceAction;
 use App\DTOs\Purchasing\PurchaseInvoiceData;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Purchasing\CancelPurchaseInvoiceRequest;
 use App\Http\Requests\Web\Purchasing\StorePurchaseInvoiceRequest;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
@@ -20,6 +22,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
+use RuntimeException;
 
 class PurchaseInvoiceController extends Controller
 {
@@ -87,6 +90,7 @@ class PurchaseInvoiceController extends Controller
 
         $flaggedInvoices = PurchaseInvoice::query()
             ->with(['supplier', 'purchaserCart.items', 'goodsReceived.items'])
+            ->notCancelled()
             ->whereDate('created_at', '>=', now()->subDays(60))
             ->get()
             ->filter(fn (PurchaseInvoice $invoice): bool => $invoice->hasCalculationError())
@@ -213,6 +217,7 @@ class PurchaseInvoiceController extends Controller
             'goodsReceived.items.product',
             'goodsReceived.purchaseOrder',
             'purchaserCart',
+            'cancelledBy',
         ]);
 
         $purchasers = $this->purchasersWithBalance();
@@ -308,6 +313,31 @@ class PurchaseInvoiceController extends Controller
         return redirect()->back()->with('success', $message);
     }
 
+    public function cancel(CancelPurchaseInvoiceRequest $request, PurchaseInvoice $invoice, CancelPurchaseInvoiceAction $action): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        try {
+            $result = $action->execute(
+                $invoice,
+                $user,
+                $request->string('cancellation_reason')->toString(),
+                $request->string('cancellation_note')->trim()->toString() ?: null,
+            );
+        } catch (RuntimeException $exception) {
+            return redirect()->back()->withErrors(['cancel' => $exception->getMessage()]);
+        }
+
+        if ($result['already_cancelled']) {
+            return redirect()->route('purchasing.invoices.show', $result['invoice'])
+                ->with('warning', 'Invoice already cancelled.');
+        }
+
+        return redirect()->route('purchasing.invoices.show', $result['invoice'])
+            ->with('success', 'Purchase bill cancelled successfully.');
+    }
+
     public function fixCalculation(Request $request, PurchaseInvoice $invoice): RedirectResponse
     {
         abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can fix bill calculation discrepancies.');
@@ -368,6 +398,7 @@ class PurchaseInvoiceController extends Controller
         $search = trim($request->string('search')->toString());
 
         $query = PurchaseInvoice::query()
+            ->notCancelled()
             ->with(['supplier', 'purchaserCart.items', 'purchaserCart.user', 'goodsReceived.items', 'purchaserSubmittedBy']);
 
         if ($purchaserId > 0) {
@@ -396,7 +427,7 @@ class PurchaseInvoiceController extends Controller
 
         $purchasers = User::query()
             ->whereHas('roles', fn ($rq) => $rq->where('name', 'purchase'))
-            ->orWhereIn('id', PurchaseInvoice::query()->whereNotNull('purchaser_submitted_by')->pluck('purchaser_submitted_by'))
+            ->orWhereIn('id', PurchaseInvoice::query()->notCancelled()->whereNotNull('purchaser_submitted_by')->pluck('purchaser_submitted_by'))
             ->orderBy('name')
             ->get(['id', 'name']);
 
@@ -429,6 +460,7 @@ class PurchaseInvoiceController extends Controller
     private function buildInvoiceReportQuery(Carbon $date, string $search, string $paymentFilter, string $activeTab): Builder
     {
         $query = PurchaseInvoice::query()
+            ->notCancelled()
             ->with([
                 'goodsReceived',
                 'supplier.creditApprovalRequestedBy',

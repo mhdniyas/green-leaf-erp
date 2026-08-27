@@ -62,6 +62,7 @@ class RolePermissionSeeder extends Seeder
             'purchasing.grn.view',
             'purchasing.grn.create',
             'purchasing.grn.approve',
+            'purchasing.invoice.cancel',
             'purchasing.price.view',
             'purchasing.price.update',
 

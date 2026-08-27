@@ -31,6 +31,7 @@ class DailyPurchaserPriceSyncService
             ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
             ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->whereDate('purchaser_carts.business_date', $dateStr)
             ->where('purchaser_cart_items.quantity', '>', 0)
             ->where('purchaser_cart_items.unit_price', '>', 0);

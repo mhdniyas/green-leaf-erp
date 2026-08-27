@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Cashbook\CompanyAccount;
+use Database\Factories\VendorSettlementFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,6 +15,9 @@ use RuntimeException;
 
 class VendorSettlement extends Model
 {
+    /** @use HasFactory<VendorSettlementFactory> */
+    use HasFactory;
+
     protected $fillable = ['supplier_id', 'actual_payment_amount', 'settlement_discount_amount', 'vendor_advance_used_amount', 'new_vendor_advance_amount', 'company_account_id', 'payment_method', 'payment_date', 'reference', 'note', 'status', 'journal_entry_id', 'reconciliation_status', 'is_finalized', 'finalized_at', 'created_by'];
 
     protected function casts(): array

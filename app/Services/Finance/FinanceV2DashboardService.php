@@ -483,6 +483,7 @@ class FinanceV2DashboardService
             ->where('credit_amount', '>', 0)
             ->count();
         $overduePurchaseInvoices = PurchaseInvoice::query()
+            ->notCancelled()
             ->whereRaw('amount > COALESCE(paid_amount, 0) + COALESCE(discount_amount, 0)')
             ->where('created_at', '<', now()->subDays(30))
             ->count();
@@ -692,6 +693,7 @@ class FinanceV2DashboardService
     private function purchaseTotals(Carbon $startDate, Carbon $endDate): array
     {
         $invoices = PurchaseInvoice::query()
+            ->notCancelled()
             ->whereDate('created_at', '>=', $startDate)
             ->whereDate('created_at', '<=', $endDate)
             ->get();

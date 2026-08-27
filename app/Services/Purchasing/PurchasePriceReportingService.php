@@ -106,6 +106,7 @@ final class PurchasePriceReportingService
             ->leftJoin('suppliers', 'suppliers.id', '=', 'purchase_invoices.supplier_id')
             ->leftJoin('users', 'users.id', '=', 'purchaser_carts.user_id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->where('purchaser_cart_items.product_id', $product->id)
             ->whereDate('purchaser_carts.business_date', $filters['date'])
             ->select('purchaser_carts.business_date', 'purchaser_cart_items.grade', 'purchaser_cart_items.quantity', 'purchaser_cart_items.unit_price', 'suppliers.name as vendor_name', 'users.name as purchaser_name', 'purchase_invoices.public_uuid as invoice_public_uuid', 'purchase_invoices.invoice_number')
@@ -144,6 +145,7 @@ final class PurchasePriceReportingService
             ->join('purchaser_carts', 'purchaser_carts.id', '=', 'purchaser_cart_items.purchaser_cart_id')
             ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
             ->whereNull('purchase_invoices.deleted_at')
+            ->where('purchase_invoices.status', '!=', 'cancelled')
             ->whereDate('purchaser_carts.business_date', $filters['date'])
             ->selectRaw('purchaser_cart_items.product_id, (1.0 * SUM(purchaser_cart_items.quantity * purchaser_cart_items.unit_price)) / NULLIF(SUM(purchaser_cart_items.quantity), 0) as actual_purchase_price, COUNT(DISTINCT purchase_invoices.id) as purchase_count')
             ->groupBy('purchaser_cart_items.product_id');
@@ -180,6 +182,7 @@ final class PurchasePriceReportingService
                     ->join('purchase_invoices', 'purchase_invoices.purchaser_cart_id', '=', 'purchaser_carts.id')
                     ->whereColumn('purchaser_cart_items.product_id', 'products.id')
                     ->whereNull('purchase_invoices.deleted_at')
+                    ->where('purchase_invoices.status', '!=', 'cancelled')
                     ->whereDate('purchaser_carts.business_date', '>=', min($filters['date_a'], $filters['date_b']))
                     ->whereDate('purchaser_carts.business_date', '<=', max($filters['date_a'], $filters['date_b']));
                 $this->applyPurchaseFilters($purchaseQuery, $filters);
