@@ -84,6 +84,16 @@ class PurchaseOrder extends Model
         return $this->hasOne(PurchaserCart::class);
     }
 
+    public function billReconciliations(): HasMany
+    {
+        return $this->hasMany(BillReconciliation::class, 'purchase_order_id');
+    }
+
+    public function latestBillReconciliation(): HasOne
+    {
+        return $this->hasOne(BillReconciliation::class, 'purchase_order_id')->latestOfMany();
+    }
+
     public function getRouteKeyName(): string
     {
         return 'po_number';

@@ -77,7 +77,17 @@ class GoodsReceivedController extends Controller
         abort_unless($scope->receipts(GoodsReceived::query()->whereKey($grn->id), $scope->warehouseIds($request->user()))->exists(), 403);
 
         return ApiResponse::success(
-            new GoodsReceivedResource($grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'updatedBy', 'purchaseInvoices']))
+            new GoodsReceivedResource($grn->load([
+                'purchaseOrder.supplier',
+                'items.product',
+                'receivedBy',
+                'updatedBy',
+                'purchaseInvoices',
+                'billReconciliation.lines.product',
+                'billReconciliation.confirmedByUser',
+                'advanceMatchesAsBill.advanceGoodsReceived',
+                'advanceMatchesAsBill.advanceStockBatch',
+            ]))
         );
     }
 
@@ -129,6 +139,8 @@ class GoodsReceivedController extends Controller
 
         $validated = $request->validate([
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'date' => ['nullable', 'date'],
+            'search' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 

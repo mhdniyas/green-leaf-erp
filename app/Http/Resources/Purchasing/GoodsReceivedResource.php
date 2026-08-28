@@ -48,6 +48,7 @@ class GoodsReceivedResource extends JsonResource
             'invoices' => PurchaseInvoiceResource::collection($this->whenLoaded('purchaseInvoices')),
             'advance_matches' => AdvanceReceiveMatchResource::collection($this->whenLoaded('advanceMatchesAsBill')),
             'advance_allocations' => AdvanceReceiveMatchResource::collection($this->whenLoaded('advanceMatchesAsAdvance')),
+            'bill_reconciliation' => new BillReconciliationResource($this->whenLoaded('billReconciliation')),
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
         ];

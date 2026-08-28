@@ -6,7 +6,9 @@ namespace App\Actions\Purchasing;
 
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Purchasing\POStatus;
+use App\Models\BillReconciliation;
 use App\Models\GoodsReceived;
+use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
@@ -116,6 +118,65 @@ class RecordGoodsReceiptAction
                 $po?->update([
                     'status' => POStatus::Received,
                 ]);
+            }
+
+            // Record BillReconciliation if purchase_order_id is present
+            if ($data->purchaseOrderId) {
+                $totalBillBase = 0.0;
+                foreach ($grn->items as $it) {
+                    $prod = Product::find($it->product_id);
+                    $conv = (float) ($prod?->conversionToBaseForUnit($it->received_unit) ?? 1.0);
+                    $totalBillBase += round((float) $it->received_qty * $conv, 3);
+                }
+
+                /** @var BillReconciliation $recon */
+                $recon = BillReconciliation::create([
+                    'purchase_order_id' => $data->purchaseOrderId,
+                    'goods_received_id' => $grn->id,
+                    'warehouse_id' => $grn->warehouse_id,
+                    'source_type' => 'normal',
+                    'status' => 'confirmed',
+                    'total_bill_base_qty' => $totalBillBase,
+                    'total_matched_base_qty' => 0.0,
+                    'total_new_receive_base_qty' => $totalBillBase,
+                    'confirmed_by' => $userId,
+                    'confirmed_at' => now(),
+                    'client_submission_id' => $data->clientSubmissionId,
+                    'submission_payload_hash' => $payloadHash,
+                    'notes' => $data->notes,
+                ]);
+
+                foreach ($grn->items as $it) {
+                    $prod = Product::find($it->product_id);
+                    $conv = (float) ($prod?->conversionToBaseForUnit($it->received_unit) ?? 1.0);
+                    $baseQty = round((float) $it->received_qty * $conv, 3);
+
+                    $relevantLoadoutQty = $this->advanceReconciliationService->getLoadedQtyForCohort(
+                        $it->product_id,
+                        (int) $grn->warehouse_id,
+                        $data->receivedAt
+                    );
+                    $unbilledLoadoutQty = max(0.0, round($relevantLoadoutQty - $baseQty, 3));
+
+                    $recon->lines()->create([
+                        'purchase_order_item_id' => $it->purchase_order_item_id,
+                        'product_id' => $it->product_id,
+                        'bill_qty' => $it->received_qty,
+                        'bill_unit' => $it->received_unit ?? 'kg',
+                        'bill_base_qty' => $baseQty,
+                        'advance_matched_qty' => 0.0,
+                        'advance_matched_unit' => $it->received_unit ?? 'kg',
+                        'advance_matched_base_qty' => 0.0,
+                        'new_receive_qty' => $it->received_qty,
+                        'new_receive_unit' => $it->received_unit ?? 'kg',
+                        'new_receive_base_qty' => $baseQty,
+                        'relevant_loadout_qty' => $relevantLoadoutQty,
+                        'unbilled_loadout_qty' => $unbilledLoadoutQty,
+                        'reconciled_qty' => $it->received_qty,
+                        'reconciled_base_qty' => $baseQty,
+                        'difference_status' => 'unmatched',
+                    ]);
+                }
             }
 
             // Log activity

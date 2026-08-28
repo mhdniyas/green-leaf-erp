@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -182,6 +183,11 @@ class GoodsReceived extends Model
         return $this->hasMany(AdvanceReceiveMatch::class, 'bill_goods_received_id');
     }
 
+    public function billReconciliation(): HasOne
+    {
+        return $this->hasOne(BillReconciliation::class, 'goods_received_id');
+    }
+
     public function isBillPending(): bool
     {
         return $this->bill_status === 'bill_pending' || ! $this->purchaseInvoices()->exists();
@@ -191,6 +197,10 @@ class GoodsReceived extends Model
     {
         if ($this->purchase_order_id === null) {
             return 'ADVANCE';
+        }
+
+        if ($this->relationLoaded('billReconciliation') && $this->billReconciliation !== null) {
+            return strtoupper($this->billReconciliation->source_type);
         }
 
         if ($this->purchaseOrder?->purchaserCart?->purchase_source === 'green_leaf_direct_purchase') {

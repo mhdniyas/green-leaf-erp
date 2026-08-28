@@ -24,6 +24,8 @@ class AdvanceReceiveMatch extends Model
         'advance_stock_batch_id',
         'bill_goods_received_id',
         'bill_goods_received_item_id',
+        'bill_reconciliation_id',
+        'bill_reconciliation_line_id',
         'purchase_order_id',
         'purchase_order_item_id',
         'purchase_invoice_id',
@@ -79,6 +81,16 @@ class AdvanceReceiveMatch extends Model
     public function billGoodsReceivedItem(): BelongsTo
     {
         return $this->belongsTo(GoodsReceivedItem::class, 'bill_goods_received_item_id');
+    }
+
+    public function billReconciliation(): BelongsTo
+    {
+        return $this->belongsTo(BillReconciliation::class, 'bill_reconciliation_id');
+    }
+
+    public function billReconciliationLine(): BelongsTo
+    {
+        return $this->belongsTo(BillReconciliationLine::class, 'bill_reconciliation_line_id');
     }
 
     public function purchaseOrder(): BelongsTo

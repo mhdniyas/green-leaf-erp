@@ -6,18 +6,24 @@ namespace Tests\Feature\Purchasing;
 
 use App\Enums\Inventory\BatchStatus;
 use App\Models\AdvanceReceiveMatch;
+use App\Models\BillReconciliation;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\Shop;
+use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
+use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
+use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -95,6 +101,15 @@ class AdvanceReceiveReconciliationTest extends TestCase
         $this->movementRepo = app(StockMovementRepository::class);
         $this->ledgerService = app(StockLedgerService::class);
         $this->reconcileService = app(AdvanceReceiveReconciliationService::class);
+    }
+
+    private function confirmPhysicalReceipt(GoodsReceived $grn): void
+    {
+        StockBatch::where('goods_received_id', $grn->id)->update([
+            'warehouse_receive_pending' => false,
+            'warehouse_confirmed_at' => now(),
+            'warehouse_confirmed_by' => $this->receiver->id,
+        ]);
     }
 
     private function createConfirmedAdvance(Product $product, float $qty, ?string $receivedAt = null): array
@@ -551,27 +566,737 @@ class AdvanceReceiveReconciliationTest extends TestCase
         ])->assertStatus(422);
     }
 
-    public function test_advance_match_candidates_endpoint_returns_matching_orders_with_coverage_summary(): void
-    {
-        [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 60.0);
-        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
-        $poItem = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
-
-        $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
-        $response->assertOk()
-            ->assertJsonPath('data.0.id', $order->id)
-            ->assertJsonPath('data.0.po_number', $order->po_number)
-            ->assertJsonPath('data.0.overall_coverage_percentage', 60)
-            ->assertJsonPath('data.0.has_advance_match', true);
-    }
-
-    public function test_advance_match_candidates_empty_when_no_advance_stock_available(): void
+    public function test_pending_bill_with_zero_advance_appears_in_match_with_zero_coverage(): void
     {
         $order = PurchaseOrder::factory()->create(['status' => 'approved']);
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
 
         $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
         $response->assertOk()
-            ->assertJsonPath('data', []);
+            ->assertJsonPath('data.0.id', $order->id)
+            ->assertJsonPath('data.0.overall_coverage_percentage', 0)
+            ->assertJsonPath('data.0.has_advance_match', false)
+            ->assertJsonPath('data.0.reconciliation_status', 'unmatched')
+            ->assertJsonPath('data.0.exact_matches_count', 0)
+            ->assertJsonPath('data.0.partial_matches_count', 0)
+            ->assertJsonPath('data.0.unmatched_count', 1)
+            ->assertJsonPath('data.0.match_summary_items.0.new_receive_qty', 100);
+    }
+
+    public function test_partial_advance_match_bill_coverage_calculation(): void
+    {
+        [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 93.0);
+        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
+
+        $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
+        $response->assertOk()
+            ->assertJsonPath('data.0.id', $order->id)
+            ->assertJsonPath('data.0.overall_coverage_percentage', 93)
+            ->assertJsonPath('data.0.has_advance_match', true)
+            ->assertJsonPath('data.0.reconciliation_status', 'partial')
+            ->assertJsonPath('data.0.exact_matches_count', 0)
+            ->assertJsonPath('data.0.partial_matches_count', 1)
+            ->assertJsonPath('data.0.unmatched_count', 0)
+            ->assertJsonPath('data.0.match_summary_items.0.total_proposed_match_qty', 93)
+            ->assertJsonPath('data.0.match_summary_items.0.new_receive_qty', 7);
+    }
+
+    public function test_full_advance_match_bill_coverage_calculation_and_remains_unconfirmed_in_match(): void
+    {
+        [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 100.0);
+        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
+
+        $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
+        $response->assertOk()
+            ->assertJsonPath('data.0.id', $order->id)
+            ->assertJsonPath('data.0.overall_coverage_percentage', 100)
+            ->assertJsonPath('data.0.has_advance_match', true)
+            ->assertJsonPath('data.0.reconciliation_status', 'ready')
+            ->assertJsonPath('data.0.exact_matches_count', 1)
+            ->assertJsonPath('data.0.partial_matches_count', 0)
+            ->assertJsonPath('data.0.unmatched_count', 0)
+            ->assertJsonPath('data.0.match_summary_items.0.total_proposed_match_qty', 100)
+            ->assertJsonPath('data.0.match_summary_items.0.new_receive_qty', 0);
+    }
+
+    public function test_multiple_products_exact_partial_unmatched_summary(): void
+    {
+        [$advTomato] = $this->createConfirmedAdvance($this->tomato, 100.0);
+        [$advOnion] = $this->createConfirmedAdvance($this->onion, 40.0);
+
+        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]); // Exact
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->onion->id, 'quantity' => 80.0]);   // Partial (40/80 = 50%)
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->potato->id, 'quantity' => 50.0]);  // Unmatched (0%)
+
+        $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
+        $response->assertOk()
+            ->assertJsonPath('data.0.id', $order->id)
+            ->assertJsonPath('data.0.exact_matches_count', 1)
+            ->assertJsonPath('data.0.partial_matches_count', 1)
+            ->assertJsonPath('data.0.unmatched_count', 1)
+            ->assertJsonPath('data.0.reconciliation_status', 'partial');
+    }
+
+    public function test_candidates_endpoint_respects_warehouse_and_date_filtering(): void
+    {
+        $shop = Shop::factory()->create();
+
+        $orderToday = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $orderToday->id, 'product_id' => $this->tomato->id, 'quantity' => 50.0]);
+
+        $orderYesterday = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-27',
+            'destination_shop_id' => $shop->id,
+        ]);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $orderYesterday->id, 'product_id' => $this->tomato->id, 'quantity' => 30.0]);
+
+        // Filter by date
+        $this->getJson('/api/v1/purchasing/grns/advance-match-candidates?date=2026-08-28')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $orderToday->id);
+
+        $this->getJson('/api/v1/purchasing/grns/advance-match-candidates?date=2026-08-27')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $orderYesterday->id);
+    }
+
+    public function test_candidates_and_suggestions_have_zero_stock_mutations(): void
+    {
+        [$advance] = $this->createConfirmedAdvance($this->tomato, 100.0);
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+        ]);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
+
+        $batchCountBefore = StockBatch::count();
+        $movementCountBefore = StockMovement::count();
+        $matchesCountBefore = AdvanceReceiveMatch::count();
+
+        $this->getJson('/api/v1/purchasing/grns/advance-match-candidates')->assertOk();
+        $this->getJson('/api/v1/purchasing/grns/advance-match-suggestions?purchase_order_id='.$order->id)->assertOk();
+
+        $this->assertSame($batchCountBefore, StockBatch::count());
+        $this->assertSame($movementCountBefore, StockMovement::count());
+        $this->assertSame($matchesCountBefore, AdvanceReceiveMatch::count());
+    }
+
+    public function test_loadout_cohort_context_calculation_is_read_only_and_included_in_response(): void
+    {
+        $shop = Shop::factory()->create();
+        $date = '2026-08-28';
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => $date,
+            'destination_shop_id' => $shop->id,
+        ]);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
+
+        // Create a loadout item for tomato on this date
+        $shopOrder = ShopOrder::factory()->create([
+            'shop_id' => $shop->id,
+            'business_date' => $date,
+            'delivery_status' => 'ready_for_dispatch',
+        ]);
+        ShopOrderItem::create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 75.0,
+            'approved_qty' => 75.0,
+            'loaded_qty' => 75.0,
+            'actual_weight' => 75.0,
+            'sorting_status' => 'loaded',
+            'unit' => 'KG',
+        ]);
+
+        $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates?date='.$date);
+        $response->assertOk()
+            ->assertJsonPath('data.0.match_summary_items.0.relevant_loadout_qty', 75);
+    }
+
+    public function test_phase2_zero_percent_confirmation_creates_normal_reconciliation_and_full_stock(): void
+    {
+        $shop = Shop::factory()->create();
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        $batchCountBefore = StockBatch::count();
+
+        $response = $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [
+                [
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $this->tomato->id,
+                    'received_qty' => 100.0,
+                    'received_unit' => 'KG',
+                ],
+            ],
+            'advance_matches' => [],
+        ]);
+
+        $response->assertCreated();
+        $grnId = $response->json('data.id');
+
+        // Verify BillReconciliation
+        $recon = BillReconciliation::where('goods_received_id', $grnId)->first();
+        $this->assertNotNull($recon);
+        $this->assertSame('normal', $recon->source_type);
+        $this->assertSame('confirmed', $recon->status);
+        $this->assertEquals(100.0, (float) $recon->total_bill_base_qty);
+        $this->assertEquals(0.0, (float) $recon->total_matched_base_qty);
+        $this->assertEquals(100.0, (float) $recon->total_new_receive_base_qty);
+        $this->assertSame($this->receiver->id, $recon->confirmed_by);
+
+        // Verify line
+        $line = $recon->lines->first();
+        $this->assertNotNull($line);
+        $this->assertSame($this->tomato->id, $line->product_id);
+        $this->assertEquals(100.0, (float) $line->bill_base_qty);
+        $this->assertEquals(0.0, (float) $line->advance_matched_base_qty);
+        $this->assertEquals(100.0, (float) $line->new_receive_base_qty);
+        $this->assertSame('unmatched', $line->difference_status);
+
+        // Verify StockBatch created (+100)
+        $this->assertSame($batchCountBefore + 1, StockBatch::count());
+        $newBatch = StockBatch::where('goods_received_id', $grnId)->first();
+        $this->assertNotNull($newBatch);
+        $this->assertEquals(100.0, (float) $newBatch->total_kg);
+    }
+
+    public function test_phase2_partial_confirmation_creates_mixed_reconciliation_and_stock_for_remainder_only(): void
+    {
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 93.0);
+
+        $shop = Shop::factory()->create();
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        $batchCountBefore = StockBatch::count();
+
+        $response = $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [
+                [
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $this->tomato->id,
+                    'received_qty' => 100.0,
+                    'received_unit' => 'KG',
+                ],
+            ],
+            'advance_matches' => [
+                [
+                    'advance_goods_received_id' => $advanceGrn->id,
+                    'advance_goods_received_item_id' => $advanceItem->id,
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $this->tomato->id,
+                    'matched_qty' => 93.0,
+                    'unit' => 'KG',
+                ],
+            ],
+        ]);
+
+        $response->assertCreated();
+        $grnId = $response->json('data.id');
+
+        $recon = BillReconciliation::where('goods_received_id', $grnId)->first();
+        $this->assertNotNull($recon);
+        $this->assertSame('mixed', $recon->source_type);
+        $this->assertEquals(100.0, (float) $recon->total_bill_base_qty);
+        $this->assertEquals(93.0, (float) $recon->total_matched_base_qty);
+        $this->assertEquals(7.0, (float) $recon->total_new_receive_base_qty);
+
+        $line = $recon->lines->first();
+        $this->assertNotNull($line);
+        $this->assertSame('partial', $line->difference_status);
+        $this->assertEquals(93.0, (float) $line->advance_matched_base_qty);
+        $this->assertEquals(7.0, (float) $line->new_receive_base_qty);
+
+        // AdvanceReceiveMatch linked
+        $match = AdvanceReceiveMatch::where('bill_goods_received_id', $grnId)->first();
+        $this->assertNotNull($match);
+        $this->assertSame($recon->id, $match->bill_reconciliation_id);
+        $this->assertSame($line->id, $match->bill_reconciliation_line_id);
+
+        // Only remainder (+7 KG) created into new StockBatch
+        $this->assertSame($batchCountBefore + 1, StockBatch::count());
+        $newBatch = StockBatch::where('goods_received_id', $grnId)->first();
+        $this->assertNotNull($newBatch);
+        $this->assertEquals(7.0, (float) $newBatch->total_kg);
+    }
+
+    public function test_phase2_hundred_percent_confirmation_creates_advance_reconciliation_and_zero_new_stock(): void
+    {
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 100.0);
+
+        $shop = Shop::factory()->create();
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        $batchCountBefore = StockBatch::count();
+
+        $response = $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [
+                [
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $this->tomato->id,
+                    'received_qty' => 100.0,
+                    'received_unit' => 'KG',
+                ],
+            ],
+            'advance_matches' => [
+                [
+                    'advance_goods_received_id' => $advanceGrn->id,
+                    'advance_goods_received_item_id' => $advanceItem->id,
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $this->tomato->id,
+                    'matched_qty' => 100.0,
+                    'unit' => 'KG',
+                ],
+            ],
+        ]);
+
+        $response->assertCreated();
+        $grnId = $response->json('data.id');
+
+        $recon = BillReconciliation::where('goods_received_id', $grnId)->first();
+        $this->assertNotNull($recon);
+        $this->assertSame('advance', $recon->source_type);
+        $this->assertEquals(100.0, (float) $recon->total_bill_base_qty);
+        $this->assertEquals(100.0, (float) $recon->total_matched_base_qty);
+        $this->assertEquals(0.0, (float) $recon->total_new_receive_base_qty);
+
+        $line = $recon->lines->first();
+        $this->assertSame('matched', $line->difference_status);
+
+        // ZERO new stock batches created
+        $this->assertSame($batchCountBefore, StockBatch::count());
+    }
+
+    public function test_phase2_history_api_returns_detailed_reconciliation_and_source_details(): void
+    {
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 60.0);
+
+        $shop = Shop::factory()->create();
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        $res = $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [
+                ['purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'received_qty' => 100.0, 'received_unit' => 'KG'],
+            ],
+            'advance_matches' => [
+                ['advance_goods_received_id' => $advanceGrn->id, 'advance_goods_received_item_id' => $advanceItem->id, 'purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'matched_qty' => 60.0, 'unit' => 'KG'],
+            ],
+        ]);
+        $grnId = $res->json('data.id');
+
+        $showRes = $this->getJson("/api/v1/purchasing/grns/{$grnId}");
+        $showRes->assertOk()
+            ->assertJsonPath('data.source', 'MIXED')
+            ->assertJsonPath('data.bill_reconciliation.source_type', 'mixed')
+            ->assertJsonPath('data.bill_reconciliation.total_bill_base_qty', 100)
+            ->assertJsonPath('data.bill_reconciliation.total_matched_base_qty', 60)
+            ->assertJsonPath('data.bill_reconciliation.total_new_receive_base_qty', 40)
+            ->assertJsonPath('data.bill_reconciliation.lines.0.product_id', $this->tomato->id)
+            ->assertJsonPath('data.bill_reconciliation.lines.0.advance_matched_qty', 60)
+            ->assertJsonPath('data.bill_reconciliation.lines.0.new_receive_qty', 40);
+    }
+
+    public function test_phase2b_scenario10_loadout_records_are_strictly_immutable_during_reconciliation(): void
+    {
+        $this->tomato->update(['default_warehouse_id' => $this->warehouse->id]);
+        $shop = Shop::factory()->create();
+        $date = '2026-08-28';
+
+        // Create canonical loadout records
+        $shopOrder = ShopOrder::factory()->create([
+            'shop_id' => $shop->id,
+            'business_date' => $date,
+            'state' => 'submitted',
+        ]);
+        $orderItem = ShopOrderItem::create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $this->tomato->id,
+            'unit' => 'KG',
+            'requested_qty' => 120.0,
+            'loaded_qty' => 120.0,
+            'actual_weight' => 120.0,
+            'sorting_status' => 'loaded',
+            'unit_price' => 10.0,
+        ]);
+
+        $movementCountBefore = StockMovement::count();
+
+        // Execute bill reconciliation
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => $date,
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        $res = $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => $date,
+            'items' => [
+                ['purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'received_qty' => 100.0, 'received_unit' => 'KG'],
+            ],
+            'advance_matches' => [],
+        ])->assertCreated();
+
+        $grnId = $res->json('data.id');
+        $recon = BillReconciliation::where('goods_received_id', $grnId)->first();
+        $line = $recon->lines->first();
+
+        // Context snapshot preserved
+        $this->assertEquals(120.0, (float) $line->relevant_loadout_qty);
+        $this->assertEquals(20.0, (float) $line->unbilled_loadout_qty);
+
+        // Loadout entities NOT mutated
+        $this->assertSame('loaded', $orderItem->fresh()->sorting_status);
+        $this->assertEquals(120.0, (float) $orderItem->fresh()->loaded_qty);
+        $this->assertEquals(120.0, (float) $orderItem->fresh()->actual_weight);
+        $this->assertSame('submitted', $shopOrder->fresh()->state);
+        $this->assertSame($movementCountBefore, StockMovement::count());
+    }
+
+    public function test_phase2b_scenario11_unit_safety_and_conversion_drift_prevention(): void
+    {
+        // 1. Box with 10 KG conversion
+        $this->tomato->update(['unit' => 'KG']);
+
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 50.0);
+
+        $shop = Shop::factory()->create();
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        $res = $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [
+                ['purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'received_qty' => 100.0, 'received_unit' => 'KG'],
+            ],
+            'advance_matches' => [
+                ['advance_goods_received_id' => $advanceGrn->id, 'advance_goods_received_item_id' => $advanceItem->id, 'purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'matched_qty' => 50.0, 'unit' => 'KG'],
+            ],
+        ])->assertCreated();
+
+        $recon = BillReconciliation::where('goods_received_id', $res->json('data.id'))->first();
+        $line = $recon->lines->first();
+
+        $this->assertEquals(100.0, (float) $line->bill_base_qty);
+        $this->assertEquals(50.0, (float) $line->advance_matched_base_qty);
+        $this->assertEquals(50.0, (float) $line->new_receive_base_qty);
+    }
+
+    public function test_phase2b_scenario12_receipt_state_transitions_to_received_and_leaves_match_candidates(): void
+    {
+        $shop = Shop::factory()->create();
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        // Before receipt: Resolver returns Pending
+        $resolver = app(WarehouseReceiptStateResolver::class);
+        $orderState = $resolver->forOrder($order);
+        $this->assertSame('pending', $orderState['receipt_status']);
+
+        // Candidates list includes it
+        $candResBefore = $this->getJson("/api/v1/purchasing/grns/advance-match-candidates?warehouse_id={$this->warehouse->id}&date=2026-08-28");
+        $candResBefore->assertOk();
+        $this->assertTrue(collect($candResBefore->json('data'))->contains('purchase_order_id', $order->id));
+
+        // Reconcile and confirm
+        $res = $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [
+                ['purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'received_qty' => 100.0, 'received_unit' => 'KG'],
+            ],
+            'advance_matches' => [],
+        ])->assertCreated();
+
+        $grn = GoodsReceived::find($res->json('data.id'));
+
+        // After warehouse receipt confirmation:
+        $this->confirmPhysicalReceipt($grn);
+
+        $orderFreshState = $resolver->forOrder($order->fresh(['goodsReceiveds']));
+        $this->assertSame('received', $orderFreshState['receipt_status']);
+
+        $grnFreshState = $resolver->forReceipt($grn->fresh());
+        $this->assertSame('received', $grnFreshState['receipt_status']);
+
+        // Leaves active Match candidates list
+        $candResAfter = $this->getJson("/api/v1/purchasing/grns/advance-match-candidates?warehouse_id={$this->warehouse->id}&date=2026-08-28");
+        $candResAfter->assertOk();
+        $this->assertFalse(collect($candResAfter->json('data'))->contains('purchase_order_id', $order->id));
+    }
+
+    public function test_phase2b_scenario13_advance_history_tracks_consumption_across_multiple_bills(): void
+    {
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 100.0);
+
+        $shop = Shop::factory()->create();
+
+        // Bill 1 consumes 60
+        $order1 = PurchaseOrder::factory()->create(['status' => 'approved', 'supplier_id' => $this->supplier->id, 'order_date' => '2026-08-28', 'destination_shop_id' => $shop->id]);
+        $poItem1 = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order1->id, 'product_id' => $this->tomato->id, 'quantity' => 60.0]);
+
+        $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order1->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [['purchase_order_item_id' => $poItem1->id, 'product_id' => $this->tomato->id, 'received_qty' => 60.0, 'received_unit' => 'KG']],
+            'advance_matches' => [
+                ['advance_goods_received_id' => $advanceGrn->id, 'advance_goods_received_item_id' => $advanceItem->id, 'purchase_order_item_id' => $poItem1->id, 'product_id' => $this->tomato->id, 'matched_qty' => 60.0, 'unit' => 'KG'],
+            ],
+        ])->assertCreated();
+
+        // Remaining 40 available
+        $cand1 = $this->reconcileService->getOpenAdvanceCandidatesForProduct($this->tomato->id, $this->warehouse->id);
+        $this->assertCount(1, $cand1);
+        $this->assertEquals(40.0, $cand1[0]['available_qty']);
+
+        // Bill 2 consumes 40
+        $order2 = PurchaseOrder::factory()->create(['status' => 'approved', 'supplier_id' => $this->supplier->id, 'order_date' => '2026-08-28', 'destination_shop_id' => $shop->id]);
+        $poItem2 = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order2->id, 'product_id' => $this->tomato->id, 'quantity' => 40.0]);
+
+        $this->postJson('/api/v1/purchasing/grns', [
+            'purchase_order_id' => $order2->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [['purchase_order_item_id' => $poItem2->id, 'product_id' => $this->tomato->id, 'received_qty' => 40.0, 'received_unit' => 'KG']],
+            'advance_matches' => [
+                ['advance_goods_received_id' => $advanceGrn->id, 'advance_goods_received_item_id' => $advanceItem->id, 'purchase_order_item_id' => $poItem2->id, 'product_id' => $this->tomato->id, 'matched_qty' => 40.0, 'unit' => 'KG'],
+            ],
+        ])->assertCreated();
+
+        // Remaining = 0 (Cleared)
+        $cand2 = $this->reconcileService->getOpenAdvanceCandidatesForProduct($this->tomato->id, $this->warehouse->id);
+        $this->assertCount(0, $cand2);
+
+        // Advance history links both bills
+        $matches = AdvanceReceiveMatch::where('advance_goods_received_id', $advanceGrn->id)->get();
+        $this->assertCount(2, $matches);
+        $this->assertEquals(60.0, (float) $matches[0]->base_qty);
+        $this->assertEquals(40.0, (float) $matches[1]->base_qty);
+    }
+
+    public function test_phase2b_scenario14_legacy_matches_with_null_reconciliation_ids_handle_safely(): void
+    {
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 50.0);
+        $billGrn = GoodsReceived::factory()->create(['status' => 'approved', 'warehouse_id' => $this->warehouse->id]);
+        $billItem = GoodsReceivedItem::factory()->create(['goods_received_id' => $billGrn->id, 'product_id' => $this->tomato->id, 'received_qty' => 50.0]);
+
+        // Legacy match row without bill_reconciliation_id
+        $legacyMatch = AdvanceReceiveMatch::create([
+            'advance_goods_received_id' => $advanceGrn->id,
+            'advance_goods_received_item_id' => $advanceItem->id,
+            'bill_goods_received_id' => $billGrn->id,
+            'bill_goods_received_item_id' => $billItem->id,
+            'product_id' => $this->tomato->id,
+            'matched_qty' => 50.0,
+            'unit' => 'KG',
+            'base_qty' => 50.0,
+            'confirmed_by' => $this->receiver->id,
+            'confirmed_at' => now(),
+            'bill_reconciliation_id' => null,
+            'bill_reconciliation_line_id' => null,
+        ]);
+
+        $this->assertNotNull($legacyMatch);
+        $this->assertNull($legacyMatch->billReconciliation);
+
+        // Show endpoint doesn't fail on null bill reconciliation
+        $res = $this->getJson("/api/v1/purchasing/grns/{$billGrn->id}");
+        $res->assertOk();
+    }
+
+    public function test_phase2b_controlled_realistic_end_to_end_flow(): void
+    {
+        // Initial Stock before Advance = 0
+        $initialStock = $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id);
+        $this->assertSame(0.0, $initialStock);
+
+        // 1. Advance Receive Tomato 93 KG
+        [$advGrn, $advItem] = $this->createConfirmedAdvance($this->tomato, 93.0);
+
+        // 2 & 3. Stock after Advance = +93 KG
+        $stockAfterAdvance = $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id);
+        $this->assertSame(93.0, $stockAfterAdvance);
+
+        // 4. Purchaser Bill Tomato 100 KG
+        $shop = Shop::factory()->create();
+        $order = PurchaseOrder::factory()->create([
+            'status' => 'approved',
+            'supplier_id' => $this->supplier->id,
+            'order_date' => '2026-08-28',
+            'destination_shop_id' => $shop->id,
+        ]);
+        $poItem = PurchaseOrderItem::factory()->create([
+            'purchase_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit_price' => 10.0,
+        ]);
+
+        // 5 & 6. Verify Match suggestions show 93% coverage
+        $suggestionsRes = $this->getJson("/api/v1/purchasing/grns/advance-match-suggestions?purchase_order_id={$order->id}");
+        $suggestionsRes->assertOk()
+            ->assertJsonPath('data.total_bill_base_qty', 100)
+            ->assertJsonPath('data.total_matched_base_qty', 93)
+            ->assertJsonPath('data.overall_coverage_percentage', 93);
+
+        // 7 & 8. Confirm Reconciliation with client_submission_id
+        $submissionId = 'ctrl-flow-sub-001';
+        $payload = [
+            'client_submission_id' => $submissionId,
+            'purchase_order_id' => $order->id,
+            'warehouse_id' => $this->warehouse->id,
+            'received_at' => '2026-08-28',
+            'items' => [
+                ['purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'received_qty' => 100.0, 'received_unit' => 'KG'],
+            ],
+            'advance_matches' => [
+                ['advance_goods_received_id' => $advGrn->id, 'advance_goods_received_item_id' => $advItem->id, 'purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'matched_qty' => 93.0, 'unit' => 'KG'],
+            ],
+        ];
+
+        $reconcileRes = $this->postJson('/api/v1/purchasing/grns', $payload)->assertCreated();
+        $billGrnId = $reconcileRes->json('data.id');
+        $billGrn = GoodsReceived::find($billGrnId);
+
+        // Confirm physical receipt for the new difference
+        $this->confirmPhysicalReceipt($billGrn);
+
+        // 9 & 10. Verify stock after reconciliation: +7 additional (Total physical = 100 KG)
+        $stockAfterRecon = $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id);
+        $this->assertSame(100.0, $stockAfterRecon);
+
+        // 11. Advance remaining = 0
+        $cand = $this->reconcileService->getOpenAdvanceCandidatesForProduct($this->tomato->id, $this->warehouse->id);
+        $this->assertCount(0, $cand);
+
+        // 12. Bill leaves Match
+        $candRes = $this->getJson("/api/v1/purchasing/grns/advance-match-candidates?warehouse_id={$this->warehouse->id}&date=2026-08-28");
+        $candRes->assertOk();
+        $this->assertFalse(collect($candRes->json('data'))->contains('purchase_order_id', $order->id));
+
+        // 13 & 14. History = MIXED with ADV 93 + NEW 7
+        $showRes = $this->getJson("/api/v1/purchasing/grns/{$billGrnId}");
+        $showRes->assertOk()
+            ->assertJsonPath('data.source', 'MIXED')
+            ->assertJsonPath('data.bill_reconciliation.source_type', 'mixed')
+            ->assertJsonPath('data.bill_reconciliation.total_bill_base_qty', 100)
+            ->assertJsonPath('data.bill_reconciliation.total_matched_base_qty', 93)
+            ->assertJsonPath('data.bill_reconciliation.total_new_receive_base_qty', 7);
+
+        // 15 & 16. Retry same submission -> 0 additional stock, 0 new rows
+        $reconCountBefore = BillReconciliation::count();
+        $batchCountBefore = StockBatch::count();
+        $matchCountBefore = AdvanceReceiveMatch::count();
+
+        $retryRes = $this->postJson('/api/v1/purchasing/grns', $payload);
+        $retryRes->assertSuccessful();
+
+        $this->assertSame($billGrnId, $retryRes->json('data.id'));
+        $this->assertSame(100.0, $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id));
+        $this->assertSame($reconCountBefore, BillReconciliation::count());
+        $this->assertSame($batchCountBefore, StockBatch::count());
+        $this->assertSame($matchCountBefore, AdvanceReceiveMatch::count());
     }
 }
