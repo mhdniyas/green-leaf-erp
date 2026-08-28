@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Models\BillReconciliation;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\StockBatch;
@@ -28,6 +29,12 @@ class WarehouseReceiptStateResolver
         });
     }
 
+    public function reconciliations(): Builder
+    {
+        return BillReconciliation::query()->whereColumn('bill_reconciliations.goods_received_id', 'goods_received.id')
+            ->where('bill_reconciliations.status', 'confirmed');
+    }
+
     public function withFacts(Builder|Relation $query): Builder
     {
         $query = $query instanceof Relation ? $query->getQuery() : $query;
@@ -38,6 +45,10 @@ class WarehouseReceiptStateResolver
             'receipt_confirmed_at' => $this->batches()->selectRaw('MAX(warehouse_confirmed_at)'),
             'receipt_confirmed_by' => $this->batches()->whereNotNull('warehouse_confirmed_at')
                 ->orderByDesc('warehouse_confirmed_at')->orderByDesc('id')->limit(1)->select('warehouse_confirmed_by'),
+            'reconciliation_count' => $this->reconciliations()->selectRaw('COUNT(*)'),
+            'reconciliation_new_receive_qty' => $this->reconciliations()->selectRaw('COALESCE(MAX(total_new_receive_base_qty), 0)'),
+            'reconciliation_confirmed_at' => $this->reconciliations()->selectRaw('MAX(confirmed_at)'),
+            'reconciliation_confirmed_by' => $this->reconciliations()->orderByDesc('confirmed_at')->orderByDesc('id')->limit(1)->select('confirmed_by'),
         ]);
     }
 
@@ -45,14 +56,36 @@ class WarehouseReceiptStateResolver
     {
         if ($state === 'received') {
             return $query->where('goods_received.status', 'approved')
-                ->whereExists($this->batches()->selectRaw('1')->toBase())
-                ->whereNotExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+                ->where(function (Builder $received): void {
+                    $received->where(function (Builder $withBatches): void {
+                        $withBatches->whereExists($this->batches()->selectRaw('1')->toBase())
+                            ->whereNotExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+                    })->orWhere(function (Builder $reconciledAdvance): void {
+                        $reconciledAdvance->whereExists(
+                            $this->reconciliations()->where('total_new_receive_base_qty', '<=', 0.0001)->selectRaw('1')->toBase()
+                        );
+                    });
+                });
         }
 
         return $query->where(function (Builder $pending): void {
             $pending->where('goods_received.status', '!=', 'approved')
-                ->orWhereNotExists($this->batches()->selectRaw('1')->toBase())
-                ->orWhereExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+                ->orWhere(function (Builder $incomplete): void {
+                    $incomplete->whereNotExists(
+                        $this->reconciliations()->where('total_new_receive_base_qty', '<=', 0.0001)->selectRaw('1')->toBase()
+                    )->where(function (Builder $batchCheck): void {
+                        $batchCheck->whereNotExists($this->batches()->selectRaw('1')->toBase())
+                            ->orWhereExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+                    });
+                })
+                ->orWhere(function (Builder $incompleteReconciled): void {
+                    $incompleteReconciled->whereExists(
+                        $this->reconciliations()->where('total_new_receive_base_qty', '>', 0.0001)->selectRaw('1')->toBase()
+                    )->where(function (Builder $batchCheck): void {
+                        $batchCheck->whereNotExists($this->batches()->selectRaw('1')->toBase())
+                            ->orWhereExists($this->batches()->where('warehouse_receive_pending', true)->selectRaw('1')->toBase());
+                    });
+                });
         });
     }
 
@@ -63,18 +96,30 @@ class WarehouseReceiptStateResolver
             $receipt = $this->withFacts(GoodsReceived::query()->select('goods_received.*')->whereKey($receipt->id))->firstOrFail();
         }
 
-        $received = $receipt->status === 'approved'
-            && (int) $receipt->receipt_batch_count > 0
-            && (int) $receipt->receipt_pending_batch_count === 0;
+        $isReconciledAdvance = (int) ($receipt->reconciliation_count ?? 0) > 0
+            && (float) ($receipt->reconciliation_new_receive_qty ?? 0.0) <= 0.0001;
+
+        $received = $receipt->status === 'approved' && (
+            ((int) $receipt->receipt_batch_count > 0 && (int) $receipt->receipt_pending_batch_count === 0)
+            || $isReconciledAdvance
+        );
+
         $billPending = $receipt->bill_status === 'bill_pending'
             || (array_key_exists('purchase_invoices_count', $receipt->getAttributes())
                 ? (int) $receipt->purchase_invoices_count === 0
                 : ! $receipt->purchaseInvoices()->exists());
 
+        $confirmedAt = $received
+            ? ($receipt->receipt_confirmed_at ?: $receipt->reconciliation_confirmed_at)
+            : null;
+        $confirmedBy = $received
+            ? ($receipt->receipt_confirmed_by !== null ? (int) $receipt->receipt_confirmed_by : ($receipt->reconciliation_confirmed_by !== null ? (int) $receipt->reconciliation_confirmed_by : null))
+            : null;
+
         return [
             ...$this->stateFields($received),
-            'warehouse_confirmed_at' => $received ? $receipt->receipt_confirmed_at : null,
-            'warehouse_confirmed_by' => $received && $receipt->receipt_confirmed_by !== null ? (int) $receipt->receipt_confirmed_by : null,
+            'warehouse_confirmed_at' => $confirmedAt,
+            'warehouse_confirmed_by' => $confirmedBy,
             'bill_status' => $billPending ? 'bill_pending' : 'bill_available',
             'bill_status_label' => $billPending ? 'BILL PENDING' : 'BILL AVAILABLE',
             'is_bill_pending' => $billPending,
@@ -102,7 +147,7 @@ class WarehouseReceiptStateResolver
 
     public function receiveUrl(GoodsReceived $receipt): string
     {
-        if ($receipt->status === 'pending_approval' || (int) $receipt->receipt_batch_count === 0) {
+        if ($receipt->status === 'pending_approval' || ((int) $receipt->receipt_batch_count === 0 && (int) ($receipt->reconciliation_count ?? 0) === 0)) {
             return route('warehouse.receiver.receive-grn', $receipt->getRouteKey());
         }
 

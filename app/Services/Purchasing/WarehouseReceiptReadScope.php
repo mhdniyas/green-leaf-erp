@@ -50,6 +50,13 @@ class WarehouseReceiptReadScope
             $scope->where(function (Builder $withBatches) use ($foreignBatches): void {
                 $withBatches->whereExists($this->receiptState->batches()->selectRaw('1')->toBase())
                     ->whereNotExists($foreignBatches->selectRaw('1')->toBase());
+            })->orWhere(function (Builder $reconciledAdvance) use ($ids): void {
+                $reconciledAdvance->whereExists(
+                    $this->receiptState->reconciliations()
+                        ->whereIn('bill_reconciliations.warehouse_id', $ids)
+                        ->where('total_new_receive_base_qty', '<=', 0.0001)
+                        ->selectRaw('1')->toBase()
+                );
             })->orWhere(function (Builder $withoutBatches) use ($ids): void {
                 $withoutBatches->whereNotExists($this->receiptState->batches()->selectRaw('1')->toBase())
                     ->where(function (Builder $ownership) use ($ids): void {
