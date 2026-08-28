@@ -53,11 +53,13 @@ class WarehouseReceiptReadScope
             })->orWhere(function (Builder $withoutBatches) use ($ids): void {
                 $withoutBatches->whereNotExists($this->receiptState->batches()->selectRaw('1')->toBase())
                     ->where(function (Builder $ownership) use ($ids): void {
-                        $ownership->whereIn('goods_received.warehouse_id', $ids)
-                            ->orWhere(function (Builder $unassigned) use ($ids): void {
-                                $unassigned->whereNull('goods_received.warehouse_id');
-                                $this->productItems($unassigned, $ids);
-                            });
+                        $ownership->where(function (Builder $explicit) use ($ids): void {
+                            $explicit->whereNotNull('goods_received.warehouse_id')
+                                ->whereIn('goods_received.warehouse_id', $ids);
+                        })->orWhere(function (Builder $unassigned) use ($ids): void {
+                            $unassigned->whereNull('goods_received.warehouse_id');
+                            $this->productItems($unassigned, $ids);
+                        });
                     });
             });
         });
@@ -69,11 +71,14 @@ class WarehouseReceiptReadScope
         if ($ids === null) {
             return $query;
         }
+        if ($ids === []) {
+            return $query->whereRaw('1 = 0');
+        }
 
         return $query->where(function (Builder $scope) use ($ids): void {
             $scope->where(function (Builder $withReceipts) use ($ids): void {
-                $withReceipts->whereHas('goodsReceiveds')
-                    ->whereDoesntHave('goodsReceiveds', fn (Builder $receipt) => $receipt->whereNot(fn (Builder $allowed) => $this->receipts($allowed, $ids)));
+                $withReceipts->whereHas('goodsReceiveds', fn (Builder $receipt) => $this->receipts($receipt, $ids))
+                    ->whereDoesntHave('goodsReceiveds', fn (Builder $foreignReceipt) => $foreignReceipt->whereNot(fn (Builder $allowed) => $this->receipts($allowed, $ids)));
             })->orWhere(function (Builder $withoutReceipts) use ($ids): void {
                 $withoutReceipts->whereDoesntHave('goodsReceiveds');
                 $this->productItems($withoutReceipts, $ids);
@@ -84,6 +89,20 @@ class WarehouseReceiptReadScope
     /** @param array<int, int> $ids */
     public function productItems(Builder $query, array $ids): Builder
     {
+        $model = $query->getModel();
+        if ($model instanceof GoodsReceived) {
+            return $query->where(function (Builder $receiptQuery) use ($ids): void {
+                $receiptQuery->where(function (Builder $withGrnItems) use ($ids): void {
+                    $withGrnItems->whereHas('items')
+                        ->whereDoesntHave('items', fn (Builder $item) => $item->whereDoesntHave('product', fn (Builder $product) => $product->whereIn('default_warehouse_id', $ids)));
+                })->orWhere(function (Builder $withPoItems) use ($ids): void {
+                    $withPoItems->whereDoesntHave('items')
+                        ->whereHas('purchaseOrder.items')
+                        ->whereDoesntHave('purchaseOrder.items', fn (Builder $item) => $item->whereDoesntHave('product', fn (Builder $product) => $product->whereIn('default_warehouse_id', $ids)));
+                });
+            });
+        }
+
         return $query->whereHas('items')
             ->whereDoesntHave('items', fn (Builder $item) => $item->whereDoesntHave('product', fn (Builder $product) => $product->whereIn('default_warehouse_id', $ids)));
     }
@@ -94,10 +113,17 @@ class WarehouseReceiptReadScope
         if ($ids === null) {
             return $query;
         }
+        if ($ids === []) {
+            return $query->whereRaw('1 = 0');
+        }
 
         return $query->where(function (Builder $scope) use ($ids): void {
-            $scope->whereIn('warehouse_id', $ids)->orWhere(function (Builder $unassigned) use ($ids): void {
-                $unassigned->whereNull('warehouse_id')->whereHas('product', fn (Builder $product) => $product->whereIn('default_warehouse_id', $ids));
+            $scope->where(function (Builder $explicit) use ($ids): void {
+                $explicit->whereNotNull('warehouse_id')
+                    ->whereIn('warehouse_id', $ids);
+            })->orWhere(function (Builder $unassigned) use ($ids): void {
+                $unassigned->whereNull('warehouse_id')
+                    ->whereHas('product', fn (Builder $product) => $product->whereIn('default_warehouse_id', $ids));
             });
         });
     }
