@@ -550,4 +550,28 @@ class AdvanceReceiveReconciliationTest extends TestCase
             ],
         ])->assertStatus(422);
     }
+
+    public function test_advance_match_candidates_endpoint_returns_matching_orders_with_coverage_summary(): void
+    {
+        [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 60.0);
+        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        $poItem = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
+
+        $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
+        $response->assertOk()
+            ->assertJsonPath('data.0.id', $order->id)
+            ->assertJsonPath('data.0.po_number', $order->po_number)
+            ->assertJsonPath('data.0.overall_coverage_percentage', 60)
+            ->assertJsonPath('data.0.has_advance_match', true);
+    }
+
+    public function test_advance_match_candidates_empty_when_no_advance_stock_available(): void
+    {
+        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
+
+        $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
+        $response->assertOk()
+            ->assertJsonPath('data', []);
+    }
 }

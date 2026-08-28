@@ -19,6 +19,7 @@ use App\Repositories\Inventory\StockBatchRepository;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use App\Services\Pricing\PriceBoardService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -511,6 +512,82 @@ class AdvanceReceiveReconciliationService
                 'advanceMatchesAsBill.advanceStockBatch',
             ]);
         });
+    }
+
+    /**
+     * Paginated list of pending purchase orders that have confirmed Advance matches available.
+     * Bounded query with zero N+1 overhead.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateMatchCandidates(array $filters = [], int $perPage = 25): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        $warehouseId = isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null ? (int) $filters['warehouse_id'] : null;
+
+        // 1. Identify product IDs that currently have confirmed open/partial Advance receipts
+        $advanceProductIds = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', fn (Builder $q) => $q->whereNull('purchase_order_id')
+                ->where('status', 'approved')
+                ->whereHas('stockBatches', fn (Builder $b) => $b->where('warehouse_receive_pending', false)->where('status', '!=', BatchStatus::Closed->value))
+                ->when($warehouseId !== null, fn (Builder $wq) => $wq->where(fn ($w) => $w->where('warehouse_id', $warehouseId)->orWhere('destination_shop_id', $warehouseId))))
+            ->distinct()
+            ->pluck('product_id')
+            ->all();
+
+        if (empty($advanceProductIds)) {
+            return new LengthAwarePaginator([], 0, $perPage, 1);
+        }
+
+        // 2. Query pending Purchase Orders containing those products
+        $query = PurchaseOrder::query()
+            ->select(['id', 'supplier_id', 'destination_shop_id', 'po_number', 'status', 'order_date', 'created_by', 'created_at', 'updated_at'])
+            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->where(function (Builder $pending): void {
+                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                    ->orWhere(function ($withoutReceipt): void {
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                    });
+            })
+            ->whereHas('items', fn (Builder $itemQuery) => $itemQuery->whereIn('product_id', $advanceProductIds))
+            ->with([
+                'supplier:id,name',
+                'destinationShop:id,name',
+                'items.product.orderUnits',
+                'goodsReceiveds' => fn ($receipts) => app(WarehouseReceiptStateResolver::class)->withFacts($receipts->select('goods_received.*'))->withCount('purchaseInvoices'),
+            ])
+            ->withCount('items')
+            ->orderByDesc('order_date')
+            ->orderByDesc('id');
+
+        app(WarehouseReceiptReadScope::class)->orders($query, $filters['authorized_warehouse_ids'] ?? ($warehouseId ? [$warehouseId] : null));
+
+        $paginator = $query->paginate($perPage);
+
+        // 3. Attach compact suggestions for each order on current page (max 25)
+        $paginator->getCollection()->transform(function (PurchaseOrder $order) use ($warehouseId): array {
+            $suggestions = $this->getSuggestionsForOrder($order, $warehouseId);
+            $receiptState = app(WarehouseReceiptStateResolver::class)->forOrder($order);
+
+            return [
+                ...$receiptState,
+                'id' => $order->id,
+                'purchase_order_id' => $order->id,
+                'po_number' => $order->po_number,
+                'order_date' => $order->order_date?->toDateString(),
+                'supplier_id' => $order->supplier_id,
+                'supplier_name' => $order->supplier?->name ?? 'Supplier',
+                'destination_shop_name' => $order->destinationShop?->name ?? 'Central Warehouse',
+                'item_count' => (int) ($order->items_count ?? $order->items->count()),
+                'total_bill_base_qty' => $suggestions['total_bill_base_qty'],
+                'total_matched_base_qty' => $suggestions['total_matched_base_qty'],
+                'overall_coverage_percentage' => $suggestions['overall_coverage_percentage'],
+                'is_overall_percentage_meaningful' => $suggestions['is_overall_percentage_meaningful'],
+                'has_advance_match' => $suggestions['overall_coverage_percentage'] > 0 || collect($suggestions['items'])->contains('has_advance_available', true),
+                'match_summary_items' => $suggestions['items'],
+            ];
+        });
+
+        return $paginator;
     }
 
     private function calculateWeightedAvgPrice(int $productId, string $date, GoodsReceivedItem $currentItem): float

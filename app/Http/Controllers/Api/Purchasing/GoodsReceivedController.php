@@ -123,6 +123,26 @@ class GoodsReceivedController extends Controller
         );
     }
 
+    public function advanceMatchCandidates(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $validated['authorized_warehouse_ids'] = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null
+        );
+
+        $perPage = (int) ($validated['per_page'] ?? 25);
+        $candidates = app(AdvanceReceiveReconciliationService::class)->paginateMatchCandidates($validated, $perPage);
+
+        return ApiResponse::paginated($candidates);
+    }
+
     public function pendingSuggestions(Request $request): JsonResponse
     {
         $this->authorizeAdminOrPurchaser($request);
