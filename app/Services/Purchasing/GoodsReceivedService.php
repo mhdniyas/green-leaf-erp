@@ -54,6 +54,26 @@ class GoodsReceivedService
             ->withCount(['items', 'purchaseInvoices'])
             ->withSum('items', 'received_qty');
 
+        if (! empty($filters['receipt_type'])) {
+            if ($filters['receipt_type'] === 'warehouse_advance') {
+                $query->where(function ($q): void {
+                    $q->warehouseAdvance()
+                        ->orWhere(function ($legacy): void {
+                            $legacy->whereNull('receipt_type')
+                                ->whereNull('purchase_order_id');
+                        });
+                });
+            } elseif ($filters['receipt_type'] === 'normal_purchase') {
+                $query->where(function ($q): void {
+                    $q->normalPurchase()
+                        ->orWhere(function ($legacy): void {
+                            $legacy->whereNull('receipt_type')
+                                ->whereNotNull('purchase_order_id');
+                        });
+                });
+            }
+        }
+
         if (! empty($filters['bill_status'])) {
             $status = (string) $filters['bill_status'];
             if ($status === 'bill_pending') {

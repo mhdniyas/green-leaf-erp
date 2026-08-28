@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Database\Factories\GoodsReceivedFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -48,6 +49,7 @@ class GoodsReceived extends Model
         'notes',
         'is_extra',
         'purchase_grade',
+        'receipt_type',
         'client_submission_id',
         'submission_payload_hash',
     ];
@@ -193,9 +195,29 @@ class GoodsReceived extends Model
         return $this->bill_status === 'bill_pending' || ! $this->purchaseInvoices()->exists();
     }
 
+    public function scopeWarehouseAdvance(Builder $query): Builder
+    {
+        return $query->where('goods_received.receipt_type', 'warehouse_advance');
+    }
+
+    public function scopeNormalPurchase(Builder $query): Builder
+    {
+        return $query->where('goods_received.receipt_type', 'normal_purchase');
+    }
+
+    public function isWarehouseAdvance(): bool
+    {
+        return $this->receipt_type === 'warehouse_advance';
+    }
+
+    public function isNormalPurchase(): bool
+    {
+        return $this->receipt_type === 'normal_purchase';
+    }
+
     public function sourceLabel(): string
     {
-        if ($this->purchase_order_id === null) {
+        if ($this->isWarehouseAdvance() || $this->purchase_order_id === null) {
             return 'ADVANCE';
         }
 

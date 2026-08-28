@@ -25,6 +25,7 @@ final readonly class GoodsReceivedData
         public ?int $warehouseId = null,
         public ?string $clientSubmissionId = null,
         public array $advanceMatches = [],
+        public ?string $receiptType = null,
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -78,6 +79,7 @@ final readonly class GoodsReceivedData
             warehouseId: $whId,
             clientSubmissionId: $clientSubId,
             advanceMatches: $advanceMatches,
+            receiptType: $request->filled('receipt_type') ? (string) $request->input('receipt_type') : null,
         );
     }
 

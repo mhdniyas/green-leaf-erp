@@ -33,6 +33,7 @@ class GoodsReceivedController extends Controller
 
         $filters = $request->validate([
             'bill_status' => ['nullable', 'in:bill_pending,bill_available'],
+            'receipt_type' => ['nullable', 'in:warehouse_advance,normal_purchase'],
             'receipt_status' => ['nullable', 'in:pending,received'],
             'date' => ['nullable', 'date'],
             'search' => ['nullable', 'string', 'max:120'],
@@ -240,9 +241,15 @@ class GoodsReceivedController extends Controller
 
         // Open Advance
         $advanceQuery = GoodsReceived::query()
-            ->whereNull('purchase_order_id')
-            ->where('status', 'approved')
-            ->where('bill_status', 'bill_pending');
+            ->where(function (Builder $q): void {
+                $q->warehouseAdvance()
+                    ->orWhere(function (Builder $legacy): void {
+                        $legacy->whereNull('receipt_type')
+                            ->whereNull('purchase_order_id')
+                            ->where('bill_status', 'bill_pending');
+                    });
+            })
+            ->where('status', 'approved');
         app(WarehouseReceiptReadScope::class)->receipts($advanceQuery, $authWarehouseIds);
         $openAdvance = $advanceQuery->count();
 

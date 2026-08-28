@@ -218,7 +218,13 @@ class AdvanceReceiveReconciliationService
     public function getOpenAdvanceCandidatesForProduct(int $productId, ?int $warehouseId = null): array
     {
         $advanceGrns = GoodsReceived::query()
-            ->whereNull('purchase_order_id')
+            ->where(function (Builder $q): void {
+                $q->warehouseAdvance()
+                    ->orWhere(function (Builder $legacy): void {
+                        $legacy->whereNull('receipt_type')
+                            ->whereNull('purchase_order_id');
+                    });
+            })
             ->where('status', 'approved')
             ->whereHas('stockBatches', fn (Builder $q) => $q->where('warehouse_receive_pending', false)->where('status', '!=', BatchStatus::Closed->value))
             ->when($warehouseId !== null, fn (Builder $q) => $q->where(fn ($wq) => $wq->where('warehouse_id', $warehouseId)->orWhere('destination_shop_id', $warehouseId)))
@@ -411,6 +417,7 @@ class AdvanceReceiveReconciliationService
                 'grn_number' => $grnNumber,
                 'status' => 'approved',
                 'bill_status' => 'bill_available',
+                'receipt_type' => 'normal_purchase',
                 'bill_number' => $data->billNumber,
                 'received_by' => $userId,
                 'approved_by' => $userId,

@@ -1494,8 +1494,15 @@ class AdminCashbookReportsController extends Controller
             $bpQuery = GoodsReceived::query()
                 ->with(['purchaseOrder.supplier', 'destinationShop', 'warehouse', 'items.product', 'receivedBy', 'purchaseInvoices'])
                 ->where(function ($q): void {
-                    $q->where('bill_status', 'bill_pending')
-                        ->orWhereDoesntHave('purchaseInvoices');
+                    $q->where(function ($typeQ): void {
+                        $typeQ->where('receipt_type', 'normal_purchase')
+                            ->orWhere(function ($leg): void {
+                                $leg->whereNull('receipt_type')->whereNotNull('purchase_order_id');
+                            });
+                    })->where(function ($billQ): void {
+                        $billQ->where('bill_status', 'bill_pending')
+                            ->orWhereDoesntHave('purchaseInvoices');
+                    });
                 });
 
             if ($request->filled('date')) {
@@ -1525,8 +1532,15 @@ class AdminCashbookReportsController extends Controller
                     $q->whereNull('batch_id')
                         ->orWhereDoesntHave('batch.goodsReceived')
                         ->orWhereHas('batch.goodsReceived', function ($gq): void {
-                            $gq->where('bill_status', 'bill_pending')
-                                ->orWhereDoesntHave('purchaseInvoices');
+                            $gq->where(function ($typeQ): void {
+                                $typeQ->where('receipt_type', 'normal_purchase')
+                                    ->orWhere(function ($leg): void {
+                                        $leg->whereNull('receipt_type')->whereNotNull('purchase_order_id');
+                                    });
+                            })->where(function ($billQ): void {
+                                $billQ->where('bill_status', 'bill_pending')
+                                    ->orWhereDoesntHave('purchaseInvoices');
+                            });
                         });
                 })
                 ->with([

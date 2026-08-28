@@ -63,6 +63,11 @@ class RecordGoodsReceiptAction
                 }
             }
 
+            $receiptType = $data->receiptType;
+            if ($receiptType === null) {
+                $receiptType = $data->purchaseOrderId === null ? 'warehouse_advance' : 'normal_purchase';
+            }
+
             // Generate GRN number
             $grnNumber = $this->grnRepository->generateGrnNumber();
 
@@ -77,6 +82,7 @@ class RecordGoodsReceiptAction
                 'grn_number' => $grnNumber,
                 'status' => 'approved',
                 'bill_status' => $data->billStatus,
+                'receipt_type' => $receiptType,
                 'bill_number' => $data->billNumber,
                 'received_by' => $userId,
                 'approved_by' => $userId,

@@ -3483,6 +3483,7 @@ class PurchaserDashboardController extends Controller
             'purchaser_cart_id' => $cartId,
             'grn_number' => $this->generateGrnNumber($date),
             'status' => 'pending_approval',
+            'receipt_type' => 'normal_purchase',
             'received_by' => $userId,
             'received_at' => $date,
             'notes' => $notes,
