@@ -564,6 +564,7 @@ class PriceBoardService
 
         $batches = StockBatch::query()
             ->where('product_id', $product->id)
+            ->where('warehouse_receive_pending', false)
             ->where('status', '!=', BatchStatus::Closed->value)
             ->whereNull('deleted_at')
             ->with('wastageEntries')

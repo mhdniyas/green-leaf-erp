@@ -36,11 +36,7 @@ class PurchaseOrderService
 
         /** @var array<int, string>|null $statusList */
         $statusList = match (true) {
-            $status === 'pending' => [
-                POStatus::Approved->value,
-                POStatus::SentToSupplier->value,
-                POStatus::PartiallyReceived->value,
-            ],
+            $status === 'pending' => null,
             $status === 'received' => [
                 POStatus::Received->value,
                 POStatus::Closed->value,
@@ -50,15 +46,12 @@ class PurchaseOrderService
             default => null,
         };
 
-        return $this->repository->query()
+        $query = $this->repository->query()
             ->select(['id', 'supplier_id', 'po_number', 'status', 'order_date', 'created_by', 'created_at', 'updated_at'])
-            ->with(['supplier:id,name'])
+            ->with(['supplier:id,name', 'goodsReceiveds' => fn ($receipts) => app(WarehouseReceiptStateResolver::class)->withFacts($receipts->select('goods_received.*'))->withCount('purchaseInvoices')])
             ->withCount('items')
             ->when($statusList !== null, fn ($query) => $query->whereIn('status', $statusList))
             ->when($date, fn ($query) => $query->whereDate('order_date', $date))
-            ->when($warehouseId, function ($query) use ($warehouseId): void {
-                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('default_warehouse_id', $warehouseId));
-            })
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($subQuery) use ($search): void {
                     $subQuery->where('po_number', 'like', "%{$search}%")
@@ -69,8 +62,20 @@ class PurchaseOrderService
                 });
             })
             ->orderByDesc('order_date')
-            ->orderByDesc('id')
-            ->paginate($perPage);
+            ->orderByDesc('id');
+
+        if ($status === 'pending') {
+            $query->whereNotIn('status', ['draft', 'cancelled', 'rejected'])->where(function ($pending): void {
+                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                    ->orWhere(function ($withoutReceipt): void {
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                    });
+            });
+        }
+
+        app(WarehouseReceiptReadScope::class)->orders($query, $filters['authorized_warehouse_ids'] ?? ($warehouseId ? [$warehouseId] : null));
+
+        return $query->paginate($perPage);
     }
 
     public function create(PurchaseOrderData $data, int $userId): PurchaseOrder

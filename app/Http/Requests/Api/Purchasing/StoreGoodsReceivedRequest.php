@@ -39,6 +39,13 @@ class StoreGoodsReceivedRequest extends FormRequest
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.received_qty' => ['required', 'numeric', 'min:0.001'],
             'items.*.received_unit' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'advance_matches' => ['sometimes', 'array'],
+            'advance_matches.*.advance_goods_received_id' => ['required', 'integer', 'exists:goods_received,id'],
+            'advance_matches.*.advance_goods_received_item_id' => ['nullable', 'integer', 'exists:goods_received_items,id'],
+            'advance_matches.*.purchase_order_item_id' => ['nullable', 'integer', 'exists:purchase_order_items,id'],
+            'advance_matches.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'advance_matches.*.matched_qty' => ['required', 'numeric', 'min:0.001'],
+            'advance_matches.*.unit' => ['sometimes', 'nullable', 'string', 'max:20'],
         ];
     }
 }

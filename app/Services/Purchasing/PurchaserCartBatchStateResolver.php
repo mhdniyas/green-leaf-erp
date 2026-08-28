@@ -6,7 +6,6 @@ namespace App\Services\Purchasing;
 
 use App\Models\GoodsReceived;
 use App\Models\PurchaserCart;
-use App\Models\StockBatch;
 use Illuminate\Support\Collection;
 
 class PurchaserCartBatchStateResolver
@@ -74,7 +73,7 @@ class PurchaserCartBatchStateResolver
         $cartIds = $carts->pluck('id')->map(fn ($id): int => (int) $id)->values();
         $goodsReceivedIds = $carts->pluck('goods_received_id')->filter()->map(fn ($id): int => (int) $id)->values();
         $cartNumbers = $carts->pluck('cart_number')->filter()->values();
-        $receipts = GoodsReceived::query()->select(['id', 'purchaser_cart_id', 'grn_number', 'notes', 'received_at'])
+        $receipts = GoodsReceived::query()->select(['id', 'purchaser_cart_id', 'grn_number', 'notes', 'received_at', 'status', 'bill_status'])
             ->where(function ($query) use ($goodsReceivedIds, $cartIds, $cartNumbers): void {
                 $query->whereIn('id', $goodsReceivedIds)->orWhereIn('purchaser_cart_id', $cartIds);
                 if ($cartNumbers->isNotEmpty()) {
@@ -84,12 +83,15 @@ class PurchaserCartBatchStateResolver
                         }
                     });
                 }
-            })->orderByDesc('received_at')->get();
+            })->orderByDesc('received_at');
+        $receipts = app(WarehouseReceiptStateResolver::class)->withFacts($receipts)->withCount('purchaseInvoices')->get();
         $byCartId = $receipts->groupBy('purchaser_cart_id');
         $byId = $receipts->keyBy('id');
         $legacyReceipts = $cartNumbers->mapWithKeys(fn (string $number): array => [$number => $receipts->filter(fn (GoodsReceived $receipt): bool => str_contains((string) $receipt->notes, 'Cart: '.$number))]);
         $receiptsForCart = $carts->mapWithKeys(function (PurchaserCart $cart) use ($byId, $byCartId, $legacyReceipts): array {
-            $forCart = $cart->goods_received_id !== null ? collect([$byId->get($cart->goods_received_id)])->filter() : $byCartId->get($cart->id, collect())->merge($legacyReceipts->get($cart->cart_number, collect()))->unique('id');
+            $forCart = collect([$byId->get($cart->goods_received_id)])->filter()
+                ->merge($byCartId->get($cart->id, collect()))
+                ->merge($legacyReceipts->get($cart->cart_number, collect()))->unique('id');
 
             return [(int) $cart->id => $forCart];
         });
@@ -102,29 +104,13 @@ class PurchaserCartBatchStateResolver
             ]])->all();
         }
 
-        $receiptIds = $receipts->pluck('id')->map(fn ($id): int => (int) $id)->values();
-        $grnNumbers = $receipts->pluck('grn_number')->filter()->values();
-        $batches = StockBatch::query()->where(function ($query) use ($receiptIds, $grnNumbers): void {
-            $query->whereIn('goods_received_id', $receiptIds);
-            if ($grnNumbers->isNotEmpty()) {
-                $query->orWhere(function ($legacy) use ($grnNumbers): void {
-                    $legacy->whereNull('goods_received_id')->where(function ($notes) use ($grnNumbers): void {
-                        foreach ($grnNumbers as $i => $number) {
-                            $notes->{$i === 0 ? 'where' : 'orWhere'}('notes', 'like', '%Auto-created from GRN: '.$number.'%');
-                        }
-                    });
-                });
-            }
-        })->orderByDesc('received_at')->get();
-        $batchesByReceiptId = $batches->filter(fn (StockBatch $batch): bool => $batch->goods_received_id !== null)->groupBy('goods_received_id');
-        $legacyBatches = $grnNumbers->mapWithKeys(fn (string $number): array => [$number => $batches->filter(fn (StockBatch $batch): bool => $batch->goods_received_id === null && str_contains((string) $batch->notes, 'Auto-created from GRN: '.$number))]);
+        return $carts->mapWithKeys(function (PurchaserCart $cart) use ($receiptsForCart): array {
+            $related = $receiptsForCart->get($cart->id, collect());
+            $total = (int) $related->sum('receipt_batch_count');
+            $pending = (int) $related->sum('receipt_pending_batch_count');
+            $confirmed = $related->isNotEmpty() && $related->every(fn (GoodsReceived $receipt): bool => app(WarehouseReceiptStateResolver::class)->forReceipt($receipt)['receipt_status'] === 'received');
 
-        return $carts->mapWithKeys(function (PurchaserCart $cart) use ($receiptsForCart, $batchesByReceiptId, $legacyBatches): array {
-            $related = $receiptsForCart->get($cart->id, collect())->flatMap(fn (GoodsReceived $receipt): Collection => $batchesByReceiptId->get($receipt->id, collect())->merge($legacyBatches->get($receipt->grn_number, collect())))->unique('id')->values();
-            $total = $related->count();
-            $confirmed = $related->where('warehouse_receive_pending', false)->count();
-
-            return [(int) $cart->id => ['warehouse_confirmed' => $total > 0 && $confirmed === $total, 'total_batches' => $total, 'confirmed_batches' => $confirmed]];
+            return [(int) $cart->id => ['warehouse_confirmed' => $confirmed, 'total_batches' => $total, 'confirmed_batches' => $total - $pending]];
         })->all();
     }
 }

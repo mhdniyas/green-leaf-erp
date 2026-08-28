@@ -52,6 +52,7 @@ class DirectPurchaseReceiveTest extends TestCase
             'code' => 'CWH',
             'is_active' => true,
         ]);
+        $this->receiver->warehouses()->attach($this->warehouse);
 
         $category = Category::create([
             'name' => 'Vegetables',

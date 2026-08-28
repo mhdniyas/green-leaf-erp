@@ -60,6 +60,7 @@ class StockMovementRepository extends BaseRepository
                 $query->where('stock_movements.grade', '!=', ProductGrade::Unsorted->value)
                     ->orWhereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('status', BatchStatus::Pending->value));
             })
+            ->whereDoesntHave('batch', fn ($batchQuery) => $batchQuery->where('warehouse_receive_pending', true))
             ->join('products', 'stock_movements.product_id', '=', 'products.id')
             ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
             ->selectRaw(
@@ -97,8 +98,9 @@ class StockMovementRepository extends BaseRepository
             ->toBase()
             ->get();
 
-        // 2. Fetch pending batches (unsorted stock)
+        // 2. Fetch pending batches (unsorted stock) that are warehouse confirmed
         $pendingBatches = StockBatch::where('status', BatchStatus::Pending)
+            ->where('warehouse_receive_pending', false)
             ->when($date, fn ($q) => $q->where('received_at', '<=', $date))
             ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
             ->when($categoryIds !== null, fn ($q) => $q->whereHas('product', fn ($productQuery) => $productQuery->whereIn('category_id', $categoryIds)))
@@ -134,15 +136,21 @@ class StockMovementRepository extends BaseRepository
             ->whereIn('batch_id', $pendingBatches->pluck('id'))
             ->selectRaw('batch_id, SUM(quantity) as quantity')
             ->groupBy('batch_id')
-            ->pluck('quantity', 'batch_id');
+            ->get()
+            ->mapWithKeys(fn ($r): array => [(int) $r->batch_id => (float) $r->quantity]);
 
         $writeOffByBatch = StockMovement::query()
             ->whereIn('batch_id', $pendingBatches->pluck('id'))
-            ->where('grade', ProductGrade::Unsorted->value)
-            ->whereIn('type', [StockMovementType::Wastage->value, StockMovementType::Adjustment->value])
+            ->whereIn('type', [
+                StockMovementType::Out->value,
+                StockMovementType::Sale->value,
+                StockMovementType::Wastage->value,
+                StockMovementType::Adjustment->value,
+            ])
             ->selectRaw('batch_id, SUM(quantity) as quantity')
             ->groupBy('batch_id')
-            ->pluck('quantity', 'batch_id');
+            ->get()
+            ->mapWithKeys(fn ($r): array => [(int) $r->batch_id => (float) $r->quantity]);
 
         $unsortedStock = [];
         $allocatedConsumedByProductDate = $pendingProductDateKeys->mapWithKeys(fn (string $key): array => [$key => 0.0]);

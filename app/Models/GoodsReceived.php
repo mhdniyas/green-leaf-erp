@@ -172,6 +172,16 @@ class GoodsReceived extends Model
         return $this->hasMany(StockBatch::class, 'goods_received_id');
     }
 
+    public function advanceMatchesAsAdvance(): HasMany
+    {
+        return $this->hasMany(AdvanceReceiveMatch::class, 'advance_goods_received_id');
+    }
+
+    public function advanceMatchesAsBill(): HasMany
+    {
+        return $this->hasMany(AdvanceReceiveMatch::class, 'bill_goods_received_id');
+    }
+
     public function isBillPending(): bool
     {
         return $this->bill_status === 'bill_pending' || ! $this->purchaseInvoices()->exists();

@@ -11,6 +11,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
+use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -19,6 +20,7 @@ class RecordGoodsReceiptAction
     public function __construct(
         private readonly GoodsReceivedRepository $grnRepository,
         private readonly ApproveGoodsReceiptAction $approveGoodsReceiptAction,
+        private readonly AdvanceReceiveReconciliationService $advanceReconciliationService,
     ) {}
 
     /**
@@ -27,6 +29,10 @@ class RecordGoodsReceiptAction
      */
     public function execute(GoodsReceivedData $data, int $userId): GoodsReceived
     {
+        if (! empty($data->advanceMatches)) {
+            return $this->advanceReconciliationService->reconcileAndExecute($data, $userId);
+        }
+
         return DB::transaction(function () use ($data, $userId): GoodsReceived {
             $payloadHash = $data->calculatePayloadHash();
 

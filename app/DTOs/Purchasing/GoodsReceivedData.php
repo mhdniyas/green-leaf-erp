@@ -10,6 +10,7 @@ final readonly class GoodsReceivedData
 {
     /**
      * @param  array<int, array{purchase_order_item_id: ?int, product_id: int, received_qty: float, received_unit?: ?string}>  $items
+     * @param  array<int, array{advance_goods_received_id: int, advance_goods_received_item_id?: ?int, purchase_order_item_id?: ?int, product_id: int, matched_qty: float, unit?: ?string}>  $advanceMatches
      */
     public function __construct(
         public ?int $purchaseOrderId,
@@ -23,6 +24,7 @@ final readonly class GoodsReceivedData
         public ?int $destinationShopId = null,
         public ?int $warehouseId = null,
         public ?string $clientSubmissionId = null,
+        public array $advanceMatches = [],
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -37,6 +39,25 @@ final readonly class GoodsReceivedData
                 'received_qty' => (float) ($item['received_qty'] ?? 0.000),
                 'received_unit' => isset($item['received_unit']) && $item['received_unit'] !== null ? (string) $item['received_unit'] : null,
             ];
+        }
+
+        $advanceMatches = [];
+        $reqMatches = $request->input('advance_matches', []);
+        if (is_array($reqMatches)) {
+            foreach ($reqMatches as $match) {
+                if (empty($match['advance_goods_received_id']) || empty($match['product_id']) || empty($match['matched_qty'])) {
+                    continue;
+                }
+
+                $advanceMatches[] = [
+                    'advance_goods_received_id' => (int) $match['advance_goods_received_id'],
+                    'advance_goods_received_item_id' => isset($match['advance_goods_received_item_id']) && $match['advance_goods_received_item_id'] !== null ? (int) $match['advance_goods_received_item_id'] : null,
+                    'purchase_order_item_id' => isset($match['purchase_order_item_id']) && $match['purchase_order_item_id'] !== null ? (int) $match['purchase_order_item_id'] : null,
+                    'product_id' => (int) $match['product_id'],
+                    'matched_qty' => (float) $match['matched_qty'],
+                    'unit' => isset($match['unit']) && $match['unit'] !== null ? (string) $match['unit'] : null,
+                ];
+            }
         }
 
         $poId = $request->filled('purchase_order_id') ? (int) $request->input('purchase_order_id') : null;
@@ -56,6 +77,7 @@ final readonly class GoodsReceivedData
             destinationShopId: $destShopId,
             warehouseId: $whId,
             clientSubmissionId: $clientSubId,
+            advanceMatches: $advanceMatches,
         );
     }
 
@@ -77,6 +99,24 @@ final readonly class GoodsReceivedData
             'received_qty' => number_format((float) ($item['received_qty'] ?? 0), 3, '.', ''),
         ], $canonicalItems);
 
+        $canonicalMatches = $this->advanceMatches;
+        usort($canonicalMatches, function (array $a, array $b): int {
+            $cmp = ($a['advance_goods_received_id'] ?? 0) <=> ($b['advance_goods_received_id'] ?? 0);
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return ($a['product_id'] ?? 0) <=> ($b['product_id'] ?? 0);
+        });
+
+        $normalizedMatches = array_map(fn (array $m): array => [
+            'advance_goods_received_id' => (int) ($m['advance_goods_received_id'] ?? 0),
+            'advance_goods_received_item_id' => isset($m['advance_goods_received_item_id']) && $m['advance_goods_received_item_id'] !== null ? (int) $m['advance_goods_received_item_id'] : null,
+            'purchase_order_item_id' => isset($m['purchase_order_item_id']) && $m['purchase_order_item_id'] !== null ? (int) $m['purchase_order_item_id'] : null,
+            'product_id' => (int) ($m['product_id'] ?? 0),
+            'matched_qty' => number_format((float) ($m['matched_qty'] ?? 0), 3, '.', ''),
+        ], $canonicalMatches);
+
         $payload = [
             'purchase_order_id' => $this->purchaseOrderId,
             'destination_shop_id' => $this->destinationShopId,
@@ -84,6 +124,7 @@ final readonly class GoodsReceivedData
             'bill_status' => $this->billStatus,
             'received_at' => $this->receivedAt,
             'items' => $normalizedItems,
+            'advance_matches' => $normalizedMatches,
         ];
 
         return hash('sha256', (string) json_encode($payload));
@@ -102,6 +143,7 @@ final readonly class GoodsReceivedData
             'bill_status' => $this->billStatus,
             'bill_number' => $this->billNumber,
             'client_submission_id' => $this->clientSubmissionId,
+            'advance_matches' => $this->advanceMatches,
         ];
     }
 }

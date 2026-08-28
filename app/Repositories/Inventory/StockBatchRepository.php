@@ -39,10 +39,16 @@ class StockBatchRepository extends BaseRepository
     {
         $today = now()->format('Ymd');
         $prefix = "BATCH-{$today}-";
-        $count = $this->query()
+        $latest = $this->query()
             ->where('reference', 'like', $prefix.'%')
-            ->count();
+            ->orderByDesc('reference')
+            ->value('reference');
 
-        return $prefix.str_pad((string) ($count + 1), 3, '0', STR_PAD_LEFT);
+        $nextSeq = 1;
+        if ($latest !== null && preg_match('/-(\d+)$/', (string) $latest, $m)) {
+            $nextSeq = (int) $m[1] + 1;
+        }
+
+        return $prefix.str_pad((string) $nextSeq, 3, '0', STR_PAD_LEFT);
     }
 }

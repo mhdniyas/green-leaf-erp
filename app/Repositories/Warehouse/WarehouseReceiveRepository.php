@@ -10,6 +10,8 @@ use App\Models\PurchaserCart;
 use App\Models\ShopOrder;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Services\Purchasing\WarehouseReceiptReadScope;
+use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -18,9 +20,9 @@ class WarehouseReceiveRepository
     /**
      * @return Collection<int, GoodsReceived>
      */
-    public function pendingGrns(string $date, string $source, ?int $categoryId, string $search): Collection
+    public function pendingGrns(string $date, string $source, ?int $categoryId, string $search, ?array $warehouseIds = null): Collection
     {
-        return GoodsReceived::query()
+        $query = GoodsReceived::query()
             ->select([
                 'id',
                 'purchase_order_id',
@@ -30,7 +32,10 @@ class WarehouseReceiveRepository
                 'received_at',
                 'created_at',
             ])
-            ->where('status', 'pending_approval')
+            ->whereIn('status', ['pending_approval', 'approved', 'recheck_required'])
+            ->where(function (Builder $query): void {
+                $query->where('status', '!=', 'approved')->orWhereNotExists(app(WarehouseReceiptStateResolver::class)->batches()->selectRaw('1')->toBase());
+            })
             ->whereDate('received_at', $date)
             ->with([
                 'purchaseOrder:id,supplier_id,purchaser_cart_id,po_number',
@@ -60,16 +65,19 @@ class WarehouseReceiveRepository
                 });
             })
             ->orderBy('created_at', 'asc')
-            ->orderBy('id', 'asc')
-            ->get();
+            ->orderBy('id', 'asc');
+
+        app(WarehouseReceiptStateResolver::class)->filter($query, 'pending');
+
+        return app(WarehouseReceiptReadScope::class)->receipts($query, $warehouseIds)->get();
     }
 
     /**
      * @return Collection<int, StockBatch>
      */
-    public function pendingBatches(string $date, string $source, ?int $categoryId, string $search): Collection
+    public function pendingBatches(string $date, string $source, ?int $categoryId, string $search, ?array $warehouseIds = null): Collection
     {
-        return StockBatch::query()
+        $query = StockBatch::query()
             ->where('warehouse_receive_pending', true)
             ->whereDate('received_at', $date)
             ->with(['product.category'])
@@ -90,8 +98,9 @@ class WarehouseReceiveRepository
                 });
             })
             ->orderBy('created_at', 'asc')
-            ->orderBy('id', 'asc')
-            ->get();
+            ->orderBy('id', 'asc');
+
+        return app(WarehouseReceiptReadScope::class)->batches($query, $warehouseIds)->get();
     }
 
     /**
@@ -128,9 +137,9 @@ class WarehouseReceiveRepository
     /**
      * @return Collection<int, ShopOrder>
      */
-    public function pendingDirectPurchaseOrders(string $date, string $source, ?int $categoryId, string $search): Collection
+    public function pendingDirectPurchaseOrders(string $date, string $source, ?int $categoryId, string $search, ?array $warehouseIds = null): Collection
     {
-        return ShopOrder::query()
+        $query = ShopOrder::query()
             ->whereDate('business_date', $date)
             ->where('order_source', 'admin_direct_purchase')
             ->where('state', 'approved')
@@ -154,7 +163,9 @@ class WarehouseReceiveRepository
                         });
                 });
             })
-            ->get();
+            ->when($warehouseIds !== null, fn (Builder $query) => app(WarehouseReceiptReadScope::class)->productItems($query, $warehouseIds));
+
+        return $query->get();
     }
 
     /**

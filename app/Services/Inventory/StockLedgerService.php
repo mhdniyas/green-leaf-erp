@@ -41,6 +41,7 @@ class StockLedgerService
             ->whereIn('stock_movements.product_id', $productIds)
             ->whereNull('stock_batches.deleted_at')
             ->where('stock_batches.status', BatchStatus::Sorted->value)
+            ->where('stock_batches.warehouse_receive_pending', false)
             ->when($warehouseId !== null, fn ($query) => $query->where('stock_batches.warehouse_id', $warehouseId))
             ->selectRaw(
                 'stock_movements.product_id, '.
@@ -209,6 +210,7 @@ class StockLedgerService
             ->where('stock_movements.product_id', $productId)
             ->whereNull('stock_batches.deleted_at')
             ->where('stock_batches.status', BatchStatus::Sorted->value)
+            ->where('stock_batches.warehouse_receive_pending', false)
             ->when($warehouseId !== null, fn ($query) => $query->where('stock_batches.warehouse_id', $warehouseId))
             ->when($grade !== null, fn ($query) => $query->where('stock_movements.grade', $grade->value))
             ->selectRaw(
@@ -354,8 +356,9 @@ class StockLedgerService
         // those here. This must match the quantity shown on the stock card.
         $writeOffQuantity = (float) StockMovement::query()
             ->where('batch_id', $batch->id)
-            ->where('grade', ProductGrade::Unsorted->value)
             ->whereIn('type', [
+                StockMovementType::Out->value,
+                StockMovementType::Sale->value,
                 StockMovementType::Wastage->value,
                 StockMovementType::Adjustment->value,
             ])

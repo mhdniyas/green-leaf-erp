@@ -16,7 +16,7 @@ final class ReconciliationTransactionActionService
     public function __construct(private readonly CompanyMainAccountService $companyMainAccountService) {}
 
     /**
-     * @param Collection<int, object> $transactions
+     * @param  Collection<int, object>  $transactions
      * @return Collection<int, object>
      */
     public function addAvailableActions(Collection $transactions): Collection

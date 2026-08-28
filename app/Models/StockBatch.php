@@ -114,6 +114,11 @@ class StockBatch extends Model
         return $this->hasMany(WastageEntry::class, 'batch_id');
     }
 
+    public function advanceMatches(): HasMany
+    {
+        return $this->hasMany(AdvanceReceiveMatch::class, 'advance_stock_batch_id');
+    }
+
     // Scopes
     public function scopePending(Builder $query): Builder
     {
@@ -123,6 +128,17 @@ class StockBatch extends Model
     public function scopeSorted(Builder $query): Builder
     {
         return $query->where('status', BatchStatus::Sorted);
+    }
+
+    public function scopeConfirmed(Builder $query): Builder
+    {
+        return $query->where('warehouse_receive_pending', false);
+    }
+
+    public function scopeAvailable(Builder $query): Builder
+    {
+        return $query->where('warehouse_receive_pending', false)
+            ->where('status', '!=', BatchStatus::Closed);
     }
 
     // Computed
@@ -138,6 +154,10 @@ class StockBatch extends Model
      */
     public function getAllocatedQtyAttribute(): float
     {
+        if ($this->warehouse_receive_pending) {
+            return 0.0;
+        }
+
         $date = $this->received_at->format('Y-m-d');
 
         // Find the total allocated quantity of this product for this business date
@@ -153,9 +173,10 @@ class StockBatch extends Model
             return 0.0;
         }
 
-        // Fetch all batches of this product received on this date, ordered by ID (FIFO)
+        // Fetch all confirmed batches of this product received on this date, ordered by ID (FIFO)
         $batches = self::where('product_id', $this->product_id)
             ->whereDate('received_at', $date)
+            ->where('warehouse_receive_pending', false)
             ->orderBy('id', 'asc')
             ->get();
 
@@ -186,6 +207,10 @@ class StockBatch extends Model
      */
     public function getRemainingQtyAttribute(): float
     {
+        if ($this->warehouse_receive_pending) {
+            return 0.0;
+        }
+
         $wasted = (float) $this->wastageEntries()->sum('quantity');
         $allocated = $this->allocated_qty;
 
@@ -194,7 +219,9 @@ class StockBatch extends Model
 
     public function canBeSorted(): bool
     {
-        return $this->grading_mode !== 'fixed_purchase_grade' && $this->status->canBeSorted();
+        return ! $this->warehouse_receive_pending
+            && $this->grading_mode !== 'fixed_purchase_grade'
+            && $this->status->canBeSorted();
     }
 
     public function getRouteKeyName(): string

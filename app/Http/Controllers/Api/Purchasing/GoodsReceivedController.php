@@ -10,8 +10,11 @@ use App\Http\Requests\Api\Purchasing\StoreGoodsReceivedRequest;
 use App\Http\Resources\Purchasing\GoodsReceivedResource;
 use App\Http\Resources\Purchasing\GoodsReceivedSummaryResource;
 use App\Models\GoodsReceived;
+use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
+use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\GoodsReceivedService;
+use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,7 +30,14 @@ class GoodsReceivedController extends Controller
     {
         Gate::authorize('viewAny', GoodsReceived::class);
 
-        $filters = $request->only(['bill_status', 'date', 'search', 'warehouse_id']);
+        $filters = $request->validate([
+            'bill_status' => ['nullable', 'in:bill_pending,bill_available'],
+            'receipt_status' => ['nullable', 'in:pending,received'],
+            'date' => ['nullable', 'date'],
+            'search' => ['nullable', 'string', 'max:120'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+        $filters['authorized_warehouse_ids'] = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null);
         if ($request->filled('warehouse_id')) {
             $warehouse = Warehouse::findOrFail($request->integer('warehouse_id'));
             abort_unless(
@@ -60,9 +70,11 @@ class GoodsReceivedController extends Controller
         );
     }
 
-    public function show(GoodsReceived $grn): JsonResponse
+    public function show(Request $request, GoodsReceived $grn): JsonResponse
     {
         Gate::authorize('view', $grn);
+        $scope = app(WarehouseReceiptReadScope::class);
+        abort_unless($scope->receipts(GoodsReceived::query()->whereKey($grn->id), $scope->warehouseIds($request->user()))->exists(), 403);
 
         return ApiResponse::success(
             new GoodsReceivedResource($grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'updatedBy', 'purchaseInvoices']))
@@ -92,6 +104,22 @@ class GoodsReceivedController extends Controller
         return ApiResponse::success(
             new GoodsReceivedResource($updated),
             'Vendor bill matched and receipt cleared successfully'
+        );
+    }
+
+    public function advanceMatchSuggestions(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $poId = $request->integer('purchase_order_id');
+        $po = PurchaseOrder::findOrFail($poId);
+
+        $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        $suggestions = app(AdvanceReceiveReconciliationService::class)->getSuggestionsForOrder($po, $warehouseId);
+
+        return ApiResponse::success(
+            $suggestions,
+            'Advance match suggestions retrieved successfully'
         );
     }
 

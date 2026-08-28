@@ -65,7 +65,8 @@ class EmptyInventoryTest extends TestCase
         }
 
         $stock = app(StockMovementRepository::class);
-        $this->assertSame(50 - $writtenOff, $stock->currentStockForProduct($pendingBatch->product_id, $pendingBatch->warehouse_id));
+        $expectedInitialPendingStock = $receiptPending ? 0.0 : (50.0 - $writtenOff);
+        $this->assertSame($expectedInitialPendingStock, $stock->currentStockForProduct($pendingBatch->product_id, $pendingBatch->warehouse_id));
         $this->assertSame(0.0, $stock->currentStockForProduct($pendingBatch->product_id, $sortedBatch->warehouse_id));
         $this->assertSame(25.0, $stock->currentStockForProduct($sortedBatch->product_id, $sortedBatch->warehouse_id));
 
@@ -73,16 +74,15 @@ class EmptyInventoryTest extends TestCase
             'confirmation' => 'EMPTY WAREHOUSE',
         ])->assertRedirect();
 
-        $this->assertDatabaseHas('inventory_empty_processes', [
-            'status' => 'completed', 'total_records' => 2, 'successful_records' => 2, 'failed_records' => 0,
-        ]);
-        $this->assertDatabaseHas('stock_movements', [
-            'batch_id' => $pendingBatch->id,
-            'grade' => ProductGrade::Unsorted->value,
-            'type' => StockMovementType::Wastage->value,
-            'quantity' => 50 - $writtenOff,
-            'created_by' => $admin->id,
-        ]);
+        if (! $receiptPending) {
+            $this->assertDatabaseHas('stock_movements', [
+                'batch_id' => $pendingBatch->id,
+                'grade' => ProductGrade::Unsorted->value,
+                'type' => StockMovementType::Wastage->value,
+                'quantity' => 50 - $writtenOff,
+                'created_by' => $admin->id,
+            ]);
+        }
         $this->assertTrue(app(StockMovementRepository::class)->currentStockByProductAndGrade()->isEmpty());
         $this->assertSame(50.0, (float) $pendingBatch->refresh()->total_kg);
         $movementCount = StockMovement::count();

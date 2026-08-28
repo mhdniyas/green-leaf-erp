@@ -23,6 +23,7 @@ use App\Repositories\Warehouse\WarehouseReceiveRepository;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Purchasing\WarehouseReceiptReadScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -91,9 +92,10 @@ class WarehouseReceiverController extends Controller
         $categoryId = isset($validated['receive_category_id']) ? (int) $validated['receive_category_id'] : null;
         $search = trim((string) ($validated['receive_search'] ?? ''));
 
-        $warehouses = Warehouse::active()->orderBy('name')->get(['id', 'name', 'code']);
+        $warehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null);
+        $warehouses = Warehouse::active()->when($warehouseIds !== null, fn ($query) => $query->whereIn('id', $warehouseIds))->orderBy('name')->get(['id', 'name', 'code']);
 
-        $pendingGrns = $this->warehouseReceiveRepository->pendingGrns($date, $source, $categoryId, $search)
+        $pendingGrns = $this->warehouseReceiveRepository->pendingGrns($date, $source, $categoryId, $search, $warehouseIds)
             ->map(fn ($grn) => [
                 'id' => $grn->id,
                 'grn_number' => $grn->grn_number,
@@ -113,7 +115,7 @@ class WarehouseReceiverController extends Controller
                 ]),
             ]);
 
-        $pendingBatches = $this->warehouseReceiveRepository->pendingBatches($date, $source, $categoryId, $search)
+        $pendingBatches = $this->warehouseReceiveRepository->pendingBatches($date, $source, $categoryId, $search, $warehouseIds)
             ->map(fn ($batch) => [
                 'id' => $batch->id,
                 'reference' => $batch->reference,
@@ -132,7 +134,7 @@ class WarehouseReceiverController extends Controller
             ->flatMap(fn ($grn) => $grn->items->pluck('product_id'))
             ->unique()->values();
 
-        $pendingDirectOrders = $this->warehouseReceiveRepository->pendingDirectPurchaseOrders($date, $source, $categoryId, $search)
+        $pendingDirectOrders = $this->warehouseReceiveRepository->pendingDirectPurchaseOrders($date, $source, $categoryId, $search, $warehouseIds)
             ->filter(fn (ShopOrder $order) => $order->items->pluck('product_id')->intersect($directProductIds)->isEmpty())
             ->values()
             ->map(fn (ShopOrder $order) => [

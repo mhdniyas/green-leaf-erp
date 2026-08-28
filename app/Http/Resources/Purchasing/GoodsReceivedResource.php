@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Purchasing;
 
+use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Carbon;
@@ -12,10 +13,11 @@ class GoodsReceivedResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $isBillPending = $this->isBillPending();
+        $receiptState = app(WarehouseReceiptStateResolver::class)->forReceipt($this->resource);
         $receivedDate = $this->received_at ? Carbon::parse($this->received_at) : null;
 
         return [
+            ...$receiptState,
             'id' => $this->id,
             'purchase_order_id' => $this->purchase_order_id,
             'destination_shop_id' => $this->destination_shop_id ?? $this->purchaseOrder?->destination_shop_id,
@@ -23,11 +25,7 @@ class GoodsReceivedResource extends JsonResource
             'grn_number' => $this->grn_number,
             'status' => $this->status,
             'source' => $this->sourceLabel(),
-            'bill_status' => $this->bill_status ?: ($isBillPending ? 'bill_pending' : 'bill_available'),
             'bill_number' => $this->bill_number,
-            'is_bill_pending' => $isBillPending,
-            'status_label' => $isBillPending ? 'BILL PENDING' : 'RECEIVED WITH BILL',
-            'inventory_posted' => true,
             'received_by' => $this->received_by,
             'received_by_name' => $this->receivedBy?->name ?? 'Receiver',
             'updated_by' => $this->updated_by,
@@ -48,6 +46,8 @@ class GoodsReceivedResource extends JsonResource
             'purchase_order' => new PurchaseOrderResource($this->whenLoaded('purchaseOrder')),
             'items' => GoodsReceivedItemResource::collection($this->whenLoaded('items')),
             'invoices' => PurchaseInvoiceResource::collection($this->whenLoaded('purchaseInvoices')),
+            'advance_matches' => AdvanceReceiveMatchResource::collection($this->whenLoaded('advanceMatchesAsBill')),
+            'advance_allocations' => AdvanceReceiveMatchResource::collection($this->whenLoaded('advanceMatchesAsAdvance')),
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
         ];

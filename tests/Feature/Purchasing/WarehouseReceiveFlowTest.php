@@ -54,6 +54,7 @@ class WarehouseReceiveFlowTest extends TestCase
 
         $this->receiver = User::factory()->create(['name' => 'John Receiver']);
         $this->receiver->assignRole('warehouse_receiver');
+        $this->receiver->givePermissionTo('warehouse.loadout.all');
         $this->receiver->givePermissionTo(['purchasing.order.view', 'warehouse.receive.view', 'purchasing.grn.view', 'purchasing.grn.create']);
 
         $this->admin = User::factory()->create(['name' => 'Admin Boss']);
@@ -153,7 +154,8 @@ class WarehouseReceiveFlowTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.bill_status', 'bill_pending')
             ->assertJsonPath('data.is_bill_pending', true)
-            ->assertJsonPath('data.status_label', 'BILL PENDING');
+            ->assertJsonPath('data.status_label', 'PENDING WAREHOUSE RECEIVE')
+            ->assertJsonPath('data.bill_status_label', 'BILL PENDING');
 
         $grnId = $response->json('data.id');
 
@@ -340,7 +342,8 @@ class WarehouseReceiveFlowTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.bill_status', 'bill_pending')
             ->assertJsonPath('data.is_bill_pending', true)
-            ->assertJsonPath('data.status_label', 'BILL PENDING')
+            ->assertJsonPath('data.status_label', 'PENDING WAREHOUSE RECEIVE')
+            ->assertJsonPath('data.bill_status_label', 'BILL PENDING')
             ->assertJsonCount(2, 'data.items');
 
         $grnId = $response->json('data.id');
@@ -410,7 +413,8 @@ class WarehouseReceiveFlowTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.bill_status', 'bill_available')
             ->assertJsonPath('data.is_bill_pending', false)
-            ->assertJsonPath('data.status_label', 'RECEIVED WITH BILL')
+            ->assertJsonPath('data.status_label', 'PENDING WAREHOUSE RECEIVE')
+            ->assertJsonPath('data.bill_status_label', 'BILL AVAILABLE')
             ->assertJsonPath('data.bill_number', 'INV-SUP-9988');
 
         // 4. Verify status updated and matched_by / matched_at set

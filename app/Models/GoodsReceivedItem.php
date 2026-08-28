@@ -65,4 +65,14 @@ class GoodsReceivedItem extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    public function advanceMatchesAsAdvance(): HasMany
+    {
+        return $this->hasMany(AdvanceReceiveMatch::class, 'advance_goods_received_item_id');
+    }
+
+    public function advanceMatchesAsBill(): HasMany
+    {
+        return $this->hasMany(AdvanceReceiveMatch::class, 'bill_goods_received_item_id');
+    }
 }

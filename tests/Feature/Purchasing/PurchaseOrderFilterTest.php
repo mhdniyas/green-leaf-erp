@@ -34,6 +34,7 @@ class PurchaseOrderFilterTest extends TestCase
 
         $this->receiver = User::factory()->create(['name' => 'Receiver Tester']);
         $this->receiver->assignRole('warehouse_receiver');
+        $this->receiver->givePermissionTo('warehouse.loadout.all');
         $this->receiver->givePermissionTo('purchasing.order.view');
 
         $this->supplier = Supplier::factory()->create(['name' => 'Vendor Test']);

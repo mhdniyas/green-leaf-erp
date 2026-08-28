@@ -12,6 +12,7 @@ use App\Http\Resources\Purchasing\PurchaseOrderSummaryResource;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
 use App\Services\Purchasing\PurchaseOrderService;
+use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,16 +45,10 @@ class PurchaseOrderController extends Controller
             );
         }
 
-        $perPage = (int) ($validated['per_page'] ?? ($validated['status'] === 'received' ? 20 : 25));
-        $orders = $this->service->paginateFiltered($validated, $perPage);
+        $validated['authorized_warehouse_ids'] = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null);
 
-        \Log::info('Purchasing orders index requested', [
-            'url' => $request->fullUrl(),
-            'filters' => $validated,
-            'user' => $request->user()?->id,
-            'total' => $orders->total(),
-            'items' => collect($orders->items())->map(fn ($o) => ['po_number' => $o->po_number, 'status' => $o->status->value ?? $o->status])->toArray(),
-        ]);
+        $perPage = (int) ($validated['per_page'] ?? (($validated['status'] ?? null) === 'received' ? 20 : 25));
+        $orders = $this->service->paginateFiltered($validated, $perPage);
 
         return ApiResponse::paginated(PurchaseOrderSummaryResource::collection($orders));
     }
@@ -73,9 +68,11 @@ class PurchaseOrderController extends Controller
         );
     }
 
-    public function show(PurchaseOrder $order): JsonResponse
+    public function show(Request $request, PurchaseOrder $order): JsonResponse
     {
         Gate::authorize('view', $order);
+        $scope = app(WarehouseReceiptReadScope::class);
+        abort_unless($scope->orders(PurchaseOrder::query()->whereKey($order->id), $scope->warehouseIds($request->user()))->exists(), 403);
 
         return ApiResponse::success(
             new PurchaseOrderResource($order->load(['supplier', 'items.product', 'createdBy']))

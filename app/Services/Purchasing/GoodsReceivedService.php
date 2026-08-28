@@ -39,6 +39,8 @@ class GoodsReceivedService
                 'destination_shop_id',
                 'warehouse_id',
                 'grn_number',
+                'public_uuid',
+                'approved_at',
                 'status',
                 'bill_status',
                 'bill_number',
@@ -49,7 +51,7 @@ class GoodsReceivedService
             ])
             ->where('status', '!=', 'draft')
             ->with(['purchaseOrder:id,supplier_id,destination_shop_id', 'purchaseOrder.supplier:id,name', 'purchaseOrder.destinationShop:id,name', 'destinationShop:id,name', 'receivedBy:id,name'])
-            ->withCount('items')
+            ->withCount(['items', 'purchaseInvoices'])
             ->withSum('items', 'received_qty');
 
         if (! empty($filters['bill_status'])) {
@@ -70,13 +72,11 @@ class GoodsReceivedService
             $query->whereDate('received_at', $filters['date']);
         }
 
-        if (! empty($filters['warehouse_id'])) {
-            $warehouseId = (int) $filters['warehouse_id'];
-            $query->where(function ($q) use ($warehouseId): void {
-                $q->where('warehouse_id', $warehouseId)
-                    ->orWhereHas('items.product', fn ($productQuery) => $productQuery->where('default_warehouse_id', $warehouseId));
-            });
+        app(WarehouseReceiptStateResolver::class)->withFacts($query);
+        if (! empty($filters['receipt_status'])) {
+            app(WarehouseReceiptStateResolver::class)->filter($query, $filters['receipt_status']);
         }
+        app(WarehouseReceiptReadScope::class)->receipts($query, $filters['authorized_warehouse_ids'] ?? (! empty($filters['warehouse_id']) ? [(int) $filters['warehouse_id']] : null));
 
         if (! empty($filters['search'])) {
             $search = trim((string) $filters['search']);
