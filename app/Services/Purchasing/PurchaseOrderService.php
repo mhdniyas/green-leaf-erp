@@ -52,12 +52,14 @@ class PurchaseOrderService
             ->withCount('items')
             ->when($statusList !== null, fn ($query) => $query->whereIn('status', $statusList))
             ->when($date, fn ($query) => $query->whereDate('order_date', $date))
+            ->when($filters['date_before'] ?? null, fn ($query, $dateBefore) => $query->whereDate('order_date', '<', $dateBefore))
+            ->when(($filters['period'] ?? null) === 'today' && empty($date), fn ($query) => $query->whereDate('order_date', now()->toDateString()))
+            ->when(($filters['period'] ?? null) === 'older' && empty($date) && empty($filters['date_before']), fn ($query) => $query->whereDate('order_date', '<', now()->toDateString()))
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($subQuery) use ($search): void {
                     $subQuery->where('po_number', 'like', "%{$search}%")
                         ->orWhereHas('supplier', function ($supplierQuery) use ($search): void {
-                            $supplierQuery->where('name', 'like', "%{$search}%")
-                                ->orWhere('code', 'like', "%{$search}%");
+                            $supplierQuery->where('name', 'like', "%{$search}%");
                         });
                 });
             })

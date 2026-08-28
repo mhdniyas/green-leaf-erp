@@ -15,6 +15,7 @@ use App\Models\Warehouse;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
+use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -140,6 +141,8 @@ class GoodsReceivedController extends Controller
         $validated = $request->validate([
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'date' => ['nullable', 'date'],
+            'date_before' => ['nullable', 'date'],
+            'period' => ['nullable', 'in:today,older,all'],
             'search' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
@@ -184,6 +187,75 @@ class GoodsReceivedController extends Controller
             new GoodsReceivedResource($updated),
             'Received quantities updated and inventory adjusted'
         );
+    }
+
+    public function receiveCounts(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $today = $request->input('date', now()->toDateString());
+        $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        $authWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+
+        // Pending POs
+        $pendingPoQuery = PurchaseOrder::query()
+            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->where(function ($pending): void {
+                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                    ->orWhere(function ($withoutReceipt): void {
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                    });
+            });
+        app(WarehouseReceiptReadScope::class)->orders($pendingPoQuery, $authWarehouseIds);
+
+        $pendingToday = (clone $pendingPoQuery)->whereDate('order_date', $today)->count();
+        $pendingOlder = (clone $pendingPoQuery)->whereDate('order_date', '<', $today)->count();
+        $pendingTotal = (clone $pendingPoQuery)->count();
+
+        // Active Match Candidates
+        $matchCandidateQuery = PurchaseOrder::query()
+            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->where(function ($pending): void {
+                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                    ->orWhere(function ($withoutReceipt): void {
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                    });
+            });
+        app(WarehouseReceiptReadScope::class)->orders($matchCandidateQuery, $authWarehouseIds);
+
+        $matchToday = (clone $matchCandidateQuery)->whereDate('order_date', $today)->count();
+        $matchOlder = (clone $matchCandidateQuery)->whereDate('order_date', '<', $today)->count();
+        $matchTotal = (clone $matchCandidateQuery)->count();
+
+        // Received Today
+        $receivedQuery = GoodsReceived::query()->whereDate('received_at', $today);
+        app(WarehouseReceiptStateResolver::class)->filter($receivedQuery, 'received');
+        app(WarehouseReceiptReadScope::class)->receipts($receivedQuery, $authWarehouseIds);
+        $receivedToday = $receivedQuery->count();
+
+        // Open Advance
+        $advanceQuery = GoodsReceived::query()
+            ->whereNull('purchase_order_id')
+            ->where('status', 'approved')
+            ->where('bill_status', 'bill_pending');
+        app(WarehouseReceiptReadScope::class)->receipts($advanceQuery, $authWarehouseIds);
+        $openAdvance = $advanceQuery->count();
+
+        return ApiResponse::success([
+            'pending_today' => $pendingToday,
+            'pending_older' => $pendingOlder,
+            'pending_total' => $pendingTotal,
+            'match_today' => $matchToday,
+            'match_older' => $matchOlder,
+            'match_total' => $matchTotal,
+            'received_today' => $receivedToday,
+            'open_advance' => $openAdvance,
+        ], 'Receive counts fetched successfully');
     }
 
     private function authorizeAdminOrPurchaser(Request $request): void

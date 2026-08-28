@@ -105,6 +105,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::get('grns/pending-suggestions', [GoodsReceivedController::class, 'pendingSuggestions'])->name('grns.pending-suggestions');
             Route::get('grns/advance-match-suggestions', [GoodsReceivedController::class, 'advanceMatchSuggestions'])->name('grns.advance-match-suggestions');
             Route::get('grns/advance-match-candidates', [GoodsReceivedController::class, 'advanceMatchCandidates'])->name('grns.advance-match-candidates');
+            Route::get('grns/receive-counts', [GoodsReceivedController::class, 'receiveCounts'])->name('grns.receive-counts');
             Route::apiResource('grns', GoodsReceivedController::class)->only(['index', 'store', 'show']);
             Route::post('grns/{grn}/link-bill', [GoodsReceivedController::class, 'linkBill'])->name('grns.link-bill');
             Route::post('grns/{grn}/match-bill', [GoodsReceivedController::class, 'matchBill'])->name('grns.match-bill');

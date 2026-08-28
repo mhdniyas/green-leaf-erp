@@ -687,6 +687,8 @@ class AdvanceReceiveReconciliationService
     {
         $search = trim((string) ($filters['search'] ?? ''));
         $date = $filters['date'] ?? null;
+        $dateBefore = $filters['date_before'] ?? null;
+        $period = $filters['period'] ?? null;
         $warehouseId = isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null ? (int) $filters['warehouse_id'] : null;
 
         $query = PurchaseOrder::query()
@@ -699,17 +701,19 @@ class AdvanceReceiveReconciliationService
                     });
             })
             ->when($date, fn ($q) => $q->whereDate('order_date', $date))
+            ->when($dateBefore, fn ($q) => $q->whereDate('order_date', '<', $dateBefore))
+            ->when($period === 'today' && empty($date), fn ($q) => $q->whereDate('order_date', now()->toDateString()))
+            ->when($period === 'older' && empty($date) && empty($dateBefore), fn ($q) => $q->whereDate('order_date', '<', now()->toDateString()))
             ->when($search !== '', function (Builder $q) use ($search): void {
                 $q->where(function (Builder $subQuery) use ($search): void {
                     $subQuery->where('po_number', 'like', "%{$search}%")
                         ->orWhereHas('supplier', function (Builder $supplierQuery) use ($search): void {
-                            $supplierQuery->where('name', 'like', "%{$search}%")
-                                ->orWhere('code', 'like', "%{$search}%");
+                            $supplierQuery->where('name', 'like', "%{$search}%");
                         });
                 });
             })
             ->with([
-                'supplier:id,name,code',
+                'supplier:id,name',
                 'destinationShop:id,name',
                 'items.product.orderUnits',
                 'goodsReceiveds' => fn ($receipts) => app(WarehouseReceiptStateResolver::class)->withFacts($receipts->select('goods_received.*'))->withCount('purchaseInvoices'),

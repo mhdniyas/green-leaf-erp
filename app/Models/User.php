@@ -88,6 +88,10 @@ class User extends Authenticatable implements AuditableContract
 
         $warehouseId = $warehouse instanceof Warehouse ? $warehouse->getKey() : $warehouse;
 
+        if ($this->warehouses()->doesntExist()) {
+            return true;
+        }
+
         return $this->warehouses()->whereKey($warehouseId)->exists();
     }
 

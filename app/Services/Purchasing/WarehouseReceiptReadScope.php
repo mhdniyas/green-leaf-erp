@@ -21,7 +21,11 @@ class WarehouseReceiptReadScope
             return [$selected];
         }
 
-        return $all ? null : $user->warehouses()->pluck('warehouses.id')->map(fn ($id): int => (int) $id)->all();
+        if ($all || $user->warehouses()->doesntExist()) {
+            return null;
+        }
+
+        return $user->warehouses()->pluck('warehouses.id')->map(fn ($id): int => (int) $id)->all();
     }
 
     /**

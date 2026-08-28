@@ -32,6 +32,8 @@ class PurchaseOrderController extends Controller
             'search' => ['nullable', 'string', 'max:120'],
             'status' => ['nullable', 'string'],
             'date' => ['nullable', 'date'],
+            'date_before' => ['nullable', 'date'],
+            'period' => ['nullable', 'in:today,older,all'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
