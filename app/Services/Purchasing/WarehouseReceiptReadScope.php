@@ -21,7 +21,7 @@ class WarehouseReceiptReadScope
             return [$selected];
         }
 
-        if ($all || $user->warehouses()->doesntExist()) {
+        if ($all) {
             return null;
         }
 
