@@ -14,6 +14,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPriceGroup;
 use App\Models\User;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
@@ -123,9 +124,10 @@ class ShopQuantityStateWorkflowTest extends TestCase
         $priceGroup = ShopPriceGroup::factory()->create(['name' => 'A']);
         $shop = Shop::factory()->create(['shop_price_group_id' => $priceGroup->id]);
         $product = Product::factory()->create(['unit' => 'kg']);
+        $businessDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
         DailyPriceApproval::query()->create([
             'product_id' => $product->id,
-            'business_date' => today()->toDateString(),
+            'business_date' => $businessDate,
             'purchase_price' => 5,
             'price_unit' => 'kg',
             'price_a' => 10,
@@ -136,7 +138,7 @@ class ShopQuantityStateWorkflowTest extends TestCase
         ]);
         $order = ShopOrder::factory()->approved()->create([
             'shop_id' => $shop->id,
-            'business_date' => today()->toDateString(),
+            'business_date' => $businessDate,
             'delivery_status' => 'pending_delivery',
         ]);
         $item = ShopOrderItem::query()->create([

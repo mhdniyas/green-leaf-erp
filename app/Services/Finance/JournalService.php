@@ -605,13 +605,28 @@ class JournalService
      * Record wastage expense entry.
      * Debit Wastage Expense (5200), Credit COGS (5100)
      */
-    public function recordWastage(WastageEntry $wastage): JournalEntry
+    public function recordWastage(WastageEntry $wastage): ?JournalEntry
     {
+        $amount = round((float) $wastage->quantity * (float) $wastage->cost_per_kg, 2);
+
+        if ($amount <= 0) {
+            activity()
+                ->performedOn($wastage)
+                ->event('wastage.journal_skipped')
+                ->withProperties([
+                    'reason' => 'Zero or unavailable unit cost; financial journal entry skipped.',
+                    'quantity' => (float) $wastage->quantity,
+                    'cost_per_kg' => (float) $wastage->cost_per_kg,
+                ])
+                ->log('Wastage journal entry skipped due to zero cost.');
+
+            return null;
+        }
+
         $wastage->load('product');
 
         $wastageAccountId = $this->getAccountIdByCode('5200');
         $cogsAccountId = $this->getAccountIdByCode('5100');
-        $amount = round((float) $wastage->quantity * (float) $wastage->cost_per_kg, 2);
 
         $lines = [
             ['account_id' => $wastageAccountId, 'type' => 'debit', 'amount' => $amount],
