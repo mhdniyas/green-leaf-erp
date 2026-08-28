@@ -41,7 +41,7 @@ class StockBatchRepository extends BaseRepository
         $prefix = "BATCH-{$today}-";
         $latest = $this->query()
             ->where('reference', 'like', $prefix.'%')
-            ->orderByDesc('reference')
+            ->orderByRaw('LENGTH(reference) DESC, reference DESC')
             ->value('reference');
 
         $nextSeq = 1;
@@ -49,6 +49,11 @@ class StockBatchRepository extends BaseRepository
             $nextSeq = (int) $m[1] + 1;
         }
 
-        return $prefix.str_pad((string) $nextSeq, 3, '0', STR_PAD_LEFT);
+        do {
+            $reference = $prefix.str_pad((string) $nextSeq, 3, '0', STR_PAD_LEFT);
+            $nextSeq++;
+        } while ($this->query()->where('reference', $reference)->exists());
+
+        return $reference;
     }
 }
