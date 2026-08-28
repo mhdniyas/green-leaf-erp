@@ -85,6 +85,75 @@
                 <p class="text-[10px] text-indigo-600 font-bold mt-1.5 pl-0.5">Select a default warehouse. You can override this for individual products below.</p>
             </div>
 
+            @if($advanceSuggestions['has_advance_match'] ?? false)
+                <div class="rounded-2xl bg-amber-50 border-2 border-amber-300 p-4 shadow-sm space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white font-black text-xs">!</span>
+                            <h3 class="text-xs font-black uppercase tracking-[0.14em] text-amber-950">Warehouse Advance Found</h3>
+                        </div>
+                        <span class="rounded-full bg-amber-200/80 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-900">
+                            Coverage: {{ $advanceSuggestions['overall_coverage_percentage'] }}%
+                        </span>
+                    </div>
+
+                    <p class="text-xs font-semibold text-amber-800">
+                        Physical stock for this bill was already received in Advance. Confirming will reconcile against open Advance stock without duplicating inventory.
+                    </p>
+
+                    <div class="space-y-2 pt-1">
+                        @php $matchIndex = 0; @endphp
+                        @foreach($advanceSuggestions['items'] as $itemMatch)
+                            @if($itemMatch['has_advance_available'] ?? false)
+                                <div class="rounded-xl bg-white border border-amber-200 p-3 text-xs">
+                                    <div class="flex items-center justify-between font-black text-slate-800 mb-2">
+                                        <span>{{ $itemMatch['product_name'] }}</span>
+                                        <span class="text-amber-700 font-mono">{{ $itemMatch['coverage_percentage'] }}% Covered</span>
+                                    </div>
+                                    <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 text-[11px]">
+                                        <div>
+                                            <span class="text-slate-400 font-semibold block text-[9px] uppercase">Bill Qty</span>
+                                            <span class="font-bold text-slate-800">{{ $itemMatch['bill_qty'] ?? $itemMatch['ordered_qty'] }} {{ $itemMatch['unit'] }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-slate-400 font-semibold block text-[9px] uppercase">Advance Found</span>
+                                            <span class="font-bold text-slate-800">{{ $itemMatch['total_advance_available_qty'] }} {{ $itemMatch['unit'] }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-slate-400 font-semibold block text-[9px] uppercase">From Advance</span>
+                                            <span class="font-bold text-emerald-600">{{ $itemMatch['total_proposed_match_qty'] }} {{ $itemMatch['unit'] }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-slate-400 font-semibold block text-[9px] uppercase">New Receive</span>
+                                            <span class="font-bold {{ $itemMatch['new_receive_qty'] > 0 ? 'text-amber-600' : 'text-slate-500' }}">{{ $itemMatch['new_receive_qty'] }} {{ $itemMatch['unit'] }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-slate-400 font-semibold block text-[9px] uppercase">Coverage</span>
+                                            <span class="font-bold text-indigo-600">{{ $itemMatch['coverage_percentage'] }}%</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-slate-400 font-semibold block text-[9px] uppercase">Remaining Adv</span>
+                                            <span class="font-bold text-slate-700">{{ max(0, round($itemMatch['total_advance_available_qty'] - $itemMatch['total_proposed_match_qty'], 2)) }} {{ $itemMatch['unit'] }}</span>
+                                        </div>
+                                    </div>
+
+                                    @foreach($itemMatch['suggested_matches'] as $sMatch)
+                                        <input type="hidden" name="advance_matches[{{ $matchIndex }}][advance_goods_received_id]" value="{{ $sMatch['advance_goods_received_id'] }}">
+                                        <input type="hidden" name="advance_matches[{{ $matchIndex }}][advance_goods_received_item_id]" value="{{ $sMatch['advance_goods_received_item_id'] }}">
+                                        <input type="hidden" name="advance_matches[{{ $matchIndex }}][purchase_order_item_id]" value="{{ $itemMatch['purchase_order_item_id'] ?? '' }}">
+                                        <input type="hidden" name="advance_matches[{{ $matchIndex }}][goods_received_item_id]" value="{{ $itemMatch['goods_received_item_id'] ?? '' }}">
+                                        <input type="hidden" name="advance_matches[{{ $matchIndex }}][product_id]" value="{{ $itemMatch['product_id'] }}">
+                                        <input type="hidden" name="advance_matches[{{ $matchIndex }}][matched_qty]" value="{{ $sMatch['matched_qty'] ?? $sMatch['proposed_match_qty'] ?? 0 }}">
+                                        <input type="hidden" name="advance_matches[{{ $matchIndex }}][unit]" value="{{ $sMatch['unit'] }}">
+                                        @php $matchIndex++; @endphp
+                                    @endforeach
+                                </div>
+                            @endif
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             @php
                 $grnCategoryNames = $groupedItems->keys()->filter()->sort()->values();
                 $grnItemCount = $groupedItems->flatten(1)->count();
@@ -212,8 +281,8 @@
 
             {{-- Submit Form Action --}}
             <div class="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
-                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3.5 text-xs font-black uppercase tracking-wider shadow-md transition-colors border-none cursor-pointer">
-                    Confirm Receipt & Update Inventory
+                <button type="submit" class="w-full {{ ($advanceSuggestions['has_advance_match'] ?? false) ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700' }} text-white rounded-xl py-3.5 text-xs font-black uppercase tracking-wider shadow-md transition-colors border-none cursor-pointer">
+                    {{ ($advanceSuggestions['has_advance_match'] ?? false) ? 'Confirm Match & Receive' : 'Confirm Receipt & Update Inventory' }}
                 </button>
             </div>
         </form>

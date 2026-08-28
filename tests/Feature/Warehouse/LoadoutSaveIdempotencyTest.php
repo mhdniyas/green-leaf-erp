@@ -13,6 +13,7 @@ use App\Models\ShopPriceGroup;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -86,9 +87,11 @@ class LoadoutSaveIdempotencyTest extends TestCase
         $priceGroup = ShopPriceGroup::factory()->create(['name' => 'A', 'is_active' => true]);
         $shop = Shop::factory()->create(['shop_price_group_id' => $priceGroup->id]);
 
+        $businessDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+
         DailyPriceApproval::query()->create([
             'product_id' => $this->product->id,
-            'business_date' => today()->toDateString(),
+            'business_date' => $businessDate,
             'purchase_price' => 5,
             'price_unit' => 'kg',
             'price_a' => 10,
@@ -100,7 +103,7 @@ class LoadoutSaveIdempotencyTest extends TestCase
 
         $order = ShopOrder::factory()->approved()->create([
             'shop_id' => $shop->id,
-            'business_date' => today()->toDateString(),
+            'business_date' => $businessDate,
             'delivery_status' => 'pending_delivery',
         ]);
 

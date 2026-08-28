@@ -6,6 +6,7 @@ namespace App\Services\Purchasing;
 
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\BillReconciliation;
@@ -15,6 +16,8 @@ use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\StockBatch;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Repositories\Inventory\StockBatchRepository;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
@@ -105,6 +108,7 @@ class AdvanceReceiveReconciliationService
                     'already_matched_qty' => $cand['already_matched_qty'],
                     'available_qty' => $cand['available_qty'],
                     'proposed_match_qty' => $matchItemQty,
+                    'matched_qty' => $matchItemQty,
                     'proposed_match_base_qty' => $matchBase,
                     'coverage_percentage' => $billBaseQty > 0 ? round(($matchBase / $billBaseQty) * 100, 1) : 0.0,
                 ];
@@ -176,6 +180,161 @@ class AdvanceReceiveReconciliationService
             'supplier_id' => $order->supplier_id,
             'supplier_name' => $order->supplier?->name ?? 'Supplier',
             'order_date' => $orderDate,
+            'total_bill_base_qty' => round($totalBillBaseQty, 3),
+            'total_matched_base_qty' => round($totalMatchedBaseQty, 3),
+            'overall_coverage_percentage' => $overallCoveragePct,
+            'is_overall_percentage_meaningful' => $allUnitsCompatible,
+            'has_advance_match' => $totalMatchedBaseQty > 0.0001,
+            'reconciliation_status' => $reconciliationStatus,
+            'exact_matches_count' => $exactCount,
+            'partial_matches_count' => $partialCount,
+            'unmatched_count' => $unmatchedCount,
+            'items' => $productItems,
+        ];
+    }
+
+    /**
+     * Get deterministic suggested Advance matches for a GoodsReceived note.
+     *
+     * @return array<string, mixed>
+     */
+    public function getSuggestionsForGrn(GoodsReceived $grn, ?int $warehouseId = null): array
+    {
+        $grn->loadMissing(['items.product.orderUnits', 'purchaseOrder.supplier', 'purchaseOrder.items']);
+
+        if ($grn->purchaseOrder instanceof PurchaseOrder) {
+            return $this->getSuggestionsForOrder($grn->purchaseOrder, $warehouseId ?? $grn->warehouse_id);
+        }
+
+        $targetWarehouseId = $warehouseId ?? $grn->warehouse_id;
+        $orderDate = $grn->received_at instanceof Carbon ? $grn->received_at->format('Y-m-d') : (string) ($grn->received_at ?? now()->toDateString());
+
+        $productItems = [];
+        $totalBillBaseQty = 0.0;
+        $totalMatchedBaseQty = 0.0;
+        $allUnitsCompatible = true;
+        $firstUnit = null;
+
+        $exactCount = 0;
+        $partialCount = 0;
+        $unmatchedCount = 0;
+
+        foreach ($grn->items as $item) {
+            /** @var Product $product */
+            $product = $item->product;
+            $itemUnit = $item->received_unit ?: $product->unit;
+            $conversionToBase = (float) ($product->conversionToBaseForUnit($itemUnit) ?? 1.0);
+            $billBaseQty = round((float) $item->received_qty * $conversionToBase, 3);
+            $totalBillBaseQty += $billBaseQty;
+
+            if ($firstUnit === null) {
+                $firstUnit = strtolower(trim((string) $itemUnit));
+            } elseif ($firstUnit !== strtolower(trim((string) $itemUnit))) {
+                $allUnitsCompatible = false;
+            }
+
+            $candidates = $this->getOpenAdvanceCandidatesForProduct($product->id, $targetWarehouseId);
+
+            $suggestedMatches = [];
+            $remainingNeededBase = $billBaseQty;
+            $lineMatchedBase = 0.0;
+
+            foreach ($candidates as $cand) {
+                if ($remainingNeededBase <= 0.0001) {
+                    break;
+                }
+
+                $availableBase = (float) $cand['available_base_qty'];
+                if ($availableBase <= 0.0001) {
+                    continue;
+                }
+
+                $matchBase = min($availableBase, $remainingNeededBase);
+                $matchItemQty = $conversionToBase > 0 ? round($matchBase / $conversionToBase, 3) : $matchBase;
+
+                $suggestedMatches[] = [
+                    'advance_goods_received_id' => $cand['advance_goods_received_id'],
+                    'advance_goods_received_item_id' => $cand['advance_goods_received_item_id'],
+                    'advance_stock_batch_id' => $cand['advance_stock_batch_id'],
+                    'goods_received_item_id' => $item->id,
+                    'grn_number' => $cand['grn_number'],
+                    'received_at' => $cand['received_at'],
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'matched_qty' => $matchItemQty,
+                    'unit' => $itemUnit,
+                    'base_qty' => $matchBase,
+                    'available_qty_before' => $cand['available_qty'],
+                    'available_qty_after' => round($cand['available_qty'] - $matchItemQty, 3),
+                    'available_base_qty_before' => $availableBase,
+                    'available_base_qty_after' => round($availableBase - $matchBase, 3),
+                ];
+
+                $lineMatchedBase += $matchBase;
+                $remainingNeededBase -= $matchBase;
+            }
+
+            $totalMatchedBaseQty += $lineMatchedBase;
+
+            $lineMatchedItemQty = $conversionToBase > 0 ? round($lineMatchedBase / $conversionToBase, 3) : $lineMatchedBase;
+            $newReceiveBaseQty = max(0.0, round($billBaseQty - $lineMatchedBase, 3));
+            $newReceiveItemQty = $conversionToBase > 0 ? round($newReceiveBaseQty / $conversionToBase, 3) : $newReceiveBaseQty;
+
+            $lineCoveragePct = $billBaseQty > 0 ? round(($lineMatchedBase / $billBaseQty) * 100, 1) : 0.0;
+
+            $matchStatus = 'unmatched';
+            if ($lineMatchedBase >= $billBaseQty - 0.001) {
+                $matchStatus = 'exact';
+                $exactCount++;
+            } elseif ($lineMatchedBase > 0.0001) {
+                $matchStatus = 'partial';
+                $partialCount++;
+            } else {
+                $unmatchedCount++;
+            }
+
+            $relevantLoadoutQty = $this->getLoadedQtyForCohort($product->id, $targetWarehouseId, $orderDate);
+            $unbilledLoadoutQty = max(0.0, round($relevantLoadoutQty - $billBaseQty, 3));
+
+            $productItems[] = [
+                'goods_received_item_id' => $item->id,
+                'product_id' => $product->id,
+                'product_name' => $product->name,
+                'product_sku' => $product->sku,
+                'bill_qty' => (float) $item->received_qty,
+                'unit' => $itemUnit,
+                'base_qty' => $billBaseQty,
+                'total_advance_available_qty' => round(array_sum(array_column($candidates, 'available_qty')), 3),
+                'total_proposed_match_qty' => $lineMatchedItemQty,
+                'new_receive_qty' => $newReceiveItemQty,
+                'coverage_percentage' => $lineCoveragePct,
+                'match_status' => $matchStatus,
+                'relevant_loadout_qty' => $relevantLoadoutQty,
+                'unbilled_loadout_qty' => $unbilledLoadoutQty,
+                'has_advance_available' => ! empty($suggestedMatches),
+                'suggested_matches' => $suggestedMatches,
+                'all_candidates' => $candidates,
+            ];
+        }
+
+        $overallCoveragePct = $totalBillBaseQty > 0
+            ? round(($totalMatchedBaseQty / $totalBillBaseQty) * 100, 1)
+            : 0.0;
+
+        $reconciliationStatus = 'unmatched';
+        $itemTotal = count($grn->items);
+        if ($itemTotal > 0 && $exactCount === $itemTotal) {
+            $reconciliationStatus = 'ready';
+        } elseif ($totalMatchedBaseQty > 0.0001) {
+            $reconciliationStatus = 'partial';
+        }
+
+        return [
+            'goods_received_id' => $grn->id,
+            'grn_number' => $grn->grn_number,
+            'supplier_id' => $grn->purchaseOrder?->supplier_id,
+            'supplier_name' => $grn->purchaseOrder?->supplier?->name ?? 'Supplier',
+            'received_at' => $orderDate,
             'total_bill_base_qty' => round($totalBillBaseQty, 3),
             'total_matched_base_qty' => round($totalMatchedBaseQty, 3),
             'overall_coverage_percentage' => $overallCoveragePct,
@@ -674,6 +833,412 @@ class AdvanceReceiveReconciliationService
                 ->log('goods_received.reconciled_with_advance');
 
             return $billGrn->fresh([
+                'items.product',
+                'items.purchaseOrderItem',
+                'purchaseOrder',
+                'advanceMatchesAsBill.advanceGoodsReceived',
+                'advanceMatchesAsBill.advanceStockBatch',
+            ]);
+        });
+    }
+
+    /**
+     * Reconcile an existing pending GoodsReceived note against open Advance receipts.
+     * Reuses the existing bill GRN, adjusts physical stock batches, links matches, and updates reconciliation status.
+     *
+     * @param  array<int|string, array<string, mixed>>  $items
+     * @param  array<int, array<string, mixed>>  $advanceMatches
+     */
+    public function reconcileExistingGrn(
+        GoodsReceived $grn,
+        array $items,
+        array $advanceMatches,
+        int $fallbackWarehouseId,
+        int $userId
+    ): GoodsReceived {
+        return DB::transaction(function () use ($grn, $items, $advanceMatches, $fallbackWarehouseId, $userId): GoodsReceived {
+            /** @var GoodsReceived $lockedGrn */
+            $lockedGrn = GoodsReceived::query()
+                ->whereKey($grn->id)
+                ->with(['items.purchaseOrderItem', 'items.product', 'stockBatches', 'purchaseOrder'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // 1. Lock and validate all referenced Advance receipts
+            $advanceGrnIds = collect($advanceMatches)->pluck('advance_goods_received_id')->filter()->unique()->all();
+            $advanceGrns = GoodsReceived::query()
+                ->whereIn('id', $advanceGrnIds)
+                ->with(['items', 'stockBatches'])
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            $validatedMatches = [];
+            $totalMatchedByBillItem = [];
+
+            foreach ($advanceMatches as $match) {
+                $advanceGrnId = (int) ($match['advance_goods_received_id'] ?? 0);
+                /** @var GoodsReceived|null $advanceGrn */
+                $advanceGrn = $advanceGrns->get($advanceGrnId);
+
+                if (! $advanceGrn) {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Referenced Advance Receive #{$advanceGrnId} not found.",
+                    ]);
+                }
+
+                if ($advanceGrn->status !== 'approved') {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Advance Receive {$advanceGrn->grn_number} is not approved.",
+                    ]);
+                }
+
+                $confirmedBatches = $advanceGrn->stockBatches->where('warehouse_receive_pending', false);
+                if ($confirmedBatches->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Advance Receive {$advanceGrn->grn_number} has not been physically confirmed by warehouse.",
+                    ]);
+                }
+
+                $productId = (int) ($match['product_id'] ?? 0);
+                $advanceItem = $advanceGrn->items->firstWhere('product_id', $productId);
+                if (! $advanceItem) {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Advance Receive {$advanceGrn->grn_number} does not contain product ID #{$productId}.",
+                    ]);
+                }
+
+                /** @var Product $product */
+                $product = Product::findOrFail($productId);
+                $matchUnit = (string) ($match['unit'] ?? $advanceItem->received_unit ?? $product->unit);
+                $conversionToBase = (float) ($product->conversionToBaseForUnit($matchUnit) ?? 1.0);
+                $matchedQty = (float) ($match['matched_qty'] ?? 0.0);
+                $matchedBaseQty = round($matchedQty * $conversionToBase, 3);
+
+                if ($matchedBaseQty <= 0.0001) {
+                    continue;
+                }
+
+                $existingMatchedBase = (float) AdvanceReceiveMatch::query()
+                    ->where('advance_goods_received_id', $advanceGrn->id)
+                    ->where('advance_goods_received_item_id', $advanceItem->id)
+                    ->sum('base_qty');
+
+                $alreadyAllocatedInThisBatch = (float) collect($validatedMatches)
+                    ->where('advance_goods_received_id', $advanceGrn->id)
+                    ->where('advance_goods_received_item_id', $advanceItem->id)
+                    ->sum('base_qty');
+
+                $availableBase = round((float) $advanceItem->received_qty - $existingMatchedBase - $alreadyAllocatedInThisBatch, 3);
+
+                if ($matchedBaseQty > $availableBase + 0.0001) {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Requested match ({$matchedQty} {$matchUnit}) exceeds available advance balance ({$availableBase} base) for {$advanceGrn->grn_number}.",
+                    ]);
+                }
+
+                $batch = $advanceGrn->stockBatches->firstWhere('goods_received_item_id', $advanceItem->id)
+                    ?? $advanceGrn->stockBatches->first();
+
+                $validatedMatches[] = [
+                    'advance_goods_received_id' => $advanceGrn->id,
+                    'advance_goods_received_item_id' => $advanceItem->id,
+                    'advance_stock_batch_id' => $batch?->id,
+                    'purchase_order_item_id' => $match['purchase_order_item_id'] ?? null,
+                    'goods_received_item_id' => $match['goods_received_item_id'] ?? null,
+                    'product_id' => $productId,
+                    'matched_qty' => $matchedQty,
+                    'matched_unit' => $matchUnit,
+                    'base_qty' => $matchedBaseQty,
+                    'conversion_to_base' => $conversionToBase,
+                ];
+
+                $key = ! empty($match['purchase_order_item_id'])
+                    ? "po:{$match['purchase_order_item_id']}"
+                    : (! empty($match['goods_received_item_id'])
+                        ? "grni:{$match['goods_received_item_id']}"
+                        : "prod:{$productId}");
+
+                $totalMatchedByBillItem[$key] = ($totalMatchedByBillItem[$key] ?? 0.0) + $matchedBaseQty;
+            }
+
+            // 2. Update GRN items
+            foreach ($items as $itemId => $itemData) {
+                $item = $lockedGrn->items->firstWhere('id', (int) $itemId) ?? $lockedGrn->items()->findOrFail((int) $itemId);
+                $originalPurchasedQty = (float) ($item->purchaseOrderItem?->quantity ?? $item->received_qty);
+                $receivedQty = (float) $itemData['received_qty'];
+                $variance = $receivedQty - (float) ($item->purchaseOrderItem?->quantity ?? 0.0);
+
+                $item->update([
+                    'received_qty' => $receivedQty,
+                    'variance' => $variance,
+                    'purchased_qty' => $originalPurchasedQty,
+                    'discrepancy_type' => $itemData['discrepancy_type'] ?? 'none',
+                    'discrepancy_note' => $itemData['discrepancy_note'] ?? null,
+                ]);
+            }
+
+            $lockedGrn->loadMissing('items.product');
+
+            // 3. Calculate totals & create BillReconciliation
+            $totalBillBaseQty = 0.0;
+            $totalMatchedBaseQty = 0.0;
+
+            foreach ($lockedGrn->items as $grnItem) {
+                /** @var Product $product */
+                $product = $grnItem->product;
+                $itemUnit = $grnItem->received_unit ?: $product->unit;
+                $conv = (float) ($product->conversionToBaseForUnit($itemUnit) ?? 1.0);
+                $totalBillBaseQty += round((float) $grnItem->received_qty * $conv, 3);
+            }
+
+            foreach ($validatedMatches as $m) {
+                $totalMatchedBaseQty += (float) $m['base_qty'];
+            }
+
+            $totalNewReceiveBaseQty = max(0.0, round($totalBillBaseQty - $totalMatchedBaseQty, 3));
+
+            $sourceType = 'normal';
+            if ($totalMatchedBaseQty > 0.0001 && $totalNewReceiveBaseQty <= 0.0001) {
+                $sourceType = 'advance';
+            } elseif ($totalMatchedBaseQty > 0.0001 && $totalNewReceiveBaseQty > 0.0001) {
+                $sourceType = 'mixed';
+            }
+
+            $billReconciliation = BillReconciliation::create([
+                'purchase_order_id' => $lockedGrn->purchase_order_id,
+                'goods_received_id' => $lockedGrn->id,
+                'warehouse_id' => $lockedGrn->warehouse_id ?? $fallbackWarehouseId,
+                'source_type' => $sourceType,
+                'status' => 'confirmed',
+                'total_bill_base_qty' => $totalBillBaseQty,
+                'total_matched_base_qty' => $totalMatchedBaseQty,
+                'total_new_receive_base_qty' => $totalNewReceiveBaseQty,
+                'confirmed_by' => $userId,
+                'confirmed_at' => now(),
+            ]);
+
+            $date = $lockedGrn->received_at instanceof Carbon
+                ? $lockedGrn->received_at->format('Y-m-d')
+                : Carbon::parse($lockedGrn->received_at)->format('Y-m-d');
+
+            $createdReconciliationLines = [];
+
+            foreach ($lockedGrn->items as $grnItem) {
+                $poItemId = $grnItem->purchase_order_item_id;
+                $key = $poItemId
+                    ? "po:{$poItemId}"
+                    : "grni:{$grnItem->id}";
+                $matchedBaseQty = (float) ($totalMatchedByBillItem[$key] ?? $totalMatchedByBillItem["prod:{$grnItem->product_id}"] ?? 0.0);
+
+                /** @var Product $product */
+                $product = $grnItem->product;
+                $itemUnit = $grnItem->received_unit ?: $product->unit;
+                $conversionToBase = (float) ($product->conversionToBaseForUnit($itemUnit) ?? 1.0);
+                $totalBillItemBaseQty = round((float) $grnItem->received_qty * $conversionToBase, 3);
+                $matchedItemQty = $conversionToBase > 0 ? round($matchedBaseQty / $conversionToBase, 3) : $matchedBaseQty;
+
+                $unmatchedBaseQty = max(0.0, round($totalBillItemBaseQty - $matchedBaseQty, 3));
+                $unmatchedItemQty = $conversionToBase > 0 ? round($unmatchedBaseQty / $conversionToBase, 3) : $unmatchedBaseQty;
+
+                $relevantLoadoutQty = $this->getLoadedQtyForCohort($grnItem->product_id, (int) ($lockedGrn->warehouse_id ?? $fallbackWarehouseId), $date);
+                $unbilledLoadoutQty = max(0.0, round($relevantLoadoutQty - $totalBillItemBaseQty, 3));
+
+                $differenceStatus = 'unmatched';
+                if ($matchedBaseQty >= $totalBillItemBaseQty - 0.001) {
+                    $differenceStatus = 'matched';
+                } elseif ($matchedBaseQty > 0.0001) {
+                    $differenceStatus = 'partial';
+                }
+
+                $reconLine = $billReconciliation->lines()->create([
+                    'purchase_order_item_id' => $poItemId,
+                    'product_id' => $grnItem->product_id,
+                    'bill_qty' => $grnItem->received_qty,
+                    'bill_unit' => $itemUnit,
+                    'bill_base_qty' => $totalBillItemBaseQty,
+                    'advance_matched_qty' => $matchedItemQty,
+                    'advance_matched_unit' => $itemUnit,
+                    'advance_matched_base_qty' => $matchedBaseQty,
+                    'new_receive_qty' => $unmatchedItemQty,
+                    'new_receive_unit' => $itemUnit,
+                    'new_receive_base_qty' => $unmatchedBaseQty,
+                    'relevant_loadout_qty' => $relevantLoadoutQty,
+                    'unbilled_loadout_qty' => $unbilledLoadoutQty,
+                    'reconciled_qty' => $grnItem->received_qty,
+                    'reconciled_base_qty' => $totalBillItemBaseQty,
+                    'difference_status' => $differenceStatus,
+                ]);
+
+                $createdReconciliationLines[$key] = $reconLine;
+            }
+
+            // 4. Create AdvanceReceiveMatch records
+            foreach ($validatedMatches as $matchRecord) {
+                $poItemId = $matchRecord['purchase_order_item_id'];
+                $grnItemId = $matchRecord['goods_received_item_id'];
+                $billItem = $poItemId
+                    ? $lockedGrn->items->firstWhere('purchase_order_item_id', $poItemId)
+                    : ($grnItemId ? $lockedGrn->items->firstWhere('id', $grnItemId) : $lockedGrn->items->firstWhere('product_id', $matchRecord['product_id']));
+
+                $key = $poItemId ? "po:{$poItemId}" : ($grnItemId ? "grni:{$grnItemId}" : "prod:{$matchRecord['product_id']}");
+                $reconLine = $createdReconciliationLines[$key] ?? null;
+
+                AdvanceReceiveMatch::create([
+                    'advance_goods_received_id' => $matchRecord['advance_goods_received_id'],
+                    'advance_goods_received_item_id' => $matchRecord['advance_goods_received_item_id'],
+                    'advance_stock_batch_id' => $matchRecord['advance_stock_batch_id'],
+                    'bill_goods_received_id' => $lockedGrn->id,
+                    'bill_goods_received_item_id' => $billItem?->id,
+                    'bill_reconciliation_id' => $billReconciliation->id,
+                    'bill_reconciliation_line_id' => $reconLine?->id,
+                    'purchase_order_id' => $lockedGrn->purchase_order_id,
+                    'purchase_order_item_id' => $poItemId,
+                    'product_id' => $matchRecord['product_id'],
+                    'matched_qty' => $matchRecord['matched_qty'],
+                    'matched_unit' => $matchRecord['matched_unit'],
+                    'base_qty' => $matchRecord['base_qty'],
+                    'conversion_to_base' => $matchRecord['conversion_to_base'],
+                    'confirmed_by' => $userId,
+                    'confirmed_at' => now(),
+                ]);
+            }
+
+            // 5. StockBatch Handling for Reconciled GRN
+            foreach ($lockedGrn->items as $grnItem) {
+                $poItemId = $grnItem->purchase_order_item_id;
+                $key = $poItemId ? "po:{$poItemId}" : "grni:{$grnItem->id}";
+                $matchedBaseQty = (float) ($totalMatchedByBillItem[$key] ?? $totalMatchedByBillItem["prod:{$grnItem->product_id}"] ?? 0.0);
+
+                /** @var Product $product */
+                $product = $grnItem->product;
+                $itemUnit = $grnItem->received_unit ?: $product->unit;
+                $conversionToBase = (float) ($product->conversionToBaseForUnit($itemUnit) ?? 1.0);
+                $totalBillItemBaseQty = round((float) $grnItem->received_qty * $conversionToBase, 3);
+                $unmatchedBaseQty = max(0.0, round($totalBillItemBaseQty - $matchedBaseQty, 3));
+                $unmatchedItemQty = $conversionToBase > 0 ? round($unmatchedBaseQty / $conversionToBase, 3) : $unmatchedBaseQty;
+
+                $itemWarehouseId = (int) ($items[$grnItem->id]['warehouse_id'] ?? $lockedGrn->warehouse_id ?? $fallbackWarehouseId);
+
+                $existingBatch = $lockedGrn->stockBatches->firstWhere('goods_received_item_id', $grnItem->id)
+                    ?? $lockedGrn->stockBatches->firstWhere('product_id', $grnItem->product_id);
+
+                if ($unmatchedItemQty <= 0.0001) {
+                    // Fully covered by Advance: zero physical new stock, preserve row with 0 kg
+                    if ($existingBatch) {
+                        $existingBatch->update([
+                            'warehouse_id' => $itemWarehouseId,
+                            'total_kg' => 0.0,
+                            'warehouse_receive_pending' => false,
+                            'warehouse_confirmed_at' => now(),
+                            'warehouse_confirmed_by' => $userId,
+                            'notes' => 'Reconciled 100% from Advance (Stock effect: 0 kg)',
+                        ]);
+                    }
+                } else {
+                    // Partial match: only unmatched remainder creates/confirms stock
+                    if ($existingBatch) {
+                        $existingBatch->update([
+                            'warehouse_id' => $itemWarehouseId,
+                            'total_kg' => $unmatchedItemQty,
+                            'warehouse_receive_pending' => false,
+                            'warehouse_confirmed_at' => now(),
+                            'warehouse_confirmed_by' => $userId,
+                        ]);
+
+                        if ($existingBatch->grading_mode === 'fixed_purchase_grade') {
+                            StockMovement::query()->firstOrCreate(
+                                [
+                                    'batch_id' => $existingBatch->id,
+                                    'type' => StockMovementType::In->value,
+                                    'grade' => $existingBatch->purchase_grade,
+                                ],
+                                [
+                                    'product_id' => $existingBatch->product_id,
+                                    'warehouse_id' => $itemWarehouseId,
+                                    'created_by' => $userId,
+                                    'quantity' => $unmatchedItemQty,
+                                    'cost_per_unit' => $existingBatch->cost_per_kg,
+                                    'notes' => "Fixed Grade {$existingBatch->purchase_grade} receipt remainder from {$lockedGrn->grn_number}",
+                                ],
+                            );
+
+                            $existingBatch->update([
+                                'status' => BatchStatus::Sorted,
+                                'sorted_at' => now(),
+                            ]);
+                        }
+                    } else {
+                        // Create remainder batch if didn't exist
+                        $costPerKg = (float) ($grnItem->cost_per_unit ?? 0);
+                        $this->stockBatchRepository->create([
+                            'product_id' => $grnItem->product_id,
+                            'warehouse_id' => $itemWarehouseId,
+                            'goods_received_id' => $lockedGrn->id,
+                            'goods_received_item_id' => $grnItem->id,
+                            'purchase_grade' => $grnItem->grade ?? $lockedGrn->purchase_grade ?? 'A',
+                            'grading_mode' => ($grnItem->grade ?? $lockedGrn->purchase_grade ?? 'A') === 'B' ? 'fixed_purchase_grade' : 'sort_required',
+                            'created_by' => $userId,
+                            'reference' => $this->stockBatchRepository->generateReference(),
+                            'received_at' => $lockedGrn->received_at,
+                            'total_kg' => $unmatchedItemQty,
+                            'cost_per_kg' => $costPerKg,
+                            'status' => BatchStatus::Pending,
+                            'warehouse_receive_pending' => false,
+                            'warehouse_confirmed_at' => now(),
+                            'warehouse_confirmed_by' => $userId,
+                            'notes' => "Reconciled GRN: {$lockedGrn->grn_number} (Remainder: {$unmatchedItemQty} {$itemUnit})",
+                        ]);
+                    }
+                }
+            }
+
+            // 6. Update Advance GRN bill_status if fully consumed
+            foreach ($advanceGrns as $advanceGrn) {
+                $totalAdvanceReceivedBase = (float) $advanceGrn->items->sum(function (GoodsReceivedItem $it): float {
+                    /** @var Product $p */
+                    $p = $it->product ?? Product::find($it->product_id);
+                    $conv = (float) ($p?->conversionToBaseForUnit($it->received_unit) ?? 1.0);
+
+                    return (float) $it->received_qty * $conv;
+                });
+
+                $totalConsumedBase = (float) AdvanceReceiveMatch::query()
+                    ->where('advance_goods_received_id', $advanceGrn->id)
+                    ->sum('base_qty');
+
+                if ($totalConsumedBase >= $totalAdvanceReceivedBase - 0.001) {
+                    $advanceGrn->update(['bill_status' => 'bill_available']);
+                }
+            }
+
+            // 7. Approve GRN and update PO
+            $lockedGrn->update([
+                'status' => 'approved',
+                'bill_status' => 'bill_available',
+                'approved_by' => $userId,
+                'approved_at' => now(),
+                'updated_by' => $userId,
+                'matched_by' => $userId,
+                'matched_at' => now(),
+            ]);
+
+            if ($lockedGrn->purchase_order_id) {
+                PurchaseOrder::query()
+                    ->whereKey($lockedGrn->purchase_order_id)
+                    ->update(['status' => POStatus::Received]);
+            }
+
+            activity()
+                ->performedOn($lockedGrn)
+                ->causedBy(User::query()->find($userId))
+                ->withProperties([
+                    'source' => 'warehouse_pending_advance_reconciliation',
+                    'matches_count' => count($validatedMatches),
+                ])
+                ->log('goods_received.reconciled_with_advance');
+
+            return $lockedGrn->fresh([
                 'items.product',
                 'items.purchaseOrderItem',
                 'purchaseOrder',

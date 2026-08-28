@@ -22,6 +22,7 @@ use App\Repositories\Inventory\StockMovementRepository;
 use App\Repositories\Warehouse\WarehouseReceiveRepository;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
+use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use Illuminate\Database\Eloquent\Builder;
@@ -469,13 +470,19 @@ class WarehouseReceiverController extends Controller
     {
         $this->authorizeReceiverAccess($request);
 
-        $grn->load(['purchaseOrder.supplier', 'purchaseOrder.purchaserCart.user', 'items.product.category', 'items.purchaseOrderItem']);
+        $grn->load(['purchaseOrder.supplier', 'purchaseOrder.purchaserCart.user', 'items.product.category', 'items.purchaseOrderItem', 'stockBatches']);
         $warehouses = Warehouse::active()->orderBy('name')->get();
+
+        $targetWarehouseId = $request->filled('warehouse_id')
+            ? (int) $request->input('warehouse_id')
+            : (int) ($grn->warehouse_id ?? $warehouses->first()?->id ?? 1);
+
+        $advanceSuggestions = app(AdvanceReceiveReconciliationService::class)->getSuggestionsForGrn($grn, $targetWarehouseId);
 
         // Group items by category name
         $groupedItems = $grn->items->groupBy(fn ($item) => $item->product->category->name ?? 'Uncategorized');
 
-        return view('warehouse-receiver.receive_grn', compact('grn', 'groupedItems', 'warehouses'));
+        return view('warehouse-receiver.receive_grn', compact('grn', 'groupedItems', 'warehouses', 'advanceSuggestions'));
     }
 
     /**
@@ -492,6 +499,16 @@ class WarehouseReceiverController extends Controller
             'items.*.received_qty' => ['required', 'numeric', 'min:0'],
             'items.*.discrepancy_type' => ['required', 'string', 'in:none,wastage,other'],
             'items.*.discrepancy_note' => ['nullable', 'string', 'max:1000'],
+            'advance_matches' => ['nullable', 'array'],
+            'advance_matches.*.advance_goods_received_id' => ['required', 'integer', 'exists:goods_received,id'],
+            'advance_matches.*.advance_goods_received_item_id' => ['nullable', 'integer', 'exists:goods_received_items,id'],
+            'advance_matches.*.purchase_order_item_id' => ['nullable', 'integer', 'exists:purchase_order_items,id'],
+            'advance_matches.*.goods_received_item_id' => ['nullable', 'integer', 'exists:goods_received_items,id'],
+            'advance_matches.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'advance_matches.*.matched_qty' => ['required', 'numeric', 'min:0.001'],
+            'advance_matches.*.unit' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'bypass_advance_match' => ['sometimes', 'boolean'],
+            'bypass_reason' => ['nullable', 'string', 'max:500'],
         ]);
 
         $zeroPricedItems = $this->zeroPricedReceivedItems($grn, $validated['items']);
@@ -504,6 +521,38 @@ class WarehouseReceiverController extends Controller
         }
 
         $userId = (int) $request->user()->id;
+        $advanceMatches = $validated['advance_matches'] ?? [];
+        $hasAdvanceMatches = ! empty($advanceMatches);
+
+        // Check if open warehouse_advance candidates exist for this GRN
+        $advanceSuggestions = app(AdvanceReceiveReconciliationService::class)->getSuggestionsForGrn($grn, (int) $validated['warehouse_id']);
+        $hasAdvanceSuggestions = ($advanceSuggestions['has_advance_match'] ?? false) || ($advanceSuggestions['total_matched_base_qty'] ?? 0) > 0.0001;
+
+        if ($hasAdvanceSuggestions && ! $hasAdvanceMatches) {
+            $allowDirectOverride = $request->boolean('bypass_advance_match') && $request->filled('bypass_reason');
+            if (! $allowDirectOverride) {
+                return redirect()
+                    ->back()
+                    ->withInput()
+                    ->withErrors([
+                        'advance_matches' => 'Open Warehouse Advance receipt exists for this product. You must review and confirm the Advance Match before receiving into warehouse stock.',
+                    ]);
+            }
+        }
+
+        if ($hasAdvanceMatches) {
+            app(AdvanceReceiveReconciliationService::class)->reconcileExistingGrn(
+                $grn,
+                $validated['items'],
+                $advanceMatches,
+                (int) $validated['warehouse_id'],
+                $userId
+            );
+
+            return redirect()
+                ->route('warehouse.receiver.checklist', ['date' => $grn->received_at->format('Y-m-d')])
+                ->with('success', 'Vendor sheet reconciled with Warehouse Advance successfully.');
+        }
 
         $this->receiveGrnIntoWarehouse($grn, $validated['items'], (int) $validated['warehouse_id'], $userId);
 
