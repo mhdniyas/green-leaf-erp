@@ -45,81 +45,185 @@
             </div>
         @endif
 
-        <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Current Balance</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-emerald-700">₹{{ number_format($totals['current_balance'], 2) }}</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Bank Balance</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-slate-950">₹{{ number_format($totals['bank_balance'], 2) }}</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Cash In Hand</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-emerald-700">₹{{ number_format($totals['liquid_cash'], 2) }}</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Wallet / UPI</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-cyan-700">₹{{ number_format($totals['wallet_balance'], 2) }}</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Floating Payments</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-amber-700">₹{{ number_format($totals['floating_payments'], 2) }}</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Pending Payment Amount</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-rose-700">₹{{ number_format($totals['pending_payments'], 2) }}</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Open Statement Balance</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-indigo-700">₹{{ number_format($totals['open_statement'], 2) }}</div>
-            </div>
-            <a href="{{ route('admin.cashbook.finance.cheque-submission') }}" class="white-card rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm transition hover:bg-amber-100">
-                <span class="text-[10px] font-black uppercase tracking-wider text-amber-700">Cheques To Bank Today</span>
-                <div class="mt-2 flex items-baseline justify-between gap-3">
-                    <strong class="font-mono text-2xl font-extrabold text-amber-800">{{ $totals['cheque_to_bank_count'] }}</strong>
-                    <span class="break-words text-right font-mono text-sm font-extrabold text-amber-800">₹{{ number_format($totals['cheque_to_bank_amount'], 2) }}</span>
+        {{-- ── 1. COMPANY MONEY POSITION HERO ────────────────────────────────── --}}
+        <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {{-- Verified Company Money --}}
+            <div class="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-white p-5 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
+                            <i data-lucide="shield-check" class="h-5 w-5"></i>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Verified Company Money</span>
+                            <h2 class="text-xs font-bold text-slate-500">Bank Accounts + Company Cash Box</h2>
+                        </div>
+                    </div>
+                    <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-800">Real Money</span>
                 </div>
-            </a>
+                <div class="mt-4 flex items-baseline justify-between gap-4">
+                    <div class="font-mono text-3xl font-black text-emerald-700">₹{{ number_format($moneyPosition['verified_company_money'] ?? $totals['current_balance'], 2) }}</div>
+                </div>
+                <div class="mt-4 grid grid-cols-2 gap-3 border-t border-emerald-200/60 pt-3 text-xs">
+                    <div class="rounded-xl bg-white/80 p-2.5 shadow-sm">
+                        <span class="block text-[10px] font-bold uppercase text-slate-400">Verified Bank</span>
+                        <strong class="font-mono text-sm font-extrabold text-slate-900">₹{{ number_format($moneyPosition['bank_accounts']['total_verified'] ?? $totals['bank_balance'], 2) }}</strong>
+                    </div>
+                    <div class="rounded-xl bg-white/80 p-2.5 shadow-sm">
+                        <span class="block text-[10px] font-bold uppercase text-slate-400">Verified Cash Box</span>
+                        <strong class="font-mono text-sm font-extrabold text-emerald-700">₹{{ number_format($moneyPosition['company_cash']['total_verified'] ?? $totals['liquid_cash'], 2) }}</strong>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Expected / In-Transit Funds --}}
+            <div class="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-white p-5 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-600 text-white shadow-sm">
+                            <i data-lucide="clock" class="h-5 w-5"></i>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-black uppercase tracking-wider text-amber-800">Expected / In-Transit Funds</span>
+                            <h2 class="text-xs font-bold text-slate-500">Pending Verification + Cash With Shops + Floating Cheques</h2>
+                        </div>
+                    </div>
+                    <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black uppercase text-amber-800">Unverified</span>
+                </div>
+                <div class="mt-4 flex items-baseline justify-between gap-4">
+                    <div class="font-mono text-3xl font-black text-amber-700">₹{{ number_format($moneyPosition['expected_in_transit_money'] ?? 0, 2) }}</div>
+                </div>
+                <div class="mt-4 grid grid-cols-3 gap-2 border-t border-amber-200/60 pt-3 text-xs">
+                    <div class="rounded-xl bg-white/80 p-2 shadow-sm">
+                        <span class="block text-[10px] font-bold uppercase text-slate-400">Bank Pending</span>
+                        <strong class="font-mono text-xs font-extrabold text-amber-700">₹{{ number_format($moneyPosition['bank_accounts']['total_pending'] ?? 0, 2) }}</strong>
+                    </div>
+                    <div class="rounded-xl bg-white/80 p-2 shadow-sm">
+                        <span class="block text-[10px] font-bold uppercase text-slate-400">With Shops</span>
+                        <strong class="font-mono text-xs font-extrabold text-rose-700">₹{{ number_format($moneyPosition['cash_with_shops']['total_cash_with_shops'] ?? 0, 2) }}</strong>
+                    </div>
+                    <div class="rounded-xl bg-white/80 p-2 shadow-sm">
+                        <span class="block text-[10px] font-bold uppercase text-slate-400">Floating Chq</span>
+                        <strong class="font-mono text-xs font-extrabold text-cyan-700">₹{{ number_format($moneyPosition['floating_cheques']['total_floating'] ?? 0, 2) }}</strong>
+                    </div>
+                </div>
+            </div>
         </section>
 
+        {{-- ── 2. BANK ACCOUNTS POSITION & RECONCILIATION ─────────────────────── --}}
         <section class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
             <div class="mb-4 flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 class="text-base font-extrabold text-slate-950">Company Accounts</h2>
-                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Open an account to check details or view its separate statement.</p>
+                    <h2 class="text-base font-extrabold text-slate-950">Company Bank & Wallet Accounts</h2>
+                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Verified balance, pending in-flight collections, and reconciliation coverage.</p>
                 </div>
                 <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-                    <i data-lucide="plus-circle" class="h-4 w-4"></i> Manage
+                    <i data-lucide="plus-circle" class="h-4 w-4"></i> Manage Accounts
                 </a>
             </div>
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                @forelse($companyAccounts as $account)
-                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="min-w-0">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <h3 class="break-words text-sm font-black text-slate-950">{{ $account->name }}</h3>
-                                    <span class="rounded-md bg-white px-2 py-0.5 text-[10px] font-black uppercase text-slate-600">{{ $account->account_type }}</span>
+                @forelse($moneyPosition['bank_accounts']['accounts'] ?? [] as $item)
+                    @php $acc = $item['account']; @endphp
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h3 class="break-words text-sm font-black text-slate-950">{{ $acc->name }}</h3>
+                                        <span class="rounded-md bg-white px-2 py-0.5 text-[10px] font-black uppercase text-slate-600">{{ $acc->account_type }}</span>
+                                    </div>
+                                    <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $acc->bank_name ?: $acc->account_number ?: 'Bank account' }}</p>
                                 </div>
-                                <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $account->bank_name ?: $account->account_number ?: 'Company account' }}</p>
+                                <div class="shrink-0 text-right">
+                                    <div class="text-[10px] font-bold uppercase text-slate-400">Verified</div>
+                                    <div class="font-mono text-sm font-extrabold text-emerald-700">₹{{ number_format($item['verified_balance'], 2) }}</div>
+                                </div>
                             </div>
-                            <div class="shrink-0 text-right font-mono text-sm font-extrabold text-emerald-700">₹{{ number_format($account->current_balance, 2) }}</div>
+
+                            <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                <div class="rounded-xl bg-white p-2 border border-slate-100">
+                                    <span class="block text-[10px] font-bold text-amber-700">Pending Verify</span>
+                                    <strong class="font-mono text-xs font-extrabold text-amber-800">₹{{ number_format($item['net_pending'], 2) }}</strong>
+                                </div>
+                                <div class="rounded-xl bg-white p-2 border border-slate-100">
+                                    <span class="block text-[10px] font-bold text-slate-400">Projected</span>
+                                    <strong class="font-mono text-xs font-extrabold text-slate-900">₹{{ number_format($item['projected_position'], 2) }}</strong>
+                                </div>
+                            </div>
+
+                            {{-- Reconciliation Progress --}}
+                            <div class="mt-3">
+                                <div class="flex items-center justify-between text-[10px] font-bold text-slate-500 mb-1">
+                                    <span>Reconciled</span>
+                                    <span>{{ $item['reconciliation_percentage'] }}%</span>
+                                </div>
+                                <div class="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                                    <div class="h-full rounded-full bg-emerald-500" style="width: {{ $item['reconciliation_percentage'] }}%"></div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="mt-3 grid grid-cols-2 gap-2">
-                            <a href="{{ route('admin.cashbook.bank-accounts.show', $account) }}" class="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg bg-white px-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-100">
+
+                        <div class="mt-4 grid grid-cols-2 gap-2">
+                            <a href="{{ route('admin.cashbook.bank-accounts.show', $acc) }}" class="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg bg-white px-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-100">
                                 <i data-lucide="eye" class="h-3.5 w-3.5"></i> Details
                             </a>
-                            <a href="{{ route('admin.cashbook.bank-accounts.statement', $account) }}" class="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg bg-emerald-50 px-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
+                            <a href="{{ route('admin.cashbook.bank-accounts.statement', $acc) }}" class="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg bg-emerald-50 px-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
                                 <i data-lucide="list-checks" class="h-3.5 w-3.5"></i> Statement
                             </a>
                         </div>
                     </div>
                 @empty
                     <div class="rounded-2xl border border-dashed border-slate-200 p-5 text-center text-sm font-bold text-slate-400 md:col-span-2 xl:col-span-3">
-                        No company accounts yet.
+                        No bank accounts found.
                     </div>
                 @endforelse
+            </div>
+        </section>
+
+        {{-- ── 3. CASH WITH SHOPS (PHYSICAL CASH AT SHOPS) ───────────────────── --}}
+        <section class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
+            <div class="mb-4 flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+                        <i data-lucide="store" class="h-4 w-4"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-extrabold text-slate-950">Cash With Shops (Physical Cash)</h2>
+                        <p class="mt-0.5 text-xs font-semibold text-slate-500">Unverified customer cash collected at retail shops awaiting company physical handover.</p>
+                    </div>
+                </div>
+                <div class="font-mono text-sm font-extrabold text-rose-700">Total: ₹{{ number_format($moneyPosition['cash_with_shops']['total_cash_with_shops'] ?? 0, 2) }}</div>
+            </div>
+
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-left text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-200 bg-slate-100/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th class="px-3 py-3">Shop</th>
+                            <th class="px-3 py-3 text-right">Cash With Shop</th>
+                            <th class="px-3 py-3 text-right">Closing Position</th>
+                            <th class="px-3 py-3 text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($moneyPosition['cash_with_shops']['shops'] ?? [] as $shopRow)
+                            <tr class="hover:bg-slate-50">
+                                <td class="px-3 py-3 font-bold text-slate-900">{{ $shopRow['shop_name'] }}</td>
+                                <td class="px-3 py-3 text-right font-mono font-extrabold text-rose-700">₹{{ number_format($shopRow['cash_with_shop'], 2) }}</td>
+                                <td class="px-3 py-3 text-right font-mono font-bold text-slate-600">₹{{ number_format($shopRow['closing_position'], 2) }}</td>
+                                <td class="px-3 py-3 text-center">
+                                    <span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase {{ $shopRow['cash_with_shop'] > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600' }}">
+                                        {{ $shopRow['status'] }}
+                                    </span>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" class="px-3 py-4 text-center text-xs font-bold text-slate-400">No active shops.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
         </section>
 

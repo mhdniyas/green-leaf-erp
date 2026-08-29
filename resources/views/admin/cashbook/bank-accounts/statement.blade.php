@@ -143,7 +143,11 @@
                                 </div>
                                 <div class="text-right">
                                     <div class="font-mono text-sm font-extrabold {{ $entry->direction === 'in' ? 'text-emerald-700' : 'text-rose-700' }}">₹{{ number_format($entry->amount, 2) }}</div>
-                                    <div class="mt-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase text-slate-500">{{ str_replace('_', ' ', $entry->status) }}</div>
+                                    @if($entry->source_type === 'App\Models\Cashbook\ShopLedgerTransaction' && ! $entry->is_finalized)
+                                        <div class="mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase text-amber-800">Needs Verification</div>
+                                    @else
+                                        <div class="mt-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase text-slate-500">{{ str_replace('_', ' ', $entry->status) }}</div>
+                                    @endif
                                     @if($entry->duplicate_status === 'possible_duplicate')
                                         <div class="mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase text-amber-700">Duplicate Flag</div>
                                     @endif
@@ -173,7 +177,15 @@
                                     </button>
                                 </form>
                             @endif
-                            @if($entry->direction === 'in' && in_array($entry->status, ['unmatched', 'partially_matched'], true))
+                            @if($entry->source_type === 'App\Models\Cashbook\ShopLedgerTransaction' && ! $entry->is_finalized)
+                                <form method="POST" action="{{ route('admin.cashbook.bank-accounts.statement.verify', ['account' => $account, 'statementRef' => $entry->secureRouteKey()]) }}" class="mt-3">
+                                    @csrf
+                                    <button type="submit" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500 shadow-sm transition">
+                                        <i data-lucide="check-circle" class="h-4 w-4"></i>
+                                        {{ $account->account_type === 'cash' ? 'Verify Cash Received' : 'Verify Received' }}
+                                    </button>
+                                </form>
+                            @elseif($entry->direction === 'in' && in_array($entry->status, ['unmatched', 'partially_matched'], true))
                                 <a href="{{ route('admin.cashbook.finance.reconciliation', ['statementRef' => $entry->secureRouteKey(), 'company_account_id' => $entry->company_account_id, 'month' => $entry->transaction_date?->format('Y-m')]) }}" class="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500">
                                     <i data-lucide="git-compare-arrows" class="h-4 w-4"></i> Reconcile
                                 </a>
@@ -213,7 +225,11 @@
                                     </td>
                                     <td class="px-3 py-3">
                                         <div class="flex flex-wrap gap-1.5">
-                                            <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ str_replace('_', ' ', $entry->status) }}</span>
+                                            @if($entry->source_type === 'App\Models\Cashbook\ShopLedgerTransaction' && ! $entry->is_finalized)
+                                                <span class="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-800">Needs Verification</span>
+                                            @else
+                                                <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ str_replace('_', ' ', $entry->status) }}</span>
+                                            @endif
                                             @if($entry->duplicate_status === 'possible_duplicate')
                                                 <span class="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">Duplicate</span>
                                             @endif
@@ -226,6 +242,14 @@
                                                 @method('PATCH')
                                                 <button type="submit" class="inline-flex min-h-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-[11px] font-bold text-amber-700 hover:bg-amber-100">
                                                     Clear Flag
+                                                </button>
+                                            </form>
+                                        @elseif($entry->source_type === 'App\Models\Cashbook\ShopLedgerTransaction' && ! $entry->is_finalized)
+                                            <form method="POST" action="{{ route('admin.cashbook.bank-accounts.statement.verify', ['account' => $account, 'statementRef' => $entry->secureRouteKey()]) }}">
+                                                @csrf
+                                                <button type="submit" class="inline-flex min-h-8 items-center justify-center rounded-lg bg-emerald-600 px-2.5 text-[11px] font-bold text-white hover:bg-emerald-500 shadow-sm transition">
+                                                    <i data-lucide="check-circle" class="mr-1 h-3.5 w-3.5"></i>
+                                                    {{ $account->account_type === 'cash' ? 'Verify Cash Received' : 'Verify Received' }}
                                                 </button>
                                             </form>
                                         @elseif($entry->direction === 'in' && in_array($entry->status, ['unmatched', 'partially_matched'], true))

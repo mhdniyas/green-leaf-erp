@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models\Cashbook;
 
+use App\Models\Shop;
 use App\Models\ShopInvoice;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -40,6 +42,11 @@ class ShopLedgerTransaction extends Model
         'voided_at' => 'datetime',
     ];
 
+    public function shop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class, 'shop_id');
+    }
+
     public function entryType(): BelongsTo
     {
         return $this->belongsTo(LedgerEntryType::class, 'entry_type_id');
@@ -63,6 +70,31 @@ class ShopLedgerTransaction extends Model
     public function paymentLedgerAllocations(): HasMany
     {
         return $this->hasMany(ShopPaymentLedgerAllocation::class, 'shop_ledger_transaction_id');
+    }
+
+    public function enteredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'entered_by');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function statementEntries(): HasMany
+    {
+        return $this->hasMany(CompanyAccountStatementEntry::class, 'source_id')
+            ->where('source_type', self::class);
+    }
+
+    public function isReconciled(): bool
+    {
+        return CompanyAccountStatementEntry::query()
+            ->where('source_type', self::class)
+            ->where('source_id', $this->id)
+            ->where('is_finalized', true)
+            ->exists();
     }
 
     public function secureRouteKey(): string
@@ -100,6 +132,10 @@ class ShopLedgerTransaction extends Model
             $this->reference_type === ShopInvoice::class ||
             $this->reference_type === 'ShopInvoice'
         ) {
+            return false;
+        }
+
+        if ($this->isReconciled()) {
             return false;
         }
 

@@ -280,6 +280,47 @@ class JournalService
         return $this->createEntry($data, $userId);
     }
 
+    public function recordShopCollection(ShopLedgerTransaction $transaction, CompanyAccount $companyAccount, int $userId): JournalEntry
+    {
+        $amount = round((float) $transaction->amount, 2);
+        if ($amount <= 0.00 || ! $companyAccount->enabled || ! in_array($companyAccount->account_type, ['cash', 'bank', 'wallet'], true)) {
+            throw new RuntimeException('Shop collection journal requires a positive amount and enabled company account.');
+        }
+
+        $event = 'shop-collection:'.$transaction->id;
+        $existingEntry = $this->entryForSource(ShopLedgerTransaction::class, $transaction->id, $event);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
+        $cashAccountId = $companyAccount->account_type === 'cash'
+            ? $this->getAccountIdByCode('1010')
+            : $this->getAccountIdByCode('1020');
+        $arAccountId = $this->getAccountIdByCode('1100');
+
+        $lines = $transaction->direction === 'income'
+            ? [
+                ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $arAccountId, 'type' => 'credit', 'amount' => $amount],
+            ]
+            : [
+                ['account_id' => $arAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ];
+
+        $data = new JournalEntryData(
+            entryDate: $transaction->business_date->toDateString(),
+            reference: 'SHOP-COLLECT-'.$transaction->id,
+            description: 'Verified shop collection: '.($transaction->entryType?->name ?? 'Collection').' for '.($transaction->shop?->name ?? 'Shop #'.$transaction->shop_id),
+            lines: $lines,
+            sourceType: ShopLedgerTransaction::class,
+            sourceId: $transaction->id,
+            sourceEvent: $event,
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
     public function recordCompanyAccountingEntry(CompanyAccountingEntry $entry, int $userId): JournalEntry
     {
         $entry->loadMissing('category.account');

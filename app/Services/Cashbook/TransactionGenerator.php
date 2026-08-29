@@ -7,6 +7,7 @@ namespace App\Services\Cashbook;
 use App\Enums\Cashbook\FundingSource;
 use App\Enums\Cashbook\LedgerDirection;
 use App\Enums\Cashbook\TransactionStatus;
+use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
@@ -78,7 +79,7 @@ class TransactionGenerator
                 'petty_direction' => $effect->pettyDirection->value,
                 'company_pending_delta' => $effect->companyPendingDelta,
                 'company_pending_direction' => $effect->companyPendingDirection->value,
-                'company_account_id' => $input['company_account_id'] ?? null,
+                'company_account_id' => $input['company_account_id'] ?? ($setting->company_account_id ?: null),
                 'generated_by_rule' => false,
                 'status' => TransactionStatus::Posted->value,
                 'reference_type' => $input['reference_type'] ?? null,
@@ -175,6 +176,21 @@ class TransactionGenerator
 
             $transaction->update($updatePayload);
 
+            // Synchronize amount and direction on unfinalized linked statement entry
+            $linkedStatement = CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->where('source_id', $transaction->id)
+                ->where('is_finalized', false)
+                ->first();
+
+            if ($linkedStatement instanceof CompanyAccountStatementEntry) {
+                $linkedStatement->update([
+                    'amount' => $newAmount,
+                    'direction' => $direction->value === 'income' ? 'in' : 'out',
+                    'notes' => $notes !== null ? ($notes ?: $linkedStatement->notes) : $linkedStatement->notes,
+                ]);
+            }
+
             foreach ($transaction->children as $child) {
                 $childSetting = $this->ruleResolver->resolve($child->shop_id, $child->entry_type_id, $child->business_date->toDateString());
                 $childAmount = $childSetting->secondary_amount_mode === 'percentage'
@@ -209,6 +225,20 @@ class TransactionGenerator
                 'voided_at' => now(),
                 'void_reason' => $reason,
             ]);
+
+            // Invalidate/supersede linked unfinalized statement entry
+            $linkedStatement = CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->where('source_id', $transaction->id)
+                ->where('is_finalized', false)
+                ->first();
+
+            if ($linkedStatement instanceof CompanyAccountStatementEntry) {
+                $linkedStatement->update([
+                    'status' => 'superseded',
+                    'notes' => trim(($linkedStatement->notes ? $linkedStatement->notes.' | ' : '').'Voided: '.$reason),
+                ]);
+            }
 
             foreach ($transaction->children()->where('status', '!=', TransactionStatus::Void->value)->get() as $child) {
                 $this->void($child, $voidedBy, "Parent transaction #{$transaction->id} voided");

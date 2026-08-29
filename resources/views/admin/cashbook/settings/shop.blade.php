@@ -79,22 +79,23 @@
             </div>
 
             <div class="overflow-x-auto lg:overflow-visible">
-                <table class="w-full min-w-[78rem] lg:table-fixed text-[11px] lg:text-[10px]">
+                <table class="w-full min-w-[84rem] lg:table-fixed text-[11px] lg:text-[10px]">
                     <thead class="bg-slate-50 text-left">
                         <tr>
-                            <th class="w-[16%] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Row</th>
+                            <th class="w-[15%] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Row</th>
                             <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">On</th>
-                            <th class="w-[9%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Paid From</th>
+                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Paid From</th>
+                            <th class="w-[10%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Bank Dest</th>
                             <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Sales</th>
                             <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Income</th>
                             <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Expense</th>
                             <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">P&L</th>
-                            <th class="w-[9%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Settlement</th>
-                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Petty</th>
-                            <th class="w-[9%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Company</th>
+                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Settlement</th>
+                            <th class="w-[7%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Petty</th>
+                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Company</th>
                             <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Payable</th>
                             <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Auto Child</th>
-                            <th class="w-[11%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Row</th>
+                            <th class="w-[9%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Row</th>
                             <th class="w-[6%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Amount</th>
                             <th class="w-[4%] px-2 py-2 text-right text-[10px] font-black uppercase tracking-wider text-slate-400">Save</th>
                         </tr>
@@ -116,6 +117,21 @@
                                             <option value="{{ $value }}" @selected($setting->default_funding_source === $value)>{{ $label }}</option>
                                         @endforeach
                                     </select>
+                                </td>
+                                <td class="px-2 py-2">
+                                    <select form="setting-{{ $setting->id }}" name="company_account_id" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
+                                        <option value="">None</option>
+                                        @foreach($companyAccounts as $account)
+                                            <option value="{{ $account->id }}" @selected((int) $setting->company_account_id === (int) $account->id)>
+                                                {{ $account->name }} ({{ $account->bank_name ?: $account->account_type }})
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                    @if($setting->companyAccount && $setting->companyAccount->account_type === 'cash' && in_array($setting->entryType?->code, ['paytm', 'card', 'upi', 'gpay', 'online']))
+                                        <div class="mt-1 text-[9px] font-bold text-amber-700 leading-tight">
+                                            ⚠️ Cash account selected
+                                        </div>
+                                    @endif
                                 </td>
                                 @foreach(['include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl'] as $field)
                                     <td class="px-2 py-2">
@@ -287,6 +303,79 @@
             </div>
         </form>
     </section>
+    <section id="historical-fetch" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="border-b border-slate-100 pb-4">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
+                    <i data-lucide="history" class="h-5 w-5"></i>
+                </span>
+                <div>
+                    <h2 class="text-lg font-extrabold text-slate-950">Historical Bank Collection Fetch</h2>
+                    <p class="text-xs font-semibold text-slate-500">Fetch past shop online/digital collections (e.g. Paytm, Card) into a linked bank account for reconciliation.</p>
+                </div>
+            </div>
+        </div>
+
+        <form id="historical-fetch-form" onsubmit="previewHistoricalFetch(event)" class="mt-5 space-y-4">
+            <input type="hidden" name="shop_id" value="{{ $currentShop->shop_id }}">
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500">Category / Row</label>
+                    <select id="hist-entry-type-id" name="entry_type_id" onchange="onHistoricalCategoryChange()" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        @foreach($settingsByCategory->get('income', collect())->where('enabled', true) as $setting)
+                            <option value="{{ $setting->entry_type_id }}" data-bank-id="{{ $setting->company_account_id ?: '' }}">
+                                {{ $setting->entryType->name }} ({{ $setting->entryType->code }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500">Destination Bank</label>
+                    <select id="hist-company-account-id" name="company_account_id" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        @foreach($companyAccounts as $account)
+                            <option value="{{ $account->id }}">
+                                {{ $account->name }} ({{ $account->bank_name ?: $account->account_type }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500">Period Preset</label>
+                    <select id="hist-preset" onchange="applyPeriodPreset(this.value)" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="this_month">This Month</option>
+                        <option value="last_month">Last Month</option>
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <option value="custom">Custom Period</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500">From Date</label>
+                        <input type="date" id="hist-from-date" name="from_date" value="{{ now()->startOfMonth()->toDateString() }}" required class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-black uppercase tracking-wider text-slate-500">To Date</label>
+                        <input type="date" id="hist-to-date" name="to_date" value="{{ now()->toDateString() }}" required class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-[11px] font-semibold text-slate-500">Preview calculates eligibility using shop sales date without changing live data.</p>
+                <button type="submit" id="btn-preview-hist" class="rounded-xl bg-slate-950 px-5 py-2.5 text-xs font-black text-white hover:bg-slate-800">
+                    Preview Historical Entries
+                </button>
+            </div>
+        </form>
+
+        <!-- Preview Results Container -->
+        <div id="hist-preview-container" class="mt-6 hidden border-t border-slate-100 pt-5"></div>
+    </section>
 </div>
 @endsection
 
@@ -319,7 +408,9 @@ async function saveShopSetting(event, settingId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify(payload),
         });
@@ -352,7 +443,9 @@ async function createCustomRow(event, category) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify({
                 shop_id: form.shop_id.value,
@@ -393,7 +486,9 @@ async function createCollectionCustomRow(event, category) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify({
                 shop_id: '{{ $currentShop->shop_id }}',
@@ -435,7 +530,9 @@ async function saveCollectionSettings(event) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify(payload),
         });
@@ -447,6 +544,381 @@ async function saveCollectionSettings(event) {
         button.disabled = false;
         button.textContent = 'Save Collection';
     }
+}
+
+// ─── Historical Bank Collection Fetch JS ─────────────────────────────────────
+
+let currentHistoricalPreview = null;
+
+function applyPeriodPreset(preset) {
+    const today = new Date();
+    const formatDate = (d) => d.toISOString().split('T')[0];
+
+    const fromInput = document.getElementById('hist-from-date');
+    const toInput = document.getElementById('hist-to-date');
+
+    if (preset === 'today') {
+        fromInput.value = formatDate(today);
+        toInput.value = formatDate(today);
+    } else if (preset === 'yesterday') {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        fromInput.value = formatDate(y);
+        toInput.value = formatDate(y);
+    } else if (preset === 'this_month') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        fromInput.value = formatDate(firstDay);
+        toInput.value = formatDate(today);
+    } else if (preset === 'last_month') {
+        const firstDayLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastDayLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        fromInput.value = formatDate(firstDayLastMonth);
+        toInput.value = formatDate(lastDayLastMonth);
+    }
+}
+
+function onHistoricalCategoryChange() {
+    const select = document.getElementById('hist-entry-type-id');
+    const selectedOption = select.options[select.selectedIndex];
+    const bankId = selectedOption.getAttribute('data-bank-id');
+    if (bankId) {
+        document.getElementById('hist-company-account-id').value = bankId;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    applyPeriodPreset('this_month');
+    onHistoricalCategoryChange();
+});
+
+async function previewHistoricalFetch(event) {
+    event.preventDefault();
+    const form = event.target;
+    const button = document.getElementById('btn-preview-hist');
+    const container = document.getElementById('hist-preview-container');
+
+    const shopId = form.shop_id?.value;
+    const entryTypeId = form.entry_type_id?.value;
+    const companyAccountId = form.company_account_id?.value;
+    const fromDate = form.from_date?.value;
+    const toDate = form.to_date?.value;
+
+    if (!entryTypeId) {
+        showToast('Please select a Category / Row first.', 'error');
+        return;
+    }
+    if (!companyAccountId) {
+        showToast('Please select a Destination Bank.', 'error');
+        return;
+    }
+    if (!fromDate || !toDate) {
+        showToast('Please select both From and To dates.', 'error');
+        return;
+    }
+
+    const payload = {
+        shop_id: parseInt(shopId, 10),
+        entry_type_id: parseInt(entryTypeId, 10),
+        company_account_id: parseInt(companyAccountId, 10),
+        from_date: fromDate,
+        to_date: toDate,
+    };
+
+    button.disabled = true;
+    button.textContent = 'Calculating Preview...';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.historical-bank-collections.preview') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        let data = {};
+        try {
+            data = await response.json();
+        } catch (e) {
+            data = { message: 'Server returned an invalid response (status ' + response.status + ').' };
+        }
+
+        if (!response.ok || !data.success) {
+            const errorMsg = data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Preview calculation failed');
+            showToast(errorMsg, 'error');
+            return;
+        }
+
+        currentHistoricalPreview = data.preview;
+        renderHistoricalPreview(data.preview);
+    } catch (error) {
+        console.error('Historical fetch preview error:', error);
+        showToast(error.message || 'Preview request failed', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Preview Historical Entries';
+    }
+}
+
+function renderHistoricalPreview(p) {
+    const container = document.getElementById('hist-preview-container');
+    if (!container) return;
+    container.classList.remove('hidden');
+
+    const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const shopName = p.shop?.name || 'Selected Shop';
+    const entryTypeName = p.entry_type?.name || 'Selected Category';
+    const bankName = p.company_account?.name || 'Selected Bank';
+    const fromDate = p.from_date || '';
+    const toDate = p.to_date || '';
+
+    const sourceCount = Number(p.source_count || 0);
+    const sourceAmount = Number(p.source_amount || 0);
+    const eligibleCount = Number(p.eligible_count || 0);
+    const eligibleAmount = Number(p.eligible_amount || 0);
+    const alreadyLinkedCount = Number(p.already_linked_count || 0);
+    const alreadyLinkedAmount = Number(p.already_linked_amount || 0);
+    const differentBankCount = Number(p.different_bank_count || 0);
+    const differentBankAmount = Number(p.different_bank_amount || 0);
+    const reconciledCount = Number(p.reconciled_count || 0);
+    const reconciledAmount = Number(p.reconciled_amount || 0);
+    const voidCount = Number(p.void_count || 0);
+    const voidAmount = Number(p.void_amount || 0);
+
+    let differentBankHtml = '';
+    if (Array.isArray(p.different_banks_detail) && p.different_banks_detail.length > 0) {
+        differentBankHtml = `<div class="mt-2 text-[11px] text-amber-700 font-semibold space-y-1">` +
+            p.different_banks_detail.map(d => `<div>• ${d.bank_name || 'Bank'}: ${Number(d.count || 0)} txs (${formatCurrency(d.amount)})</div>`).join('') +
+            `</div>`;
+    }
+
+    let duplicateWarningHtml = '';
+    if (Number(p.duplicate_source_warnings_count || 0) > 0 && Array.isArray(p.duplicate_source_warnings_detail)) {
+        duplicateWarningHtml = `
+            <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
+                <div class="flex items-center gap-2 text-rose-900 font-black text-xs">
+                    <i data-lucide="alert-triangle" class="h-4 w-4 text-rose-600"></i>
+                    <span>Duplicate Source Warnings (${p.duplicate_source_warnings_count} dates)</span>
+                </div>
+                <p class="mt-1 text-[11px] text-rose-700 font-semibold">Multiple active entries exist for the same date. These are never automatically combined.</p>
+                <div class="mt-2 space-y-1 text-xs text-rose-950 font-bold">
+                    ${p.duplicate_source_warnings_detail.map(d => `<div>• <strong>${d.business_date}</strong>: ${d.count} active entries (Total ${formatCurrency(d.total_amount)}) &mdash; IDs: ${(d.transaction_ids || []).join(', ')}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    let sameDateDiffHtml = '';
+    if (Number(p.same_date_amount_differences_count || 0) > 0 && Array.isArray(p.same_date_amount_differences_detail)) {
+        sameDateDiffHtml = `
+            <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div class="flex items-center gap-2 text-amber-900 font-black text-xs">
+                    <i data-lucide="alert-circle" class="h-4 w-4 text-amber-600"></i>
+                    <span>Potential Same-Date Amount Differences (${p.same_date_amount_differences_count})</span>
+                </div>
+                <p class="mt-1 text-[11px] text-amber-700 font-semibold">Unmatched bank statement exists on the same date with a different amount (requires manual review in Reconciliation).</p>
+                <div class="mt-2 space-y-1 text-xs text-amber-950 font-bold">
+                    ${p.same_date_amount_differences_detail.map(d => `<div>• <strong>${d.business_date}</strong>: Expected ${formatCurrency(d.expected_amount)} vs Statement ${formatCurrency(d.statement_amount)} (Diff: ${formatCurrency(d.difference)}) &mdash; Ref: ${d.statement_reference || '—'}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = `
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
+                <div>
+                    <h3 class="text-sm font-black text-slate-950">Historical Fetch Preview</h3>
+                    <p class="text-xs font-semibold text-slate-500">
+                        ${shopName} • ${entryTypeName} &rarr; <span class="font-bold text-slate-900">${bankName}</span>
+                        (${fromDate} &rarr; ${toDate})
+                    </p>
+                </div>
+                <div class="text-right">
+                    <span class="text-xs font-bold text-slate-500">Total Found:</span>
+                    <span class="text-sm font-black text-slate-950">${sourceCount} txs (${formatCurrency(sourceAmount)})</span>
+                </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Eligible to Fetch</p>
+                    <p class="mt-1 text-lg font-black text-emerald-950">${eligibleCount} <span class="text-xs font-bold text-emerald-800">txs</span></p>
+                    <p class="text-xs font-bold text-emerald-700">${formatCurrency(eligibleAmount)}</p>
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-white p-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Already ${bankName}</p>
+                    <p class="mt-1 text-lg font-black text-slate-900">${alreadyLinkedCount} <span class="text-xs font-bold text-slate-400">txs</span></p>
+                    <p class="text-xs font-bold text-slate-500">${formatCurrency(alreadyLinkedAmount)}</p>
+                </div>
+
+                <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-amber-800">Different Bank</p>
+                    <p class="mt-1 text-lg font-black text-amber-950">${differentBankCount} <span class="text-xs font-bold text-amber-800">txs</span></p>
+                    <p class="text-xs font-bold text-amber-700">${formatCurrency(differentBankAmount)}</p>
+                    ${differentBankHtml}
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-white p-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Reconciled (Locked)</p>
+                    <p class="mt-1 text-lg font-black text-slate-900">${reconciledCount} <span class="text-xs font-bold text-slate-400">txs</span></p>
+                    <p class="text-xs font-bold text-slate-500">${formatCurrency(reconciledAmount)}</p>
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-white p-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Void / Excluded</p>
+                    <p class="mt-1 text-lg font-black text-slate-900">${voidCount} <span class="text-xs font-bold text-slate-400">txs</span></p>
+                    <p class="text-xs font-bold text-slate-500">${formatCurrency(voidAmount)}</p>
+                </div>
+            </div>
+
+            ${duplicateWarningHtml}
+            ${sameDateDiffHtml}
+
+            <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 pt-4">
+                <p class="text-xs font-bold text-slate-600">
+                    ${eligibleCount > 0 ? `Ready to assign ${eligibleCount} entries to ${bankName}. Original sales dates will be retained.` : `No unassigned eligible transactions found for this period.`}
+                </p>
+                <button type="button"
+                        id="btn-execute-hist"
+                        onclick="executeHistoricalFetch()"
+                        ${eligibleCount === 0 ? 'disabled' : ''}
+                        class="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+                    Fetch ${eligibleCount} Eligible Entries
+                </button>
+            </div>
+        </div>
+    `;
+
+    if (window.lucide) { lucide.createIcons(); }
+}
+
+async function executeHistoricalFetch() {
+    if (!currentHistoricalPreview || currentHistoricalPreview.eligible_count <= 0) return;
+
+    const button = document.getElementById('btn-execute-hist');
+    const container = document.getElementById('hist-preview-container');
+
+    button.disabled = true;
+    button.textContent = 'Fetching Entries...';
+
+    const payload = {
+        shop_id: currentHistoricalPreview.shop.id,
+        entry_type_id: currentHistoricalPreview.entry_type.id,
+        company_account_id: currentHistoricalPreview.company_account.id,
+        from_date: currentHistoricalPreview.from_date,
+        to_date: currentHistoricalPreview.to_date,
+    };
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.historical-bank-collections.fetch') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        let data = {};
+        try {
+            data = await response.json();
+        } catch (e) {
+            data = { message: 'Server returned an invalid response (status ' + response.status + ').' };
+        }
+
+        if (!response.ok || !data.success) {
+            const errorMsg = data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Fetch execution failed');
+            showToast(errorMsg, 'error');
+            button.disabled = false;
+            button.textContent = `Fetch ${currentHistoricalPreview.eligible_count} Eligible Entries`;
+            return;
+        }
+
+        showToast(data.message, 'success');
+        renderHistoricalFetchComplete(data.result);
+    } catch (error) {
+        console.error('Historical fetch execution error:', error);
+        showToast(error.message || 'Fetch execution failed', 'error');
+        button.disabled = false;
+        button.textContent = `Fetch ${currentHistoricalPreview.eligible_count} Eligible Entries`;
+    }
+}
+
+function renderHistoricalFetchComplete(res) {
+    const container = document.getElementById('hist-preview-container');
+    const formatCurrency = (n) => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const reconUrl = `/admin/cashbook/finance/reconciliation?company_account_uuid=${res.company_account.public_uuid}`;
+
+    container.innerHTML = `
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                    <i data-lucide="check-circle" class="h-6 w-6"></i>
+                </span>
+                <div>
+                    <h3 class="text-sm font-black text-slate-950">Historical Bank Collection Fetch Complete</h3>
+                    <p class="text-xs font-semibold text-slate-600">
+                        ${res.shop.name} • ${res.entry_type.name} &rarr; <span class="font-bold text-slate-950">${res.company_account.name}</span>
+                        (${res.from_date} &rarr; ${res.to_date})
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="rounded-xl border border-emerald-200 bg-white p-3 shadow-sm">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Successfully Updated</p>
+                    <p class="mt-1 text-lg font-black text-emerald-950">${res.updated_count} txs</p>
+                    <p class="text-xs font-bold text-emerald-700">${formatCurrency(res.updated_amount)}</p>
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Already Linked</p>
+                    <p class="mt-1 text-lg font-black text-slate-900">${res.skipped.already_linked_count} txs</p>
+                    <p class="text-xs font-bold text-slate-500">${formatCurrency(res.skipped.already_linked_amount)}</p>
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Different Bank (Skipped)</p>
+                    <p class="mt-1 text-lg font-black text-slate-900">${res.skipped.different_bank_count} txs</p>
+                    <p class="text-xs font-bold text-slate-500">${formatCurrency(res.skipped.different_bank_amount)}</p>
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Reconciled / Locked</p>
+                    <p class="mt-1 text-lg font-black text-slate-900">${res.skipped.reconciled_count} txs</p>
+                    <p class="text-xs font-bold text-slate-500">${formatCurrency(res.skipped.reconciled_amount)}</p>
+                </div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap items-center gap-3 border-t border-emerald-100 pt-4">
+                <a href="${reconUrl}" class="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white hover:bg-slate-800">
+                    <i data-lucide="external-link" class="h-4 w-4"></i>
+                    Open ${res.company_account.name} Reconciliation
+                </a>
+                <a href="/admin/cashbook/finance/reconciliation?company_account_uuid=${res.company_account.public_uuid}&month=${res.from_date.substring(0, 7)}&direction=in" class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700">
+                    <i data-lucide="sparkles" class="h-4 w-4"></i>
+                    Preview Auto Match
+                </a>
+                <button type="button" onclick="document.getElementById('hist-preview-container').classList.add('hidden')" class="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    Preview Another Period
+                </button>
+            </div>
+        </div>
+    `;
+
+    if (window.lucide) { lucide.createIcons(); }
 }
 </script>
 @endpush

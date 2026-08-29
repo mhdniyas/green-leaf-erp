@@ -79,6 +79,7 @@ final class ReconciliationTransactionQuery
     {
         return [
             'all' => 'All',
+            'shop_collection' => 'Shop Collections',
             'shop_payment' => 'Shop Payments',
             'direct_sale' => 'Direct Sales',
             'other_income' => 'Other Income',
@@ -130,7 +131,8 @@ final class ReconciliationTransactionQuery
 
     private function baseUnion(): Builder
     {
-        return $this->shopPayments()
+        return $this->shopCollections()
+            ->unionAll($this->shopPayments())
             ->unionAll($this->directSales())
             ->unionAll($this->companyAccounting('income'))
             ->unionAll($this->companyAccounting('expense'))
@@ -139,6 +141,40 @@ final class ReconciliationTransactionQuery
             ->unionAll($this->companyPayables())
             ->unionAll($this->pettyFunding())
             ->unionAll($this->payroll());
+    }
+
+    private function shopCollections(): Builder
+    {
+        return DB::table('shop_ledger_transactions as source')
+            ->leftJoin('shops as parties', 'parties.id', '=', 'source.shop_id')
+            ->leftJoin('ledger_entry_types as types', 'types.id', '=', 'source.entry_type_id')
+            ->leftJoin('cashbook_company_accounts as accounts', 'accounts.id', '=', 'source.company_account_id')
+            ->leftJoin('journal_entries as journals', function ($join): void {
+                $join->on('journals.source_id', '=', 'source.id')
+                    ->where('journals.source_type', ShopLedgerTransaction::class);
+            })
+            ->leftJoin('cashbook_company_account_statement_entries as statements', function ($join): void {
+                $join->on('statements.source_id', '=', 'source.id')
+                    ->where('statements.source_type', ShopLedgerTransaction::class)
+                    ->where('statements.is_finalized', 1);
+            })
+            ->where('source.direction', 'income')
+            ->whereNotNull('source.company_account_id')
+            ->whereNotIn('source.status', ['void', 'voided'])
+            ->selectRaw($this->selectSql(
+                'journals.id',
+                'parties.name',
+                'source.amount',
+                'source.business_date',
+                'source.reference_id',
+                'types.name'
+            ), [
+                ShopLedgerTransaction::class,
+                'in',
+                'shop_collection',
+                'Shop Collection',
+                'NEEDS_REVIEW',
+            ]);
     }
 
     private function shopPayments(): Builder
@@ -347,9 +383,16 @@ final class ReconciliationTransactionQuery
     private function decorate(object $row): object
     {
         $journalEntryId = (int) ($row->journal_entry_id ?? 0);
-        $row->source_ref = $row->source_type === ShopInvoicePaymentRequest::class
-            ? $this->encodedRouteKey('shop-payment', (int) $row->source_id)
-            : ($journalEntryId > 0 ? $this->encodedRouteKey('journal-entry', $journalEntryId) : '');
+        $row->find_kind = match ($row->source_type) {
+            ShopInvoicePaymentRequest::class => 'shop_payment',
+            ShopLedgerTransaction::class => 'shop_ledger',
+            default => 'journal',
+        };
+        $row->source_ref = match ($row->source_type) {
+            ShopInvoicePaymentRequest::class => $this->encodedRouteKey('shop-payment', (int) $row->source_id),
+            ShopLedgerTransaction::class => $this->encodedRouteKey('shop-ledger', (int) $row->source_id),
+            default => $journalEntryId > 0 ? $this->encodedRouteKey('journal-entry', $journalEntryId) : '',
+        };
         $row->journal_ref = $journalEntryId > 0 ? $this->encodedRouteKey('journal-entry', $journalEntryId) : null;
         $row->statement_match_summary = $row->statement_entry_id
             ? trim(($row->company_account_name ?: 'Company Account').' • '.$row->statement_date.' • Ref '.($row->statement_reference ?: '—'))

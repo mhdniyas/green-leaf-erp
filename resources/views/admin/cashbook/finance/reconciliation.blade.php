@@ -169,6 +169,9 @@
         </section>
 
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <button type="button" onclick="openAutoMatchModal()" class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-xs font-black text-emerald-800 shadow-sm hover:bg-emerald-100">
+                <i data-lucide="sparkles" class="h-4 w-4 text-emerald-600"></i> Auto Match Shop Collections
+            </button>
             <details class="group relative">
                 <summary class="inline-flex min-h-11 cursor-pointer list-none items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm hover:bg-slate-50">
                     <i data-lucide="plus" class="h-4 w-4"></i> Record Transaction
@@ -233,27 +236,24 @@
                 <form id="bulk-confirm-suggestions" method="POST" action="{{ route('admin.cashbook.finance.reconciliation.confirm-suggestions') }}" class="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-3">
                     @csrf
                     <p class="text-xs font-bold text-sky-900"><span x-text="selected.length">0</span> selected on this page</p>
-                    <button type="submit" :disabled="selected.length === 0" class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:bg-slate-300">Confirm Selected (<span x-text="selected.length">0</span>)</button>
+                    <button type="submit" x-bind:disabled="selected.length === 0" class="rounded-xl bg-sky-600 px-4 py-2 text-xs font-black text-white hover:bg-sky-700 disabled:opacity-50">
+                        Confirm Selected Matches
+                    </button>
                 </form>
 
-                <div class="mt-3 space-y-2">
+                <div class="mt-4 space-y-2">
                     @forelse($transactionRows as $transaction)
                         <article class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                            <div class="grid gap-3 lg:grid-cols-[7rem_1fr_10rem_8rem_auto] lg:items-center">
-                                <div>
-                                    <p class="font-mono text-sm font-black text-slate-950">{{ \Carbon\Carbon::parse($transaction->transaction_date)->format('d M Y') }}</p>
-                                    <span class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase {{ $transaction->direction === 'in' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800' }}">{{ strtoupper($transaction->direction) }}</span>
-                                </div>
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                 <div class="min-w-0">
-                                    <p class="truncate font-black text-slate-950">{{ $transaction->party_name }}</p>
-                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $transaction->transaction_type }} / {{ $transaction->reference ?: 'No reference' }}</p>
-                                    @if($transaction->description)
-                                        <p class="mt-1 truncate text-xs text-slate-500">{{ $transaction->description }}</p>
-                                    @endif
+                                    <p class="font-black text-slate-950">{{ $transaction->party_name }}</p>
+                                    <p class="mt-1 truncate text-xs font-bold text-slate-600">{{ $transaction->description }}</p>
+                                    <p class="mt-1 text-[11px] font-bold text-slate-400">
+                                        {{ $transaction->transaction_date }} / {{ $transaction->transaction_type }} / {{ $transaction->company_account_name }} / {{ $transaction->reference }}
+                                    </p>
                                 </div>
-                                <p class="text-xs font-bold text-slate-600">{{ $transaction->company_account_name ?: 'Company Account' }}</p>
-                                <p class="font-mono text-lg font-black text-slate-950">₹{{ number_format((float) $transaction->amount, 2) }}</p>
-                                <div class="flex flex-col items-start gap-2 lg:items-end">
+                                <div class="flex flex-col gap-2 lg:items-end">
+                                    <strong class="font-mono text-lg text-slate-950">₹{{ number_format((float) $transaction->amount, 2) }}</strong>
                                     @if($transaction->reconciliation_status === 'RECONCILED')
                                         <span class="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">✓ Reconciled</span>
                                         <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->statement_match_summary }}</p>
@@ -272,14 +272,14 @@
                                             <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->suggestion['company_account_name'] }} / ₹{{ number_format((float) $transaction->suggestion['statement_amount'], 2) }} / {{ $transaction->suggestion['statement_date'] }}</p>
                                             <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->suggestion['reason'] }}</p>
                                             <form method="POST" action="{{ route('admin.cashbook.finance.reconciliation.confirm-suggestion', $transaction->suggestion['statement_uuid']) }}">@csrf<input type="hidden" name="candidate_ref" value="{{ $transaction->source_ref }}"><button class="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Confirm</button></form>
-                                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : 'journal', 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">{{ $transaction->suggestion['confidence'] === 'likely' ? 'Review' : 'Change Match' }}</a>
+                                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->find_kind ?? ($transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : ($transaction->source_type === \App\Models\Cashbook\ShopLedgerTransaction::class ? 'shop_ledger' : 'journal')), 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">{{ $transaction->suggestion['confidence'] === 'likely' ? 'Review' : 'Change Match' }}</a>
                                             @if($transaction->suggestion['confidence'] === 'likely')
-                                                <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : 'journal', 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">Change Match</a>
+                                                <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->find_kind ?? ($transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : ($transaction->source_type === \App\Models\Cashbook\ShopLedgerTransaction::class ? 'shop_ledger' : 'journal')), 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">Change Match</a>
                                             @endif
                                         @else
                                             <span class="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-black uppercase text-amber-700">{{ ($transaction->suggestion['status'] ?? null) === 'NO_MATCH' ? 'No Match Found' : 'Needs Review' }}</span>
                                             <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->suggestion['reason'] ?? 'No eligible statement found.' }}</p>
-                                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : 'journal', 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">{{ ($transaction->suggestion['status'] ?? null) === 'NO_MATCH' ? 'Find Match' : 'Review Matches' }}</a>
+                                            <a href="{{ route('admin.cashbook.finance.reconciliation', ['workspace' => 'needs_reconciliation', 'find_kind' => $transaction->find_kind ?? ($transaction->source_type === \App\Models\ShopInvoicePaymentRequest::class ? 'shop_payment' : ($transaction->source_type === \App\Models\Cashbook\ShopLedgerTransaction::class ? 'shop_ledger' : 'journal')), 'find_ref' => $transaction->source_ref, 'month' => $month, 'direction' => $transaction->direction]) }}#reconcile-panel" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">{{ ($transaction->suggestion['status'] ?? null) === 'NO_MATCH' ? 'Find Match' : 'Review Matches' }}</a>
                                         @endif
                                     @endif
                                 </div>
@@ -295,7 +295,47 @@
                 @endif
             </section>
         @elseif($workspaceTab === 'needs_reconciliation')
-            <section x-data="{ detail: null, reconcile: null, candidates: [], reconciled: [], counts: {pending: 0, reconciled: 0}, tab: 'pending', loading: false }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
+            <section x-data="{
+                detail: null,
+                reconcile: null,
+                candidates: [],
+                reconciled: [],
+                counts: {pending: 0, reconciled: 0},
+                tab: 'pending',
+                loading: false,
+                openDetail(el) {
+                    try {
+                        this.detail = JSON.parse(el.getAttribute('data-source'));
+                    } catch (e) {
+                        console.error('Failed to parse detail data', e);
+                    }
+                },
+                openReconcile(el) {
+                    try {
+                        this.reconcile = JSON.parse(el.getAttribute('data-source'));
+                        this.candidates = [];
+                        this.reconciled = [];
+                        this.counts = {pending: 0, reconciled: 0};
+                        this.tab = 'pending';
+                        this.loading = true;
+                        fetch(el.getAttribute('data-candidate-url'))
+                            .then(r => r.json())
+                            .then(data => {
+                                this.candidates = data.candidates || [];
+                                this.reconciled = data.reconciled || [];
+                                this.counts = data.counts || {pending: this.candidates.length, reconciled: this.reconciled.length};
+                            })
+                            .catch(err => {
+                                console.error('Candidate fetch error', err);
+                            })
+                            .finally(() => {
+                                this.loading = false;
+                            });
+                    } catch (e) {
+                        console.error('Failed to parse reconcile data', e);
+                    }
+                }
+            }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
                 <div class="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
                     <div><h2 class="text-base font-black text-slate-950">Needs Reconciliation</h2><p class="mt-1 text-xs font-semibold text-slate-500">ERP cash and bank activity waiting for real statement movement.</p></div>
                     <span class="font-mono text-xs font-bold text-slate-400">{{ $pendingSources->total() }} rows</span>
@@ -304,10 +344,17 @@
                     @forelse($pendingSources as $source)
                         @php
                             $candidateUrl = route('admin.cashbook.finance.reconciliation.pending-candidates', ['find_kind' => $source['kind'], 'find_ref' => $source['reference']]);
+                            $sourceJson = json_encode($source, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP);
                         @endphp
                         <article class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                             <div class="flex items-start justify-between gap-3"><div class="min-w-0"><p class="font-black text-slate-950">{{ $source['source'] }}</p><p class="mt-1 truncate text-xs font-bold text-slate-600">{{ $source['counterparty'] }}</p><p class="mt-1 text-[11px] font-bold text-slate-400">{{ $source['date'] }} / {{ $source['method'] }} / {{ $source['account'] }} / {{ $source['reference_label'] }}</p></div><strong class="shrink-0 font-mono text-lg text-slate-950">₹{{ number_format($source['amount'], 2) }}</strong></div>
-                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Pending Reconciliation</span><div class="flex gap-2"><button type="button" @click='detail = @json($source)' class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200">View Details</button><button type="button" data-candidate-url="{{ $candidateUrl }}" @click="reconcile = @json($source); candidates = []; reconciled = []; counts = {pending: 0, reconciled: 0}; tab = 'pending'; loading = true; fetch($el.dataset.candidateUrl).then(response => response.json()).then(data => { candidates = data.candidates || []; reconciled = data.reconciled || []; counts = data.counts || {pending: candidates.length, reconciled: reconciled.length}; }).finally(() => loading = false)" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white">Find Match</button></div></div>
+                            <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3">
+                                <span class="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Pending Reconciliation</span>
+                                <div class="flex gap-2">
+                                    <button type="button" data-source="{{ $sourceJson }}" @click="openDetail($el)" class="rounded-xl bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50">View Details</button>
+                                    <button type="button" data-source="{{ $sourceJson }}" data-candidate-url="{{ $candidateUrl }}" @click="openReconcile($el)" class="rounded-xl bg-slate-950 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-white hover:bg-slate-800">Find Match</button>
+                                </div>
+                            </div>
                         </article>
                     @empty
                         <p class="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-400">No pending cash or bank transactions for this filter.</p>
@@ -1237,6 +1284,64 @@
         </div>
     </div>
 
+    {{-- ── Auto Match Shop Collections Modal ─────────────────────────────── --}}
+    <div id="autoMatchModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div class="w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between border-b border-emerald-100 bg-emerald-50/80 px-6 py-4">
+                <div class="flex items-center gap-2.5">
+                    <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                        <i data-lucide="sparkles" class="h-4 w-4"></i>
+                    </span>
+                    <div>
+                        <h3 class="font-black text-slate-950 text-sm">Auto Match Shop Collections</h3>
+                        <p class="text-[11px] font-semibold text-slate-500">Settings-driven matching of shop Paytm &amp; Card collections against destination banks</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeAutoMatchModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-4 text-xs">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Month Period</label>
+                        <input id="auto-match-month" type="month" value="{{ $month }}" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Destination Bank (Optional)</label>
+                        <select id="auto-match-account-id" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800">
+                            <option value="">All Configured Banks</option>
+                            @foreach($companyAccounts as $account)
+                                <option value="{{ $account->id }}">{{ $account->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Shop (Optional)</label>
+                        <select id="auto-match-shop-id" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800">
+                            <option value="">All Shops</option>
+                            @foreach($shops as $s)
+                                <option value="{{ $s->id }}">{{ $s->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between border-t border-slate-100 pt-3">
+                    <span class="text-[11px] font-semibold text-slate-500">Evaluates expected category amounts against configured bank statement entries</span>
+                    <button type="button" id="btn-calc-auto-match" onclick="calculateAutoMatchPreview()" class="rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800">
+                        Calculate Preview
+                    </button>
+                </div>
+
+                <div id="auto-match-preview-results" class="hidden space-y-4 pt-2">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         function openClearMonthModal() {
             const modal = document.getElementById('clearMonthModal');
@@ -1250,6 +1355,279 @@
             if (modal) {
                 modal.classList.add('hidden');
                 modal.classList.remove('flex');
+            }
+        }
+
+        function openAutoMatchModal() {
+            const modal = document.getElementById('autoMatchModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                if (window.lucide) { lucide.createIcons(); }
+            }
+        }
+        function closeAutoMatchModal() {
+            const modal = document.getElementById('autoMatchModal');
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        let currentAutoMatchPreview = null;
+
+        async function calculateAutoMatchPreview() {
+            const accountId = document.getElementById('auto-match-account-id').value;
+            const shopId = document.getElementById('auto-match-shop-id').value;
+            const monthVal = document.getElementById('auto-match-month').value;
+            const btn = document.getElementById('btn-calc-auto-match');
+            const container = document.getElementById('auto-match-preview-results');
+
+            if (!monthVal) {
+                alert('Please select month period.');
+                return;
+            }
+
+            const [year, monthNum] = monthVal.split('-');
+            const monthStart = `${year}-${monthNum}-01`;
+            const lastDay = new Date(parseInt(year, 10), parseInt(monthNum, 10), 0).getDate();
+            const monthEnd = `${year}-${monthNum}-${String(lastDay).padStart(2, '0')}`;
+
+            btn.disabled = true;
+            btn.textContent = 'Calculating...';
+
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+            const payload = {
+                month_start: monthStart,
+                month_end: monthEnd,
+                grace_days: 2,
+            };
+            if (accountId) { payload.company_account_id = parseInt(accountId, 10); }
+            if (shopId) { payload.shop_id = parseInt(shopId, 10); }
+
+            try {
+                const response = await fetch('{{ route('admin.cashbook.finance.reconciliation.auto-match-shop-collections.preview') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    alert(data.message || 'Auto match preview failed.');
+                    return;
+                }
+
+                currentAutoMatchPreview = data.preview;
+                renderAutoMatchPreview(data.preview);
+            } catch (err) {
+                console.error(err);
+                alert('Auto match preview request failed.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Calculate Preview';
+            }
+        }
+
+        function renderAutoMatchPreview(p) {
+            const container = document.getElementById('auto-match-preview-results');
+            container.classList.remove('hidden');
+
+            const s = p.summary;
+            const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            let bankGroupsHtml = '';
+            for (const [key, group] of Object.entries(p.grouped_by_bank)) {
+                const exactCount = (group.exact_matches || []).length;
+                const mismatchCount = (group.bank_mapping_mismatches || []).length;
+                const unconfCount = (group.bank_not_configured || []).length;
+                const diffCount = (group.amount_differences || []).length;
+                const noStmtCount = (group.no_statement_data || []).length;
+                const outCovCount = (group.outside_coverage || []).length;
+                const noAmtCount = (group.no_amount_match || []).length;
+
+                const cov = group.statement_coverage;
+                const covText = cov && cov.has_data
+                    ? `Statements: ${cov.min_date} &rarr; ${cov.max_date} (${cov.total_statements} rows)`
+                    : `<span class="text-amber-700">No statement data</span>`;
+
+                bankGroupsHtml += `
+                    <div class="rounded-xl border border-slate-200 bg-white p-3.5 space-y-2">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-2 gap-1">
+                            <div>
+                                <span class="font-black text-slate-900 text-xs">${group.bank_name}</span>
+                                <span class="ml-2 text-[10px] font-bold text-slate-400">(${covText})</span>
+                                ${group.is_cash_warning ? `<span class="ml-1 text-[10px] font-black text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">⚠️ Cash Account</span>` : ''}
+                            </div>
+                            <div class="flex flex-wrap items-center gap-1 text-[10px] font-bold">
+                                ${exactCount > 0 ? `<span class="rounded bg-emerald-100 px-2 py-0.5 text-emerald-800">${exactCount} Exact</span>` : ''}
+                                ${diffCount > 0 ? `<span class="rounded bg-amber-100 px-2 py-0.5 text-amber-800">${diffCount} Diff</span>` : ''}
+                                ${mismatchCount > 0 ? `<span class="rounded bg-rose-100 px-2 py-0.5 text-rose-800">${mismatchCount} Bank Mismatch</span>` : ''}
+                                ${noStmtCount > 0 ? `<span class="rounded bg-slate-100 px-2 py-0.5 text-slate-700">${noStmtCount} No Statement</span>` : ''}
+                                ${outCovCount > 0 ? `<span class="rounded bg-sky-100 px-2 py-0.5 text-sky-800">${outCovCount} Outside Coverage</span>` : ''}
+                                ${noAmtCount > 0 ? `<span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500">${noAmtCount} No Amount Match</span>` : ''}
+                                ${unconfCount > 0 ? `<span class="rounded bg-slate-100 px-2 py-0.5 text-slate-700">${unconfCount} Unconfigured</span>` : ''}
+                            </div>
+                        </div>
+                        ${mismatchCount > 0 ? `
+                            <div class="rounded-lg bg-rose-50 border border-rose-100 p-2 text-[11px] text-rose-900 flex items-center justify-between">
+                                <span>${mismatchCount} transactions currently point to a different bank than configured.</span>
+                                <button type="button" onclick="reassignBankMismatches()" class="rounded-lg bg-rose-700 px-2.5 py-1 text-[10px] font-black text-white hover:bg-rose-800">Reassign to ${group.bank_name}</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            container.innerHTML = `
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                        <div>
+                            <h4 class="font-black text-slate-950 text-sm">Settings-Driven Auto Match Preview</h4>
+                            <p class="text-xs font-semibold text-slate-500">${p.period.month_start} &rarr; ${p.period.month_end}</p>
+                        </div>
+                        <span class="text-xs font-bold text-slate-600">Total Collections: <strong>${s.total_collections_count}</strong> (${formatCurrency(s.total_collections_amount)})</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-center">
+                        <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase text-emerald-800 tracking-wider">Exact Matches</p>
+                            <p class="mt-0.5 text-base font-black text-emerald-950">${s.exact_matches_count}</p>
+                            <p class="text-[10px] font-bold text-emerald-700">${formatCurrency(s.exact_matches_amount)}</p>
+                        </div>
+                        <div class="rounded-xl border border-amber-200 bg-amber-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase text-amber-800 tracking-wider">Differences</p>
+                            <p class="mt-0.5 text-base font-black text-amber-950">${s.amount_differences_count}</p>
+                            <p class="text-[10px] font-bold text-amber-700">${formatCurrency(s.amount_differences_amount)}</p>
+                        </div>
+                        <div class="rounded-xl border border-purple-200 bg-purple-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase text-purple-800 tracking-wider">Ambiguous</p>
+                            <p class="mt-0.5 text-base font-black text-purple-950">${s.ambiguous_count}</p>
+                            <p class="text-[10px] font-bold text-purple-700">${formatCurrency(s.ambiguous_amount)}</p>
+                        </div>
+                        <div class="rounded-xl border border-rose-200 bg-rose-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase text-rose-800 tracking-wider">Bank Mismatches</p>
+                            <p class="mt-0.5 text-base font-black text-rose-950">${s.bank_mapping_mismatches_count}</p>
+                            <p class="text-[10px] font-bold text-rose-700">${formatCurrency(s.bank_mapping_mismatches_amount)}</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 bg-white p-2.5">
+                            <p class="text-[9px] font-black uppercase text-slate-500 tracking-wider">Not Configured</p>
+                            <p class="mt-0.5 text-base font-black text-slate-900">${s.bank_not_configured_count}</p>
+                            <p class="text-[10px] font-bold text-slate-500">${formatCurrency(s.bank_not_configured_amount)}</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 bg-white p-2.5">
+                            <p class="text-[9px] font-black uppercase text-slate-400 tracking-wider">No Match</p>
+                            <p class="mt-0.5 text-base font-black text-slate-800">${s.no_match_count}</p>
+                            <p class="text-[10px] font-bold text-slate-400">${formatCurrency(s.no_match_amount)}</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2 pt-2">
+                        <p class="font-bold text-slate-700 text-xs">Breakdown by Destination Bank</p>
+                        ${bankGroupsHtml}
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between border-t border-slate-200 pt-3 gap-2">
+                        <div class="flex items-center gap-2">
+                            ${s.bank_mapping_mismatches_count > 0 ? `
+                                <button type="button" onclick="reassignBankMismatches()" class="rounded-xl bg-rose-700 px-3.5 py-2 text-xs font-black text-white hover:bg-rose-800 shadow-sm">
+                                    Reassign ${s.bank_mapping_mismatches_count} Mismatches to Configured Banks
+                                </button>
+                            ` : ''}
+                        </div>
+                        <button type="button"
+                                id="btn-execute-auto-match"
+                                onclick="executeAutoMatch()"
+                                ${s.exact_matches_count === 0 ? 'disabled' : ''}
+                                class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed shadow-sm">
+                            Reconcile ${s.exact_matches_count} Exact Matches
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function reassignBankMismatches() {
+            if (!currentAutoMatchPreview || !currentAutoMatchPreview.bank_mapping_mismatches || currentAutoMatchPreview.bank_mapping_mismatches.length === 0) return;
+
+            const txIds = currentAutoMatchPreview.bank_mapping_mismatches.map(m => m.transaction_id);
+            if (!confirm(`Reassign ${txIds.length} transactions to their current configured bank settings?`)) return;
+
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+            try {
+                const response = await fetch('{{ route('admin.cashbook.finance.reconciliation.auto-match-shop-collections.reassign') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({ transaction_ids: txIds }),
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    alert(data.message || 'Reassign failed.');
+                    return;
+                }
+
+                alert(data.message);
+                // Recalculate preview
+                calculateAutoMatchPreview();
+            } catch (err) {
+                console.error(err);
+                alert('Reassign request failed.');
+            }
+        }
+
+        async function executeAutoMatch() {
+            if (!currentAutoMatchPreview || currentAutoMatchPreview.summary.exact_matches_count <= 0) return;
+
+            const btn = document.getElementById('btn-execute-auto-match');
+            btn.disabled = true;
+            btn.textContent = 'Reconciling Matches...';
+
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+            try {
+                const response = await fetch('{{ route('admin.cashbook.finance.reconciliation.auto-match-shop-collections.execute') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify({
+                        month_start: currentAutoMatchPreview.period.month_start,
+                        month_end: currentAutoMatchPreview.period.month_end,
+                        company_account_id: currentAutoMatchPreview.filters.company_account_id,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    alert(data.message || 'Auto match execution failed.');
+                    btn.disabled = false;
+                    btn.textContent = `Reconcile ${currentAutoMatchPreview.summary.exact_matches_count} Exact Matches`;
+                    return;
+                }
+
+                alert(data.message);
+                window.location.reload();
+            } catch (err) {
+                console.error(err);
+                alert('Auto match execution request failed.');
+                btn.disabled = false;
+                btn.textContent = `Reconcile ${currentAutoMatchPreview.summary.exact_matches_count} Exact Matches`;
             }
         }
     </script>

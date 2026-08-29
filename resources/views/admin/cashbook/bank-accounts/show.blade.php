@@ -54,22 +54,29 @@
 
         <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Balance</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-emerald-700">₹{{ number_format($account->current_balance, 2) }}</div>
+                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Verified Balance</span>
+                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-emerald-700">₹{{ number_format($accountPosition['verified_balance'] ?? $account->current_balance, 2) }}</div>
+                <div class="mt-1 text-[11px] font-semibold text-slate-500">Real verified money in account</div>
+            </div>
+            <div class="white-card rounded-2xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm">
+                <span class="text-[10px] font-black uppercase tracking-wider text-amber-700">Pending Verification</span>
+                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-amber-800">₹{{ number_format($accountPosition['net_pending'] ?? 0, 2) }}</div>
+                <div class="mt-1 text-[11px] font-semibold text-amber-700">{{ $accountPosition['pending_count'] ?? 0 }} in-flight collections</div>
             </div>
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Opening Balance</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-slate-950">₹{{ number_format($account->opening_balance, 2) }}</div>
+                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Projected Position</span>
+                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-slate-900">₹{{ number_format($accountPosition['projected_position'] ?? $account->current_balance, 2) }}</div>
+                <div class="mt-1 text-[11px] font-semibold text-slate-500">Verified + Net Pending</div>
             </div>
             <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Money In / Out</span>
-                <div class="mt-2 font-mono text-sm font-extrabold text-slate-950">₹{{ number_format($moneyIn, 2) }}</div>
-                <div class="mt-1 font-mono text-sm font-extrabold text-rose-600">₹{{ number_format($moneyOut, 2) }}</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Matched / Open</span>
-                <div class="mt-2 font-mono text-sm font-extrabold text-cyan-700">₹{{ number_format($matchedTotal, 2) }}</div>
-                <div class="mt-1 text-xs font-bold text-amber-700">{{ $account->unmatched_statement_count }} statement rows open</div>
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Reconciliation</span>
+                    <span class="font-mono text-xs font-extrabold text-emerald-700">{{ $accountPosition['reconciliation_percentage'] ?? 100 }}%</span>
+                </div>
+                <div class="mt-3 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+                    <div class="h-full rounded-full bg-emerald-500" style="width: {{ $accountPosition['reconciliation_percentage'] ?? 100 }}%"></div>
+                </div>
+                <div class="mt-2 text-[11px] font-semibold text-slate-500">{{ $account->unmatched_statement_count }} open statement rows</div>
             </div>
         </section>
 

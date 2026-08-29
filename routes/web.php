@@ -684,9 +684,13 @@ Route::middleware('auth')->group(function () {
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/vendor-payment', [CashbookController::class, 'classifyVendorPaymentStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-vendor-payment');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/purchaser-funding', [CashbookController::class, 'classifyPurchaserFundingStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-purchaser-funding');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/shop-payment', [CashbookController::class, 'classifyShopPaymentStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-shop-payment');
+            Route::post('finance/reconciliation/statements/{statement:public_uuid}/verify-shop-collection', [CashbookController::class, 'verifyShopCollectionStatement'])->whereUuid('statement')->name('finance.reconciliation.verify-shop-collection');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/match-existing', [CashbookController::class, 'matchExistingStatement'])->whereUuid('statement')->name('finance.reconciliation.match-existing');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/confirm-suggestion', [CashbookController::class, 'confirmSuggestedStatement'])->whereUuid('statement')->name('finance.reconciliation.confirm-suggestion');
             Route::post('finance/reconciliation/confirm-suggestions', [CashbookController::class, 'confirmSuggestedStatements'])->name('finance.reconciliation.confirm-suggestions');
+            Route::post('finance/reconciliation/auto-match-shop-collections/preview', [CashbookController::class, 'previewAutoMatchShopCollections'])->name('finance.reconciliation.auto-match-shop-collections.preview');
+            Route::post('finance/reconciliation/auto-match-shop-collections/execute', [CashbookController::class, 'executeAutoMatchShopCollections'])->name('finance.reconciliation.auto-match-shop-collections.execute');
+            Route::post('finance/reconciliation/auto-match-shop-collections/reassign-bank-mapping', [CashbookController::class, 'reassignAutoMatchBankMapping'])->name('finance.reconciliation.auto-match-shop-collections.reassign');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/salary-payment', [CashbookController::class, 'classifySalaryPaymentStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-salary-payment');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/salary-advance', [CashbookController::class, 'classifySalaryAdvanceStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-salary-advance');
             Route::get('finance/reconciliation/statements/{statement:public_uuid}/create', [CashbookController::class, 'createCompanyFinanceReconciliationTransaction'])->whereUuid('statement')->name('finance.reconciliation.create-transaction');
@@ -785,6 +789,7 @@ Route::middleware('auth')->group(function () {
             Route::get('bank-accounts/{account}', [CashbookController::class, 'showBankAccount'])->name('bank-accounts.show');
             Route::get('bank-accounts/{account}/statement', [CashbookController::class, 'showBankAccountStatement'])->name('bank-accounts.statement');
             Route::post('bank-accounts/{account}/statement/import', [CashbookController::class, 'importBankAccountStatement'])->name('bank-accounts.statement.import');
+            Route::post('bank-accounts/{account}/statement/{statementRef}/verify', [CashbookController::class, 'verifyPendingStatement'])->name('bank-accounts.statement.verify');
             Route::patch('bank-accounts/{account}/statement/duplicates/{statementRef}/clear', [CashbookController::class, 'clearStatementDuplicateFlag'])->name('bank-accounts.statement.duplicates.clear');
             Route::put('bank-accounts/{account}', [CashbookController::class, 'updateBankAccount'])->name('bank-accounts.update');
             Route::delete('bank-accounts/{account}', [CashbookController::class, 'deleteBankAccount'])->name('bank-accounts.delete');
@@ -792,6 +797,7 @@ Route::middleware('auth')->group(function () {
             // ── JSON API routes (rate limited & throttled) ─────────────────────
             Route::prefix('api')->middleware('throttle:60,1')->name('api.')->group(function () {
                 Route::get('shop-data', [CashbookController::class, 'getShopData'])->name('shop-data');
+                Route::get('shop-settlement-summary', [CashbookController::class, 'getShopSettlementSummary'])->name('shop-settlement-summary');
                 Route::get('all-shops-overview', [CashbookController::class, 'getAllShopsOverview'])->name('all-shops-overview');
                 Route::get('payables-pendings', [CashbookController::class, 'getPayablesAndPendings'])->name('payables-pendings');
                 Route::get('rules', [CashbookController::class, 'getRules'])->name('rules');
@@ -821,6 +827,8 @@ Route::middleware('auth')->group(function () {
                 Route::post('shop-settings/update', [CashbookController::class, 'updateShopSetting'])->name('shop-settings.update');
                 Route::post('shop-settings/custom-row', [CashbookController::class, 'createShopCustomRow'])->name('shop-settings.custom-row');
                 Route::post('shop-settings/collection', [CashbookController::class, 'saveShopCollectionSettings'])->name('shop-settings.collection');
+                Route::post('historical-bank-collections/preview', [CashbookController::class, 'previewHistoricalBankCollections'])->name('historical-bank-collections.preview');
+                Route::post('historical-bank-collections/fetch', [CashbookController::class, 'fetchHistoricalBankCollections'])->name('historical-bank-collections.fetch');
                 Route::post('assign-preset', [CashbookController::class, 'assignShopPreset'])->name('assign-preset');
             });
         });

@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\Cashbook;
 
+use App\Enums\Cashbook\TransactionStatus;
+use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
+use Throwable;
 
 /**
  * UI → DailyLedgerService → … → Snapshot / Reports.
@@ -21,6 +25,7 @@ class DailyLedgerService
     public function __construct(
         private readonly TransactionGenerator $generator,
         private readonly BalanceCalculator $calculator,
+        private readonly LedgerRuleResolver $ruleResolver,
     ) {}
 
     public function recordEntry(array $input): array
@@ -38,6 +43,10 @@ class DailyLedgerService
         $transaction = ShopLedgerTransaction::findOrFail($transactionId);
         $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
 
+        if ($transaction->isReconciled()) {
+            throw new RuntimeException('Reconciled transactions cannot be modified.');
+        }
+
         $transaction = $this->generator->updateEntry($transaction, $newAmount, $fundingSource, $notes, $updatedBy);
         $snapshot = $this->calculator->recalculate($transaction->shop_id, $transaction->business_date->toDateString());
 
@@ -54,6 +63,10 @@ class DailyLedgerService
         $transaction = ShopLedgerTransaction::findOrFail($transactionId);
         $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
 
+        if ($transaction->isReconciled()) {
+            throw new RuntimeException('Reconciled transactions cannot be voided.');
+        }
+
         $transaction = $this->generator->void($transaction, $voidedBy, $reason);
         $snapshot = $this->calculator->recalculate($transaction->shop_id, $transaction->business_date->toDateString());
 
@@ -65,6 +78,10 @@ class DailyLedgerService
         $transaction = ShopLedgerTransaction::findOrFail($transactionId);
         $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
 
+        if ($transaction->isReconciled()) {
+            throw new RuntimeException('Reconciled transactions cannot be deleted.');
+        }
+
         if ($transaction->generated_by_rule && $transaction->parent_transaction_id) {
             throw new RuntimeException('Generated child entries cannot be deleted directly; delete the parent transaction instead.');
         }
@@ -73,6 +90,12 @@ class DailyLedgerService
         $date = $transaction->business_date->toDateString();
 
         DB::transaction(function () use ($transaction) {
+            CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->where('source_id', $transaction->id)
+                ->where('is_finalized', false)
+                ->delete();
+
             $transaction->children()->delete();
             $transaction->delete();
         });
@@ -80,6 +103,123 @@ class DailyLedgerService
         $snapshot = $this->calculator->recalculate($shopId, $date);
 
         return ['snapshot' => $snapshot];
+    }
+
+    public function approveEntry(ShopLedgerTransaction|int $transaction, int $userId): ShopLedgerTransaction
+    {
+        return DB::transaction(function () use ($transaction, $userId): ShopLedgerTransaction {
+            $model = $transaction instanceof ShopLedgerTransaction
+                ? $transaction
+                : ShopLedgerTransaction::query()->findOrFail($transaction);
+
+            $model = ShopLedgerTransaction::query()
+                ->whereKey($model->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($model->status === TransactionStatus::Void->value) {
+                throw new RuntimeException('Voided transactions cannot be approved.');
+            }
+
+            // Resolve destination account from transaction or shop setting
+            $companyAccountId = $model->company_account_id;
+            if (! $companyAccountId) {
+                try {
+                    $setting = $this->ruleResolver->resolve(
+                        (int) $model->shop_id,
+                        (int) $model->entry_type_id,
+                        $model->business_date->toDateString()
+                    );
+                    $companyAccountId = $setting->company_account_id;
+                } catch (Throwable) {
+                    $companyAccountId = null;
+                }
+            }
+
+            $companyAccount = null;
+            if ($companyAccountId) {
+                $companyAccount = CompanyAccount::query()
+                    ->whereKey($companyAccountId)
+                    ->where('enabled', true)
+                    ->first();
+            }
+
+            $model->update([
+                'status' => TransactionStatus::Approved->value,
+                'approved_by' => $userId,
+                'company_account_id' => $companyAccount?->id ?? $model->company_account_id,
+            ]);
+
+            // If a valid enabled company account is configured for this transaction, ensure exactly ONE pending statement entry exists
+            if ($companyAccount instanceof CompanyAccount) {
+                $statement = CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->where('source_id', $model->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $direction = $model->direction === 'income' ? 'in' : 'out';
+                $narration = ($model->entryType?->name ?? 'Shop transaction').' from '.($model->shop?->name ?? 'Shop #'.$model->shop_id);
+
+                if (! $statement instanceof CompanyAccountStatementEntry) {
+                    CompanyAccountStatementEntry::query()->create([
+                        'company_account_id' => $companyAccount->id,
+                        'transaction_date' => $model->business_date->toDateString(),
+                        'value_date' => $model->business_date->toDateString(),
+                        'direction' => $direction,
+                        'amount' => round((float) $model->amount, 2),
+                        'reference' => $model->reference_id ?: 'SHOP-TX-'.$model->id,
+                        'narration' => $narration,
+                        'source' => 'shop_collection',
+                        'source_type' => ShopLedgerTransaction::class,
+                        'source_id' => $model->id,
+                        'status' => 'unmatched',
+                        'is_finalized' => false,
+                        'matched_amount' => 0,
+                        'notes' => $model->notes ?: 'Pending verification from shop cashbook',
+                        'imported_by' => $userId,
+                    ]);
+                } elseif (! $statement->is_finalized) {
+                    $statement->update([
+                        'company_account_id' => $companyAccount->id,
+                        'transaction_date' => $model->business_date->toDateString(),
+                        'value_date' => $model->business_date->toDateString(),
+                        'direction' => $direction,
+                        'amount' => round((float) $model->amount, 2),
+                        'reference' => $model->reference_id ?: 'SHOP-TX-'.$model->id,
+                        'narration' => $narration,
+                        'notes' => $model->notes ?: 'Pending verification from shop cashbook',
+                    ]);
+                }
+            }
+
+            return $model->fresh(['entryType', 'shop', 'companyAccount']);
+        }, attempts: 3);
+    }
+
+    public function approveDay(int $shopId, string $businessDate, int $userId, bool $tillDate = false): int
+    {
+        return DB::transaction(function () use ($shopId, $businessDate, $userId, $tillDate): int {
+            $query = ShopLedgerTransaction::query()
+                ->where('shop_id', $shopId)
+                ->where('status', '!=', TransactionStatus::Approved->value)
+                ->where('status', '!=', TransactionStatus::Void->value);
+
+            if ($tillDate) {
+                $query->whereDate('business_date', '<=', $businessDate);
+            } else {
+                $query->whereDate('business_date', $businessDate);
+            }
+
+            $transactions = $query->lockForUpdate()->get();
+            $count = 0;
+            foreach ($transactions as $transaction) {
+                $this->approveEntry($transaction, $userId);
+                $count++;
+            }
+
+            return $count;
+        }, attempts: 3);
     }
 
     public function dailySummary(int $shopId, string $businessDate): ShopDailyLedgerSnapshot

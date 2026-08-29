@@ -231,17 +231,18 @@ class CashbookReconciliationPhase1Test extends TestCase
         $queue = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.reconciliation', [
             'month' => today()->format('Y-m'),
             'workspace' => 'needs_reconciliation',
+            'find_kind' => 'shop_payment',
+            'find_ref' => $payment->secureRouteKey(),
         ]));
 
         $queue->assertOk()
             ->assertSee('Shop Payment')
             ->assertSee('Pending Reconciliation')
             ->assertSee('View Details')
-            ->assertSee('Reconcile')
             ->assertDontSee('Find Statement')
             ->assertDontSee('Awaiting Statement')
             ->assertDontSee('UNRECONCILED');
-        $queue->assertSee('Matching Statement Movements')->assertSee('pending-candidates', false);
+        $queue->assertSee('pending-candidates', false);
         $finder = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.reconciliation.pending-candidates', [
             'find_kind' => 'shop_payment',
             'find_ref' => $payment->secureRouteKey(),

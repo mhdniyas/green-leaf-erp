@@ -138,7 +138,7 @@ class CompanyAccountStatementEntry extends Model
             return match ($baseClass) {
                 'ShopInvoicePaymentRequest', 'ShopInvoice', 'Payment' => 'Shop Payment',
                 'PurchaserCredit' => 'Purchaser Funding',
-                'ShopLedgerTransaction' => 'Shop Petty Funding',
+                'ShopLedgerTransaction' => $this->direction === 'in' ? 'Shop Collection' : 'Shop Petty Funding',
                 'CompanyPayableSettlement' => 'Company Payable',
                 'VendorSettlement', 'PurchaseInvoice' => 'Vendor Settlement',
                 'DirectCompanySale' => 'Direct Sale',
@@ -148,6 +148,7 @@ class CompanyAccountStatementEntry extends Model
         }
 
         return match ($this->source) {
+            'shop_collection' => 'Shop Collection',
             'purchaser_funding' => 'Purchaser Funding',
             'company_accounting_entry' => $this->direction === 'in' ? 'Other Income' : 'Other Expense',
             'shop_petty_funding' => 'Shop Petty Funding',

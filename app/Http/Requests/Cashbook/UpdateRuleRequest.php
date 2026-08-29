@@ -20,6 +20,7 @@ class UpdateRuleRequest extends FormRequest
     {
         return [
             'setting_id' => 'required|integer|exists:shop_ledger_entry_settings,id',
+            'company_account_id' => 'nullable|integer|exists:cashbook_company_accounts,id',
             'default_funding_source' => 'required|string',
             'include_in_sales' => 'required|boolean',
             'include_in_expense' => 'required|boolean',

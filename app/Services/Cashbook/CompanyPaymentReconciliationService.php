@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Cashbook;
 
+use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
@@ -68,6 +69,199 @@ class CompanyPaymentReconciliationService
 
             return $entry;
         });
+    }
+
+    public function reconcileStatementShopLedger(
+        CompanyAccountStatementEntry $statementEntry,
+        ShopLedgerTransaction $transaction,
+        float $clearedAmount,
+        int $userId
+    ): CompanyAccountStatementEntry {
+        return DB::transaction(function () use ($statementEntry, $transaction, $clearedAmount, $userId): CompanyAccountStatementEntry {
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->with('companyAccount')
+                ->whereKey($statementEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $transaction = ShopLedgerTransaction::query()
+                ->whereKey($transaction->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($statementEntry->is_finalized) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'This statement entry is already finalized and cannot be modified.',
+                ]);
+            }
+
+            $remainingStatementAmount = round((float) $statementEntry->amount - (float) $statementEntry->matched_amount, 2);
+            if ($remainingStatementAmount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'statement_entry_id' => 'This statement entry has no open balance left to reconcile.',
+                ]);
+            }
+
+            if ($clearedAmount <= 0.0 || $clearedAmount > $remainingStatementAmount) {
+                throw ValidationException::withMessages([
+                    'cleared_amount' => 'Cleared amount must fit within the remaining statement balance.',
+                ]);
+            }
+
+            $txAmount = round((float) $transaction->amount, 2);
+            if ($txAmount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'transaction_id' => 'Selected transaction has no reconcilable amount.',
+                ]);
+            }
+
+            $alreadyReconciled = CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->where('source_id', $transaction->id)
+                ->where('is_finalized', true)
+                ->exists();
+
+            if ($alreadyReconciled) {
+                throw ValidationException::withMessages([
+                    'transaction_id' => 'Selected shop collection is already reconciled.',
+                ]);
+            }
+
+            $statementEntry->matched_amount = round((float) $statementEntry->matched_amount + $clearedAmount, 2);
+            $statementEntry->source = 'shop_collection';
+            $statementEntry->source_type = ShopLedgerTransaction::class;
+            $statementEntry->source_id = $transaction->id;
+            $statementEntry->status = $statementEntry->matched_amount >= ((float) $statementEntry->amount - 0.01)
+                ? 'reconciled'
+                : 'partially_matched';
+            $statementEntry->is_finalized = $statementEntry->status === 'reconciled';
+            $statementEntry->finalized_at = $statementEntry->is_finalized ? now() : null;
+            $statementEntry->reconciled_by = $userId;
+            $statementEntry->save();
+
+            return $statementEntry;
+        });
+    }
+
+    public function verifyPendingShopCollection(
+        CompanyAccountStatementEntry|int $statement,
+        int $userId
+    ): CompanyAccountStatementEntry {
+        return DB::transaction(function () use ($statement, $userId): CompanyAccountStatementEntry {
+            $statementEntry = $statement instanceof CompanyAccountStatementEntry
+                ? $statement
+                : CompanyAccountStatementEntry::query()->findOrFail($statement);
+
+            $statementEntry = CompanyAccountStatementEntry::query()
+                ->with(['companyAccount', 'sourceRecord'])
+                ->whereKey($statementEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($statementEntry->source_type !== ShopLedgerTransaction::class || ! $statementEntry->source_id) {
+                throw ValidationException::withMessages([
+                    'statement' => 'This statement entry is not linked to a shop collection transaction.',
+                ]);
+            }
+
+            $transaction = ShopLedgerTransaction::query()
+                ->with(['entryType', 'shop'])
+                ->whereKey($statementEntry->source_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // Check if already verified and finalized (Idempotency)
+            if ($statementEntry->is_finalized && $statementEntry->status === 'reconciled') {
+                return $statementEntry->fresh(['companyAccount', 'journalEntry.transactions.account', 'sourceRecord.entryType']);
+            }
+
+            if ($statementEntry->status === 'superseded') {
+                throw ValidationException::withMessages([
+                    'statement' => 'Superseded statement entries cannot be verified.',
+                ]);
+            }
+
+            if ($transaction->status !== TransactionStatus::Approved->value && $transaction->status !== 'approved') {
+                throw ValidationException::withMessages([
+                    'transaction' => 'Only approved shop collection transactions can be verified.',
+                ]);
+            }
+
+            if ($transaction->status === TransactionStatus::Void->value || $transaction->status === 'void') {
+                throw ValidationException::withMessages([
+                    'transaction' => 'Voided shop collection transactions cannot be verified.',
+                ]);
+            }
+
+            if ((int) $statementEntry->company_account_id !== (int) $transaction->company_account_id) {
+                throw ValidationException::withMessages([
+                    'statement' => 'Statement company account does not match the transaction destination account.',
+                ]);
+            }
+
+            $expectedDirection = $transaction->direction === 'income' ? 'in' : 'out';
+            if ($statementEntry->direction !== $expectedDirection) {
+                throw ValidationException::withMessages([
+                    'statement' => 'Statement direction does not match the transaction direction.',
+                ]);
+            }
+
+            $statementAmount = round((float) $statementEntry->amount, 2);
+            $txAmount = round((float) $transaction->amount, 2);
+            if (abs($statementAmount - $txAmount) > 0.005) {
+                throw ValidationException::withMessages([
+                    'statement' => 'Statement amount does not match the shop transaction amount.',
+                ]);
+            }
+
+            $companyAccount = $statementEntry->companyAccount;
+            if (! $companyAccount instanceof CompanyAccount || ! $companyAccount->enabled) {
+                throw ValidationException::withMessages([
+                    'statement' => 'The target company account is not active or enabled.',
+                ]);
+            }
+
+            // 1. Exactly-once balance movement on CompanyAccount
+            $this->applyStatementBalanceMovement($companyAccount, $statementEntry);
+
+            // 2. Finalize the SAME statement
+            $statementEntry->matched_amount = $statementAmount;
+            $statementEntry->status = 'reconciled';
+            $statementEntry->is_finalized = true;
+            $statementEntry->finalized_at = now();
+            $statementEntry->reconciled_by = $userId;
+            $statementEntry->reconciled_at = now();
+            $statementEntry->save();
+
+            // 3. Record Journal Entry
+            $journal = $this->journalService->recordShopCollection($transaction, $companyAccount, $userId);
+            $statementEntry->update(['journal_entry_id' => $journal->id]);
+
+            // 4. Reduce Shop Payable by recording shop_paid_company settlement transaction
+            $alreadySettled = ShopLedgerTransaction::query()
+                ->where('shop_id', $transaction->shop_id)
+                ->where('reference_type', CompanyAccountStatementEntry::class)
+                ->where('reference_id', $statementEntry->id)
+                ->whereHas('entryType', fn ($q) => $q->where('code', 'shop_paid_company'))
+                ->exists();
+
+            if (! $alreadySettled) {
+                $this->dailyLedgerService->recordEntry([
+                    'shop_id' => (int) $transaction->shop_id,
+                    'business_date' => $transaction->business_date->toDateString(),
+                    'entry_type_code' => 'shop_paid_company',
+                    'amount' => $statementAmount,
+                    'funding_source' => 'sales',
+                    'company_account_id' => $companyAccount->id,
+                    'reference_type' => CompanyAccountStatementEntry::class,
+                    'reference_id' => $statementEntry->id,
+                    'notes' => 'Verified company receipt for '.($transaction->entryType?->name ?? 'Collection').' #'.$transaction->id,
+                    'entered_by' => $userId,
+                ]);
+            }
+
+            return $statementEntry->fresh(['companyAccount', 'journalEntry.transactions.account', 'sourceRecord.entryType']);
+        }, attempts: 3);
     }
 
     public function reconcileStatementJournal(CompanyAccountStatementEntry $statementEntry, JournalEntry $journalEntry, float $clearedAmount, int $userId): CompanyAccountStatementEntry

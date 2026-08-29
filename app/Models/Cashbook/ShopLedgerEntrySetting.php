@@ -13,7 +13,7 @@ class ShopLedgerEntrySetting extends Model
     protected $table = 'shop_ledger_entry_settings';
 
     protected $fillable = [
-        'shop_id', 'entry_type_id', 'version', 'effective_from', 'effective_to',
+        'shop_id', 'entry_type_id', 'company_account_id', 'version', 'effective_from', 'effective_to',
         'enabled', 'default_funding_source', 'allowed_funding_sources',
         'include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl',
         'include_in_payable', 'payable_direction',
@@ -23,6 +23,7 @@ class ShopLedgerEntrySetting extends Model
     ];
 
     protected $casts = [
+        'company_account_id' => 'integer',
         'effective_from' => 'date',
         'effective_to' => 'date',
         'enabled' => 'boolean',
@@ -41,9 +42,21 @@ class ShopLedgerEntrySetting extends Model
         return $this->belongsTo(LedgerEntryType::class, 'entry_type_id');
     }
 
+    public function companyAccount(): BelongsTo
+    {
+        return $this->belongsTo(CompanyAccount::class, 'company_account_id');
+    }
+
     public function secondaryEntryType(): BelongsTo
     {
         return $this->belongsTo(LedgerEntryType::class, 'secondary_entry_type_id');
+    }
+
+    public function isDirectBankCollection(): bool
+    {
+        return $this->enabled
+            && $this->company_account_id !== null
+            && ($this->include_in_income || $this->include_in_sales || ($this->entryType && $this->entryType->category === 'income'));
     }
 
     /** Scope to settings effective on a given date. */

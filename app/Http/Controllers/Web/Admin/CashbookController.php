@@ -66,11 +66,14 @@ use App\Models\WastageEntry;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\CompanyAccountingCashbookService;
+use App\Services\Cashbook\CompanyMoneyPositionService;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\DirectCompanySaleInventoryService;
+use App\Services\Cashbook\HistoricalBankCollectionFetchService;
 use App\Services\Cashbook\ReconciliationAutoMatchSuggestionService;
 use App\Services\Cashbook\ReconciliationTransactionQuery;
+use App\Services\Cashbook\ShopCollectionAutoMatchService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use App\Services\Cashbook\ShopPettyFundingService;
 use App\Services\Finance\CompanyPayableService;
@@ -100,6 +103,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -125,6 +129,8 @@ final class CashbookController extends Controller
         private readonly DirectCompanySaleInventoryService $directCompanySaleInventoryService,
         private readonly ApprovedDailyPriceResolver $approvedDailyPriceResolver,
         private readonly PayrollPaymentService $payrollPaymentService,
+        private readonly HistoricalBankCollectionFetchService $historicalBankCollectionFetchService,
+        private readonly CompanyMoneyPositionService $moneyPositionService,
     ) {}
 
     // ─── Page methods ────────────────────────────────────────────────────────
@@ -1011,6 +1017,8 @@ final class CashbookController extends Controller
             ->limit(12)
             ->get();
 
+        $accountPosition = $this->moneyPositionService->getAccountPosition($account);
+
         return view('admin.cashbook.bank-accounts.show', compact(
             'shops',
             'companyAccounts',
@@ -1020,6 +1028,7 @@ final class CashbookController extends Controller
             'statementSummary',
             'recentStatementEntries',
             'recentReconciliations',
+            'accountPosition',
         ));
     }
 
@@ -1038,7 +1047,7 @@ final class CashbookController extends Controller
         $monthEnd = $monthStart->copy()->endOfMonth();
 
         $statementEntries = $account->statementEntries()
-            ->with(['reconciliations.paymentRequest.shop', 'reconciliations.reconciledBy'])
+            ->with(['reconciliations.paymentRequest.shop', 'reconciliations.reconciledBy', 'sourceRecord.entryType', 'sourceRecord.shop'])
             ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->latest('transaction_date')
             ->latest('id')
@@ -1059,6 +1068,8 @@ final class CashbookController extends Controller
             ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
             ->count();
 
+        $accountPosition = $this->moneyPositionService->getAccountPosition($account);
+
         return view('admin.cashbook.bank-accounts.statement', compact(
             'shops',
             'companyAccounts',
@@ -1071,6 +1082,7 @@ final class CashbookController extends Controller
             'monthStart',
             'monthEnd',
             'duplicateFlagCount',
+            'accountPosition',
         ));
     }
 
@@ -1095,7 +1107,7 @@ final class CashbookController extends Controller
             ->limit(40)
             ->get();
         $statementEntries = CompanyAccountStatementEntry::query()
-            ->with('companyAccount')
+            ->with(['companyAccount', 'sourceRecord.entryType', 'sourceRecord.shop'])
             ->whereIn('status', ['unmatched', 'partially_matched'])
             ->latest('transaction_date')
             ->latest('id')
@@ -1146,6 +1158,8 @@ final class CashbookController extends Controller
             'cheque_to_bank_amount' => round((float) $chequeToBank->sum('requested_amount'), 2),
         ];
 
+        $moneyPosition = $this->moneyPositionService->getMoneyPositionSummary($today);
+
         return view('admin.cashbook.finance.index', compact(
             'shops',
             'companyAccounts',
@@ -1156,6 +1170,7 @@ final class CashbookController extends Controller
             'company',
             'currentShop',
             'totals',
+            'moneyPosition',
         ));
     }
 
@@ -1360,7 +1375,37 @@ final class CashbookController extends Controller
                 'description' => $payment->shop_note ?: 'No note provided',
             ]);
 
-        $rows = collect($journalRows->all())->merge($shopRows->all())->sortByDesc('date')->values();
+        $shopCollectionRows = ShopLedgerTransaction::query()
+            ->with(['shop', 'entryType', 'companyAccount'])
+            ->where('direction', 'income')
+            ->whereNotNull('company_account_id')
+            ->whereNotIn('status', ['void', 'voided'])
+            ->whereBetween('business_date', [$monthStart, $monthEnd])
+            ->when($direction === 'out', fn (Builder $query) => $query->whereRaw('1 = 0'))
+            ->when($search !== '', fn (Builder $query) => $query->where(fn (Builder $sub) => $sub->where('notes', 'like', '%'.$search.'%')
+                ->orWhere('reference_id', 'like', '%'.$search.'%')
+                ->orWhereHas('shop', fn (Builder $sq) => $sq->where('name', 'like', '%'.$search.'%'))
+                ->orWhereHas('entryType', fn (Builder $eq) => $eq->where('name', 'like', '%'.$search.'%'))))
+            ->whereDoesntHave('statementEntries', fn (Builder $query) => $query->where('is_finalized', true))
+            ->latest('business_date')->latest('id')->limit(100)->get()
+            ->map(fn (ShopLedgerTransaction $tx): array => [
+                'kind' => 'shop_ledger',
+                'reference' => $tx->secureRouteKey(),
+                'source' => ($tx->shop?->name ?? 'Shop').' · '.($tx->entryType?->name ?? 'Collection'),
+                'counterparty' => $tx->shop?->name ?? 'Shop',
+                'amount' => (float) $tx->amount,
+                'date' => $tx->business_date?->toDateString() ?? '',
+                'method' => $tx->entryType?->name ?? 'Online Collection',
+                'account' => $tx->companyAccount?->name ?? 'Company Bank',
+                'reference_label' => $tx->reference_id ?: 'No reference',
+                'description' => $tx->notes ?: (($tx->shop?->name ?? 'Shop').' '.($tx->entryType?->name ?? 'Collection').' dated '.($tx->business_date?->toDateString() ?? '')),
+            ]);
+
+        $rows = collect($journalRows->all())
+            ->merge($shopRows->all())
+            ->merge($shopCollectionRows->all())
+            ->sortByDesc('date')
+            ->values();
         $page = LengthAwarePaginator::resolveCurrentPage();
 
         return new LengthAwarePaginator($rows->forPage($page, 20)->values(), $rows->count(), 20, $page, [
@@ -1370,28 +1415,99 @@ final class CashbookController extends Controller
     }
 
     /**
-     * @return array{0: array{kind:string, reference:string, source:string, counterparty:string, amount:float, direction:string, date:string, method:string, reference_label:string}|null, 1: Collection<int, CompanyAccountStatementEntry>}
+     * @return array{0: array{kind:string, reference:string, source:string, counterparty:string, amount:float, direction:string, date:string, method:string, reference_label:string, description:string, details:array<string, string>}|null, 1: array<string, mixed>}
      */
     private function pendingSourceStatementFinder(Request $request, int $graceDays, string $search): array
     {
         $kind = (string) $request->input('find_kind');
         $reference = (string) $request->input('find_ref');
-        if (! in_array($kind, ['journal', 'shop_payment'], true) || $reference === '') {
+        if (! in_array($kind, ['journal', 'shop_payment', 'shop_ledger'], true) || $reference === '') {
             return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
         }
 
         if ($kind === 'shop_payment') {
-            $payment = ShopInvoicePaymentRequest::query()->with(['shop', 'reconciliations'])->withExists('allocations')
-                ->whereKey($this->decodeFinanceRouteKey($reference, 'shop-payment'))->firstOrFail();
-            $source = ['kind' => $kind, 'reference' => $reference, 'source' => 'Shop Payment', 'counterparty' => $payment->shop?->name ?? 'Shop', 'amount' => $this->shopPaymentFloatingAmount($payment), 'direction' => 'in', 'date' => $payment->payment_date?->toDateString() ?? '', 'method' => $payment->paymentMethodLabel(), 'reference_label' => $payment->payment_reference ?: 'No reference', 'description' => $payment->shop_note ?: 'No note provided', 'details' => ['Shop Name' => $payment->shop?->name ?? 'Shop', 'Amount Submitted' => '₹'.number_format((float) $payment->requested_amount, 2), 'Payment Method' => $payment->paymentMethodLabel(), 'Reference / Cheque No' => $payment->payment_reference ?: 'No reference', 'Submitted Date' => $payment->payment_date?->format('Y-m-d') ?? '—', 'Notes' => $payment->shop_note ?: '—', 'Current Status' => 'Pending Reconciliation']];
+            $paymentId = $this->tryDecodeFinanceRouteKey($reference, 'shop-payment');
+            if ($paymentId === null) {
+                return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
+            }
+            $payment = ShopInvoicePaymentRequest::query()->with(['shop', 'reconciliations'])->withExists('allocations')->find($paymentId);
+            if (! $payment) {
+                return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
+            }
+            $source = [
+                'kind' => $kind,
+                'reference' => $reference,
+                'source' => 'Shop Payment',
+                'counterparty' => $payment->shop?->name ?? 'Shop',
+                'amount' => $this->shopPaymentFloatingAmount($payment),
+                'direction' => 'in',
+                'date' => $payment->payment_date?->toDateString() ?? '',
+                'method' => $payment->paymentMethodLabel(),
+                'reference_label' => $payment->payment_reference ?: 'No reference',
+                'description' => $payment->shop_note ?: 'No note provided',
+                'details' => [
+                    'Shop Name' => $payment->shop?->name ?? 'Shop',
+                    'Amount Submitted' => '₹'.number_format((float) $payment->requested_amount, 2),
+                    'Payment Method' => $payment->paymentMethodLabel(),
+                    'Reference / Cheque No' => $payment->payment_reference ?: 'No reference',
+                    'Submitted Date' => $payment->payment_date?->format('Y-m-d') ?? '—',
+                    'Notes' => $payment->shop_note ?: '—',
+                    'Current Status' => 'Pending Reconciliation',
+                ],
+            ];
             $direction = 'in';
             $amount = (float) $source['amount'];
             $date = $payment->payment_date ?: today();
             $companyAccountId = null;
+        } elseif ($kind === 'shop_ledger') {
+            $txId = $this->tryDecodeFinanceRouteKey($reference, 'shop-ledger');
+            if ($txId === null) {
+                return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
+            }
+            $tx = ShopLedgerTransaction::query()->with(['shop', 'entryType', 'companyAccount'])->find($txId);
+            if (! $tx) {
+                return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
+            }
+            $shopName = $tx->shop?->name ?? 'Shop';
+            $entryTypeName = $tx->entryType?->name ?? 'Collection';
+            $amount = round((float) $tx->amount, 2);
+            $date = $tx->business_date ?: today();
+            $direction = $tx->direction === 'expense' ? 'out' : 'in';
+            $companyAccountId = $tx->company_account_id;
+
+            $source = [
+                'kind' => $kind,
+                'reference' => $reference,
+                'source' => "{$shopName} · {$entryTypeName}",
+                'counterparty' => $shopName,
+                'amount' => $amount,
+                'direction' => $direction,
+                'date' => $date->toDateString(),
+                'method' => $entryTypeName,
+                'reference_label' => $tx->reference_id ?: 'No reference',
+                'description' => $tx->notes ?: "{$shopName} {$entryTypeName} dated {$date->toDateString()}",
+                'details' => [
+                    'Shop' => $shopName,
+                    'Category / Entry Type' => $entryTypeName,
+                    'Business Date' => $date->toDateString(),
+                    'Amount' => '₹'.number_format($amount, 2),
+                    'Destination Bank' => $tx->companyAccount?->name ?? '—',
+                    'Notes' => $tx->notes ?: '—',
+                ],
+            ];
         } else {
-            $journal = JournalEntry::query()->with(['transactions.account', 'statementEntries'])->whereKey($this->decodeFinanceRouteKey($reference, 'journal-entry'))->firstOrFail();
+            $journalId = $this->tryDecodeFinanceRouteKey($reference, 'journal-entry');
+            if ($journalId === null) {
+                return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
+            }
+            $journal = JournalEntry::query()->with(['transactions.account', 'statementEntries'])->find($journalId);
+            if (! $journal) {
+                return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
+            }
             $cashTransaction = $journal->transactions->first(fn ($transaction) => in_array($transaction->account?->code, ['1010', '1020'], true));
-            abort_unless($journal->is_balanced && $cashTransaction, 404);
+            if (! ($journal->is_balanced && $cashTransaction)) {
+                return [null, ['pending' => [], 'reconciled' => [], 'counts' => ['pending' => 0, 'reconciled' => 0, 'exact_date_pending' => 0, 'exact_date_reconciled' => 0]]];
+            }
             $companyEntry = $journal->source_type === CompanyAccountingEntry::class
                 ? CompanyAccountingEntry::query()->with(['category', 'companyAccount'])->find($journal->source_id)
                 : null;
@@ -1407,7 +1523,19 @@ final class CashbookController extends Controller
                 'Journal Reference' => $journal->reference ?: $journal->formatted_reference,
                 'Cash / Bank Account' => $cashTransaction->account?->name ?? '—',
             ];
-            $source = ['kind' => $kind, 'reference' => $reference, 'source' => preg_replace('/ #\\d+$/', '', $journal->source_label) ?: 'Cashbook Transaction', 'counterparty' => $journal->description ?: $journal->reference ?: 'Company transaction', 'amount' => round($journal->primary_amount - (float) $journal->statementEntries->sum('matched_amount'), 2), 'direction' => $cashTransaction->type === 'debit' ? 'in' : 'out', 'date' => $journal->entry_date?->toDateString() ?? '', 'method' => $cashTransaction->account?->code === '1010' ? 'Cash' : 'Bank', 'reference_label' => $journal->reference ?: $journal->formatted_reference, 'description' => $journal->description ?: 'No description provided', 'details' => $details];
+            $source = [
+                'kind' => $kind,
+                'reference' => $reference,
+                'source' => preg_replace('/ #\\d+$/', '', $journal->source_label) ?: 'Cashbook Transaction',
+                'counterparty' => $journal->description ?: $journal->reference ?: 'Company transaction',
+                'amount' => round($journal->primary_amount - (float) $journal->statementEntries->sum('matched_amount'), 2),
+                'direction' => $cashTransaction->type === 'debit' ? 'in' : 'out',
+                'date' => $journal->entry_date?->toDateString() ?? '',
+                'method' => $cashTransaction->account?->code === '1010' ? 'Cash' : 'Bank',
+                'reference_label' => $journal->reference ?: $journal->formatted_reference,
+                'description' => $journal->description ?: 'No description provided',
+                'details' => $details,
+            ];
             $direction = $source['direction'];
             $amount = (float) $source['amount'];
             $date = $journal->entry_date ?: today();
@@ -3136,7 +3264,7 @@ final class CashbookController extends Controller
         $search = $workspaceTab === 'statements'
             ? trim((string) $request->input('search', ''))
             : '';
-        $transactionSearch = $workspaceTab === 'transactions'
+        $transactionSearch = ($workspaceTab === 'transactions' && $request->input('workspace') !== 'needs_reconciliation')
             ? trim((string) $request->input('search', ''))
             : '';
         $statementSearch = trim((string) $request->input('statement_search', ''));
@@ -4052,6 +4180,85 @@ final class CashbookController extends Controller
             : $response->with('reconciliation_failures', $failures);
     }
 
+    public function previewAutoMatchShopCollections(
+        Request $request,
+        ShopCollectionAutoMatchService $autoMatchService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'month_start' => ['required', 'date_format:Y-m-d'],
+            'month_end' => ['required', 'date_format:Y-m-d', 'after_or_equal:month_start'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'entry_type_id' => ['nullable', 'integer', 'exists:cashbook_ledger_entry_types,id'],
+            'grace_days' => ['nullable', 'integer', 'min:0', 'max:15'],
+        ]);
+
+        $preview = $autoMatchService->preview(
+            (string) $validated['month_start'],
+            (string) $validated['month_end'],
+            isset($validated['company_account_id']) ? (int) $validated['company_account_id'] : null,
+            isset($validated['shop_id']) ? (int) $validated['shop_id'] : null,
+            isset($validated['entry_type_id']) ? (int) $validated['entry_type_id'] : null,
+            (int) ($validated['grace_days'] ?? 2)
+        );
+
+        return response()->json([
+            'success' => true,
+            'preview' => $preview,
+        ]);
+    }
+
+    public function executeAutoMatchShopCollections(
+        Request $request,
+        ShopCollectionAutoMatchService $autoMatchService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'month_start' => ['required', 'date_format:Y-m-d'],
+            'month_end' => ['required', 'date_format:Y-m-d', 'after_or_equal:month_start'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+        ]);
+
+        $result = $autoMatchService->execute(
+            (string) $validated['month_start'],
+            (string) $validated['month_end'],
+            isset($validated['company_account_id']) ? (int) $validated['company_account_id'] : null,
+            (int) $request->user()->id
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully auto-matched and finalized {$result['reconciled_count']} shop collections (₹".number_format($result['reconciled_amount'], 2).').',
+            'result' => $result,
+        ]);
+    }
+
+    public function reassignAutoMatchBankMapping(
+        Request $request,
+        ShopCollectionAutoMatchService $autoMatchService
+    ): JsonResponse {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'transaction_ids' => ['required', 'array', 'min:1'],
+            'transaction_ids.*' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+        ]);
+
+        $result = $autoMatchService->reassignToConfiguredBank(
+            array_map('intval', $validated['transaction_ids']),
+            (int) $request->user()->id
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => "Reassigned {$result['reassigned_count']} transactions (₹".number_format($result['reassigned_amount'], 2).') to their configured bank accounts.',
+            'result' => $result,
+        ]);
+    }
+
     private function confirmExistingStatementMatch(
         CompanyAccountStatementEntry $statement,
         string $candidateReference,
@@ -4065,9 +4272,34 @@ final class CashbookController extends Controller
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            $shopLedgerId = $this->tryDecodeFinanceRouteKey($candidateReference, 'shop-ledger');
+            if ($shopLedgerId !== null) {
+                $transaction = ShopLedgerTransaction::query()
+                    ->whereKey($shopLedgerId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $statementAmount = round((float) $statement->amount, 2);
+                $txAmount = round((float) $transaction->amount, 2);
+
+                if (abs($txAmount - $statementAmount) > 0.01) {
+                    throw ValidationException::withMessages(['candidate_ref' => 'Statement amount must match the selected transaction amount.']);
+                }
+
+                $this->companyPaymentReconciliationService->reconcileStatementShopLedger(
+                    $statement,
+                    $transaction,
+                    $statementAmount,
+                    $userId
+                );
+
+                return false;
+            }
+
+            $journalEntryId = $this->decodeFinanceRouteKey($candidateReference, 'journal-entry');
             $journalEntry = JournalEntry::query()
                 ->with(['transactions.account', 'statementEntries'])
-                ->whereKey($this->decodeFinanceRouteKey($candidateReference, 'journal-entry'))
+                ->whereKey($journalEntryId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -4415,6 +4647,44 @@ final class CashbookController extends Controller
 
         return redirect()->back()
             ->with('success', 'Duplicate flag cleared and statement balance applied.');
+    }
+
+    public function verifyPendingStatement(Request $request, CompanyAccount $account, string $statementRef): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $entry = $this->resolveSecureStatementEntry($statementRef);
+        abort_unless((int) $entry->company_account_id === (int) $account->id, 404);
+
+        try {
+            $this->companyPaymentReconciliationService->verifyPendingShopCollection($entry, (int) $request->user()->id);
+
+            return redirect()->back()
+                ->with('success', 'Shop collection verified, company account updated, and shop payable reduced.');
+        } catch (Throwable $e) {
+            return redirect()->back()
+                ->with('error', 'Verification failed: '.$e->getMessage());
+        }
+    }
+
+    public function verifyShopCollectionStatement(Request $request, CompanyAccountStatementEntry $statement): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        try {
+            $verifiedEntry = $this->companyPaymentReconciliationService->verifyPendingShopCollection($statement, (int) $request->user()->id);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Shop collection verified and reconciled.',
+                'statement' => $verifiedEntry,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     public function reconcileCompanyPayment(Request $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
@@ -4776,6 +5046,31 @@ final class CashbookController extends Controller
             'settings' => $settings,
             'collection_groups' => $collectionGroups,
             'collection_summaries' => $collectionSummaries,
+            'operational_settlement' => $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $finalEnd),
+        ]);
+    }
+
+    /**
+     * API: Operational settlement breakdown for a single shop and date.
+     */
+    public function getShopSettlementSummary(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required'],
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
+        $resolvedProfile = $this->resolveShop($validated['shop_id']);
+        $shopId = (int) $resolvedProfile->shop_id;
+        $date = $validated['business_date'] ?? today()->toDateString();
+
+        $summary = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $date);
+
+        return response()->json([
+            'success' => true,
+            'summary' => $summary,
         ]);
     }
 
@@ -5227,6 +5522,7 @@ final class CashbookController extends Controller
 
         $validated = $request->validate([
             'setting_id' => ['required', 'integer', 'exists:shop_ledger_entry_settings,id'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
             'enabled' => ['required', 'boolean'],
             'default_funding_source' => ['required', 'string', 'in:none,sales,petty,company,company_later,bank'],
             'include_in_sales' => ['required', 'boolean'],
@@ -5249,6 +5545,7 @@ final class CashbookController extends Controller
             $createsChild = (bool) $validated['generates_secondary_entry'];
             $setting->update([
                 'enabled' => (bool) $validated['enabled'],
+                'company_account_id' => ! empty($validated['company_account_id']) ? (int) $validated['company_account_id'] : null,
                 'default_funding_source' => $validated['default_funding_source'],
                 'include_in_sales' => (bool) $validated['include_in_sales'],
                 'include_in_income' => (bool) $validated['include_in_income'],
@@ -5256,9 +5553,9 @@ final class CashbookController extends Controller
                 'include_in_pl' => (bool) $validated['include_in_pl'],
                 'include_in_payable' => (bool) $validated['include_in_payable'],
                 'payable_direction' => $validated['payable_direction'] ?? null,
-                'settlement_behavior' => $validated['settlement_behavior'] ?: 'none',
-                'petty_behavior' => $validated['petty_behavior'] ?: 'none',
-                'company_pending_behavior' => $validated['company_pending_behavior'] ?: 'none',
+                'settlement_behavior' => $validated['settlement_behavior'] ?? 'none',
+                'petty_behavior' => $validated['petty_behavior'] ?? 'none',
+                'company_pending_behavior' => $validated['company_pending_behavior'] ?? 'none',
                 'generates_secondary_entry' => $createsChild,
                 'secondary_entry_type_id' => $createsChild ? ($validated['secondary_entry_type_id'] ?? null) : null,
                 'secondary_amount_mode' => $validated['secondary_amount_mode'],
@@ -5271,6 +5568,68 @@ final class CashbookController extends Controller
                 'success' => true,
                 'message' => 'Shop setting saved.',
                 'setting' => $setting->fresh('entryType'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function previewHistoricalBankCollections(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'entry_type_id' => ['required', 'integer', 'exists:ledger_entry_types,id'],
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'from_date' => ['required', 'date_format:Y-m-d'],
+            'to_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:from_date'],
+        ]);
+
+        try {
+            $preview = $this->historicalBankCollectionFetchService->preview(
+                (int) $validated['shop_id'],
+                (int) $validated['entry_type_id'],
+                (int) $validated['company_account_id'],
+                $validated['from_date'],
+                $validated['to_date']
+            );
+
+            return response()->json([
+                'success' => true,
+                'preview' => $preview,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function fetchHistoricalBankCollections(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'entry_type_id' => ['required', 'integer', 'exists:ledger_entry_types,id'],
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'from_date' => ['required', 'date_format:Y-m-d'],
+            'to_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:from_date'],
+        ]);
+
+        try {
+            $result = $this->historicalBankCollectionFetchService->fetch(
+                (int) $validated['shop_id'],
+                (int) $validated['entry_type_id'],
+                (int) $validated['company_account_id'],
+                $validated['from_date'],
+                $validated['to_date'],
+                $request->user()?->id
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully fetched {$result['updated_count']} historical collections to {$result['company_account']['name']}.",
+                'result' => $result,
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
@@ -5564,15 +5923,13 @@ final class CashbookController extends Controller
                 return response()->json(['success' => false, 'message' => 'Voided entries cannot be approved.'], 422);
             }
 
-            $transaction->update([
-                'status' => 'approved',
-                'approved_by' => $request->user()?->id,
-            ]);
+            $userId = (int) ($request->user()?->id ?? 1);
+            $approvedTx = $this->ledgerService->approveEntry($transaction, $userId);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Entry approved.',
-                'transaction' => $transaction->fresh()->load('entryType'),
+                'transaction' => $approvedTx->fresh()->load('entryType'),
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
@@ -5595,21 +5952,13 @@ final class CashbookController extends Controller
         $tillDate = $request->boolean('till_date', false);
 
         try {
-            $query = ShopLedgerTransaction::query()
-                ->where('shop_id', (int) $validated['shop_id'])
-                ->where('status', '!=', 'approved')
-                ->where('status', '!=', 'void');
-
-            if ($tillDate) {
-                $query->whereDate('business_date', '<=', $validated['business_date']);
-            } else {
-                $query->whereDate('business_date', $validated['business_date']);
-            }
-
-            $updated = $query->update([
-                'status' => 'approved',
-                'approved_by' => $request->user()?->id,
-            ]);
+            $userId = (int) ($request->user()?->id ?? 1);
+            $updated = $this->ledgerService->approveDay(
+                (int) $validated['shop_id'],
+                $validated['business_date'],
+                $userId,
+                $tillDate
+            );
 
             $label = $tillDate
                 ? "Approved {$updated} entries up to {$validated['business_date']}."
@@ -7096,6 +7445,26 @@ PY;
         return CompanyAccountStatementEntry::query()
             ->whereKey($this->decodeFinanceRouteKey($statementRef, 'statement-entry'))
             ->firstOrFail();
+    }
+
+    private function tryDecodeFinanceRouteKey(string $routeKey, string $expectedType): ?int
+    {
+        try {
+            $payload = strtr($routeKey, '-_', '+/');
+            $payload .= str_repeat('=', (4 - strlen($payload) % 4) % 4);
+            $decoded = Crypt::decryptString(base64_decode($payload, true) ?: '');
+
+            $prefix = $expectedType.':';
+            if (! str_starts_with($decoded, $prefix)) {
+                return null;
+            }
+
+            $id = (int) Str::after($decoded, $prefix);
+
+            return $id > 0 ? $id : null;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function decodeFinanceRouteKey(string $routeKey, string $expectedType): int
