@@ -160,7 +160,7 @@ final class ReconciliationTransactionQuery
             })
             ->where('source.direction', 'income')
             ->whereNotNull('source.company_account_id')
-            ->whereNotIn('source.status', ['void', 'voided'])
+            ->whereNotIn('source.status', ['void', 'voided', 'reversed'])
             ->selectRaw($this->selectSql(
                 'journals.id',
                 'parties.name',

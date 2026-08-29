@@ -64,6 +64,7 @@ use App\Models\VendorAdvance;
 use App\Models\VendorSettlement;
 use App\Models\WastageEntry;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\CashbookTransactionReversalService;
 use App\Services\Cashbook\CashFlowTransactionPresenter;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\CompanyAccountingCashbookService;
@@ -133,6 +134,7 @@ final class CashbookController extends Controller
         private readonly HistoricalBankCollectionFetchService $historicalBankCollectionFetchService,
         private readonly CompanyMoneyPositionService $moneyPositionService,
         private readonly CashFlowTransactionPresenter $transactionPresenter,
+        private readonly CashbookTransactionReversalService $reversalService,
     ) {}
 
     // ─── Page methods ────────────────────────────────────────────────────────
@@ -1165,6 +1167,110 @@ final class CashbookController extends Controller
             'transaction' => $transaction,
             'shops' => $shops,
         ]);
+    }
+
+    /**
+     * Edit Transaction Form (unreconciled edit or reconciled correction).
+     */
+    public function editTransaction(Request $request, ShopLedgerTransaction $transaction): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $entryTypes = LedgerEntryType::where('is_active', true)->orderBy('name')->get();
+        $presented = $this->transactionPresenter->present($transaction);
+
+        return view('admin.cashbook.transactions.edit', [
+            'presented' => $presented,
+            'transaction' => $transaction,
+            'shops' => $shops,
+            'entryTypes' => $entryTypes,
+        ]);
+    }
+
+    /**
+     * Update / Correct Transaction.
+     */
+    public function updateTransaction(Request $request, ShopLedgerTransaction $transaction): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'business_date' => ['required', 'date'],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'entry_type_id' => ['nullable', 'integer', 'exists:ledger_entry_types,id'],
+            'reversal_reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $isReconciled = CompanyAccountStatementEntry::query()
+            ->where('source_type', ShopLedgerTransaction::class)
+            ->where('source_id', $transaction->id)
+            ->where('is_finalized', true)
+            ->where('status', 'reconciled')
+            ->exists();
+
+        try {
+            if ($isReconciled) {
+                $reason = $validated['reversal_reason'] ?? 'Admin correction from transaction detail';
+                $this->reversalService->correctReconciledTransaction($transaction, $validated, (int) $request->user()->id, $reason);
+
+                return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                    ->with('success', 'Reconciled transaction corrected and financial effects reversed. Please approve and verify again.');
+            } else {
+                $this->reversalService->updateUnreconciledTransaction($transaction, $validated, (int) $request->user()->id);
+
+                return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                    ->with('success', 'Transaction updated successfully.');
+            }
+        } catch (Throwable $e) {
+            return redirect()->back()->with('error', 'Update failed: '.$e->getMessage())->withInput();
+        }
+    }
+
+    /**
+     * Reverse Finalized / Reconciled Transaction.
+     */
+    public function reverseTransaction(Request $request, ShopLedgerTransaction $transaction): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'confirm' => ['required', 'string', 'in:REVERSE'],
+        ], [
+            'confirm.in' => 'Please type REVERSE to confirm reversing this finalized transaction.',
+        ]);
+
+        try {
+            $this->reversalService->reverseReconciledTransaction($transaction, (int) $request->user()->id, $validated['reason']);
+
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('success', 'Transaction reversed successfully. All financial effects have been rolled back and audit history preserved.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'Reversal failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Delete / Void Unreconciled Transaction.
+     */
+    public function deleteTransaction(Request $request, ShopLedgerTransaction $transaction): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $reason = (string) $request->input('reason', 'Deleted by admin');
+
+        try {
+            $this->reversalService->deleteUnreconciledTransaction($transaction, (int) $request->user()->id, $reason);
+
+            return redirect()->route('admin.cashbook.money-flow')
+                ->with('success', 'Unreconciled transaction deleted successfully.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'Deletion failed: '.$e->getMessage());
+        }
     }
 
     /**

@@ -238,14 +238,26 @@ class CompanyPaymentReconciliationService
             $statementEntry->update(['journal_entry_id' => $journal->id]);
 
             // 4. Reduce Shop Payable by recording shop_paid_company settlement transaction
-            $alreadySettled = ShopLedgerTransaction::query()
+            $existingSettlement = ShopLedgerTransaction::query()
                 ->where('shop_id', $transaction->shop_id)
                 ->where('reference_type', CompanyAccountStatementEntry::class)
                 ->where('reference_id', $statementEntry->id)
                 ->whereHas('entryType', fn ($q) => $q->where('code', 'shop_paid_company'))
-                ->exists();
+                ->lockForUpdate()
+                ->first();
 
-            if (! $alreadySettled) {
+            if ($existingSettlement instanceof ShopLedgerTransaction) {
+                if (in_array($existingSettlement->status, ['void', 'voided', 'reversed'], true)) {
+                    $existingSettlement->update([
+                        'amount' => $statementAmount,
+                        'business_date' => $transaction->business_date->toDateString(),
+                        'company_account_id' => $companyAccount->id,
+                        'status' => 'posted',
+                        'notes' => 'Verified company receipt for '.($transaction->entryType?->name ?? 'Collection').' #'.$transaction->id,
+                    ]);
+                    $this->dailyLedgerService->dailySummary((int) $transaction->shop_id, $transaction->business_date->toDateString());
+                }
+            } else {
                 $this->dailyLedgerService->recordEntry([
                     'shop_id' => (int) $transaction->shop_id,
                     'business_date' => $transaction->business_date->toDateString(),

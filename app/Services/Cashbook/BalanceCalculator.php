@@ -45,7 +45,7 @@ class BalanceCalculator
             $transactions = ShopLedgerTransaction::query()
                 ->where('shop_id', $shopId)
                 ->where('business_date', $date)
-                ->where('status', '!=', TransactionStatus::Void->value)
+                ->whereNotIn('status', [TransactionStatus::Void->value, TransactionStatus::Reversed->value, 'void', 'reversed'])
                 ->lockForUpdate()
                 ->get();
 

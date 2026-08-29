@@ -678,6 +678,10 @@ Route::middleware('auth')->group(function () {
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
             Route::get('money-flow', [CashbookController::class, 'moneyFlow'])->name('money-flow');
             Route::get('transactions/{transaction}', [CashbookController::class, 'showTransaction'])->name('transaction.show');
+            Route::get('transactions/{transaction}/edit', [CashbookController::class, 'editTransaction'])->name('transaction.edit');
+            Route::put('transactions/{transaction}', [CashbookController::class, 'updateTransaction'])->name('transaction.update');
+            Route::post('transactions/{transaction}/reverse', [CashbookController::class, 'reverseTransaction'])->name('transaction.reverse');
+            Route::delete('transactions/{transaction}', [CashbookController::class, 'deleteTransaction'])->name('transaction.delete');
             Route::post('transactions/{transaction}/approve', [CashbookController::class, 'approveTransaction'])->name('transaction.approve');
             Route::post('transactions/{transaction}/verify', [CashbookController::class, 'verifyTransaction'])->name('transaction.verify');
             Route::get('finance', [CashbookController::class, 'companyFinancePage'])->name('finance');

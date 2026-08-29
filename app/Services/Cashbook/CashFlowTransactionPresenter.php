@@ -18,7 +18,7 @@ class CashFlowTransactionPresenter
      */
     public function present(ShopLedgerTransaction $transaction): array
     {
-        $transaction->loadMissing(['entryType', 'shop', 'enteredBy', 'approvedBy', 'companyAccount']);
+        $transaction->loadMissing(['entryType', 'shop', 'enteredBy', 'approvedBy', 'voidedBy', 'companyAccount']);
 
         $statement = CompanyAccountStatementEntry::query()
             ->where('source_type', ShopLedgerTransaction::class)
@@ -58,6 +58,7 @@ class CashFlowTransactionPresenter
         $businessDate = $transaction->business_date?->format('d M Y') ?: Carbon::parse($transaction->created_at)->format('d M Y');
         $rawBusinessDate = $transaction->business_date?->toDateString() ?: Carbon::parse($transaction->created_at)->toDateString();
 
+        $isReversed = $transaction->status === 'reversed';
         $isVoid = in_array($transaction->status, ['void', 'voided'], true);
         $isSuperseded = $statement?->status === 'superseded';
         $isApproved = $transaction->status === 'approved';
@@ -75,7 +76,11 @@ class CashFlowTransactionPresenter
         $confirmationType = null;
         $attentionReason = null;
 
-        if ($isVoid) {
+        if ($isReversed) {
+            $stage = 'reversed';
+            $displayStatus = 'REVERSED';
+            $statusStyle = 'rose';
+        } elseif ($isVoid) {
             $stage = 'void';
             $displayStatus = 'VOID';
             $statusStyle = 'rose';
@@ -191,6 +196,17 @@ class CashFlowTransactionPresenter
             'confirmation_type' => $confirmationType,
             'attention_reason' => $attentionReason,
             'flow_steps' => $flowSteps,
+            'can_admin_reverse' => $isVerified && ! $isReversed && ! $isVoid,
+            'can_admin_correct' => $isVerified && ! $isReversed && ! $isVoid,
+            'can_admin_edit' => ! $isVerified && ! $isReversed && ! $isVoid,
+            'can_admin_delete' => ! $isVerified && ! $isReversed && ! $isVoid,
+            'is_reversed' => $isReversed,
+            'is_verified' => $isVerified,
+            'reversal' => $isReversed ? [
+                'reversed_by' => $transaction->voidedBy?->name ?? 'Admin',
+                'reversed_at' => $transaction->voided_at ? Carbon::parse($transaction->voided_at)->format('d M Y · h:i A') : null,
+                'reversal_reason' => $transaction->void_reason,
+            ] : null,
             'audit' => [
                 'entered_by' => $transaction->enteredBy?->name ?? 'Shop User',
                 'entered_at' => $transaction->created_at?->format('d M Y · h:i A'),

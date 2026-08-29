@@ -297,7 +297,7 @@ class CompanyMoneyPositionService
             ->with(['entryType', 'shop', 'enteredBy', 'approvedBy'])
             ->where('shop_id', $shopId)
             ->whereDate('business_date', $businessDate)
-            ->where('status', '!=', 'void')
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
             ->orderBy('id', 'asc')
             ->get();
 
@@ -486,7 +486,7 @@ class CompanyMoneyPositionService
         $txQuery = ShopLedgerTransaction::query()
             ->with(['entryType', 'shop', 'companyAccount'])
             ->whereDate('business_date', $businessDate)
-            ->where('status', '!=', 'void')
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
             ->where(function ($q): void {
                 $q->where('direction', 'income')
                     ->orWhereHas('entryType', fn ($et) => $et->where('category', 'income'));
@@ -671,7 +671,7 @@ class CompanyMoneyPositionService
                     ->where('s.source_type', '=', ShopLedgerTransaction::class);
             })
             ->whereBetween('shop_ledger_transactions.business_date', [$startDate, $endDate])
-            ->whereNotIn('shop_ledger_transactions.status', ['void', 'voided', 'rejected'])
+            ->whereNotIn('shop_ledger_transactions.status', ['void', 'voided', 'rejected', 'reversed'])
             ->where(function ($q): void {
                 $q->where('shop_ledger_transactions.direction', 'income')
                     ->orWhereHas('entryType', fn ($et) => $et->where('category', 'income'));

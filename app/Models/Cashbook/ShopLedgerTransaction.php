@@ -82,6 +82,11 @@ class ShopLedgerTransaction extends Model
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    public function voidedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'voided_by');
+    }
+
     public function statementEntries(): HasMany
     {
         return $this->hasMany(CompanyAccountStatementEntry::class, 'source_id')

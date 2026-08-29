@@ -287,7 +287,15 @@ class JournalService
             throw new RuntimeException('Shop collection journal requires a positive amount and enabled company account.');
         }
 
-        $event = 'shop-collection:'.$transaction->id;
+        $reversalCount = JournalEntry::where('source_type', ShopLedgerTransaction::class)
+            ->where('source_id', $transaction->id)
+            ->where('source_event', 'like', 'reversal:%')
+            ->count();
+
+        $event = $reversalCount > 0
+            ? 'shop-collection:'.$transaction->id.':v'.($reversalCount + 1)
+            : 'shop-collection:'.$transaction->id;
+
         $existingEntry = $this->entryForSource(ShopLedgerTransaction::class, $transaction->id, $event);
         if ($existingEntry instanceof JournalEntry) {
             return $existingEntry;
@@ -310,8 +318,57 @@ class JournalService
 
         $data = new JournalEntryData(
             entryDate: $transaction->business_date->toDateString(),
-            reference: 'SHOP-COLLECT-'.$transaction->id,
+            reference: $reversalCount > 0 ? 'SHOP-COLLECT-'.$transaction->id.'-V'.($reversalCount + 1) : 'SHOP-COLLECT-'.$transaction->id,
             description: 'Verified shop collection: '.($transaction->entryType?->name ?? 'Collection').' for '.($transaction->shop?->name ?? 'Shop #'.$transaction->shop_id),
+            lines: $lines,
+            sourceType: ShopLedgerTransaction::class,
+            sourceId: $transaction->id,
+            sourceEvent: $event,
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
+    public function recordShopCollectionReversal(ShopLedgerTransaction $transaction, CompanyAccount $companyAccount, int $userId, ?string $reason = null): JournalEntry
+    {
+        $amount = round((float) $transaction->amount, 2);
+        if ($amount <= 0.00 || ! in_array($companyAccount->account_type, ['cash', 'bank', 'wallet'], true)) {
+            throw new RuntimeException('Shop collection reversal journal requires a positive amount.');
+        }
+
+        $reversalCount = JournalEntry::where('source_type', ShopLedgerTransaction::class)
+            ->where('source_id', $transaction->id)
+            ->where('source_event', 'like', 'reversal:%')
+            ->count();
+
+        $event = $reversalCount > 0
+            ? 'reversal:'.$transaction->id.':v'.($reversalCount + 1)
+            : 'reversal:'.$transaction->id;
+
+        $existingEntry = $this->entryForSource(ShopLedgerTransaction::class, $transaction->id, $event);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
+        $cashAccountId = $companyAccount->account_type === 'cash'
+            ? $this->getAccountIdByCode('1010')
+            : $this->getAccountIdByCode('1020');
+        $arAccountId = $this->getAccountIdByCode('1100');
+
+        $lines = $transaction->direction === 'income'
+            ? [
+                ['account_id' => $arAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ]
+            : [
+                ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $arAccountId, 'type' => 'credit', 'amount' => $amount],
+            ];
+
+        $data = new JournalEntryData(
+            entryDate: $transaction->business_date ? $transaction->business_date->toDateString() : now()->toDateString(),
+            reference: $reversalCount > 0 ? 'REV-SHOP-COLLECT-'.$transaction->id.'-V'.($reversalCount + 1) : 'REV-SHOP-COLLECT-'.$transaction->id,
+            description: trim('Reversal: '.($reason ?: 'Reversed verified shop collection #'.$transaction->id)),
             lines: $lines,
             sourceType: ShopLedgerTransaction::class,
             sourceId: $transaction->id,

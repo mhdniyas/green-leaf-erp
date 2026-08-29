@@ -12,4 +12,5 @@ enum TransactionStatus: string
     case Approved = 'approved';
     case Closed = 'closed';
     case Void = 'void';
+    case Reversed = 'reversed';
 }

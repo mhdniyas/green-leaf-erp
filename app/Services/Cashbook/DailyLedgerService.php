@@ -188,6 +188,8 @@ class DailyLedgerService
                         'amount' => round((float) $model->amount, 2),
                         'reference' => $model->reference_id ?: 'SHOP-TX-'.$model->id,
                         'narration' => $narration,
+                        'status' => 'unmatched',
+                        'matched_amount' => 0,
                         'notes' => $model->notes ?: 'Pending verification from shop cashbook',
                     ]);
                 }
