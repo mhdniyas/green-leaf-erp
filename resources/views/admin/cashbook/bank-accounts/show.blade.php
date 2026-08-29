@@ -1,137 +1,219 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', $account->name . ' - Account Details')
+@section('title', $account->name . ' — Account Details')
 
 @section('header_title')
-    <i data-lucide="landmark" class="h-5 w-5 text-emerald-600"></i> Account Details
+    <i data-lucide="landmark" class="h-5 w-5 text-emerald-600"></i> {{ $account->name }}
 @endsection
 
 @section('header_subtitle')
-    Account balance, statement activity, and reconciliation trace.
+    @if($account->account_type === 'cash')
+        Company physical cash vault and shop cash collection position.
+    @else
+        Verified bank balance, pending collections, and account transactions.
+    @endif
 @endsection
 
 @section('header_actions')
-    <a href="{{ route('admin.cashbook.bank-accounts.statement', $account) }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white shadow-sm hover:bg-slate-800">
-        <i data-lucide="list-checks" class="h-4 w-4"></i>
-        <span class="hidden sm:inline">Statement</span>
-    </a>
+    <div class="flex items-center gap-2">
+        <a href="{{ route('admin.cashbook.finance') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition">
+            <i data-lucide="arrow-left" class="h-4 w-4"></i>
+            <span>Company Money</span>
+        </a>
+        <a href="{{ route('admin.cashbook.bank-accounts.statement', $account) }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white shadow-xs hover:bg-slate-800 transition">
+            <i data-lucide="list-checks" class="h-4 w-4"></i>
+            <span>Statement</span>
+        </a>
+    </div>
 @endsection
 
 @section('content')
-    @php
-        $moneyIn = (float) ($statementSummary?->money_in ?? 0);
-        $moneyOut = (float) ($statementSummary?->money_out ?? 0);
-        $matchedTotal = (float) ($statementSummary?->matched_total ?? 0);
-    @endphp
+<div class="mx-auto max-w-[96rem] space-y-6">
 
-    <div class="mx-auto max-w-[96rem] space-y-5">
-        <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm sm:p-5">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <h2 class="break-words text-xl font-extrabold text-slate-950">{{ $account->name }}</h2>
-                        @if($account->is_default)
-                            <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase text-emerald-700">Default</span>
-                        @endif
-                        <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-600">{{ $account->account_type }}</span>
-                    </div>
-                    <div class="mt-2 grid gap-2 text-xs font-semibold text-slate-500 sm:grid-cols-2">
-                        <div>{{ $account->bank_name ?: 'No bank/provider set' }}</div>
-                        <div class="font-mono">{{ $account->account_number ?: 'No account number set' }}</div>
-                    </div>
-                </div>
+    @if(session('success'))
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <i data-lucide="check-circle" class="w-4 h-4 text-emerald-600"></i>
+                <span>{{ session('success') }}</span>
+            </div>
+            <button onclick="this.parentElement.remove()" class="text-emerald-600 hover:text-emerald-800 font-bold">&times;</button>
+        </div>
+    @endif
 
-                <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                    <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-                        <i data-lucide="settings-2" class="h-4 w-4"></i> Manage Accounts
-                    </a>
-                    <a href="{{ route('admin.cashbook.finance') }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-bold text-white shadow-sm hover:bg-emerald-500">
-                        <i data-lucide="badge-dollar-sign" class="h-4 w-4"></i> Finance
-                    </a>
+    <!-- Top Account Header Card -->
+    <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-2xl sm:text-3xl font-black text-slate-900">{{ $account->name }}</h1>
+                    @if($account->is_default)
+                        <span class="rounded-md bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-700">Default</span>
+                    @endif
+                    <span class="rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">
+                        {{ $account->account_type }}
+                    </span>
                 </div>
+                <p class="text-xs font-bold text-slate-500 mt-1">
+                    {{ $account->bank_name ?: ($account->account_type === 'cash' ? 'Company Cash Vault' : 'Bank') }}
+                    &bull; <span class="font-mono text-slate-700">{{ $account->account_number ?: 'CASH' }}</span>
+                </p>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+                    <i data-lucide="settings-2" class="w-3.5 h-3.5"></i>
+                    <span>Settings</span>
+                </a>
             </div>
         </div>
-
-        <section class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Verified Balance</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-emerald-700">₹{{ number_format($accountPosition['verified_balance'] ?? $account->current_balance, 2) }}</div>
-                <div class="mt-1 text-[11px] font-semibold text-slate-500">Real verified money in account</div>
-            </div>
-            <div class="white-card rounded-2xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-amber-700">Pending Verification</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-amber-800">₹{{ number_format($accountPosition['net_pending'] ?? 0, 2) }}</div>
-                <div class="mt-1 text-[11px] font-semibold text-amber-700">{{ $accountPosition['pending_count'] ?? 0 }} in-flight collections</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Projected Position</span>
-                <div class="mt-2 break-words font-mono text-2xl font-extrabold text-slate-900">₹{{ number_format($accountPosition['projected_position'] ?? $account->current_balance, 2) }}</div>
-                <div class="mt-1 text-[11px] font-semibold text-slate-500">Verified + Net Pending</div>
-            </div>
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Reconciliation</span>
-                    <span class="font-mono text-xs font-extrabold text-emerald-700">{{ $accountPosition['reconciliation_percentage'] ?? 100 }}%</span>
-                </div>
-                <div class="mt-3 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
-                    <div class="h-full rounded-full bg-emerald-500" style="width: {{ $accountPosition['reconciliation_percentage'] ?? 100 }}%"></div>
-                </div>
-                <div class="mt-2 text-[11px] font-semibold text-slate-500">{{ $account->unmatched_statement_count }} open statement rows</div>
-            </div>
-        </section>
-
-        <section class="grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
-                <div class="mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
-                    <div>
-                        <h3 class="text-base font-extrabold text-slate-950">Recent Statement</h3>
-                        <p class="mt-0.5 text-xs font-semibold text-slate-500">Latest entries from this account.</p>
-                    </div>
-                    <a href="{{ route('admin.cashbook.bank-accounts.statement', $account) }}" class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">View All</a>
-                </div>
-                <div class="space-y-2">
-                    @forelse($recentStatementEntries as $entry)
-                        <div class="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div class="min-w-0">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <span class="font-mono text-xs font-bold text-slate-700">{{ $entry->transaction_date?->format('Y-m-d') }}</span>
-                                    <span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase {{ $entry->direction === 'in' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700' }}">{{ $entry->direction === 'in' ? 'In' : 'Out' }}</span>
-                                    <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase text-slate-500">{{ str_replace('_', ' ', $entry->status) }}</span>
-                                </div>
-                                <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $entry->narration ?: $entry->reference ?: 'Statement entry' }}</p>
-                            </div>
-                            <div class="font-mono text-sm font-extrabold {{ $entry->direction === 'in' ? 'text-emerald-700' : 'text-rose-700' }}">₹{{ number_format($entry->amount, 2) }}</div>
-                        </div>
-                    @empty
-                        <div class="rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs font-bold text-slate-400">No statement entries yet.</div>
-                    @endforelse
-                </div>
-            </div>
-
-            <div class="white-card rounded-2xl border border-slate-200 p-4 shadow-xl sm:p-5">
-                <div class="mb-4 border-b border-slate-200 pb-3">
-                    <h3 class="text-base font-extrabold text-slate-950">Recent Reconciliations</h3>
-                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Where this account money was matched.</p>
-                </div>
-                <div class="space-y-2">
-                    @forelse($recentReconciliations as $reconciliation)
-                        <div class="rounded-xl border border-slate-200 bg-white p-3">
-                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <div class="min-w-0">
-                                    <div class="text-xs font-black text-slate-950">{{ $reconciliation->paymentRequest?->shop?->name ?? 'Shop Payment' }}</div>
-                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $reconciliation->admin_note ?: 'Approved reconciliation' }}</p>
-                                </div>
-                                <div class="text-left sm:text-right">
-                                    <div class="font-mono text-sm font-extrabold text-emerald-700">₹{{ number_format($reconciliation->cleared_amount, 2) }}</div>
-                                    <div class="mt-1 font-mono text-[11px] font-bold text-slate-400">{{ $reconciliation->reconciled_at?->format('Y-m-d') }}</div>
-                                </div>
-                            </div>
-                        </div>
-                    @empty
-                        <div class="rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs font-bold text-slate-400">No reconciliations for this account yet.</div>
-                    @endforelse
-                </div>
-            </div>
-        </section>
     </div>
+
+    <!-- KPI Balance Banner -->
+    <section>
+        @if($account->account_type === 'cash')
+            <!-- CASH BOX BANNER (2 Main Metrics) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="bg-white rounded-3xl border border-emerald-200 p-5 shadow-xs">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-emerald-700">Verified Company Cash</span>
+                    <div class="mt-2 font-mono text-3xl font-black text-emerald-950">
+                        ₹{{ number_format($accountPosition['verified_balance'] ?? $account->current_balance, 2) }}
+                    </div>
+                    <p class="mt-1 text-xs font-bold text-slate-500">
+                        Physical money verified and present in company vault.
+                    </p>
+                </div>
+
+                <div class="bg-white rounded-3xl border border-sky-200 p-5 shadow-xs">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-sky-700">Cash With Shops</span>
+                    <div class="mt-2 font-mono text-3xl font-black text-sky-950">
+                        ₹{{ number_format($cashWithShops['total_cash_with_shops'] ?? 0, 2) }}
+                    </div>
+                    <p class="mt-1 text-xs font-bold text-slate-500">
+                        Customer cash retained at retail shops awaiting handover.
+                    </p>
+                </div>
+            </div>
+        @else
+            <!-- BANK ACCOUNT BANNER (3 Main Metrics) -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white rounded-3xl border border-emerald-200 p-5 shadow-xs">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-emerald-700">Verified Balance</span>
+                    <div class="mt-2 font-mono text-3xl font-black text-emerald-950">
+                        ₹{{ number_format($accountPosition['verified_balance'] ?? $account->current_balance, 2) }}
+                    </div>
+                    <p class="mt-1 text-xs font-bold text-slate-500">
+                        Real money confirmed in bank statement.
+                    </p>
+                </div>
+
+                <div class="bg-white rounded-3xl border border-amber-200 p-5 shadow-xs">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-amber-700">Needs Verification</span>
+                    <div class="mt-2 font-mono text-3xl font-black text-amber-950">
+                        ₹{{ number_format($accountPosition['pending_in'] ?? 0, 2) }}
+                    </div>
+                    <p class="mt-1 text-xs font-bold text-slate-500">
+                        Pending Verification: {{ $accountPosition['pending_count'] ?? 0 }} in-flight collections.
+                    </p>
+                </div>
+
+                <div class="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Projected Position</span>
+                    <div class="mt-2 font-mono text-3xl font-black text-slate-900">
+                        ₹{{ number_format($accountPosition['projected_position'] ?? $account->current_balance, 2) }}
+                    </div>
+                    <p class="mt-1 text-xs font-bold text-slate-500">
+                        Verified balance + net pending funds.
+                    </p>
+                </div>
+            </div>
+        @endif
+    </section>
+
+    <!-- Recent Account Collections & Transactions -->
+    <section class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3 flex-wrap gap-2">
+            <div>
+                <h2 class="text-sm font-black text-slate-900">Recent Collections & Statement Rows</h2>
+                <p class="text-xs font-bold text-slate-500 mt-0.5">Shop-linked collections and statement entries for this account.</p>
+            </div>
+            <a href="{{ route('admin.cashbook.bank-accounts.statement', $account) }}"
+               class="text-xs font-bold text-emerald-700 hover:text-emerald-800">
+                View Full Statement &rarr;
+            </a>
+        </div>
+
+        <div class="space-y-2.5">
+            @forelse($recentStatementEntries as $entry)
+                @php
+                    $isTx = $entry->source_type === 'App\Models\Cashbook\ShopLedgerTransaction' && $entry->source_id;
+                    $shopName = $entry->sourceRecord?->shop?->name ?? 'Company';
+                    $methodName = $entry->sourceRecord?->entryType?->name ?? ($entry->direction === 'in' ? 'Deposit' : 'Payment');
+                    $detailUrl = $isTx
+                        ? route('admin.cashbook.transaction.show', $entry->source_id)
+                        : route('admin.cashbook.bank-accounts.statement', ['account' => $account, 'month' => $entry->transaction_date?->format('Y-m')]);
+
+                    $statusBadge = match(true) {
+                        $entry->is_finalized && $entry->status === 'reconciled' => 'RECEIVED',
+                        $account->account_type === 'cash' && ! $entry->is_finalized => 'CASH WITH SHOP',
+                        ! $entry->is_finalized => 'NEEDS VERIFICATION',
+                        default => strtoupper(str_replace('_', ' ', $entry->status)),
+                    };
+                @endphp
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                            <span class="font-extrabold text-xs text-slate-900">{{ $shopName }}</span>
+                            <span class="text-slate-300">&bull;</span>
+                            <span class="text-xs font-bold text-slate-600">{{ $methodName }}</span>
+                            <span class="text-slate-300">&bull;</span>
+                            <span class="font-mono text-[11px] font-bold text-slate-400">{{ $entry->transaction_date?->format('d M Y') }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-slate-500 truncate mt-0.5">
+                            {{ $entry->narration ?: $entry->reference ?: 'Statement entry' }}
+                        </p>
+                    </div>
+
+                    <div class="flex items-center justify-between sm:justify-end gap-4">
+                        <div class="text-left sm:text-right">
+                            <div class="font-mono text-sm font-black {{ $entry->direction === 'in' ? 'text-slate-900' : 'text-rose-700' }}">
+                                ₹{{ number_format($entry->amount, 2) }}
+                            </div>
+                            <div>
+                                @if($statusBadge === 'RECEIVED')
+                                    <span class="inline-flex items-center gap-1 text-[9px] font-black text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-md">
+                                        <i data-lucide="check" class="w-3 h-3"></i> RECEIVED
+                                    </span>
+                                @elseif($statusBadge === 'NEEDS VERIFICATION')
+                                    <span class="inline-flex items-center gap-1 text-[9px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-md">
+                                        <i data-lucide="alert-triangle" class="w-3 h-3"></i> NEEDS VERIFICATION
+                                    </span>
+                                @elseif($statusBadge === 'CASH WITH SHOP')
+                                    <span class="inline-flex items-center gap-1 text-[9px] font-black text-sky-800 bg-sky-100 px-1.5 py-0.5 rounded-md">
+                                        <i data-lucide="store" class="w-3 h-3"></i> CASH WITH SHOP
+                                    </span>
+                                @else
+                                    <span class="inline-flex items-center text-[9px] font-black text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded-md">
+                                        {{ $statusBadge }}
+                                    </span>
+                                @endif
+                            </div>
+                        </div>
+
+                        <!-- Single Action: View -->
+                        <a href="{{ $detailUrl }}"
+                           class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-900 text-slate-700 hover:text-white text-xs font-bold transition border border-slate-200 shadow-xs cursor-pointer flex-shrink-0">
+                            <span>View</span>
+                            <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                        </a>
+                    </div>
+                </div>
+            @empty
+                <div class="p-8 text-center text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                    No transactions recorded for this account yet.
+                </div>
+            @endforelse
+        </div>
+    </section>
+
+</div>
 @endsection

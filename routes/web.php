@@ -676,6 +676,10 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/export/excel', [CashbookController::class, 'exportReportsExcel'])->name('reports.export.excel');
             Route::get('reports/export/pdf', [CashbookController::class, 'exportReportsPdf'])->name('reports.export.pdf');
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
+            Route::get('money-flow', [CashbookController::class, 'moneyFlow'])->name('money-flow');
+            Route::get('transactions/{transaction}', [CashbookController::class, 'showTransaction'])->name('transaction.show');
+            Route::post('transactions/{transaction}/approve', [CashbookController::class, 'approveTransaction'])->name('transaction.approve');
+            Route::post('transactions/{transaction}/verify', [CashbookController::class, 'verifyTransaction'])->name('transaction.verify');
             Route::get('finance', [CashbookController::class, 'companyFinancePage'])->name('finance');
             Route::get('finance/cheque-submission', [CashbookController::class, 'companyFinanceChequeSubmission'])->name('finance.cheque-submission');
             Route::post('finance/reconciliation/statements/{statement:public_uuid}/company-accounting', [CashbookController::class, 'classifyCompanyAccountingStatement'])->whereUuid('statement')->name('finance.reconciliation.classify-company-accounting');

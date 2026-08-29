@@ -64,6 +64,7 @@ use App\Models\VendorAdvance;
 use App\Models\VendorSettlement;
 use App\Models\WastageEntry;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\CashFlowTransactionPresenter;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\CompanyAccountingCashbookService;
 use App\Services\Cashbook\CompanyMoneyPositionService;
@@ -131,6 +132,7 @@ final class CashbookController extends Controller
         private readonly PayrollPaymentService $payrollPaymentService,
         private readonly HistoricalBankCollectionFetchService $historicalBankCollectionFetchService,
         private readonly CompanyMoneyPositionService $moneyPositionService,
+        private readonly CashFlowTransactionPresenter $transactionPresenter,
     ) {}
 
     // ─── Page methods ────────────────────────────────────────────────────────
@@ -417,10 +419,12 @@ final class CashbookController extends Controller
         $company = config('greenleaf');
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client', 'preset', 'shop');
-        $month = Carbon::parse((string) $request->input('month', now()->format('Y-m').'-01'))->format('Y-m');
+        $businessDate = $request->input('date') ? (string) $request->input('date') : today()->toDateString();
+        $month = Carbon::parse((string) $request->input('month', $businessDate))->format('Y-m');
         $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
         $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
         $shopId = (int) $currentShop->shop_id;
+        $dailySettlement = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $businessDate);
         $position = $this->ledgerService->dailySummary($shopId, $monthEnd);
         $paymentCard = $this->shopPaymentCard($currentShop, $monthStart, $monthEnd);
 
@@ -479,6 +483,8 @@ final class CashbookController extends Controller
             'shops',
             'company',
             'currentShop',
+            'businessDate',
+            'dailySettlement',
             'month',
             'monthStart',
             'monthEnd',
@@ -1005,9 +1011,10 @@ final class CashbookController extends Controller
             ->first();
 
         $recentStatementEntries = $account->statementEntries()
+            ->with(['sourceRecord.shop', 'sourceRecord.entryType', 'reconciliations.paymentRequest.shop'])
             ->latest('transaction_date')
             ->latest('id')
-            ->limit(12)
+            ->limit(20)
             ->get();
 
         $recentReconciliations = CompanyPaymentReconciliation::query()
@@ -1018,6 +1025,7 @@ final class CashbookController extends Controller
             ->get();
 
         $accountPosition = $this->moneyPositionService->getAccountPosition($account);
+        $cashWithShops = $this->moneyPositionService->getCashWithShopsBreakdown();
 
         return view('admin.cashbook.bank-accounts.show', compact(
             'shops',
@@ -1029,6 +1037,7 @@ final class CashbookController extends Controller
             'recentStatementEntries',
             'recentReconciliations',
             'accountPosition',
+            'cashWithShops',
         ));
     }
 
@@ -1045,10 +1054,24 @@ final class CashbookController extends Controller
             : now()->format('Y-m');
         $monthStart = Carbon::createFromFormat('Y-m-d', $statementMonth.'-01')->startOfMonth();
         $monthEnd = $monthStart->copy()->endOfMonth();
+        $selectedTab = (string) $request->query('tab', 'all');
 
-        $statementEntries = $account->statementEntries()
+        $query = $account->statementEntries()
             ->with(['reconciliations.paymentRequest.shop', 'reconciliations.reconciledBy', 'sourceRecord.entryType', 'sourceRecord.shop'])
-            ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+            ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()]);
+
+        if ($selectedTab === 'needs_verification') {
+            $query->where('is_finalized', false)->where('direction', 'in');
+        } elseif ($selectedTab === 'verified') {
+            $query->where('is_finalized', true);
+        } elseif ($selectedTab === 'needs_attention') {
+            $query->where(function ($q): void {
+                $q->where('duplicate_status', 'possible_duplicate')
+                    ->orWhere('status', 'partially_matched');
+            });
+        }
+
+        $statementEntries = $query
             ->latest('transaction_date')
             ->latest('id')
             ->paginate(25)
@@ -1083,7 +1106,116 @@ final class CashbookController extends Controller
             'monthEnd',
             'duplicateFlagCount',
             'accountPosition',
+            'selectedTab',
         ));
+    }
+
+    /**
+     * Money Flow Landing Page.
+     */
+    public function moneyFlow(Request $request): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $businessDate = $request->query('date', today()->toDateString());
+        $shopId = $request->query('shop_id') ? (int) $request->query('shop_id') : null;
+        $statusFilter = $request->query('status', 'all');
+
+        $moneySummary = $this->moneyPositionService->getMoneyPositionSummary($businessDate);
+        $moneyFlowItems = $this->moneyPositionService->getUnifiedMoneyFlowList($businessDate, $shopId, $statusFilter);
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+
+        return view('admin.cashbook.money-flow.index', [
+            'businessDate' => $businessDate,
+            'selectedShopId' => $shopId,
+            'selectedStatus' => $statusFilter,
+            'summary' => $moneySummary,
+            'items' => $moneyFlowItems,
+            'shops' => $shops,
+        ]);
+    }
+
+    /**
+     * Canonical Transaction Detail Page (Shop Collections).
+     */
+    public function showTransaction(Request $request, ShopLedgerTransaction $transaction): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $presented = $this->transactionPresenter->present($transaction);
+
+        return view('admin.cashbook.transactions.show', [
+            'presented' => $presented,
+            'transaction' => $transaction,
+            'shops' => $shops,
+        ]);
+    }
+
+    /**
+     * Action: Approve posted collection transaction.
+     */
+    public function approveTransaction(Request $request, ShopLedgerTransaction $transaction): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        if (in_array($transaction->status, ['void', 'voided'], true)) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'This transaction was voided and cannot be approved.');
+        }
+
+        if ($transaction->status === 'approved') {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('info', 'This transaction has already been approved.');
+        }
+
+        try {
+            $this->ledgerService->approveEntry($transaction, (int) $request->user()->id);
+
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('success', 'Collection approved successfully.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'Approval failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Action: Verify approved collection received into company account.
+     */
+    public function verifyTransaction(Request $request, ShopLedgerTransaction $transaction): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        if ($transaction->status !== 'approved') {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'This transaction requires approval before verification.');
+        }
+
+        $statement = CompanyAccountStatementEntry::query()
+            ->where('source_type', ShopLedgerTransaction::class)
+            ->where('source_id', $transaction->id)
+            ->first();
+
+        if (! $statement) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'Destination account statement is missing or not configured for this collection.');
+        }
+
+        if ($statement->is_finalized && $statement->status === 'reconciled') {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('info', 'This collection has already been verified.');
+        }
+
+        try {
+            $this->companyPaymentReconciliationService->verifyPendingShopCollection($statement, (int) $request->user()->id);
+
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('success', 'Collection verified and confirmed received into company accounts.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'Verification failed: '.$e->getMessage());
+        }
     }
 
     public function companyFinancePage(Request $request): View
@@ -1118,7 +1250,7 @@ final class CashbookController extends Controller
             ->latest('id')
             ->limit(30)
             ->get();
-        $today = today()->toDateString();
+        $today = (string) $request->input('date', today()->toDateString());
         $chequeToBank = ShopInvoicePaymentRequest::query()
             ->where('payment_method', 'cheque')
             ->where('status', '!=', 'rejected')

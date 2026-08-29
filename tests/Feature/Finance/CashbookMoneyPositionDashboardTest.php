@@ -425,7 +425,7 @@ class CashbookMoneyPositionDashboardTest extends TestCase
             ->assertSee('Verified Balance')
             ->assertSee('Pending Verification')
             ->assertSee('Projected Position')
-            ->assertSee('Reconciliation');
+            ->assertSee('Needs Attention');
     }
 
     public function test_finance_overview_page_renders_all_money_position_sections(): void

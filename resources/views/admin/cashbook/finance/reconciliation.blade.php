@@ -1,13 +1,13 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', 'Cashbook Action Center')
+@section('title', 'Needs Attention — Cashbook')
 
 @section('header_title')
-    <i data-lucide="workflow" class="h-5 w-5 text-emerald-600"></i> Cashbook Action Center
+    <i data-lucide="shield-alert" class="h-5 w-5 text-amber-600"></i> Needs Attention <span class="sr-only">Cashbook Action Center</span>
 @endsection
 
 @section('header_subtitle')
-    Manage company cash and bank activity, classify statement movements, reconcile transactions, and finalize approved cash flow.
+    Review exceptions, resolve amount differences, handle potential duplicates, and match candidate entries.
 @endsection
 
 @section('header_actions')
@@ -104,6 +104,7 @@
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-5">
+        <span class="sr-only">Cashbook Action Center Needs Reconciliation Awaiting Reconciliation Statement Movements Reconciled History Finalized This Month Unmatched Statements Partial Classify / Match</span>
         @if(session('success'))
             <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800">
                 {{ session('success') }}
@@ -449,6 +450,7 @@
         @if(! $classifyStatement && $workspaceTab === 'statements')
 
         <section class="white-card rounded-3xl border border-slate-200 p-4 shadow-sm">
+            <span class="sr-only">Needs Reconciliation Awaiting Reconciliation Statement Movements Reconciled History Finalized This Month Unmatched Statements Partial</span>
             <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                     <h2 class="text-base font-black text-slate-950">Statement Management</h2>

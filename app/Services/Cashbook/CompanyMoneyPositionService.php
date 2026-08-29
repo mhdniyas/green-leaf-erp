@@ -271,7 +271,7 @@ class CompanyMoneyPositionService
             ->sum('requested_amount');
 
         $totalFloating = round((float) $floatingCheques->sum(
-            fn (ShopInvoicePaymentRequest $req): float => (float) ($req->floating_amount ?: $req->approved_amount ?: $req->requested_amount)
+            fn (ShopInvoicePaymentRequest $req): float => (float) $req->floating_amount > 0 ? (float) $req->floating_amount : (float) ($req->approved_amount ?: $req->requested_amount)
         ), 2);
 
         return [
@@ -335,27 +335,41 @@ class CompanyMoneyPositionService
                     ?? $setting?->companyAccount?->name
                     ?? 'Configured Company Account';
 
-                $isCash = str_contains(strtolower($code), 'cash')
+                $lowerCode = strtolower($code);
+                $isCash = str_contains($lowerCode, 'cash')
                     || $setting?->companyAccount?->account_type === 'cash'
                     || $statement?->companyAccount?->account_type === 'cash';
 
-                $status = 'POSTED';
-                $actionType = 'approve';
+                $paymentMethod = match (true) {
+                    str_contains($lowerCode, 'paytm') => 'Paytm',
+                    str_contains($lowerCode, 'card') => 'Card',
+                    str_contains($lowerCode, 'upi') => 'UPI',
+                    str_contains($lowerCode, 'cash') => 'Cash',
+                    default => $tx->entryType?->name ?: ($code ?: 'Collection'),
+                };
+
+                $shopName = $tx->shop?->name ?? 'Shop';
+                $destinationFormatted = null;
+                $locationFormatted = null;
 
                 if ($tx->status !== 'approved') {
                     $status = 'POSTED';
                     $actionType = 'approve';
+                    $locationFormatted = '📍 '.$shopName.' Shop';
                 } elseif ($statement && $statement->is_finalized && $statement->status === 'reconciled') {
                     $status = 'VERIFIED';
                     $actionType = null;
+                    $destinationFormatted = '→ '.($destinationName ?: 'Company Account');
                     $verifiedReceived += (float) $tx->amount;
                 } elseif ($isCash) {
                     $status = 'CASH WITH SHOP';
                     $actionType = 'verify_cash_received';
+                    $locationFormatted = '📍 '.$shopName.' Shop';
                     $cashStillWithShop += (float) $tx->amount;
                 } else {
                     $status = 'NEEDS VERIFICATION';
                     $actionType = 'verify_received';
+                    $destinationFormatted = '→ '.($destinationName ?: 'Company Bank');
                     $pendingVerification += (float) $tx->amount;
                 }
 
@@ -363,10 +377,13 @@ class CompanyMoneyPositionService
                     'id' => $tx->id,
                     'category_name' => $tx->entryType?->name ?: $code,
                     'code' => $code,
+                    'payment_method' => $paymentMethod,
                     'amount' => (float) $tx->amount,
                     'status' => $status,
                     'is_cash' => $isCash,
                     'destination_account' => $destinationName,
+                    'destination_name' => $destinationFormatted,
+                    'location_name' => $locationFormatted,
                     'statement_ref' => $statement?->reference,
                     'statement_uuid' => $statement?->public_uuid,
                     'action_type' => $actionType,
@@ -384,13 +401,20 @@ class CompanyMoneyPositionService
                     $settlementDeductions += (float) $tx->amount;
                 }
 
+                $statusLabel = match ($fundingSource) {
+                    'sales' => 'FROM SALES',
+                    'company' => 'PAID BY COMPANY',
+                    'petty' => 'FROM PETTY',
+                    default => ($effectOnPayable < 0 ? 'FROM SALES' : 'NO EFFECT'),
+                };
+
                 $adjustments[] = [
                     'id' => $tx->id,
                     'name' => $tx->entryType?->name ?: $code,
                     'amount' => (float) $tx->amount,
                     'funding_source' => $fundingSource,
                     'effect_on_payable' => $effectOnPayable,
-                    'status' => $fundingSource === 'sales' ? 'FROM SALES' : 'APPLIED',
+                    'status' => $statusLabel,
                 ];
             }
         }
@@ -447,5 +471,179 @@ class CompanyMoneyPositionService
                 'outstanding_to_settle' => $outstandingToSettle,
             ],
         ];
+    }
+
+    /**
+     * Get a normalized, unified list of daily money flow items across all shops and channels.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getUnifiedMoneyFlowList(string $businessDate, ?int $shopId = null, ?string $statusFilter = null): array
+    {
+        $txQuery = ShopLedgerTransaction::query()
+            ->with(['entryType', 'shop', 'companyAccount'])
+            ->whereDate('business_date', $businessDate)
+            ->where('status', '!=', 'void')
+            ->where(function ($q): void {
+                $q->where('direction', 'income')
+                    ->orWhereHas('entryType', fn ($et) => $et->where('category', 'income'));
+            });
+
+        if ($shopId) {
+            $txQuery->where('shop_id', $shopId);
+        }
+
+        $transactions = $txQuery->orderBy('id', 'desc')->get();
+
+        $statements = CompanyAccountStatementEntry::query()
+            ->where('source_type', ShopLedgerTransaction::class)
+            ->whereIn('source_id', $transactions->pluck('id'))
+            ->with('companyAccount')
+            ->get()
+            ->keyBy('source_id');
+
+        $settingsQuery = ShopLedgerEntrySetting::query()
+            ->with('companyAccount')
+            ->where('enabled', true);
+
+        if ($shopId) {
+            $settingsQuery->where('shop_id', $shopId);
+        }
+
+        $settings = $settingsQuery->get();
+
+        $chequeQuery = ShopInvoicePaymentRequest::query()
+            ->with('shop')
+            ->where(function ($q): void {
+                $q->where('payment_method', 'cheque')
+                    ->orWhere('payment_method', 'Cheque');
+            });
+
+        if ($shopId) {
+            $chequeQuery->where('shop_id', $shopId);
+        }
+
+        $cheques = $chequeQuery->where(function ($q) use ($businessDate): void {
+            $q->whereDate('payment_date', $businessDate)
+                ->orWhere(function ($sub): void {
+                    $sub->where('status', '!=', 'rejected')
+                        ->where(function ($st): void {
+                            $st->whereNull('cheque_status')
+                                ->orWhere('cheque_status', 'pending')
+                                ->orWhereIn('reconciliation_status', ['pending', 'floating']);
+                        });
+                });
+        })->get();
+
+        $items = [];
+
+        foreach ($transactions as $tx) {
+            $code = (string) ($tx->entryType?->code ?: ($tx->entry_type_code ?? ''));
+            $name = (string) ($tx->entryType?->name ?: $code);
+            $lowerCode = strtolower($code);
+
+            $paymentMethod = match (true) {
+                str_contains($lowerCode, 'paytm') => 'Paytm',
+                str_contains($lowerCode, 'card') => 'Card',
+                str_contains($lowerCode, 'upi') => 'UPI',
+                str_contains($lowerCode, 'cash') => 'Cash',
+                default => $name ?: 'Collection',
+            };
+
+            $statement = $statements->get($tx->id);
+            $setting = $settings->where('shop_id', $tx->shop_id)->firstWhere('entry_type_id', $tx->entry_type_id);
+
+            $destinationAccountName = $statement?->companyAccount?->name
+                ?? $tx->companyAccount?->name
+                ?? $setting?->companyAccount?->name;
+
+            $isCash = str_contains($lowerCode, 'cash')
+                || $setting?->companyAccount?->account_type === 'cash'
+                || $statement?->companyAccount?->account_type === 'cash'
+                || $tx->companyAccount?->account_type === 'cash';
+
+            $shopName = $tx->shop?->name ?? ('Shop #'.$tx->shop_id);
+            $shopSlug = $tx->shop?->slug ?: ($tx->shop?->shop_id ?: 1);
+
+            $displayStatus = 'POSTED';
+            $statusType = 'needs_attention';
+            $destinationName = null;
+            $locationName = null;
+
+            if ($tx->status !== 'approved') {
+                $displayStatus = 'POSTED';
+                $statusType = 'needs_attention';
+                $locationName = '📍 '.$shopName.' Store';
+            } elseif ($statement && $statement->is_finalized && $statement->status === 'reconciled') {
+                $displayStatus = 'RECEIVED';
+                $statusType = 'verified';
+                $destinationName = '→ '.($destinationAccountName ?: 'Company Account');
+            } elseif ($isCash) {
+                $displayStatus = 'CASH WITH SHOP';
+                $statusType = 'cash_with_shop';
+                $locationName = '📍 '.$shopName.' Store';
+            } else {
+                $displayStatus = 'NEEDS VERIFICATION';
+                $statusType = 'needs_attention';
+                $destinationName = '→ '.($destinationAccountName ?: 'Company Bank');
+            }
+
+            $items[] = [
+                'id' => 'tx-'.$tx->id,
+                'source_type' => 'shop_ledger_transaction',
+                'source_id' => $tx->id,
+                'shop_id' => $tx->shop_id,
+                'shop_name' => $shopName,
+                'business_date' => $tx->business_date?->toDateString() ?: $businessDate,
+                'payment_method' => $paymentMethod,
+                'amount' => (float) $tx->amount,
+                'destination_name' => $destinationName,
+                'location_name' => $locationName,
+                'display_status' => $displayStatus,
+                'status_type' => $statusType,
+                'detail_url' => route('admin.cashbook.transaction.show', $tx->id),
+            ];
+        }
+
+        foreach ($cheques as $ch) {
+            $shopName = $ch->shop?->name ?? ('Shop #'.$ch->shop_id);
+            $amount = (float) ($ch->floating_amount > 0 ? $ch->floating_amount : $ch->requested_amount);
+
+            $isRejected = $ch->status === 'rejected' || $ch->cheque_status === 'rejected';
+            $isCleared = $ch->cheque_status === 'cleared' || $ch->reconciliation_status === 'reconciled';
+
+            if ($isRejected) {
+                $displayStatus = 'REJECTED';
+                $statusType = 'needs_attention';
+            } elseif ($isCleared) {
+                $displayStatus = 'RECEIVED';
+                $statusType = 'verified';
+            } else {
+                $displayStatus = 'FLOATING';
+                $statusType = 'floating';
+            }
+
+            $items[] = [
+                'id' => 'ch-'.$ch->id,
+                'source_type' => 'cheque',
+                'source_id' => $ch->id,
+                'shop_id' => $ch->shop_id,
+                'shop_name' => $shopName,
+                'business_date' => $ch->payment_date?->toDateString() ?: $businessDate,
+                'payment_method' => 'Cheque',
+                'amount' => $amount,
+                'destination_name' => null,
+                'location_name' => null,
+                'display_status' => $displayStatus,
+                'status_type' => $statusType,
+                'detail_url' => route('admin.cashbook.finance.cheque-submission'),
+            ];
+        }
+
+        if ($statusFilter && $statusFilter !== 'all') {
+            $items = array_values(array_filter($items, fn ($item) => $item['status_type'] === $statusFilter));
+        }
+
+        return $items;
     }
 }

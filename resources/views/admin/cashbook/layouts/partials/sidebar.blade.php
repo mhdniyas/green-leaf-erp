@@ -69,20 +69,31 @@
                 <span>Back to Admin</span>
             </a>
 
+            <!-- MONEY FLOW -->
+            <div class="space-y-1">
+                <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">OVERVIEW</span>
+                <a href="{{ route('admin.cashbook.money-flow') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.money-flow') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="activity" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Money Flow</span>
+                </a>
+            </div>
+
             <!-- FINANCE -->
             <div class="space-y-1">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">FINANCE</span>
                 <a href="{{ route('admin.cashbook.finance') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance') ? 'active-sidebar' : '' }}">
                     <i data-lucide="badge-dollar-sign" class="w-4 h-4"></i>
-                    <span>Company Finance</span>
+                    <span>Company Money</span>
+                    <span class="sr-only">Company Finance</span>
                 </a>
                 <a href="{{ route('admin.cashbook.finance.cheque-submission') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.cheque-submission') ? 'active-sidebar' : '' }}">
                     <i data-lucide="file-check-2" class="w-4 h-4"></i>
                     <span>Cheque Bank Submit</span>
                 </a>
-                <a href="{{ route('admin.cashbook.finance.reconciliation') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.reconciliation') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="git-compare-arrows" class="w-4 h-4"></i>
-                    <span>Reconciliation</span>
+                <a href="{{ route('admin.cashbook.finance.reconciliation') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.reconciliation*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                    <span>Needs Attention</span>
+                    <span class="sr-only">Reconciliation</span>
                 </a>
                 <a href="{{ route('admin.cashbook.finance.journal') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.journal*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="book-open-check" class="w-4 h-4"></i>
