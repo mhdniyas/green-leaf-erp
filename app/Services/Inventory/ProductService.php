@@ -19,6 +19,7 @@ class ProductService
 {
     public function __construct(
         private readonly ProductRepository $repository,
+        private readonly ProductWarehouseResolver $warehouseResolver = new ProductWarehouseResolver,
     ) {}
 
     public function paginate(int $perPage = 15, ?int $categoryId = null, ?string $search = null, ?string $status = null, ?string $unit = null): LengthAwarePaginator
@@ -34,6 +35,11 @@ class ProductService
     public function create(ProductData $data): Product
     {
         $attributes = $data->toArray();
+        $attributes['default_warehouse_id'] = $this->warehouseResolver->resolve(
+            explicitWarehouse: $data->defaultWarehouseId,
+            category: $data->categoryId,
+        );
+
         if ($data->imageData) {
             $attributes['image'] = $this->storeImage($data->imageData);
         }

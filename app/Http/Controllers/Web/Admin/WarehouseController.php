@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Warehouse;
+use App\Services\Inventory\ProductWarehouseResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -31,9 +32,10 @@ class WarehouseController extends Controller
         $activeWarehouses = Warehouse::active()->orderBy('name')->get();
 
         $unallocatedProducts = null;
+        $recommendations = [];
         if ($tab === 'unallocated') {
             $query = Product::whereNull('default_warehouse_id')
-                ->with('category:id,name');
+                ->with(['category:id,name', 'category.warehouses']);
 
             if ($request->filled('search')) {
                 $search = $request->string('search')->toString();
@@ -57,6 +59,11 @@ class WarehouseController extends Controller
             }
 
             $unallocatedProducts = $query->ordered()->paginate(25)->withQueryString();
+
+            $resolver = app(ProductWarehouseResolver::class);
+            foreach ($unallocatedProducts as $product) {
+                $recommendations[$product->id] = $resolver->recommendForProduct($product);
+            }
         }
 
         return view('admin.warehouses.index', compact(
@@ -65,8 +72,30 @@ class WarehouseController extends Controller
             'unallocatedProducts',
             'tab',
             'categories',
-            'activeWarehouses'
+            'activeWarehouses',
+            'recommendations'
         ));
+    }
+
+    public function assignRecommended(Request $request, ProductWarehouseResolver $resolver): RedirectResponse
+    {
+        Gate::authorize('admin.user.view');
+
+        $productIds = $request->input('product_ids');
+        if (is_array($productIds) && ! empty($productIds)) {
+            $productIds = array_map('intval', $productIds);
+        } else {
+            $productIds = null;
+        }
+
+        $result = $resolver->assignRecommendedForUnallocated($productIds);
+
+        $msg = "{$result['assigned_count']} unallocated products assigned to recommended warehouses.";
+        if ($result['unallocated_count'] > 0) {
+            $msg .= " {$result['unallocated_count']} items remain unallocated for manual review.";
+        }
+
+        return back()->with('success', $msg);
     }
 
     public function allocateProduct(Request $request): RedirectResponse

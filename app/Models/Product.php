@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\Inventory\ProductWarehouseResolver;
 use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -235,6 +236,16 @@ class Product extends Model implements AuditableContract
         static::creating(function (self $product): void {
             if (static::hasPublicUuidColumn() && ! $product->public_uuid) {
                 $product->public_uuid = (string) Str::uuid();
+            }
+
+            if ($product->default_warehouse_id === null && $product->category_id !== null) {
+                $resolvedWarehouseId = app(ProductWarehouseResolver::class)->resolve(
+                    explicitWarehouse: null,
+                    category: $product->category_id,
+                );
+                if ($resolvedWarehouseId !== null) {
+                    $product->default_warehouse_id = $resolvedWarehouseId;
+                }
             }
         });
     }

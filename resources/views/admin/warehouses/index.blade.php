@@ -211,41 +211,57 @@
                     </a>
                 @endif
             </form>
-        </div>
-
-        {{-- Bulk Allocation Bar --}}
+        </div>        {{-- Bulk Allocation Bar --}}
         @if($activeWarehouses->isNotEmpty() && $unallocatedProducts && $unallocatedProducts->isNotEmpty())
-            <form id="bulk-allocate-form" method="POST" action="{{ route('admin.warehouses.bulk-allocate') }}"
-                  class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-200 bg-brand-50/70 p-3.5 shadow-xs">
-                @csrf
-                <div class="flex items-center gap-3">
-                    <label class="flex items-center gap-2 text-xs font-bold text-brand-900 cursor-pointer">
-                        <input type="checkbox" id="select-all-checkbox"
-                               class="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer">
-                        <span>Select All on Page</span>
-                    </label>
-                    <span id="selected-count-badge" class="rounded-full bg-brand-200 px-2.5 py-0.5 text-[11px] font-extrabold text-brand-900 hidden">
-                        0 selected
-                    </span>
-                </div>
+            @php
+                $hasAnyRecommendations = collect($recommendations ?? [])->filter()->isNotEmpty();
+            @endphp
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-200 bg-brand-50/70 p-3.5 shadow-xs">
+                <form id="bulk-allocate-form" method="POST" action="{{ route('admin.warehouses.bulk-allocate') }}"
+                      class="flex flex-wrap items-center gap-3">
+                    @csrf
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-2 text-xs font-bold text-brand-900 cursor-pointer">
+                            <input type="checkbox" id="select-all-checkbox"
+                                   class="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer">
+                            <span>Select All on Page</span>
+                        </label>
+                        <span id="selected-count-badge" class="rounded-full bg-brand-200 px-2.5 py-0.5 text-[11px] font-extrabold text-brand-900 hidden">
+                            0 selected
+                        </span>
+                    </div>
 
-                <div class="flex items-center gap-2">
-                    <select name="warehouse_id" required
-                            class="rounded-lg border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
-                        <option value="" disabled selected>Select Destination Warehouse…</option>
-                        @foreach($activeWarehouses as $targetWh)
-                            <option value="{{ $targetWh->id }}">{{ $targetWh->name }} ({{ $targetWh->code }})</option>
-                        @endforeach
-                    </select>
-                    <button type="submit" id="bulk-allocate-btn" disabled
-                            class="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xs cursor-pointer">
-                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        </svg>
-                        <span>Allocate Selected</span>
-                    </button>
-                </div>
-            </form>
+                    <div class="flex items-center gap-2">
+                        <select name="warehouse_id" required
+                                class="rounded-lg border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                            <option value="" disabled selected>Select Destination Warehouse…</option>
+                            @foreach($activeWarehouses as $targetWh)
+                                <option value="{{ $targetWh->id }}">{{ $targetWh->name }} ({{ $targetWh->code }})</option>
+                            @endforeach
+                        </select>
+                        <button type="submit" id="bulk-allocate-btn" disabled
+                                class="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xs cursor-pointer">
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            <span>Allocate Selected</span>
+                        </button>
+                    </div>
+                </form>
+
+                @if($hasAnyRecommendations)
+                    <form method="POST" action="{{ route('admin.warehouses.assign-recommended') }}" class="inline-flex">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer">
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>Assign Recommended Warehouses</span>
+                        </button>
+                    </form>
+                @endif
+            </div>
         @endif
 
         {{-- Unallocated Products Table --}}
@@ -292,6 +308,7 @@
                                 </th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Recommendation</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                                 <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Assign Warehouse</th>
@@ -299,6 +316,9 @@
                         </thead>
                         <tbody class="divide-y divide-gray-50">
                             @foreach($unallocatedProducts as $product)
+                            @php
+                                $recWh = $recommendations[$product->id] ?? null;
+                            @endphp
                             <tr class="hover:bg-amber-50/20 transition-colors">
                                 <td class="px-4 py-3 text-center">
                                     <input type="checkbox" name="product_ids[]" value="{{ $product->id }}"
@@ -309,7 +329,7 @@
                                     <div class="flex items-center gap-3">
                                         <div class="min-w-0">
                                             <a href="{{ route('inventory.products.edit', $product) }}"
-                                               class="font-bold text-gray-900 hover:text-brand-600 transition-colors block truncate max-w-xs sm:max-w-md">
+                                                class="font-bold text-gray-900 hover:text-brand-600 transition-colors block truncate max-w-xs sm:max-w-md">
                                                 {{ $product->name }}
                                             </a>
                                             <span class="font-mono text-[11px] font-bold text-slate-500">
@@ -322,6 +342,20 @@
                                     <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                                         {{ $product->category?->name ?? 'No Category' }}
                                     </span>
+                                </td>
+                                <td class="px-4 py-3">
+                                    @if($recWh)
+                                        <span class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 border border-emerald-200" title="Auto-resolved from category">
+                                            <svg class="h-3 w-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                            </svg>
+                                            {{ $recWh->name }}
+                                        </span>
+                                    @else
+                                        <span class="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
+                                            Manual review
+                                        </span>
+                                    @endif
                                 </td>
                                 <td class="px-4 py-3 text-xs font-bold text-slate-600 uppercase">
                                     {{ $product->unit }}
@@ -338,9 +372,9 @@
                                             <input type="hidden" name="product_id" value="{{ $product->id }}">
                                             <select name="warehouse_id" required
                                                     class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500">
-                                                <option value="" disabled selected>Choose Warehouse…</option>
+                                                <option value="" disabled {{ ! $recWh ? 'selected' : '' }}>Choose Warehouse…</option>
                                                 @foreach($activeWarehouses as $wh)
-                                                    <option value="{{ $wh->id }}">{{ $wh->name }}</option>
+                                                    <option value="{{ $wh->id }}" @selected($recWh && $recWh->id === $wh->id)>{{ $wh->name }}</option>
                                                 @endforeach
                                             </select>
                                             <button type="submit"
@@ -356,7 +390,7 @@
                             @endforeach
                         </tbody>
                     </table>
-                </div>
+                </div></div>
 
                 @if($unallocatedProducts->hasPages())
                     <div class="px-6 py-4 border-t border-gray-100">

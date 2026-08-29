@@ -918,6 +918,7 @@ Route::middleware('auth')->group(function () {
             ->middleware('can:admin.user.view');
         Route::post('warehouses/allocate-product', [WarehouseController::class, 'allocateProduct'])->name('warehouses.allocate-product');
         Route::post('warehouses/bulk-allocate', [WarehouseController::class, 'bulkAllocate'])->name('warehouses.bulk-allocate');
+        Route::post('warehouses/assign-recommended', [WarehouseController::class, 'assignRecommended'])->name('warehouses.assign-recommended');
         Route::resource('warehouses', WarehouseController::class)->middleware('can:inventory.stock.adjust');
         Route::middleware('can:hr.employee.view')->group(function () {
             Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');
