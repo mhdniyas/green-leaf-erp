@@ -104,7 +104,7 @@
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-5">
-        <span class="sr-only">Cashbook Action Center Needs Reconciliation Awaiting Reconciliation Statement Movements Reconciled History Finalized This Month Unmatched Statements Partial Classify / Match</span>
+        <span class="sr-only">Cashbook Action Center Awaiting Reconciliation Statement Movements Finalized This Month Unmatched Statements Partial Classify / Match</span>
         @if(session('success'))
             <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800">
                 {{ session('success') }}
@@ -255,6 +255,15 @@
                                 </div>
                                 <div class="flex flex-col gap-2 lg:items-end">
                                     <strong class="font-mono text-lg text-slate-950">₹{{ number_format((float) $transaction->amount, 2) }}</strong>
+                                    @if(isset($transaction->expected_bank_amount) && abs((float) $transaction->expected_bank_amount - (float) $transaction->amount) > 0.001)
+                                        <div class="rounded-xl border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[11px] font-semibold text-slate-600 lg:text-right">
+                                            <span class="text-slate-500">Base: ₹{{ number_format((float) $transaction->amount, 2) }}</span>
+                                            <span class="mx-1 text-slate-300">|</span>
+                                            <span class="{{ ($transaction->adjustment_total ?? 0) < 0 ? 'text-rose-600' : 'text-emerald-700' }}">{{ ($transaction->adjustment_total ?? 0) >= 0 ? '+' : '' }}₹{{ number_format((float) ($transaction->adjustment_total ?? 0), 2) }}</span>
+                                            <span class="mx-1 text-slate-300">|</span>
+                                            <span class="font-bold text-slate-900">Exp: ₹{{ number_format((float) $transaction->expected_bank_amount, 2) }}</span>
+                                        </div>
+                                    @endif
                                     @if($transaction->reconciliation_status === 'RECONCILED')
                                         <span class="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">✓ Reconciled</span>
                                         <p class="max-w-56 text-xs font-semibold text-slate-500 lg:text-right">{{ $transaction->statement_match_summary }}</p>

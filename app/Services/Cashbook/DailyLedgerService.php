@@ -26,6 +26,7 @@ class DailyLedgerService
         private readonly TransactionGenerator $generator,
         private readonly BalanceCalculator $calculator,
         private readonly LedgerRuleResolver $ruleResolver,
+        private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService,
     ) {}
 
     public function recordEntry(array $input): array
@@ -161,13 +162,21 @@ class DailyLedgerService
                 $direction = $model->direction === 'income' ? 'in' : 'out';
                 $narration = ($model->entryType?->name ?? 'Shop transaction').' from '.($model->shop?->name ?? 'Shop #'.$model->shop_id);
 
+                $resolvedExpected = $this->expectedAmountService->resolve(
+                    (int) $model->shop_id,
+                    $model->business_date->toDateString(),
+                    (int) $model->entry_type_id,
+                    (float) $model->amount
+                );
+                $statementAmount = (float) $resolvedExpected['expected_amount'];
+
                 if (! $statement instanceof CompanyAccountStatementEntry) {
                     CompanyAccountStatementEntry::query()->create([
                         'company_account_id' => $companyAccount->id,
                         'transaction_date' => $model->business_date->toDateString(),
                         'value_date' => $model->business_date->toDateString(),
                         'direction' => $direction,
-                        'amount' => round((float) $model->amount, 2),
+                        'amount' => $statementAmount,
                         'reference' => $model->reference_id ?: 'SHOP-TX-'.$model->id,
                         'narration' => $narration,
                         'source' => 'shop_collection',
@@ -185,7 +194,7 @@ class DailyLedgerService
                         'transaction_date' => $model->business_date->toDateString(),
                         'value_date' => $model->business_date->toDateString(),
                         'direction' => $direction,
-                        'amount' => round((float) $model->amount, 2),
+                        'amount' => $statementAmount,
                         'reference' => $model->reference_id ?: 'SHOP-TX-'.$model->id,
                         'narration' => $narration,
                         'status' => 'unmatched',

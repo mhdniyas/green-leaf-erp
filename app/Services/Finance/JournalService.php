@@ -280,9 +280,9 @@ class JournalService
         return $this->createEntry($data, $userId);
     }
 
-    public function recordShopCollection(ShopLedgerTransaction $transaction, CompanyAccount $companyAccount, int $userId): JournalEntry
+    public function recordShopCollection(ShopLedgerTransaction $transaction, CompanyAccount $companyAccount, int $userId, ?float $verifiedAmount = null): JournalEntry
     {
-        $amount = round((float) $transaction->amount, 2);
+        $amount = round((float) ($verifiedAmount ?? $transaction->amount), 2);
         if ($amount <= 0.00 || ! $companyAccount->enabled || ! in_array($companyAccount->account_type, ['cash', 'bank', 'wallet'], true)) {
             throw new RuntimeException('Shop collection journal requires a positive amount and enabled company account.');
         }

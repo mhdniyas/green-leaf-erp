@@ -18,7 +18,8 @@ use Throwable;
 final class ShopCollectionAutoMatchService
 {
     public function __construct(
-        private readonly CompanyPaymentReconciliationService $reconciliationService
+        private readonly CompanyPaymentReconciliationService $reconciliationService,
+        private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService
     ) {}
 
     /**
@@ -190,12 +191,20 @@ final class ShopCollectionAutoMatchService
         // Group transactions by Shop + EntryType + Date to detect multiple competing entries
         $txByShopTypeDate = $transactions->groupBy(fn (ShopLedgerTransaction $t) => "{$t->shop_id}:{$t->entry_type_id}:{$t->business_date->toDateString()}");
 
+        // Batch resolve expected bank settlement adjustments for all candidate transactions
+        $resolvedAdjustments = $this->expectedAmountService->resolveBulk($transactions);
+
         // Keep track of claimed statement IDs per bank account during preview
         $claimedStatementsPerBank = [];
 
         foreach ($transactions as $tx) {
             $txAmount = round((float) $tx->amount, 2);
             $txDate = $tx->business_date->toDateString();
+            $resolved = $resolvedAdjustments->get("{$tx->shop_id}_{$txDate}_{$tx->entry_type_id}");
+            $expectedBankAmount = $resolved ? (float) $resolved['expected_amount'] : $txAmount;
+            $adjustmentTotal = $resolved ? (float) $resolved['adjustment_total'] : 0.0;
+            $plusAdjustments = $resolved ? (float) $resolved['plus_adjustments'] : 0.0;
+            $minusAdjustments = $resolved ? (float) $resolved['minus_adjustments'] : 0.0;
             $shopName = $tx->shop?->name ?? "Shop #{$tx->shop_id}";
             $categoryName = $tx->entryType?->name ?? 'Collection';
             $settingKey = "{$tx->shop_id}:{$tx->entry_type_id}";
@@ -400,16 +409,20 @@ final class ShopCollectionAutoMatchService
                 ->values();
 
             $exactAmountSameDate = $sameDateStatements
-                ->filter(fn (CompanyAccountStatementEntry $s) => abs((float) $s->amount - $txAmount) <= 0.01)
+                ->filter(fn (CompanyAccountStatementEntry $s) => abs((float) $s->amount - $expectedBankAmount) <= 0.01)
                 ->values();
 
             // Check if multiple active shop collections on this date share the same amount for this bank
             $competingTxOnDateAmount = $transactions
-                ->filter(fn (ShopLedgerTransaction $other) => ! $other->isReconciled()
-                    && (int) $other->company_account_id === (int) $targetBankId
-                    && $other->business_date->toDateString() === $txDate
-                    && abs((float) $other->amount - $txAmount) <= 0.01
-                )->count();
+                ->filter(function (ShopLedgerTransaction $other) use ($targetBankId, $txDate, $expectedBankAmount, $resolvedAdjustments): bool {
+                    if ($other->isReconciled() || (int) $other->company_account_id !== (int) $targetBankId || $other->business_date->toDateString() !== $txDate) {
+                        return false;
+                    }
+                    $otherRes = $resolvedAdjustments->get("{$other->shop_id}_{$txDate}_{$other->entry_type_id}");
+                    $otherExp = $otherRes ? (float) $otherRes['expected_amount'] : round((float) $other->amount, 2);
+
+                    return abs($otherExp - $expectedBankAmount) <= 0.01;
+                })->count();
 
             // 1. Exact Same Date Match
             if ($exactAmountSameDate->count() === 1 && $competingTxOnDateAmount === 1) {
@@ -423,6 +436,9 @@ final class ShopCollectionAutoMatchService
                         'category_name' => $categoryName,
                         'business_date' => $txDate,
                         'amount' => $txAmount,
+                        'base_amount' => $txAmount,
+                        'adjustment_total' => $adjustmentTotal,
+                        'expected_amount' => $expectedBankAmount,
                         'configured_bank_id' => $targetBankId,
                         'configured_bank_name' => $targetBank->name,
                         'statement_id' => $stmt->id,
@@ -450,6 +466,9 @@ final class ShopCollectionAutoMatchService
                     'category_name' => $categoryName,
                     'business_date' => $txDate,
                     'amount' => $txAmount,
+                    'base_amount' => $txAmount,
+                    'adjustment_total' => $adjustmentTotal,
+                    'expected_amount' => $expectedBankAmount,
                     'configured_bank_name' => $targetBank->name,
                     'statement_count' => $exactAmountSameDate->count(),
                     'competing_tx_count' => $competingTxOnDateAmount,
@@ -468,15 +487,18 @@ final class ShopCollectionAutoMatchService
             // 3. Same date with Different Amount in Target Bank
             $unclaimedSameDate = $sameDateStatements->filter(fn ($s) => ! in_array($s->id, $claimed, true));
             if ($unclaimedSameDate->isNotEmpty()) {
-                $closestStmt = $unclaimedSameDate->sortBy(fn ($s) => abs((float) $s->amount - $txAmount))->first();
-                $diff = round((float) $closestStmt->amount - $txAmount, 2);
+                $closestStmt = $unclaimedSameDate->sortBy(fn ($s) => abs((float) $s->amount - $expectedBankAmount))->first();
+                $diff = round((float) $closestStmt->amount - $expectedBankAmount, 2);
                 $diffItem = [
                     'transaction_id' => $tx->id,
                     'transaction_ref' => $tx->secureRouteKey(),
                     'shop_name' => $shopName,
                     'category_name' => $categoryName,
                     'business_date' => $txDate,
-                    'expected_amount' => $txAmount,
+                    'amount' => $txAmount,
+                    'base_amount' => $txAmount,
+                    'adjustment_total' => $adjustmentTotal,
+                    'expected_amount' => $expectedBankAmount,
                     'configured_bank_name' => $targetBank->name,
                     'statement_id' => $closestStmt->id,
                     'statement_uuid' => $closestStmt->public_uuid,
@@ -496,7 +518,7 @@ final class ShopCollectionAutoMatchService
             // 4. Nearby Date with Exact Amount in Target Bank (Within graceDays)
             $nearbyStatements = $bankStatements
                 ->filter(fn (CompanyAccountStatementEntry $s) => ! in_array($s->id, $claimed, true)
-                    && abs((float) $s->amount - $txAmount) <= 0.01
+                    && abs((float) $s->amount - $expectedBankAmount) <= 0.01
                     && abs($s->transaction_date->diffInDays(Carbon::parse($txDate))) <= $graceDays
                 )
                 ->values();
@@ -511,6 +533,9 @@ final class ShopCollectionAutoMatchService
                     'category_name' => $categoryName,
                     'business_date' => $txDate,
                     'amount' => $txAmount,
+                    'base_amount' => $txAmount,
+                    'adjustment_total' => $adjustmentTotal,
+                    'expected_amount' => $expectedBankAmount,
                     'configured_bank_name' => $targetBank->name,
                     'statement_id' => $nearbyStmt->id,
                     'statement_uuid' => $nearbyStmt->public_uuid,
@@ -535,6 +560,9 @@ final class ShopCollectionAutoMatchService
                     'category_name' => $categoryName,
                     'business_date' => $txDate,
                     'amount' => $txAmount,
+                    'base_amount' => $txAmount,
+                    'adjustment_total' => $adjustmentTotal,
+                    'expected_amount' => $expectedBankAmount,
                     'configured_bank_name' => $targetBank->name,
                     'statement_count' => $nearbyStatements->count(),
                     'status' => 'ambiguous',
@@ -555,11 +583,14 @@ final class ShopCollectionAutoMatchService
                 'category_name' => $categoryName,
                 'business_date' => $txDate,
                 'amount' => $txAmount,
+                'base_amount' => $txAmount,
+                'adjustment_total' => $adjustmentTotal,
+                'expected_amount' => $expectedBankAmount,
                 'configured_bank_id' => $targetBankId,
                 'configured_bank_name' => $targetBank->name,
                 'status' => 'no_amount_match',
                 'reason' => 'No Amount Match',
-                'message' => 'No statement entry matching ₹'.number_format($txAmount, 2)." found in {$targetBank->name}.",
+                'message' => 'No statement entry matching ₹'.number_format($expectedBankAmount, 2)." found in {$targetBank->name}.",
             ];
             $noAmountMatch[] = $noAmountMatchItem;
             $noAmountMatchAmount += $txAmount;
@@ -740,7 +771,15 @@ final class ShopCollectionAutoMatchService
                         return;
                     }
 
-                    if (abs((float) $tx->amount - (float) $stmt->amount) > 0.01) {
+                    $resolved = $this->expectedAmountService->resolve(
+                        (int) $tx->shop_id,
+                        $tx->business_date->toDateString(),
+                        (int) $tx->entry_type_id,
+                        (float) $tx->amount
+                    );
+                    $expectedPaymentAmount = (float) $resolved['expected_amount'];
+
+                    if (abs($expectedPaymentAmount - (float) $stmt->amount) > 0.01) {
                         $skippedCount++;
                         $skippedAmount += (float) $tx->amount;
 

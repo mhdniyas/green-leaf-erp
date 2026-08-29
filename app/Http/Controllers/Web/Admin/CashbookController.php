@@ -31,6 +31,8 @@ use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\PresetCollectionGroup;
 use App\Models\Cashbook\PresetCollectionGroupEntryType;
 use App\Models\Cashbook\PresetEntrySetting;
+use App\Models\Cashbook\ShopBankSettlementAdjustment;
+use App\Models\Cashbook\ShopBankSettlementAdjustmentRule;
 use App\Models\Cashbook\ShopConfigPreset;
 use App\Models\Cashbook\ShopLedgerCollectionGroup;
 use App\Models\Cashbook\ShopLedgerCollectionGroupEntryType;
@@ -63,6 +65,7 @@ use App\Models\User;
 use App\Models\VendorAdvance;
 use App\Models\VendorSettlement;
 use App\Models\WastageEntry;
+use App\Services\Cashbook\BankSettlementExpectedAmountService;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CashbookTransactionReversalService;
 use App\Services\Cashbook\CashFlowTransactionPresenter;
@@ -135,6 +138,7 @@ final class CashbookController extends Controller
         private readonly CompanyMoneyPositionService $moneyPositionService,
         private readonly CashFlowTransactionPresenter $transactionPresenter,
         private readonly CashbookTransactionReversalService $reversalService,
+        private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService,
     ) {}
 
     // ─── Page methods ────────────────────────────────────────────────────────
@@ -935,8 +939,13 @@ final class CashbookController extends Controller
             ->with('entryTypes.entryType')
             ->first();
 
+        $bankAdjustmentRules = ShopBankSettlementAdjustmentRule::query()
+            ->where('shop_id', $currentShop->shop_id)
+            ->get()
+            ->groupBy('entry_type_id');
+
         return view('admin.cashbook.settings.shop', compact(
-            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup'
+            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup', 'bankAdjustmentRules'
         ));
     }
 
@@ -4533,10 +4542,16 @@ final class CashbookController extends Controller
                     ->firstOrFail();
 
                 $statementAmount = round((float) $statement->amount, 2);
-                $txAmount = round((float) $transaction->amount, 2);
+                $resolved = $this->expectedAmountService->resolve(
+                    (int) $transaction->shop_id,
+                    $transaction->business_date->toDateString(),
+                    (int) $transaction->entry_type_id,
+                    (float) $transaction->amount
+                );
+                $expectedPaymentAmount = (float) $resolved['expected_amount'];
 
-                if (abs($txAmount - $statementAmount) > 0.01) {
-                    throw ValidationException::withMessages(['candidate_ref' => 'Statement amount must match the selected transaction amount.']);
+                if (abs($expectedPaymentAmount - $statementAmount) > 0.01) {
+                    throw ValidationException::withMessages(['candidate_ref' => 'Statement amount must match the selected transaction payment amount.']);
                 }
 
                 $this->companyPaymentReconciliationService->reconcileStatementShopLedger(
@@ -5883,6 +5898,160 @@ final class CashbookController extends Controller
                 'success' => true,
                 'message' => "Successfully fetched {$result['updated_count']} historical collections to {$result['company_account']['name']}.",
                 'result' => $result,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function saveShopBankAdjustmentRule(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'id' => ['nullable', 'integer', 'exists:shop_bank_settlement_adjustment_rules,id'],
+            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'entry_type_id' => ['required', 'integer', 'exists:ledger_entry_types,id'],
+            'label' => ['required', 'string', 'max:120'],
+            'direction' => ['required', 'string', 'in:plus,minus'],
+            'enabled' => ['nullable', 'boolean'],
+        ]);
+
+        try {
+            $shopId = (int) $validated['shop_id'];
+            $entryTypeId = (int) $validated['entry_type_id'];
+
+            if (! empty($validated['id'])) {
+                $rule = ShopBankSettlementAdjustmentRule::query()
+                    ->where('id', (int) $validated['id'])
+                    ->where('shop_id', $shopId)
+                    ->where('entry_type_id', $entryTypeId)
+                    ->firstOrFail();
+
+                $rule->update([
+                    'label' => $validated['label'],
+                    'direction' => $validated['direction'],
+                    'enabled' => (bool) ($validated['enabled'] ?? true),
+                ]);
+            } else {
+                $rule = ShopBankSettlementAdjustmentRule::create([
+                    'shop_id' => $shopId,
+                    'entry_type_id' => $entryTypeId,
+                    'label' => $validated['label'],
+                    'direction' => $validated['direction'],
+                    'enabled' => (bool) ($validated['enabled'] ?? true),
+                    'created_by' => $request->user()?->id,
+                ]);
+            }
+
+            $rules = ShopBankSettlementAdjustmentRule::query()
+                ->where('shop_id', $shopId)
+                ->where('entry_type_id', $entryTypeId)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bank settlement adjustment rule saved.',
+                'rule' => $rule,
+                'rules' => $rules,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function deleteShopBankAdjustmentRule(Request $request, int $rule): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        try {
+            $ruleModel = ShopBankSettlementAdjustmentRule::findOrFail($rule);
+            $shopId = $ruleModel->shop_id;
+            $entryTypeId = $ruleModel->entry_type_id;
+            $ruleModel->delete();
+
+            $rules = ShopBankSettlementAdjustmentRule::query()
+                ->where('shop_id', $shopId)
+                ->where('entry_type_id', $entryTypeId)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bank settlement adjustment rule deleted.',
+                'rules' => $rules,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function saveShopDailyBankAdjustments(Request $request, int|string $shop): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'entry_type_id' => ['required', 'integer', 'exists:ledger_entry_types,id'],
+            'adjustments' => ['present', 'array'],
+            'adjustments.*.rule_id' => ['required', 'integer', 'exists:shop_bank_settlement_adjustment_rules,id'],
+            'adjustments.*.amount' => ['required', 'numeric', 'min:0'],
+            'adjustments.*.notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $businessDate = $validated['business_date'];
+            $entryTypeId = (int) $validated['entry_type_id'];
+
+            foreach ($validated['adjustments'] as $item) {
+                $rule = ShopBankSettlementAdjustmentRule::query()
+                    ->where('id', (int) $item['rule_id'])
+                    ->where('shop_id', $currentShop->shop_id)
+                    ->where('entry_type_id', $entryTypeId)
+                    ->firstOrFail();
+
+                $amount = max(0.0, round((float) $item['amount'], 2));
+
+                ShopBankSettlementAdjustment::updateOrCreate(
+                    [
+                        'shop_id' => $currentShop->shop_id,
+                        'business_date' => $businessDate,
+                        'entry_type_id' => $entryTypeId,
+                        'rule_id' => $rule->id,
+                    ],
+                    [
+                        'label' => $rule->label,
+                        'direction' => $rule->direction,
+                        'amount' => $amount,
+                        'notes' => $item['notes'] ?? null,
+                        'updated_by' => $request->user()?->id,
+                        'created_by' => $request->user()?->id,
+                    ]
+                );
+            }
+
+            // Find base transaction amount if recorded
+            $baseTx = ShopLedgerTransaction::query()
+                ->where('shop_id', $currentShop->shop_id)
+                ->whereDate('business_date', $businessDate)
+                ->where('entry_type_id', $entryTypeId)
+                ->whereNotIn('status', ['void', 'voided', 'reversed'])
+                ->first();
+
+            $baseAmount = $baseTx ? (float) $baseTx->amount : 0.0;
+
+            $expected = $this->expectedAmountService->resolve(
+                $currentShop->shop_id,
+                $businessDate,
+                $entryTypeId,
+                $baseAmount
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bank settlement adjustments saved.',
+                'resolved' => $expected,
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);

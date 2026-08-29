@@ -33,6 +33,7 @@ class CompanyPaymentReconciliationService
     public function __construct(
         private readonly DailyLedgerService $dailyLedgerService,
         private readonly JournalService $journalService,
+        private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService,
     ) {}
 
     public function createStatementEntry(array $input, int $userId): CompanyAccountStatementEntry
@@ -127,6 +128,19 @@ class CompanyPaymentReconciliationService
                 ]);
             }
 
+            CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->where('source_id', $transaction->id)
+                ->where('id', '!=', $statementEntry->id)
+                ->where('is_finalized', false)
+                ->update([
+                    'status' => 'superseded',
+                    'source_type' => null,
+                    'source_id' => null,
+                    'duplicate_status' => 'manual_cleared',
+                    'duplicate_of_statement_entry_id' => $statementEntry->id,
+                ]);
+
             $statementEntry->matched_amount = round((float) $statementEntry->matched_amount + $clearedAmount, 2);
             $statementEntry->source = 'shop_collection';
             $statementEntry->source_type = ShopLedgerTransaction::class;
@@ -207,10 +221,17 @@ class CompanyPaymentReconciliationService
             }
 
             $statementAmount = round((float) $statementEntry->amount, 2);
-            $txAmount = round((float) $transaction->amount, 2);
-            if (abs($statementAmount - $txAmount) > 0.005) {
+            $resolved = $this->expectedAmountService->resolve(
+                (int) $transaction->shop_id,
+                $transaction->business_date->toDateString(),
+                (int) $transaction->entry_type_id,
+                (float) $transaction->amount
+            );
+            $expectedPaymentAmount = (float) $resolved['expected_amount'];
+
+            if (abs($statementAmount - $expectedPaymentAmount) > 0.005) {
                 throw ValidationException::withMessages([
-                    'statement' => 'Statement amount does not match the shop transaction amount.',
+                    'statement' => 'Statement amount does not match the expected shop payment amount.',
                 ]);
             }
 
@@ -234,7 +255,7 @@ class CompanyPaymentReconciliationService
             $statementEntry->save();
 
             // 3. Record Journal Entry
-            $journal = $this->journalService->recordShopCollection($transaction, $companyAccount, $userId);
+            $journal = $this->journalService->recordShopCollection($transaction, $companyAccount, $userId, $statementAmount);
             $statementEntry->update(['journal_entry_id' => $journal->id]);
 
             // 4. Reduce Shop Payable by recording shop_paid_company settlement transaction
@@ -868,11 +889,20 @@ class CompanyPaymentReconciliationService
     {
         $keys = $transactions
             ->filter(fn (object $transaction): bool => (int) ($transaction->company_account_id ?? 0) > 0)
-            ->map(fn (object $transaction): array => [
-                'company_account_id' => (int) $transaction->company_account_id,
-                'direction' => (string) $transaction->direction,
-                'amount' => round((float) $transaction->amount, 2),
-            ])
+            ->map(function (object $transaction): array {
+                $dir = strtolower((string) $transaction->direction);
+                $normDirection = match ($dir) {
+                    'income', 'in' => 'in',
+                    'expense', 'out' => 'out',
+                    default => $dir,
+                };
+
+                return [
+                    'company_account_id' => (int) $transaction->company_account_id,
+                    'direction' => $normDirection,
+                    'amount' => round((float) ($transaction->effective_match_amount ?? $transaction->amount), 2),
+                ];
+            })
             ->unique(fn (array $key): string => $key['company_account_id'].'|'.$key['direction'].'|'.$key['amount'])
             ->values();
 
@@ -880,7 +910,11 @@ class CompanyPaymentReconciliationService
             return collect();
         }
 
-        $dates = $transactions->pluck('transaction_date')->filter();
+        $dates = $transactions->map(function (object $t): ?string {
+            $d = $t->business_date ?? $t->transaction_date ?? null;
+
+            return $d ? Carbon::parse((string) $d)->toDateString() : null;
+        })->filter();
         $startDate = Carbon::parse((string) $dates->min())->subDays($graceDays)->toDateString();
         $endDate = Carbon::parse((string) $dates->max())->addDays($graceDays)->toDateString();
 
