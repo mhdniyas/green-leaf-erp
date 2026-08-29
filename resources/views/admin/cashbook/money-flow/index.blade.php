@@ -24,14 +24,15 @@
         <form method="GET" action="{{ route('admin.cashbook.money-flow') }}" id="money-flow-filter-form" class="flex items-center gap-2 flex-wrap">
             <input type="hidden" name="status" value="{{ $selectedStatus }}">
             <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
+            <input type="hidden" name="calendar_month" value="{{ $calendarData['calendar_month'] ?? '' }}">
 
             <!-- Quick Day Buttons -->
             <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-bold">
-                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus]) }}"
+                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
                    class="px-3 py-1.5 rounded-lg transition {{ $businessDate === today()->toDateString() ? 'bg-white text-emerald-800 shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900' }}">
                     Today
                 </a>
-                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->subDay()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus]) }}"
+                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->subDay()->toDateString(), 'shop_id' => $selectedShopId, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
                    class="px-3 py-1.5 rounded-lg transition {{ $businessDate === today()->subDay()->toDateString() ? 'bg-white text-emerald-800 shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900' }}">
                     Yesterday
                 </a>
@@ -42,6 +43,14 @@
                 <input type="date" name="date" value="{{ $businessDate }}" onchange="document.getElementById('money-flow-filter-form').submit()"
                        class="bg-transparent text-xs font-mono font-bold text-slate-800 border-none focus:outline-none cursor-pointer">
             </div>
+
+            <!-- Calendar Shortcut on Top -->
+            <a href="#monthly-pending-calendar"
+               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-200 transition"
+               title="Jump to Monthly Pending Calendar">
+                <i data-lucide="calendar-days" class="w-4 h-4 text-emerald-700"></i>
+                <span>Calendar</span>
+            </a>
         </form>
     </div>
 
@@ -100,7 +109,7 @@
                 </div>
                 <div class="flex items-center gap-1.5 text-[11px] font-bold text-sky-700 mt-1">
                     <span class="w-2 h-2 rounded-full bg-sky-500"></span>
-                    {{ $summary['shops_holding_cash_count'] ?? 0 }} shops holding cash
+                    Retained physical retail cash
                 </div>
             </div>
         </div>
@@ -110,7 +119,7 @@
             <div class="flex items-center justify-between">
                 <span class="text-[11px] font-extrabold uppercase tracking-wider text-purple-700">Floating Cheques</span>
                 <span class="p-2 rounded-xl bg-purple-50 text-purple-600">
-                    <i data-lucide="file-check-2" class="w-4 h-4"></i>
+                    <i data-lucide="clock" class="w-4 h-4"></i>
                 </span>
             </div>
             <div class="mt-3">
@@ -119,84 +128,75 @@
                 </div>
                 <div class="flex items-center gap-1.5 text-[11px] font-bold text-purple-700 mt-1">
                     <span class="w-2 h-2 rounded-full bg-purple-500"></span>
-                    {{ $summary['floating_cheques_count'] ?? 0 }} uncleared cheques
+                    {{ $summary['floating_cheques']['floating_count'] ?? 0 }} uncleared cheques
                 </div>
             </div>
         </div>
 
     </div>
 
-    <!-- Filters & Search Bar -->
-    <div class="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        
-        <!-- Status Pill Tabs -->
-        <div class="flex items-center gap-1.5 flex-wrap text-xs font-bold">
-            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => 'all']) }}"
-               class="px-3 py-1.5 rounded-xl transition {{ $selectedStatus === 'all' || empty($selectedStatus) ? 'bg-slate-900 text-white font-extrabold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
-                All Items ({{ count($items) }})
+    <!-- Shop Tabs Filter -->
+    <div class="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
+        <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => null, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+           class="px-4 py-2 rounded-2xl text-xs font-extrabold transition-all whitespace-nowrap {{ is_null($selectedShopId) ? 'bg-slate-900 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50' }}">
+            All Shops
+        </a>
+        @foreach($shops as $sh)
+            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $sh->shop_id, 'status' => $selectedStatus, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+               class="px-4 py-2 rounded-2xl text-xs font-extrabold transition-all whitespace-nowrap {{ (int) $selectedShopId === (int) $sh->shop_id ? 'bg-slate-900 text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50' }}">
+                {{ $sh->name }}
             </a>
-            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => 'needs_attention']) }}"
-               class="px-3 py-1.5 rounded-xl transition {{ $selectedStatus === 'needs_attention' ? 'bg-amber-600 text-white font-extrabold' : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200' }}">
-                Needs Attention
-            </a>
-            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => 'verified']) }}"
-               class="px-3 py-1.5 rounded-xl transition {{ $selectedStatus === 'verified' ? 'bg-emerald-700 text-white font-extrabold' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200' }}">
-                Verified Received
-            </a>
-            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => 'cash_with_shop']) }}"
-               class="px-3 py-1.5 rounded-xl transition {{ $selectedStatus === 'cash_with_shop' ? 'bg-sky-700 text-white font-extrabold' : 'bg-sky-50 text-sky-800 hover:bg-sky-100 border border-sky-200' }}">
-                Cash With Shops
-            </a>
-            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => 'floating']) }}"
-               class="px-3 py-1.5 rounded-xl transition {{ $selectedStatus === 'floating' ? 'bg-purple-700 text-white font-extrabold' : 'bg-purple-50 text-purple-800 hover:bg-purple-100 border border-purple-200' }}">
-                Floating Cheques
-            </a>
-        </div>
-
-        <!-- Shop Dropdown Filter -->
-        <div class="flex items-center gap-2">
-            <span class="text-xs font-extrabold uppercase text-slate-400">Shop:</span>
-            <select onchange="window.location.href='{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'status' => $selectedStatus]) }}&shop_id=' + this.value"
-                    class="bg-slate-50 text-xs font-bold text-slate-800 px-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 cursor-pointer">
-                <option value="">All Shops</option>
-                @foreach($shops as $shop)
-                    <option value="{{ $shop->shop_id }}" {{ $selectedShopId == $shop->shop_id ? 'selected' : '' }}>
-                        {{ $shop->name }} ({{ $shop->code }})
-                    </option>
-                @endforeach
-            </select>
-        </div>
-
+        @endforeach
     </div>
 
-    <!-- ALL MONEY FLOW LIST / CARDS -->
-    <div class="space-y-3">
-        <div class="flex items-center justify-between px-2">
-            <h2 class="text-sm font-extrabold text-slate-900 tracking-tight uppercase">All Money Flow</h2>
-            <span class="text-xs font-medium text-slate-500 font-mono">{{ count($items) }} entries</span>
+    <!-- Status Tabs Filter -->
+    <div class="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
+        @php
+            $statusTabs = [
+                'all' => 'All Collections',
+                'needs_attention' => 'Needs Attention / Unverified',
+                'verified' => 'Company Received',
+                'cash_with_shop' => 'Cash With Shop',
+                'floating' => 'Floating Cheques',
+            ];
+        @endphp
+        @foreach($statusTabs as $k => $label)
+            <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'shop_id' => $selectedShopId, 'status' => $k, 'calendar_month' => $calendarData['calendar_month'] ?? null]) }}"
+               class="px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all whitespace-nowrap {{ $selectedStatus === $k ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                {{ $label }}
+            </a>
+        @endforeach
+    </div>
+
+    <!-- Daily Collections List -->
+    <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+        <div class="flex items-center justify-between">
+            <h2 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <i data-lucide="layers" class="w-4 h-4 text-emerald-600"></i>
+                <span>Daily Money Flow Collections</span>
+                <span class="text-xs text-slate-400 font-mono font-normal">({{ $items->total() }} records)</span>
+            </h2>
         </div>
 
-        @if(empty($items))
-            <div class="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm space-y-3">
-                <div class="h-12 w-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-                    <i data-lucide="inbox" class="w-6 h-6"></i>
-                </div>
-                <p class="text-sm font-bold text-slate-800">No money flow records found for this date and filter.</p>
-                <p class="text-xs text-slate-500">Try selecting a different date or clearing the status filter.</p>
+        @if($items->isEmpty())
+            <div class="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <p class="text-xs text-slate-400 font-bold">No collections recorded for this filter on {{ \Carbon\Carbon::parse($businessDate)->format('d M Y') }}.</p>
             </div>
         @else
             <div class="space-y-3">
                 @foreach($items as $item)
-                    <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-sm hover:border-emerald-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="p-4 rounded-2xl border border-slate-100 bg-slate-50/70 hover:bg-white hover:border-slate-200 hover:shadow-xs transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                         
-                        <!-- Left Block: Shop & Method -->
-                        <div class="flex items-start gap-3">
-                            <div class="p-2.5 rounded-2xl {{ $item['payment_method'] === 'Cash' ? 'bg-sky-50 text-sky-700 border border-sky-200' : ($item['payment_method'] === 'Cheque' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') }} flex-shrink-0">
-                                @if($item['payment_method'] === 'Cash')
-                                    <i data-lucide="banknote" class="w-5 h-5"></i>
-                                @elseif($item['payment_method'] === 'Cheque')
-                                    <i data-lucide="file-check-2" class="w-5 h-5"></i>
-                                @elseif($item['payment_method'] === 'Card')
+                        <!-- Left Block: Method Icon, Shop & Destination -->
+                        <div class="flex items-center gap-3.5 min-w-0">
+                            <div class="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 shadow-xs flex-shrink-0">
+                                @if(str_contains(strtolower($item['payment_method']), 'paytm') || str_contains(strtolower($item['payment_method']), 'upi'))
+                                    <i data-lucide="qr-code" class="w-5 h-5 text-sky-600"></i>
+                                @elseif(str_contains(strtolower($item['payment_method']), 'cash'))
+                                    <i data-lucide="banknote" class="w-5 h-5 text-emerald-600"></i>
+                                @elseif(str_contains(strtolower($item['payment_method']), 'cheque'))
+                                    <i data-lucide="file-check-2" class="w-5 h-5 text-purple-600"></i>
+                                @elseif(str_contains(strtolower($item['payment_method']), 'card'))
                                     <i data-lucide="credit-card" class="w-5 h-5"></i>
                                 @else
                                     <i data-lucide="smartphone" class="w-5 h-5"></i>
@@ -272,7 +272,108 @@
                     </div>
                 @endforeach
             </div>
+
+            <!-- Transaction Paginator Links -->
+            @if($items->hasPages())
+                <div class="pt-4 border-t border-slate-100">
+                    {{ $items->links() }}
+                </div>
+            @endif
         @endif
+    </div>
+
+    <!-- ── MONTHLY PENDING CALENDAR (Mobile-Optimized) ────────────────────── -->
+    <div id="monthly-pending-calendar" class="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+        
+        <!-- Calendar Header: Navigation & Month Label -->
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="p-1.5 rounded-xl bg-slate-100 text-slate-700">
+                        <i data-lucide="calendar-days" class="w-4 h-4"></i>
+                    </span>
+                    <h3 class="text-base sm:text-lg font-black text-slate-900">{{ $calendarData['month_title'] }}</h3>
+                </div>
+                <p class="text-[11px] font-bold text-slate-400 mt-0.5">
+                    Click any date to switch day view; badges show pending items.
+                </p>
+            </div>
+
+            <!-- Month Switcher (‹ Month ›) -->
+            <div class="flex items-center gap-1.5">
+                <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'calendar_month' => $calendarData['prev_month'], 'shop_id' => $selectedShopId, 'status' => $selectedStatus]) }}"
+                   class="inline-flex items-center justify-center p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs transition"
+                   title="Previous Month"
+                   aria-label="Previous Month">
+                    <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                </a>
+
+                <a href="{{ route('admin.cashbook.money-flow', ['date' => today()->toDateString(), 'calendar_month' => today()->format('Y-m'), 'shop_id' => $selectedShopId]) }}"
+                   class="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-black text-slate-700 shadow-xs transition">
+                    Current
+                </a>
+
+                <a href="{{ route('admin.cashbook.money-flow', ['date' => $businessDate, 'calendar_month' => $calendarData['next_month'], 'shop_id' => $selectedShopId, 'status' => $selectedStatus]) }}"
+                   class="inline-flex items-center justify-center p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs transition"
+                   title="Next Month"
+                   aria-label="Next Month">
+                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                </a>
+            </div>
+        </div>
+
+        <!-- 7-Column Day Names (M T W T F S S) -->
+        <div class="grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-[10px] sm:text-xs font-black uppercase text-slate-400 border-b border-slate-100 pb-2">
+            <div>M</div>
+            <div>T</div>
+            <div>W</div>
+            <div>T</div>
+            <div>F</div>
+            <div>S</div>
+            <div>S</div>
+        </div>
+
+        <!-- Calendar Month Grid -->
+        <div class="grid grid-cols-7 gap-1 sm:gap-1.5">
+            @foreach($calendarData['weeks'] as $week)
+                @foreach($week as $day)
+                    @if($day === null)
+                        <div class="h-11 sm:h-12 rounded-2xl bg-slate-50/40"></div>
+                    @else
+                        @php
+                            $dateUrl = route('admin.cashbook.money-flow', [
+                                'date' => $day['date'],
+                                'calendar_month' => $calendarData['calendar_month'],
+                                'shop_id' => $selectedShopId,
+                            ]);
+                            $pendingUrl = route('admin.cashbook.money-flow', [
+                                'date' => $day['date'],
+                                'status' => 'pending',
+                                'calendar_month' => $calendarData['calendar_month'],
+                                'shop_id' => $selectedShopId,
+                            ]);
+                        @endphp
+                        <div class="h-11 sm:h-12 p-1 rounded-2xl flex flex-col items-center justify-between transition-all relative border {{ $day['is_selected'] ? 'bg-slate-900 border-slate-900 text-white shadow-xs' : ($day['is_today'] ? 'bg-emerald-50/60 border-emerald-300 text-emerald-950 ring-2 ring-emerald-500/20' : 'bg-slate-50/80 border-slate-100 hover:border-slate-300 text-slate-700') }}">
+                            
+                            <!-- Date Link -->
+                            <a href="{{ $dateUrl }}" class="font-mono text-xs sm:text-sm font-black w-full text-center flex-1 flex items-center justify-center cursor-pointer">
+                                {{ $day['day'] }}
+                            </a>
+
+                            <!-- Pending Badge (Only if > 0) -->
+                            @if($day['pending_count'] > 0)
+                                <a href="{{ $pendingUrl }}"
+                                   class="px-1.5 py-0.2 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-black leading-none shadow-xs transition cursor-pointer"
+                                   title="{{ $day['pending_count'] }} pending on {{ $day['date'] }}">
+                                    {{ $day['pending_count'] }}
+                                </a>
+                            @endif
+                        </div>
+                    @endif
+                @endforeach
+            @endforeach
+        </div>
+
     </div>
 
 </div>

@@ -11,7 +11,10 @@ use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class CompanyMoneyPositionService
 {
@@ -641,9 +644,141 @@ class CompanyMoneyPositionService
         }
 
         if ($statusFilter && $statusFilter !== 'all') {
-            $items = array_values(array_filter($items, fn ($item) => $item['status_type'] === $statusFilter));
+            if ($statusFilter === 'pending') {
+                $items = array_values(array_filter($items, fn ($item) => $item['status_type'] !== 'verified'));
+            } else {
+                $items = array_values(array_filter($items, fn ($item) => $item['status_type'] === $statusFilter));
+            }
         }
 
         return $items;
+    }
+
+    /**
+     * Get monthly aggregated pending transaction counts grouped by date.
+     *
+     * @return array<string, int>
+     */
+    public function getMonthlyPendingCounts(string $yearMonth, ?int $shopId = null): array
+    {
+        $monthCarbon = Carbon::parse($yearMonth.'-01');
+        $startDate = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $endDate = $monthCarbon->copy()->endOfMonth()->toDateString();
+
+        $txCounts = ShopLedgerTransaction::query()
+            ->leftJoin('cashbook_company_account_statement_entries as s', function ($join): void {
+                $join->on('s.source_id', '=', 'shop_ledger_transactions.id')
+                    ->where('s.source_type', '=', ShopLedgerTransaction::class);
+            })
+            ->whereBetween('shop_ledger_transactions.business_date', [$startDate, $endDate])
+            ->whereNotIn('shop_ledger_transactions.status', ['void', 'voided', 'rejected'])
+            ->where(function ($q): void {
+                $q->where('shop_ledger_transactions.direction', 'income')
+                    ->orWhereHas('entryType', fn ($et) => $et->where('category', 'income'));
+            })
+            ->where(function ($q): void {
+                $q->where('shop_ledger_transactions.status', '!=', 'approved')
+                    ->orWhereNull('s.id')
+                    ->orWhere('s.is_finalized', false)
+                    ->orWhere('s.status', '!=', 'reconciled')
+                    ->orWhere('s.duplicate_status', 'possible_duplicate');
+            })
+            ->when($shopId, fn ($q) => $q->where('shop_ledger_transactions.shop_id', $shopId))
+            ->selectRaw('DATE(shop_ledger_transactions.business_date) as b_date, COUNT(DISTINCT shop_ledger_transactions.id) as total')
+            ->groupByRaw('DATE(shop_ledger_transactions.business_date)')
+            ->pluck('total', 'b_date')
+            ->all();
+
+        $chCounts = ShopInvoicePaymentRequest::query()
+            ->where(function ($q): void {
+                $q->where('payment_method', 'cheque')
+                    ->orWhere('payment_method', 'Cheque');
+            })
+            ->where('status', '!=', 'rejected')
+            ->where(function ($q): void {
+                $q->whereNull('cheque_status')
+                    ->orWhere('cheque_status', 'pending')
+                    ->orWhereIn('reconciliation_status', ['pending', 'floating']);
+            })
+            ->whereBetween(DB::raw('DATE(COALESCE(payment_date, cheque_date, created_at))'), [$startDate, $endDate])
+            ->when($shopId, fn ($q) => $q->where('shop_id', $shopId))
+            ->selectRaw('DATE(COALESCE(payment_date, cheque_date, created_at)) as b_date, COUNT(*) as total')
+            ->groupByRaw('DATE(COALESCE(payment_date, cheque_date, created_at))')
+            ->pluck('total', 'b_date')
+            ->all();
+
+        $combined = [];
+        $period = CarbonPeriod::create($startDate, $endDate);
+        foreach ($period as $dt) {
+            $dStr = $dt->toDateString();
+            $tCount = (int) ($txCounts[$dStr] ?? 0);
+            $cCount = (int) ($chCounts[$dStr] ?? 0);
+            $combined[$dStr] = $tCount + $cCount;
+        }
+
+        return $combined;
+    }
+
+    /**
+     * Build structured monthly calendar data for Money Flow.
+     *
+     * @return array{
+     *     calendar_month: string,
+     *     month_title: string,
+     *     prev_month: string,
+     *     next_month: string,
+     *     weeks: array<int, array<int, array<string, mixed>|null>>,
+     *     selected_date: string,
+     *     today: string
+     * }
+     */
+    public function getMonthlyCalendarData(string $selectedBusinessDate, ?string $calendarMonth = null, ?int $shopId = null): array
+    {
+        $calendarMonth = $calendarMonth ?: Carbon::parse($selectedBusinessDate)->format('Y-m');
+        $monthCarbon = Carbon::parse($calendarMonth.'-01');
+        $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+        $todayStr = today()->toDateString();
+
+        $pendingCounts = $this->getMonthlyPendingCounts($calendarMonth, $shopId);
+
+        $startOfMonth = $monthCarbon->copy()->startOfMonth();
+        $endOfMonth = $monthCarbon->copy()->endOfMonth();
+
+        // Week starts on Monday: Monday is 1, Sunday is 7
+        $firstDayOfWeek = (int) $startOfMonth->dayOfWeekIso;
+        $leadingPadding = $firstDayOfWeek - 1;
+
+        $days = [];
+        for ($i = 0; $i < $leadingPadding; $i++) {
+            $days[] = null;
+        }
+
+        for ($day = 1; $day <= $endOfMonth->day; $day++) {
+            $currentDateStr = $monthCarbon->copy()->day($day)->toDateString();
+            $days[] = [
+                'date' => $currentDateStr,
+                'day' => $day,
+                'is_today' => $currentDateStr === $todayStr,
+                'is_selected' => $currentDateStr === $selectedBusinessDate,
+                'pending_count' => (int) ($pendingCounts[$currentDateStr] ?? 0),
+            ];
+        }
+
+        while (count($days) % 7 !== 0) {
+            $days[] = null;
+        }
+
+        $weeks = array_chunk($days, 7);
+
+        return [
+            'calendar_month' => $calendarMonth,
+            'month_title' => $monthCarbon->format('F Y'),
+            'prev_month' => $prevMonth,
+            'next_month' => $nextMonth,
+            'weeks' => $weeks,
+            'selected_date' => $selectedBusinessDate,
+            'today' => $todayStr,
+        ];
     }
 }

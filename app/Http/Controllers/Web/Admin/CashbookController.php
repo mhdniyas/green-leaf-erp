@@ -1118,6 +1118,7 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $businessDate = $request->query('date', today()->toDateString());
+        $calendarMonth = $request->query('calendar_month');
         $shopId = $request->query('shop_id') ? (int) $request->query('shop_id') : null;
         $statusFilter = $request->query('status', 'all');
 
@@ -1125,12 +1126,26 @@ final class CashbookController extends Controller
         $moneyFlowItems = $this->moneyPositionService->getUnifiedMoneyFlowList($businessDate, $shopId, $statusFilter);
         $shops = $this->shopSyncService->syncAndGetProfiles();
 
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $perPage = 25;
+        $itemsCollection = collect($moneyFlowItems);
+        $paginatedItems = new LengthAwarePaginator(
+            $itemsCollection->forPage($page, $perPage)->values(),
+            $itemsCollection->count(),
+            $perPage,
+            $page,
+            ['path' => LengthAwarePaginator::resolveCurrentPath(), 'query' => $request->query()]
+        );
+
+        $calendarData = $this->moneyPositionService->getMonthlyCalendarData($businessDate, $calendarMonth, $shopId);
+
         return view('admin.cashbook.money-flow.index', [
             'businessDate' => $businessDate,
             'selectedShopId' => $shopId,
             'selectedStatus' => $statusFilter,
             'summary' => $moneySummary,
-            'items' => $moneyFlowItems,
+            'items' => $paginatedItems,
+            'calendarData' => $calendarData,
             'shops' => $shops,
         ]);
     }
