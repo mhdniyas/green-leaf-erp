@@ -834,7 +834,9 @@ Route::middleware('auth')->group(function () {
                 Route::post('presets/update-setting', [CashbookController::class, 'updatePresetSetting'])->name('presets.update-setting');
                 Route::post('shop-settings/update', [CashbookController::class, 'updateShopSetting'])->name('shop-settings.update');
                 Route::post('shop-settings/custom-row', [CashbookController::class, 'createShopCustomRow'])->name('shop-settings.custom-row');
-                Route::post('shop-settings/collection', [CashbookController::class, 'saveShopCollectionSettings'])->name('shop-settings.collection');
+                Route::post('shop-settings/bank-adjustment-rules', [CashbookController::class, 'saveShopBankAdjustmentRule'])->name('shop-settings.bank-adjustment-rules.save');
+                Route::delete('shop-settings/bank-adjustment-rules/{rule}', [CashbookController::class, 'deleteShopBankAdjustmentRule'])->name('shop-settings.bank-adjustment-rules.delete');
+                Route::post('shops/{shop}/bank-settlement-adjustments', [CashbookController::class, 'saveShopDailyBankAdjustments'])->name('shops.bank-settlement-adjustments.save');
                 Route::post('historical-bank-collections/preview', [CashbookController::class, 'previewHistoricalBankCollections'])->name('historical-bank-collections.preview');
                 Route::post('historical-bank-collections/fetch', [CashbookController::class, 'fetchHistoricalBankCollections'])->name('historical-bank-collections.fetch');
                 Route::post('assign-preset', [CashbookController::class, 'assignShopPreset'])->name('assign-preset');

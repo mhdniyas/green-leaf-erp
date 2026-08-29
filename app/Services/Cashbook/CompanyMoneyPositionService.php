@@ -6,6 +6,8 @@ namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\ShopBankSettlementAdjustment;
+use App\Models\Cashbook\ShopBankSettlementAdjustmentRule;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
@@ -18,6 +20,10 @@ use Illuminate\Support\Facades\DB;
 
 class CompanyMoneyPositionService
 {
+    public function __construct(
+        private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService
+    ) {}
+
     /**
      * Get complete money position breakdown across Bank Accounts, Company Cash,
      * Cash with Shops, and Floating Cheques.
@@ -314,6 +320,31 @@ class CompanyMoneyPositionService
             ->get()
             ->keyBy('source_id');
 
+        $incomeEntryTypeIds = $transactions
+            ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType?->category === 'income'))
+            ->pluck('entry_type_id')
+            ->filter()
+            ->unique()
+            ->all();
+
+        $bankRules = empty($incomeEntryTypeIds)
+            ? collect()
+            : ShopBankSettlementAdjustmentRule::query()
+                ->where('shop_id', $shopId)
+                ->whereIn('entry_type_id', $incomeEntryTypeIds)
+                ->where('enabled', true)
+                ->get()
+                ->groupBy('entry_type_id');
+
+        $dailyBankAdjustments = empty($incomeEntryTypeIds)
+            ? collect()
+            : ShopBankSettlementAdjustment::query()
+                ->where('shop_id', $shopId)
+                ->whereDate('business_date', $businessDate)
+                ->whereIn('entry_type_id', $incomeEntryTypeIds)
+                ->get()
+                ->groupBy('entry_type_id');
+
         $grossSales = 0.0;
         $collections = [];
         $adjustments = [];
@@ -376,8 +407,33 @@ class CompanyMoneyPositionService
                     $pendingVerification += (float) $tx->amount;
                 }
 
+                $entryTypeId = (int) $tx->entry_type_id;
+                $rulesForType = $bankRules->get($entryTypeId, collect());
+                $hasRules = $rulesForType->isNotEmpty();
+                $dailyAdjsForType = $dailyBankAdjustments->get($entryTypeId, collect())->keyBy('rule_id');
+
+                $resolvedExpected = $this->expectedAmountService->resolve(
+                    (int) $tx->shop_id,
+                    $businessDate,
+                    $entryTypeId,
+                    (float) $tx->amount
+                );
+
+                $rulesConfigured = $rulesForType->map(function ($r) use ($dailyAdjsForType) {
+                    $existingDaily = $dailyAdjsForType->get($r->id);
+
+                    return [
+                        'rule_id' => (int) $r->id,
+                        'label' => (string) $r->label,
+                        'direction' => (string) $r->direction,
+                        'amount' => $existingDaily ? (float) $existingDaily->amount : 0.0,
+                        'notes' => $existingDaily ? (string) $existingDaily->notes : null,
+                    ];
+                })->values()->all();
+
                 $collections[] = [
                     'id' => $tx->id,
+                    'entry_type_id' => $entryTypeId,
                     'category_name' => $tx->entryType?->name ?: $code,
                     'code' => $code,
                     'payment_method' => $paymentMethod,
@@ -394,6 +450,14 @@ class CompanyMoneyPositionService
                     'approved_by' => $tx->approvedBy?->name,
                     'verified_by' => $statement?->reconciledBy?->name,
                     'verified_at' => $statement?->reconciled_at?->format('d M Y H:i'),
+                    'has_bank_adjustment_rules' => $hasRules,
+                    'bank_adjustment_rules' => $rulesConfigured,
+                    'base_collection_amount' => (float) $resolvedExpected['base_amount'],
+                    'expected_bank_amount' => (float) $resolvedExpected['expected_amount'],
+                    'plus_adjustments' => (float) $resolvedExpected['plus_adjustments'],
+                    'minus_adjustments' => (float) $resolvedExpected['minus_adjustments'],
+                    'adjustment_total' => (float) $resolvedExpected['adjustment_total'],
+                    'adjustments_detail' => $resolvedExpected['adjustments'],
                 ];
             } elseif ($isExpense && ! $isSettlement) {
                 $effectOnPayable = 0.0;

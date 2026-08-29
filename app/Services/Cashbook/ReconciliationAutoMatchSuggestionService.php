@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 final class ReconciliationAutoMatchSuggestionService
 {
-    public function __construct(private readonly CompanyPaymentReconciliationService $reconciliationService) {}
+    public function __construct(
+        private readonly CompanyPaymentReconciliationService $reconciliationService,
+        private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService,
+    ) {}
 
     /**
      * @param  Collection<int, object>  $transactions
@@ -18,9 +22,105 @@ final class ReconciliationAutoMatchSuggestionService
      */
     public function suggest(Collection $transactions, int $graceDays): Collection
     {
+        $this->enrichWithExpectedAmounts($transactions);
+
         $candidatePools = $this->reconciliationService->findEligibleStatementCandidatePools($transactions, $graceDays);
 
         return $transactions->map(fn (object $transaction): object => $this->classify($transaction, $candidatePools, $graceDays));
+    }
+
+    /**
+     * Enriches shop collection candidate transactions with expected bank settlement amounts.
+     *
+     * @param  Collection<int, object>  $transactions
+     */
+    private function enrichWithExpectedAmounts(Collection $transactions): void
+    {
+        $shopCandidates = $transactions->filter(function (object $t): bool {
+            $isShopLedger = ($t instanceof ShopLedgerTransaction)
+                || (($t->source_type ?? null) === ShopLedgerTransaction::class)
+                || (($t->transaction_type_key ?? null) === 'shop_collection');
+            $dir = (string) ($t->direction ?? '');
+            $isIncome = in_array(strtolower($dir), ['income', 'in'], true);
+
+            return $isShopLedger && $isIncome;
+        });
+
+        if ($shopCandidates->isEmpty()) {
+            return;
+        }
+
+        // Identify any missing shop_id or entry_type_id to fetch in a single batch query
+        $missingSourceIds = [];
+        foreach ($shopCandidates as $c) {
+            $sId = (int) ($c->shop_id ?? 0);
+            $eId = (int) ($c->entry_type_id ?? 0);
+            $sourceId = (int) ($c->source_id ?? ($c->id ?? 0));
+            if (($sId === 0 || $eId === 0) && $sourceId > 0) {
+                $missingSourceIds[] = $sourceId;
+            }
+        }
+
+        $loadedTxMap = empty($missingSourceIds)
+            ? collect()
+            : ShopLedgerTransaction::query()
+                ->whereIn('id', array_unique($missingSourceIds))
+                ->get()
+                ->keyBy('id');
+
+        $bulkItems = [];
+        foreach ($shopCandidates as $c) {
+            $sId = (int) ($c->shop_id ?? 0);
+            $eId = (int) ($c->entry_type_id ?? 0);
+            $sourceId = (int) ($c->source_id ?? ($c->id ?? 0));
+            $bDate = (string) ($c->business_date ?? $c->transaction_date ?? '');
+
+            if (($sId === 0 || $eId === 0) && $sourceId > 0 && $loadedTxMap->has($sourceId)) {
+                $loaded = $loadedTxMap->get($sourceId);
+                $sId = (int) $loaded->shop_id;
+                $eId = (int) $loaded->entry_type_id;
+                $bDate = $loaded->business_date ? $loaded->business_date->toDateString() : $bDate;
+                $c->shop_id = $sId;
+                $c->entry_type_id = $eId;
+            }
+
+            $amt = (float) ($c->amount ?? 0);
+
+            if ($sId > 0 && $eId > 0 && $bDate !== '') {
+                $bulkItems[] = [
+                    'shop_id' => $sId,
+                    'entry_type_id' => $eId,
+                    'business_date' => $bDate,
+                    'base_amount' => $amt,
+                ];
+            }
+        }
+
+        $resolvedMap = empty($bulkItems)
+            ? collect()
+            : $this->expectedAmountService->resolveBulk($bulkItems);
+
+        foreach ($shopCandidates as $c) {
+            $sId = (int) ($c->shop_id ?? 0);
+            $eId = (int) ($c->entry_type_id ?? 0);
+            $bDate = (string) ($c->business_date ?? $c->transaction_date ?? '');
+            if ($bDate !== '') {
+                $bDate = Carbon::parse($bDate)->toDateString();
+            }
+            $key = "{$sId}_{$bDate}_{$eId}";
+
+            if ($resolvedMap->has($key)) {
+                $res = $resolvedMap->get($key);
+                $c->base_collection_amount = (float) $res['base_amount'];
+                $c->plus_adjustments = (float) $res['plus_adjustments'];
+                $c->minus_adjustments = (float) $res['minus_adjustments'];
+                $c->adjustment_total = (float) $res['adjustment_total'];
+                $c->expected_bank_amount = (float) $res['expected_amount'];
+                $c->effective_match_amount = (float) $res['expected_amount'];
+            } else {
+                $c->effective_match_amount = round((float) ($c->amount ?? 0), 2);
+            }
+        }
     }
 
     /**
@@ -37,8 +137,16 @@ final class ReconciliationAutoMatchSuggestionService
             return $this->setNoMatch($transaction, 'Company account is not recorded for this transaction.');
         }
 
-        $key = $accountId.'|'.$transaction->direction.'|'.round((float) $transaction->amount, 2);
-        $transactionDate = Carbon::parse((string) $transaction->transaction_date);
+        $dir = strtolower((string) ($transaction->direction ?? ''));
+        $normDirection = match ($dir) {
+            'income', 'in' => 'in',
+            'expense', 'out' => 'out',
+            default => $dir,
+        };
+
+        $matchAmount = round((float) ($transaction->effective_match_amount ?? $transaction->amount), 2);
+        $key = $accountId.'|'.$normDirection.'|'.$matchAmount;
+        $transactionDate = Carbon::parse((string) ($transaction->business_date ?? $transaction->transaction_date));
         $candidates = ($candidatePools->get($key) ?? collect())
             ->map(function (CompanyAccountStatementEntry $entry) use ($transaction, $transactionDate): array {
                 $difference = abs($entry->transaction_date->diffInDays($transactionDate, false));
@@ -46,8 +154,8 @@ final class ReconciliationAutoMatchSuggestionService
                 return [
                     'entry' => $entry,
                     'date_difference_days' => $difference,
-                    'reference_exact' => filled($transaction->reference) && strcasecmp((string) $entry->reference, (string) $transaction->reference) === 0,
-                    'reference_similarity' => $this->similarity((string) $transaction->reference, (string) $entry->reference),
+                    'reference_exact' => filled($transaction->reference ?? null) && strcasecmp((string) $entry->reference, (string) ($transaction->reference ?? '')) === 0,
+                    'reference_similarity' => $this->similarity((string) ($transaction->reference ?? ''), (string) $entry->reference),
                     'narration_similarity' => $this->similarity(trim(($transaction->party_name ?? '').' '.($transaction->description ?? '')), (string) $entry->narration),
                 ];
             })
@@ -104,6 +212,9 @@ final class ReconciliationAutoMatchSuggestionService
             'date_match' => $candidate['date_difference_days'] === 0 ? 'exact' : 'nearby',
             'date_difference_days' => $candidate['date_difference_days'],
             'eligible_candidate_count' => 1,
+            'base_collection_amount' => isset($transaction->base_collection_amount) ? (float) $transaction->base_collection_amount : (float) $transaction->amount,
+            'adjustment_total' => isset($transaction->adjustment_total) ? (float) $transaction->adjustment_total : 0.0,
+            'expected_bank_amount' => isset($transaction->expected_bank_amount) ? (float) $transaction->expected_bank_amount : (float) $transaction->amount,
         ];
 
         return $transaction;

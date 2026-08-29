@@ -12,11 +12,16 @@ use App\Models\Shop;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class HistoricalBankCollectionFetchService
 {
+    public function __construct(
+        private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService
+    ) {}
+
     /**
      * Preview historical transactions classification for a shop, category, and period.
      *
@@ -42,14 +47,17 @@ class HistoricalBankCollectionFetchService
             ->orderBy('business_date')
             ->get();
 
-        $classification = $this->classifyTransactions($transactions, $account->id);
+        $expectedMap = $this->expectedAmountService->resolveBulk($transactions);
+
+        $classification = $this->classifyTransactions($transactions, $account->id, $expectedMap);
 
         // Detect potential same-date amount differences against unmatched bank statements
         $sameDateDifferences = $this->detectSameDateAmountDifferences(
             $transactions,
             $account->id,
             $fromDate,
-            $toDate
+            $toDate,
+            $expectedMap
         );
 
         return [
@@ -72,8 +80,14 @@ class HistoricalBankCollectionFetchService
             'to_date' => $toDate,
             'source_count' => $classification['source_count'],
             'source_amount' => $classification['source_amount'],
+            'source_base_amount' => $classification['source_base_amount'],
+            'source_adjustment_amount' => $classification['source_adjustment_amount'],
+            'source_expected_amount' => $classification['source_expected_amount'],
             'eligible_count' => $classification['eligible_count'],
             'eligible_amount' => $classification['eligible_amount'],
+            'eligible_base_amount' => $classification['eligible_base_amount'],
+            'eligible_adjustment_amount' => $classification['eligible_adjustment_amount'],
+            'eligible_expected_amount' => $classification['eligible_expected_amount'],
             'already_linked_count' => $classification['already_linked_count'],
             'already_linked_amount' => $classification['already_linked_amount'],
             'different_bank_count' => $classification['different_bank_count'],
@@ -118,7 +132,8 @@ class HistoricalBankCollectionFetchService
                 ->lockForUpdate()
                 ->get();
 
-            $classification = $this->classifyTransactions($transactions, $account->id);
+            $expectedMap = $this->expectedAmountService->resolveBulk($transactions);
+            $classification = $this->classifyTransactions($transactions, $account->id, $expectedMap);
             $eligibleIds = $classification['eligible_ids'];
 
             $updatedCount = 0;
@@ -199,9 +214,10 @@ class HistoricalBankCollectionFetchService
 
     /**
      * @param  Collection<int, ShopLedgerTransaction>  $transactions
+     * @param  Collection<string, array{base_amount: float, plus_adjustments: float, minus_adjustments: float, adjustment_total: float, expected_amount: float}>  $expectedMap
      * @return array<string, mixed>
      */
-    private function classifyTransactions(Collection $transactions, int $targetAccountId): array
+    private function classifyTransactions(Collection $transactions, int $targetAccountId, SupportCollection $expectedMap): array
     {
         $txIds = $transactions->pluck('id')->all();
 
@@ -232,10 +248,14 @@ class HistoricalBankCollectionFetchService
                 ->all();
 
         $sourceCount = $transactions->count();
-        $sourceAmount = 0.0;
+        $sourceBaseAmount = 0.0;
+        $sourceAdjustmentAmount = 0.0;
+        $sourceExpectedAmount = 0.0;
 
         $eligibleCount = 0;
-        $eligibleAmount = 0.0;
+        $eligibleBaseAmount = 0.0;
+        $eligibleAdjustmentAmount = 0.0;
+        $eligibleExpectedAmount = 0.0;
         $eligibleIds = [];
 
         $alreadyLinkedCount = 0;
@@ -252,13 +272,28 @@ class HistoricalBankCollectionFetchService
         $voidAmount = 0.0;
 
         foreach ($transactions as $tx) {
-            $amount = round((float) $tx->amount, 2);
-            $sourceAmount += $amount;
+            $baseAmt = round((float) $tx->amount, 2);
+            $bDate = $tx->business_date?->toDateString() ?? '';
+            $mapKey = "{$tx->shop_id}_{$bDate}_{$tx->entry_type_id}";
+            $adjInfo = $expectedMap->get($mapKey) ?? [
+                'base_amount' => $baseAmt,
+                'plus_adjustments' => 0.0,
+                'minus_adjustments' => 0.0,
+                'adjustment_total' => 0.0,
+                'expected_amount' => $baseAmt,
+            ];
+
+            $expectedAmt = (float) $adjInfo['expected_amount'];
+            $adjAmt = (float) $adjInfo['adjustment_total'];
+
+            $sourceBaseAmount += $baseAmt;
+            $sourceAdjustmentAmount += $adjAmt;
+            $sourceExpectedAmount += $expectedAmt;
 
             // 1. Void / Excluded
             if (in_array($tx->status, ['void', 'voided'], true)) {
                 $voidCount++;
-                $voidAmount += $amount;
+                $voidAmount += $expectedAmt;
 
                 continue;
             }
@@ -266,7 +301,7 @@ class HistoricalBankCollectionFetchService
             // 2. Reconciled / Locked (checked batch-wise)
             if (isset($reconciledIds[$tx->id])) {
                 $reconciledCount++;
-                $reconciledAmount += $amount;
+                $reconciledAmount += $expectedAmt;
 
                 continue;
             }
@@ -274,7 +309,7 @@ class HistoricalBankCollectionFetchService
             // 3. Already Assigned to the Target Bank
             if ($tx->company_account_id !== null && (int) $tx->company_account_id === $targetAccountId) {
                 $alreadyLinkedCount++;
-                $alreadyLinkedAmount += $amount;
+                $alreadyLinkedAmount += $expectedAmt;
 
                 continue;
             }
@@ -282,7 +317,7 @@ class HistoricalBankCollectionFetchService
             // 4. Assigned to a Different Bank
             if ($tx->company_account_id !== null && (int) $tx->company_account_id !== $targetAccountId) {
                 $differentBankCount++;
-                $differentBankAmount += $amount;
+                $differentBankAmount += $expectedAmt;
                 $bankId = (int) $tx->company_account_id;
                 $bankName = $accountNames[$bankId] ?? "Account #{$bankId}";
 
@@ -294,14 +329,16 @@ class HistoricalBankCollectionFetchService
                     ];
                 }
                 $differentBanksDetail[$bankId]['count']++;
-                $differentBanksDetail[$bankId]['amount'] += $amount;
+                $differentBanksDetail[$bankId]['amount'] += $expectedAmt;
 
                 continue;
             }
 
             // 5. Eligible (company_account_id is null, not void, not reconciled)
             $eligibleCount++;
-            $eligibleAmount += $amount;
+            $eligibleBaseAmount += $baseAmt;
+            $eligibleAdjustmentAmount += $adjAmt;
+            $eligibleExpectedAmount += $expectedAmt;
             $eligibleIds[] = (int) $tx->id;
         }
 
@@ -323,9 +360,15 @@ class HistoricalBankCollectionFetchService
 
         return [
             'source_count' => $sourceCount,
-            'source_amount' => round($sourceAmount, 2),
+            'source_amount' => round($sourceExpectedAmount, 2),
+            'source_base_amount' => round($sourceBaseAmount, 2),
+            'source_adjustment_amount' => round($sourceAdjustmentAmount, 2),
+            'source_expected_amount' => round($sourceExpectedAmount, 2),
             'eligible_count' => $eligibleCount,
-            'eligible_amount' => round($eligibleAmount, 2),
+            'eligible_amount' => round($eligibleExpectedAmount, 2),
+            'eligible_base_amount' => round($eligibleBaseAmount, 2),
+            'eligible_adjustment_amount' => round($eligibleAdjustmentAmount, 2),
+            'eligible_expected_amount' => round($eligibleExpectedAmount, 2),
             'eligible_ids' => $eligibleIds,
             'already_linked_count' => $alreadyLinkedCount,
             'already_linked_amount' => round($alreadyLinkedAmount, 2),
@@ -343,13 +386,15 @@ class HistoricalBankCollectionFetchService
 
     /**
      * @param  Collection<int, ShopLedgerTransaction>  $transactions
+     * @param  Collection<string, array{base_amount: float, plus_adjustments: float, minus_adjustments: float, adjustment_total: float, expected_amount: float}>  $expectedMap
      * @return list<array<string, mixed>>
      */
     private function detectSameDateAmountDifferences(
         Collection $transactions,
         int $targetAccountId,
         string $fromDate,
-        string $toDate
+        string $toDate,
+        SupportCollection $expectedMap
     ): array {
         $activeTxs = $transactions->filter(fn ($t) => ! in_array($t->status, ['void', 'voided'], true));
         $dateGroups = $activeTxs->groupBy(fn ($t) => $t->business_date?->toDateString() ?? '');
@@ -374,8 +419,12 @@ class HistoricalBankCollectionFetchService
                 continue;
             }
 
+            $firstTx = $txsForDate->first();
+            $mapKey = "{$firstTx->shop_id}_{$dateStr}_{$firstTx->entry_type_id}";
+            $adjInfo = $expectedMap->get($mapKey);
+            $expectedAmount = $adjInfo ? (float) $adjInfo['expected_amount'] : round((float) $firstTx->amount, 2);
+
             $stmtsOnDate = $unmatchedStatements->get($dateStr);
-            $expectedAmount = round((float) $txsForDate->first()->amount, 2);
 
             // Check if there is an exact matching statement on this date
             $hasExact = $stmtsOnDate->contains(fn ($s) => abs((float) $s->amount - $expectedAmount) < 0.01);

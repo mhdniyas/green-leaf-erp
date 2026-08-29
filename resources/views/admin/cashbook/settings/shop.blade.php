@@ -132,6 +132,17 @@
                                             ⚠️ Cash account selected
                                         </div>
                                     @endif
+                                    @php
+                                        $rulesForThisSetting = isset($bankAdjustmentRules) ? ($bankAdjustmentRules->get($setting->entry_type_id) ?? collect()) : collect();
+                                    @endphp
+                                    <div class="mt-1 flex items-center justify-between">
+                                        <button type="button"
+                                                id="btn-adj-rules-{{ $setting->entry_type_id }}"
+                                                onclick="openBankAdjModal({{ $currentShop->shop_id }}, {{ $setting->entry_type_id }}, '{{ addslashes($setting->entryType?->name) }}')"
+                                                class="inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded border transition {{ $rulesForThisSetting->isNotEmpty() ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200' }}">
+                                            <span>⚖️ Adj Rules ({{ $rulesForThisSetting->count() }})</span>
+                                        </button>
+                                    </div>
                                 </td>
                                 @foreach(['include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl'] as $field)
                                     <td class="px-2 py-2">
@@ -376,6 +387,63 @@
         <!-- Preview Results Container -->
         <div id="hist-preview-container" class="mt-6 hidden border-t border-slate-100 pt-5"></div>
     </section>
+
+    <!-- Bank Settlement Adjustment Rules Modal -->
+    <div id="bank-adj-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 flex items-center gap-2">
+                        <span>⚖️ Bank Settlement Adjustments</span>
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500" id="bank-adj-modal-subtitle">Configure optional rules for expected bank calculations.</p>
+                </div>
+                <button type="button" onclick="closeBankAdjModal()" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <!-- Rules list -->
+            <div class="mt-4">
+                <h4 class="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Configured Rules</h4>
+                <div id="bank-adj-rules-list" class="space-y-2 max-h-60 overflow-y-auto">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Add new rule form -->
+            <div class="mt-5 border-t border-slate-100 pt-4">
+                <h4 class="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Add New Rule</h4>
+                <form id="add-bank-adj-rule-form" onsubmit="submitAddBankAdjRule(event)" class="space-y-3">
+                    <input type="hidden" id="bank-adj-shop-id" name="shop_id">
+                    <input type="hidden" id="bank-adj-entry-type-id" name="entry_type_id">
+
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div class="sm:col-span-2">
+                            <label class="block text-[10px] font-black uppercase text-slate-500">Label (e.g. Rent, Other Addition)</label>
+                            <input type="text" id="bank-adj-label" name="label" required placeholder="e.g. Rent"
+                                   class="mt-1 h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-black uppercase text-slate-500">Direction</label>
+                            <select id="bank-adj-direction" name="direction" required
+                                    class="mt-1 h-9 w-full rounded-xl border border-slate-200 px-2 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                                <option value="minus">MINUS (-)</option>
+                                <option value="plus">PLUS (+)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" id="btn-save-adj-rule"
+                                class="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300">
+                            + Add Rule
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
 @endsection
 
@@ -691,6 +759,16 @@ function renderHistoricalPreview(p) {
     const voidCount = Number(p.void_count || 0);
     const voidAmount = Number(p.void_amount || 0);
 
+    const sourceBaseAmount = Number(p.source_base_amount ?? p.source_amount ?? 0);
+    const sourceAdjAmount = Number(p.source_adjustment_amount ?? 0);
+    const sourceExpAmount = Number(p.source_expected_amount ?? p.source_amount ?? 0);
+    const hasSourceAdj = sourceAdjAmount !== 0;
+
+    const eligibleBaseAmount = Number(p.eligible_base_amount ?? p.eligible_amount ?? 0);
+    const eligibleAdjAmount = Number(p.eligible_adjustment_amount ?? 0);
+    const eligibleExpAmount = Number(p.eligible_expected_amount ?? p.eligible_amount ?? 0);
+    const hasEligibleAdj = eligibleAdjAmount !== 0;
+
     let differentBankHtml = '';
     if (Array.isArray(p.different_banks_detail) && p.different_banks_detail.length > 0) {
         differentBankHtml = `<div class="mt-2 text-[11px] text-amber-700 font-semibold space-y-1">` +
@@ -743,6 +821,7 @@ function renderHistoricalPreview(p) {
                 <div class="text-right">
                     <span class="text-xs font-bold text-slate-500">Total Found:</span>
                     <span class="text-sm font-black text-slate-950">${sourceCount} txs (${formatCurrency(sourceAmount)})</span>
+                    ${hasSourceAdj ? `<div class="text-[10px] font-bold text-slate-500">Base: ${formatCurrency(sourceBaseAmount)} | Adj: ${sourceAdjAmount > 0 ? '+' : ''}${formatCurrency(sourceAdjAmount)} &rarr; Exp: ${formatCurrency(sourceExpAmount)}</div>` : ''}
                 </div>
             </div>
 
@@ -751,6 +830,7 @@ function renderHistoricalPreview(p) {
                     <p class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Eligible to Fetch</p>
                     <p class="mt-1 text-lg font-black text-emerald-950">${eligibleCount} <span class="text-xs font-bold text-emerald-800">txs</span></p>
                     <p class="text-xs font-bold text-emerald-700">${formatCurrency(eligibleAmount)}</p>
+                    ${hasEligibleAdj ? `<p class="text-[9px] font-bold text-emerald-800">Base: ${formatCurrency(eligibleBaseAmount)} | Adj: ${eligibleAdjAmount > 0 ? '+' : ''}${formatCurrency(eligibleAdjAmount)} &rarr; Exp: ${formatCurrency(eligibleExpAmount)}</p>` : ''}
                 </div>
 
                 <div class="rounded-xl border border-slate-200 bg-white p-3">
@@ -919,6 +999,192 @@ function renderHistoricalFetchComplete(res) {
     `;
 
     if (window.lucide) { lucide.createIcons(); }
+}
+
+// ─── Bank Settlement Adjustment Rules JS ───────────────────────────────────
+
+const allBankAdjustmentRules = @json($bankAdjustmentRules ?? []);
+let activeAdjShopId = null;
+let activeAdjEntryTypeId = null;
+
+function openBankAdjModal(shopId, entryTypeId, entryTypeName) {
+    activeAdjShopId = shopId;
+    activeAdjEntryTypeId = entryTypeId;
+
+    document.getElementById('bank-adj-shop-id').value = shopId;
+    document.getElementById('bank-adj-entry-type-id').value = entryTypeId;
+    document.getElementById('bank-adj-modal-subtitle').textContent = `Shop: {{ $currentShop->name }} • Category: ${entryTypeName}`;
+    document.getElementById('bank-adj-label').value = '';
+
+    renderBankAdjRulesList();
+    document.getElementById('bank-adj-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeBankAdjModal() {
+    document.getElementById('bank-adj-modal').classList.add('hidden');
+}
+
+function renderBankAdjRulesList() {
+    const listContainer = document.getElementById('bank-adj-rules-list');
+    const rules = (allBankAdjustmentRules[activeAdjEntryTypeId] || []);
+
+    if (rules.length === 0) {
+        listContainer.innerHTML = `<div class="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs font-semibold text-slate-400">No adjustment rules configured yet. Default is direct collection amount.</div>`;
+        return;
+    }
+
+    listContainer.innerHTML = rules.map(r => `
+        <div class="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-slate-900">${r.label}</span>
+                <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase ${r.direction === 'plus' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">${r.direction}</span>
+                ${!r.enabled ? '<span class="rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-600">Disabled</span>' : ''}
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" onclick="toggleBankAdjRule(${r.id}, ${r.enabled ? 0 : 1})" class="text-[11px] font-bold ${r.enabled ? 'text-amber-700 hover:text-amber-900' : 'text-emerald-700 hover:text-emerald-900'}">
+                    ${r.enabled ? 'Disable' : 'Enable'}
+                </button>
+                <button type="button" onclick="deleteBankAdjRule(${r.id})" class="text-[11px] font-bold text-rose-600 hover:text-rose-800">
+                    Delete
+                </button>
+            </div>
+        </div>
+    `).join('');
+    if (window.lucide) lucide.createIcons();
+}
+
+async function submitAddBankAdjRule(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-save-adj-rule');
+    const label = document.getElementById('bank-adj-label').value.trim();
+    const direction = document.getElementById('bank-adj-direction').value;
+
+    if (!label) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.bank-adjustment-rules.save') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                shop_id: activeAdjShopId,
+                entry_type_id: activeAdjEntryTypeId,
+                label,
+                direction,
+                enabled: 1,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            showToast(data.message || 'Failed to save rule', 'error');
+            return;
+        }
+
+        allBankAdjustmentRules[activeAdjEntryTypeId] = data.rules;
+        renderBankAdjRulesList();
+        document.getElementById('bank-adj-label').value = '';
+        showToast('Rule saved successfully.', 'success');
+        updateAdjRuleButtonCount(activeAdjEntryTypeId, data.rules.length);
+    } catch (err) {
+        showToast(err.message || 'Failed to save rule', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '+ Add Rule';
+    }
+}
+
+async function toggleBankAdjRule(ruleId, newEnabledState) {
+    const rules = allBankAdjustmentRules[activeAdjEntryTypeId] || [];
+    const rule = rules.find(r => r.id === ruleId);
+    if (!rule) return;
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.bank-adjustment-rules.save') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                id: rule.id,
+                shop_id: activeAdjShopId,
+                entry_type_id: activeAdjEntryTypeId,
+                label: rule.label,
+                direction: rule.direction,
+                enabled: newEnabledState,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            showToast(data.message || 'Failed to update rule', 'error');
+            return;
+        }
+
+        allBankAdjustmentRules[activeAdjEntryTypeId] = data.rules;
+        renderBankAdjRulesList();
+        showToast('Rule updated.', 'success');
+    } catch (err) {
+        showToast(err.message || 'Failed to update rule', 'error');
+    }
+}
+
+async function deleteBankAdjRule(ruleId) {
+    if (!confirm('Are you sure you want to delete this adjustment rule?')) return;
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch(`/admin/cashbook/api/shop-settings/bank-adjustment-rules/${ruleId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            showToast(data.message || 'Failed to delete rule', 'error');
+            return;
+        }
+
+        allBankAdjustmentRules[activeAdjEntryTypeId] = data.rules;
+        renderBankAdjRulesList();
+        showToast('Rule deleted.', 'success');
+        updateAdjRuleButtonCount(activeAdjEntryTypeId, data.rules.length);
+    } catch (err) {
+        showToast(err.message || 'Failed to delete rule', 'error');
+    }
+}
+
+function updateAdjRuleButtonCount(entryTypeId, count) {
+    const btn = document.getElementById(`btn-adj-rules-${entryTypeId}`);
+    if (btn) {
+        btn.textContent = `⚖️ Adj Rules (${count})`;
+        if (count > 0) {
+            btn.className = 'inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded border transition bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100';
+        } else {
+            btn.className = 'inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded border transition bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200';
+        }
+    }
 }
 </script>
 @endpush
