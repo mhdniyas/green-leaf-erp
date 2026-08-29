@@ -17,6 +17,7 @@ use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Support\ApiResponse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
