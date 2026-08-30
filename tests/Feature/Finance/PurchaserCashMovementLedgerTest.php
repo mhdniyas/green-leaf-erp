@@ -1009,4 +1009,142 @@ class PurchaserCashMovementLedgerTest extends TestCase
         $this->assertEquals(200000.00, $splitsAfter['cumulative']['cash_given']);
         $this->assertEquals(200000.00, $splitsAfter['period']['cash_given']);
     }
+
+    public function test_a_b_direct_comparison_row_a_unmatched_and_row_b_matched_to_statement(): void
+    {
+        // ROW A: ₹80,000 via Bank, Company Account exists, NO statement reconciliation
+        $rowA = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 80000.00,
+            'business_date' => '2026-08-10',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'ROW-A-80K-UNMATCHED',
+            'description' => 'Row A manual funding unreconciled',
+            'created_by' => $this->admin->id,
+        ]);
+        app(JournalService::class)->recordPurchaserCredit($rowA);
+
+        // ROW B: ₹80,000 via Bank, Company Account exists, WITH actual finalized statement reconciliation
+        $rowB = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 80000.00,
+            'business_date' => '2026-08-11',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'ROW-B-80K-MATCHED',
+            'description' => 'Row B funding with statement match',
+            'created_by' => $this->admin->id,
+        ]);
+        $rowBJournal = app(JournalService::class)->recordPurchaserCredit($rowB);
+
+        $statement = CompanyAccountStatementEntry::query()->create([
+            'company_account_id' => $this->bankAccount->id,
+            'transaction_date' => '2026-08-11',
+            'direction' => 'out',
+            'amount' => 80000.00,
+            'reference' => 'BANK-STMT-ROW-B',
+            'narration' => 'Bank statement debit to purchaser',
+            'source' => 'manual',
+            'source_type' => PurchaserCredit::class,
+            'source_id' => $rowB->id,
+            'journal_entry_id' => $rowBJournal->id,
+            'status' => 'reconciled',
+            'is_finalized' => true,
+            'matched_amount' => 80000.00,
+            'reconciled_by' => $this->admin->id,
+            'reconciled_at' => now(),
+            'created_by' => $this->admin->id,
+        ]);
+
+        // Check splits
+        $splits = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $this->assertCount(2, $splits['given']);
+        $this->assertEquals(160000.00, $splits['cumulative']['cash_given']);
+
+        $splitRowA = collect($splits['given'])->firstWhere('id', $rowA->id);
+        $splitRowB = collect($splits['given'])->firstWhere('id', $rowB->id);
+
+        $this->assertNotNull($splitRowA);
+        $this->assertNotNull($splitRowB);
+
+        // Row A: UNMATCHED, not blocked
+        $this->assertSame('unmatched', $splitRowA->status);
+        $this->assertSame(0, (int) $splitRowA->funding_action_blocked);
+
+        // Row B: MATCHED (manual bank statement counterpart), action blocked
+        $this->assertSame('manual_statement', $splitRowB->status);
+        $this->assertSame(1, (int) $splitRowB->funding_action_blocked);
+
+        // Check transactions query
+        $txns = $this->purchaserFinanceService->transactionsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $txnRowA = collect($txns->items())->firstWhere('id', $rowA->id);
+        $txnRowB = collect($txns->items())->firstWhere('id', $rowB->id);
+
+        $this->assertSame('unmatched', $txnRowA->status);
+        $this->assertSame(0, (int) $txnRowA->funding_action_blocked);
+
+        $this->assertSame('manual_statement', $txnRowB->status);
+        $this->assertSame(1, (int) $txnRowB->funding_action_blocked);
+
+        // Verify HTML rendering contains MATCHED TO STATEMENT badge and UNMATCHED
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'period' => 'month',
+            'tab' => 'funding',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('UNMATCHED');
+        $response->assertSee('MATCHED TO STATEMENT');
+    }
+
+    public function test_historical_records_shaped_like_833_and_834_remain_editable_when_unreconciled(): void
+    {
+        // Credit #833 shape: ₹20,00,000, Bank, company_account_id exists, no statement reconciliation
+        $credit833 = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 2000000.00,
+            'business_date' => '2026-08-03',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'HIST-833',
+            'description' => 'Company funding to purchaser',
+            'created_by' => $this->admin->id,
+        ]);
+        app(JournalService::class)->recordPurchaserCredit($credit833);
+
+        // Credit #834 shape: ₹1,36,243, Bank, company_account_id exists, no statement reconciliation
+        $credit834 = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 136243.00,
+            'business_date' => '2026-08-04',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'HIST-834',
+            'description' => 'Company funding to purchaser',
+            'created_by' => $this->admin->id,
+        ]);
+        app(JournalService::class)->recordPurchaserCredit($credit834);
+
+        $splits = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $this->assertCount(2, $splits['given']);
+        $this->assertEquals(2136243.00, $splits['cumulative']['cash_given']);
+
+        $split833 = collect($splits['given'])->firstWhere('id', $credit833->id);
+        $split834 = collect($splits['given'])->firstWhere('id', $credit834->id);
+
+        $this->assertSame('unmatched', $split833->status);
+        $this->assertSame(0, (int) $split833->funding_action_blocked);
+
+        $this->assertSame('unmatched', $split834->status);
+        $this->assertSame(0, (int) $split834->funding_action_blocked);
+
+        $this->assertNull($this->purchaserFinanceService->fundingMutationBlockReason($credit833));
+        $this->assertNull($this->purchaserFinanceService->fundingMutationBlockReason($credit834));
+    }
 }

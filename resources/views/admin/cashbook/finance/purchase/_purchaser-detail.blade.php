@@ -501,20 +501,15 @@
                                         <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-600">advance utilized</span>
                                     @elseif($movement->status === 'unmatched')
                                         <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">UNMATCHED</span>
-                                    @elseif($movement->status === 'matched')
+                                    @elseif(in_array($movement->status, ['matched', 'manual_statement'], true))
                                         <div class="space-y-0.5">
-                                           <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">✓ MATCHED</span>
-                                           <div class="text-[10px] text-slate-500 font-medium">{{ $movement->statement_account_name }} · {{ $movement->statement_date }}</div>
+                                           <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">✓ MATCHED TO STATEMENT</span>
+                                           <div class="text-[10px] text-slate-500 font-medium">{{ $movement->statement_account_name ?: $movement->company_account }} · {{ $movement->statement_date }}</div>
                                         </div>
                                     @elseif($movement->status === 'manual_cash')
                                         <div class="space-y-0.5">
                                            <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-300 px-2 py-0.5 text-[9px] font-black uppercase text-amber-900">✓ MANUAL CASH</span>
                                            <div class="text-[10px] text-slate-500 font-medium">{{ $movement->statement_account_name ?: 'Cash Account' }} · {{ $movement->statement_date }}</div>
-                                        </div>
-                                    @elseif($movement->status === 'manual_statement')
-                                        <div class="space-y-0.5">
-                                           <span class="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[9px] font-black uppercase text-blue-900">✓ MANUAL STATEMENT</span>
-                                           <div class="text-[10px] text-slate-500 font-medium">{{ $movement->statement_account_name }} · {{ $movement->statement_date }}</div>
                                         </div>
                                     @else
                                         <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-700">{{ str_replace('_', ' ', $movement->status) }}</span>
@@ -545,11 +540,9 @@
                                                 <button type="button" onclick="openViewMatchModal({{ $movement->id }}, '{{ $record->public_uuid }}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition">
                                                     <i data-lucide="eye" class="h-3 w-3"></i> Trace
                                                 </button>
-                                                @if($movement->status === 'matched')
-                                                    <button type="button" onclick="openUnmatchModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->statement_account_name ?? '') }}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-sm transition">
-                                                        <i data-lucide="unlink" class="h-3 w-3"></i> Unmatch
-                                                    </button>
-                                                @endif
+                                                <button type="button" onclick="openUnmatchModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->statement_account_name ?? $movement->company_account ?? '') }}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-sm transition">
+                                                    <i data-lucide="unlink" class="h-3 w-3"></i> Unmatch
+                                                </button>
                                             @endif
                                         @endif
                                     </div>
@@ -1076,6 +1069,7 @@
             </div>
             <form id="unmatchForm" method="POST" action="" class="p-5 space-y-3.5 text-xs">
                 @csrf
+                <input type="hidden" id="unmatchFundingOpenSplit" name="open_split" value="">
                 <p class="text-slate-600 leading-relaxed">
                     Are you sure you want to unmatch this purchaser funding transaction?
                 </p>
@@ -1375,7 +1369,7 @@
                     : (m.status === 'unmatched'
                         ? '<span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">UNMATCHED</span>'
                         : (['matched', 'manual_cash', 'manual_statement'].includes(m.status)
-                            ? `<span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">✓ ${(m.status || '').replace('_', ' ').toUpperCase()}</span>`
+                            ? `<span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-800">✓ ${m.status === 'manual_cash' ? 'MANUAL CASH' : 'MATCHED TO STATEMENT'}</span>`
                             : `<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-700">${(m.status || 'RECORDED').replace('_', ' ').toUpperCase()}</span>`));
 
                 const colorClass = isGiven ? 'text-emerald-700' : (isRet ? 'text-indigo-700' : 'text-slate-900');
@@ -1398,6 +1392,11 @@
                             ${m.status === 'unmatched' ? `
                                 <button type="button" onclick="openMatchStatementModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.company_account || '').replace(/'/g, "\\'")}')" class="inline-flex items-center gap-1 rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-600 shadow-xs transition">
                                     <i data-lucide="git-merge" class="h-3 w-3"></i> Match
+                                </button>
+                            ` : ''}
+                            ${['matched', 'manual_statement', 'manual_cash'].includes(m.status) ? `
+                                <button type="button" onclick="openUnmatchModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.statement_account_name || m.company_account || '').replace(/'/g, "\\'")}', '${activeSplitCard}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-xs transition">
+                                    <i data-lucide="unlink" class="h-3 w-3"></i> Unmatch
                                 </button>
                             ` : ''}
                         ` : ''}
@@ -1462,6 +1461,12 @@
                             ${!isUsed && !m.funding_action_blocked ? `
                                 <button type="button" onclick="openEditFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${m.payment_source || 'Bank'}', '${m.company_account_id || ''}', '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.funding_description || '').replace(/'/g, "\\'")}', '${m.status}', '${m.type}', '${activeSplitCard}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Edit</button>
                                 <button type="button" onclick="openDeleteFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.company_account || m.payment_source || '—').replace(/'/g, "\\'")}', '${m.status}', '${m.type}', '${activeSplitCard}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
+                            ` : ''}
+                            ${!isUsed && m.status === 'unmatched' ? `
+                                <button type="button" onclick="openMatchStatementModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.company_account || '').replace(/'/g, "\\'")}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-600">Match</button>
+                            ` : ''}
+                            ${!isUsed && ['matched', 'manual_statement', 'manual_cash'].includes(m.status) ? `
+                                <button type="button" onclick="openUnmatchModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.statement_account_name || m.company_account || '').replace(/'/g, "\\'")}', '${activeSplitCard}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Unmatch</button>
                             ` : ''}
                         </div>
                     </article>
@@ -2011,12 +2016,17 @@
             modal.classList.remove('flex');
         }
 
-        function openUnmatchModal(creditId, purchaserUuid, date, amount, account) {
+        function openUnmatchModal(creditId, purchaserUuid, date, amount, account, fromSplitCard = '') {
             const modal = document.getElementById('unmatchModal');
             document.getElementById('unmatchAmount').textContent = '₹' + Number(amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
             document.getElementById('unmatchDate').textContent = date;
             document.getElementById('unmatchAccount').textContent = account || 'Company Account';
             
+            const splitCardInput = document.getElementById('unmatchFundingOpenSplit');
+            if (splitCardInput) {
+                splitCardInput.value = fromSplitCard || (document.getElementById('fundingSplitModal')?.classList.contains('hidden') ? '' : activeSplitCard);
+            }
+
             const form = document.getElementById('unmatchForm');
             form.action = `/admin/cashbook/finance/purchase/purchasers/${purchaserUuid}/funding/${creditId}/unmatch`;
             

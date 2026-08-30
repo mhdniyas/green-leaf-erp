@@ -58,8 +58,7 @@ final class PurchaserFinanceService
             ->where(function ($query): void {
                 $query->where('is_finalized', true)
                     ->orWhereIn('status', ['matched', 'reconciled', 'partially_matched'])
-                    ->orWhere('matched_amount', '>', 0)
-                    ->orWhere('source', 'manual');
+                    ->orWhere('matched_amount', '>', 0);
             });
 
         if ($lock) {
@@ -75,7 +74,7 @@ final class PurchaserFinanceService
 
             return $isImported
                 ? 'Matched to imported statement — unmatch first.'
-                : 'Manual cash or statement counterpart — editing is protected.';
+                : 'Matched to statement — unmatch first.';
         }
 
         if ($journals->contains(fn (JournalEntry $journal): bool => $journal->reconciliations_count > 0)) {
@@ -312,9 +311,8 @@ final class PurchaserFinanceService
                 CASE 
                     WHEN credits.type = 'out' AND credits.purchase_invoice_id IS NOT NULL THEN 'advance_utilized'
                     WHEN statements.id IS NULL OR statements.is_finalized = 0 THEN 'unmatched'
-                    WHEN statements.source = 'imported' OR statements.import_file_name IS NOT NULL OR statements.import_fingerprint IS NOT NULL THEN 'matched'
                     WHEN stmt_accounts.account_type = 'cash' THEN 'manual_cash'
-                    WHEN stmt_accounts.account_type = 'bank' THEN 'manual_statement'
+                    WHEN stmt_accounts.account_type = 'bank' AND (statements.source = 'manual' OR (statements.source IS NULL AND statements.import_file_name IS NULL AND statements.import_fingerprint IS NULL)) THEN 'manual_statement'
                     ELSE 'matched'
                 END as status,
                 statements.id as statement_entry_id,
@@ -345,7 +343,6 @@ final class PurchaserFinanceService
                         linked.is_finalized = 1
                         OR linked.status IN ('matched', 'reconciled', 'partially_matched')
                         OR linked.matched_amount > 0
-                        OR linked.source = 'manual'
                     )
                 )
             ) as funding_action_blocked", [PurchaserCredit::class, PurchaserCredit::class, PurchaserCredit::class, PurchaserCredit::class, 'purchaser_funding', PurchaserCredit::class])
@@ -370,8 +367,12 @@ final class PurchaserFinanceService
                             (linked.source_type IN (?, ?) AND linked.source_id = credits.id)
                             OR linked.journal_entry_id IN (SELECT id FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id)
                         )
-                        AND linked.source = 'manual'
-                    ) THEN 'Manual cash or statement counterpart — editing is protected.'
+                        AND (
+                            linked.is_finalized = 1
+                            OR linked.status IN ('matched', 'reconciled', 'partially_matched')
+                            OR linked.matched_amount > 0
+                        )
+                    ) THEN 'Matched to statement — unmatch first.'
                     WHEN EXISTS (SELECT 1 FROM cashbook_company_payment_reconciliations allocation JOIN journal_entries allocation_journal ON allocation_journal.id = allocation.journal_entry_id WHERE allocation_journal.source_type = ? AND allocation_journal.source_id = credits.id) THEN 'Manual reconciliation allocation exists — editing is protected.'
                     WHEN credits.purchase_invoice_id IS NOT NULL
                         OR (SELECT COUNT(*) FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id) != 1
@@ -479,13 +480,12 @@ final class PurchaserFinanceService
                 CASE 
                     WHEN credits.type = 'out' AND credits.purchase_invoice_id IS NOT NULL THEN 'advance_utilized'
                     WHEN statements.id IS NULL OR statements.is_finalized = 0 THEN 'unmatched'
-                    WHEN statements.source = 'imported' OR statements.import_file_name IS NOT NULL OR statements.import_fingerprint IS NOT NULL THEN 'matched'
                     WHEN stmt_accounts.account_type = 'cash' THEN 'manual_cash'
-                    WHEN stmt_accounts.account_type = 'bank' THEN 'manual_statement'
+                    WHEN stmt_accounts.account_type = 'bank' AND (statements.source = 'manual' OR (statements.source IS NULL AND statements.import_file_name IS NULL AND statements.import_fingerprint IS NULL)) THEN 'manual_statement'
                     ELSE 'matched'
                 END as status,
                 CASE
-                    WHEN statements.id IS NOT NULL AND statements.is_finalized = 1 THEN 1
+                    WHEN statements.id IS NOT NULL AND (statements.is_finalized = 1 OR statements.status IN ('matched', 'reconciled', 'partially_matched') OR statements.matched_amount > 0) THEN 1
                     ELSE 0
                 END as funding_action_blocked
             ")

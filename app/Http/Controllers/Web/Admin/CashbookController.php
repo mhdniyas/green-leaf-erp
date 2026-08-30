@@ -3582,6 +3582,15 @@ final class CashbookController extends Controller
             );
         }, attempts: 3);
 
+        if ($request->filled('open_split')) {
+            return redirect()->route('admin.cashbook.finance.purchase.purchasers.show', array_filter([
+                'purchaser' => $purchaser->public_uuid,
+                'period' => $request->input('period', 'month'),
+                'tab' => $request->input('tab', 'finance'),
+                'open_split' => $request->input('open_split'),
+            ]))->with('success', 'Reconciliation unlinked successfully.');
+        }
+
         return redirect()->back()->with('success', 'Reconciliation unlinked successfully.');
     }
 
