@@ -247,6 +247,97 @@
                 margin-bottom: 6px;
                 padding-bottom: 2px;
             }
+        .shop-hidden {
+            display: none !important;
+        }
+
+        .shops-filter-panel {
+            background: #fff;
+            border: 1px solid #000;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-top: 8px;
+            width: 100%;
+        }
+        .shops-filter-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .shops-filter-title {
+            font-size: 10.5px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .shops-filter-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-filter-action {
+            background: #fff;
+            border: 1px solid #000;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 9.5px;
+            font-weight: 700;
+            cursor: pointer;
+            color: #000;
+        }
+        .btn-filter-action:hover {
+            background: #000;
+            color: #fff;
+        }
+        .shops-checkbox-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            max-height: 140px;
+            overflow-y: auto;
+            padding: 2px 0;
+        }
+        .shop-filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #fff;
+            border: 1px solid #000;
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+        .shop-filter-chip:hover {
+            background: #f1f5f9;
+        }
+        .shop-filter-chip input[type="checkbox"] {
+            cursor: pointer;
+        }
+        .shop-chip-tag {
+            font-family: monospace;
+            font-size: 8.5px;
+            font-weight: 900;
+            background: #e2e8f0;
+            color: #000;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+        .warning-box {
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #b91c1c;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-top: 6px;
+            display: none;
         }
     </style>
 </head>
@@ -254,23 +345,61 @@
 
     {{-- Top Controls Bar (hidden during printing) --}}
     <div class="no-print">
-        <button class="btn-print" onclick="window.print()">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.656" />
-            </svg>
-            Print / Save PDF
-        </button>
-        <a class="btn-close" href="javascript:window.close()">Close Window</a>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; width: 100%;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <button class="btn-print" id="btn-browser-print" onclick="triggerPrint()">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.656" />
+                    </svg>
+                    Print / Save PDF
+                </button>
+                <a class="btn-close" href="javascript:window.close()">Close Window</a>
 
-        <span class="badge">Date: {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</span>
-        @if(isset($selectedWarehouse) && $selectedWarehouse)
-            <span class="badge">Warehouse: {{ $selectedWarehouse->name }} ({{ $selectedWarehouse->code }})</span>
-        @else
-            <span class="badge">All Warehouses</span>
+                <span class="badge">Date: {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</span>
+                @if(isset($selectedWarehouse) && $selectedWarehouse)
+                    <span class="badge">Warehouse: {{ $selectedWarehouse->name }} ({{ $selectedWarehouse->code }})</span>
+                @else
+                    <span class="badge">All Warehouses</span>
+                @endif
+                <span class="badge">Total Products: {{ count($matrix) }}</span>
+                <span class="badge" id="badge-shops-summary">Shops: <strong id="selected-shops-count">{{ $filteredShops->count() }}</strong>/{{ $filteredShops->count() }}</span>
+                <span class="badge">Generated By: {{ $generatedBy }} ({{ $generatedAt }})</span>
+            </div>
+        </div>
+
+        @if($filteredShops->count() > 0)
+        {{-- Shops to Print Multi-Select Filter --}}
+        <div class="shops-filter-panel">
+            <div class="shops-filter-header">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="shops-filter-title">Shops to Print:</span>
+                    <span style="font-size: 9.5px; color: #475569;">(Untick shops to exclude them from the printed output and recalculate totals)</span>
+                </div>
+                <div class="shops-filter-actions">
+                    <button type="button" class="btn-filter-action" onclick="selectAllShops()">Select All</button>
+                    <button type="button" class="btn-filter-action" onclick="clearAllShops()">Clear All</button>
+                </div>
+            </div>
+            <div class="shops-checkbox-grid" id="shops-checkbox-container">
+                @foreach($filteredShops as $shop)
+                    <label class="shop-filter-chip" data-shop-id="{{ $shop->id }}">
+                        <input type="checkbox" class="shop-checkbox" value="{{ $shop->id }}" checked onchange="toggleShop({{ $shop->id }}, this.checked)">
+                        <span>{{ $shop->name }}</span>
+                        @if($shop->warehouse_tag)
+                            <span class="shop-chip-tag">{{ $shop->warehouse_tag }}</span>
+                        @endif
+                    </label>
+                @endforeach
+            </div>
+            <div id="no-shops-warning" class="warning-box">
+                Select at least one shop to print.
+            </div>
+        </div>
         @endif
-        <span class="badge">Total Products: {{ count($matrix) }}</span>
-        <span class="badge">Total Shops: {{ $filteredShops->count() }}</span>
-        <span class="badge">Generated By: {{ $generatedBy }} ({{ $generatedAt }})</span>
+    </div>
+
+    <div id="no-shops-page-msg" style="display: none; padding: 40px 20px; text-align: center; font-weight: 800; font-size: 14px; color: #b91c1c; border: 2px dashed #ef4444; border-radius: 8px; margin-top: 10px;">
+        Select at least one shop.
     </div>
 
     @if($filteredShops->count() > 0 && count($matrix) > 0)
@@ -315,7 +444,7 @@
         $isFirstBlock = true;
     @endphp
 
-    <div class="sort-sheet-page">
+    <div class="sort-sheet-page" id="sort-sheet-print-content">
     @foreach($categoryBlocks as $catName => $block)
     @php
         $catId = $block['id'];
@@ -336,12 +465,12 @@
         @endif
         <table>
             <colgroup>
-                <col style="width:{{ $slWidth }}%">
-                <col style="width:{{ $itemWidth }}%">
+                <col class="col-sl" style="width:{{ $slWidth }}%">
+                <col class="col-item" style="width:{{ $itemWidth }}%">
                 @foreach($filteredShops as $shop)
-                    <col style="width:{{ $shopWidth }}%">
+                    <col class="col-shop" data-shop-id="{{ $shop->id }}" style="width:{{ $shopWidth }}%">
                 @endforeach
-                <col style="width:{{ $totalWidth }}%">
+                <col class="col-total" style="width:{{ $totalWidth }}%">
             </colgroup>
             <thead>
                 <tr>
@@ -353,7 +482,7 @@
                     <th>Code</th>
                     <th class="item-heading">Item</th>
                     @foreach($filteredShops as $shop)
-                    <th>
+                    <th class="shop-th" data-shop-id="{{ $shop->id }}">
                         <span class="shop-heading-name">{{ $shop->name }}</span>
                         @if($shop->warehouse_tag)
                             <span class="shop-heading-tag">{{ $shop->warehouse_tag }}</span>
@@ -377,7 +506,7 @@
                     </td>
                     @foreach($filteredShops as $shop)
                     @php $qty = $shopQtys[$shop->id] ?? 0; @endphp
-                    <td class="qty-cell {{ $qty <= 0 ? 'zero' : '' }}">
+                    <td class="qty-cell {{ $qty <= 0 ? 'zero' : '' }}" data-shop-id="{{ $shop->id }}" data-qty="{{ (float) $qty }}">
                         {{ $qty > 0 ? $formatQty((float) $qty) : '0' }}
                     </td>
                     @endforeach
@@ -402,5 +531,108 @@
     </div>
     @endif
 
+    <script>
+        function triggerPrint() {
+            const selectedCount = document.querySelectorAll('.shop-checkbox:checked').length;
+            if (selectedCount === 0) {
+                alert('Select at least one shop to print.');
+                return;
+            }
+            window.print();
+        }
+
+        function toggleShop(shopId, isChecked) {
+            const shopElements = document.querySelectorAll(`[data-shop-id="${shopId}"]`);
+            shopElements.forEach(el => {
+                if (isChecked) {
+                    el.classList.remove('shop-hidden');
+                } else {
+                    el.classList.add('shop-hidden');
+                }
+            });
+
+            recalculatePrintView();
+        }
+
+        function selectAllShops() {
+            const checkboxes = document.querySelectorAll('.shop-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+            });
+            document.querySelectorAll('[data-shop-id]').forEach(el => el.classList.remove('shop-hidden'));
+            recalculatePrintView();
+        }
+
+        function clearAllShops() {
+            const checkboxes = document.querySelectorAll('.shop-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = false;
+            });
+            document.querySelectorAll('[data-shop-id]').forEach(el => el.classList.add('shop-hidden'));
+            recalculatePrintView();
+        }
+
+        function recalculatePrintView() {
+            const selectedCheckboxes = document.querySelectorAll('.shop-checkbox:checked');
+            const selectedCount = selectedCheckboxes.length;
+
+            const countEl = document.getElementById('selected-shops-count');
+            if (countEl) countEl.textContent = selectedCount;
+
+            const btnPrint = document.getElementById('btn-browser-print');
+            const warningEl = document.getElementById('no-shops-warning');
+            const noShopsPageMsg = document.getElementById('no-shops-page-msg');
+            const printContent = document.getElementById('sort-sheet-print-content');
+
+            if (selectedCount === 0) {
+                if (btnPrint) {
+                    btnPrint.disabled = true;
+                    btnPrint.style.opacity = '0.5';
+                    btnPrint.style.cursor = 'not-allowed';
+                }
+                if (warningEl) warningEl.style.display = 'block';
+                if (noShopsPageMsg) noShopsPageMsg.style.display = 'block';
+                if (printContent) printContent.style.display = 'none';
+                return;
+            }
+
+            if (btnPrint) {
+                btnPrint.disabled = false;
+                btnPrint.style.opacity = '1';
+                btnPrint.style.cursor = 'pointer';
+            }
+            if (warningEl) warningEl.style.display = 'none';
+            if (noShopsPageMsg) noShopsPageMsg.style.display = 'none';
+            if (printContent) printContent.style.display = 'block';
+
+            const singleShop = selectedCount === 1;
+            const shopWidth = singleShop ? 25 : (71 / selectedCount);
+            const itemWidth = singleShop ? 52 : 18;
+            const totalWidth = singleShop ? 15 : 7;
+
+            document.querySelectorAll('.col-item').forEach(col => col.style.width = itemWidth + '%');
+            document.querySelectorAll('.col-total').forEach(col => col.style.width = totalWidth + '%');
+            document.querySelectorAll('.col-shop:not(.shop-hidden)').forEach(col => col.style.width = shopWidth + '%');
+
+            document.querySelectorAll('.print-title-cell').forEach(th => {
+                th.colSpan = selectedCount + 3;
+            });
+
+            document.querySelectorAll('tbody tr').forEach(row => {
+                let rowTotal = 0;
+                const visibleQtyCells = row.querySelectorAll('.qty-cell:not(.shop-hidden)');
+                visibleQtyCells.forEach(cell => {
+                    const qty = parseFloat(cell.getAttribute('data-qty') || 0);
+                    if (!isNaN(qty)) rowTotal += qty;
+                });
+
+                const totalCell = row.querySelector('.total-cell');
+                if (totalCell) {
+                    const formatted = rowTotal === 0 ? '0' : (rowTotal % 1 === 0 ? rowTotal.toString() : parseFloat(rowTotal.toFixed(2)).toString());
+                    totalCell.textContent = formatted;
+                }
+            });
+        }
+    </script>
 </body>
 </html>

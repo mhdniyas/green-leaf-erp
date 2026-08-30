@@ -682,12 +682,20 @@ class SortSheetController extends Controller
             ? Warehouse::find($filters['warehouseId'])
             : null;
 
+        $printShopIds = $filters['printShopIds'] ?? null;
         $shopQuery = Shop::where('status', 'active');
         if ($shopId) {
             $shopQuery->where('id', $shopId);
         }
         if ($priceGroupId) {
             $shopQuery->where('shop_price_group_id', $priceGroupId);
+        }
+        if ($printShopIds !== null) {
+            if (! empty($printShopIds)) {
+                $shopQuery->whereIn('id', $printShopIds);
+            } else {
+                $shopQuery->whereRaw('1 = 0');
+            }
         }
         $filteredShops = $shopQuery->orderBy('warehouse_tag')->get();
 
@@ -748,7 +756,7 @@ class SortSheetController extends Controller
     }
 
     /**
-     * @return array{date: string, shopId: string|null, categoryIds: array<int, int>, productIds: array<int, int>, priceGroupId: string|null, warehouseId: int|null}
+     * @return array{date: string, shopId: string|null, categoryIds: array<int, int>, productIds: array<int, int>, priceGroupId: string|null, warehouseId: int|null, printShopIds: array<int, int>|null}
      */
     private function filtersFromRequest(Request $request): array
     {
@@ -767,6 +775,21 @@ class SortSheetController extends Controller
             ->values()
             ->all();
 
+        $rawPrintShopIds = $request->input('print_shop_ids', $request->input('shop_ids', null));
+        if ($rawPrintShopIds !== null) {
+            if (is_string($rawPrintShopIds)) {
+                $rawPrintShopIds = explode(',', $rawPrintShopIds);
+            }
+            $printShopIds = collect((array) $rawPrintShopIds)
+                ->filter(fn ($value): bool => $value !== null && $value !== '' && is_numeric($value) && (int) $value > 0)
+                ->map(fn ($value): int => (int) $value)
+                ->unique()
+                ->values()
+                ->all();
+        } else {
+            $printShopIds = null;
+        }
+
         return [
             'date' => $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString()),
             'shopId' => $request->input('shop_id'),
@@ -774,6 +797,7 @@ class SortSheetController extends Controller
             'productIds' => $productIds,
             'priceGroupId' => $request->input('price_group_id'),
             'warehouseId' => $request->integer('warehouse_id') ?: null,
+            'printShopIds' => $printShopIds,
             'separateCategoryPages' => (bool) $request->boolean('separate_category_pages', false),
             'codeSort' => ! $request->has('code_sort') || (bool) $request->boolean('code_sort'),
             'showCode' => ! $request->has('show_code') || (bool) $request->boolean('show_code'),
