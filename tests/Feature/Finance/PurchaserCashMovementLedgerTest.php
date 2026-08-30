@@ -872,4 +872,67 @@ class PurchaserCashMovementLedgerTest extends TestCase
             'reason' => 'Duplicate Entry',
         ])->assertForbidden();
     }
+
+    public function test_production_shaped_legacy_funding_drill_down_matches_summary_card_exactly(): void
+    {
+        // 1. Legacy funding row (created years ago before optional metadata existed: no company_account_id, no statement/reconciliation, no reference)
+        $legacy1 = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 1136243.00,
+            'business_date' => '2024-01-15',
+            'payment_source' => null,
+            'company_account_id' => null,
+            'reference' => null,
+            'description' => null,
+            'created_by' => null,
+        ]);
+
+        // 2. Another legacy funding row in 2025
+        $legacy2 = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 1000000.00,
+            'business_date' => '2025-06-10',
+            'payment_source' => 'Bank',
+            'company_account_id' => null,
+            'reference' => null,
+            'description' => 'Direct transfer',
+            'created_by' => $this->admin->id,
+        ]);
+
+        // Total company given = ₹21,36,243.00
+
+        // Check summaryFor
+        $summary = $this->purchaserFinanceService->summaryFor((int) $this->purchaser->id);
+        $this->assertEquals(2136243.00, $summary['cash_given']);
+        $this->assertEquals(2136243.00, $summary['remaining_advance']);
+
+        // Check fundingSplitsFor for current month (2026-08-01 to 2026-08-31)
+        $splits = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+
+        $this->assertCount(2, $splits['given']);
+        $this->assertEquals(2136243.00, $splits['cumulative']['cash_given']);
+        $this->assertEquals(0.00, $splits['period']['cash_given']);
+
+        $givenSum = array_sum(array_column($splits['given'], 'amount'));
+        $this->assertEquals(2136243.00, $givenSum);
+
+        // Verify in_period flags
+        $this->assertFalse((bool) $splits['given'][0]->in_period);
+        $this->assertFalse((bool) $splits['given'][1]->in_period);
+
+        // Verify HTML page response contains the exact split data in JSON and rendered cards
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'period' => 'month',
+            'tab' => 'funding',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('2,136,243.00');
+        // Ensure fundingSplitsData JSON contains non-empty given array
+        $response->assertSee('1136243');
+        $response->assertSee('1000000');
+    }
 }

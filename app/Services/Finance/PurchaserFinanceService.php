@@ -539,9 +539,9 @@ final class PurchaserFinanceService
         $expectedCash = round($cumulativeNetFunding - $cumulativeUsed, 2);
 
         return [
-            'given' => $given,
-            'returned' => $returned,
-            'used' => $used,
+            'given' => $given->values()->all(),
+            'returned' => $returned->values()->all(),
+            'used' => $used->values()->all(),
             'cumulative' => [
                 'cash_given' => $cumulativeGiven,
                 'cash_returned' => $cumulativeReturned,

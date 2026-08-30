@@ -1246,10 +1246,13 @@
             if (subTabsContainer) subTabsContainer.classList.add('hidden');
             if (equationCard) equationCard.classList.add('hidden');
 
-            const splitsObj = fundingSplitsData.splits || {};
-            const allGiven = isCumulative ? (splitsObj.given_cumulative || []) : (splitsObj.given_period || []);
-            const allReturned = isCumulative ? (splitsObj.returned_cumulative || []) : (splitsObj.returned_period || []);
-            const allUsed = isCumulative ? (splitsObj.used_cumulative || []) : (splitsObj.used_period || []);
+            const rawGiven = Array.isArray(fundingSplitsData.given) ? fundingSplitsData.given : Object.values(fundingSplitsData.given || {});
+            const rawReturned = Array.isArray(fundingSplitsData.returned) ? fundingSplitsData.returned : Object.values(fundingSplitsData.returned || {});
+            const rawUsed = Array.isArray(fundingSplitsData.used) ? fundingSplitsData.used : Object.values(fundingSplitsData.used || {});
+
+            const allGiven = isCumulative ? rawGiven : rawGiven.filter(m => Boolean(m.in_period));
+            const allReturned = isCumulative ? rawReturned : rawReturned.filter(m => Boolean(m.in_period));
+            const allUsed = isCumulative ? rawUsed : rawUsed.filter(m => Boolean(m.in_period));
 
             if (activeSplitCard === 'given') {
                 cardTitle = 'Company → Purchaser Given Split';
