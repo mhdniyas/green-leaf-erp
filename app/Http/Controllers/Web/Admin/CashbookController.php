@@ -3191,12 +3191,17 @@ final class CashbookController extends Controller
             $tab = 'funding';
         }
 
+        $routeParams = [
+            'purchaser' => $purchaser->public_uuid,
+            'period' => $request->input('period', 'month'),
+            'tab' => $tab,
+        ];
+        if ($request->filled('open_split')) {
+            $routeParams['open_split'] = $request->input('open_split');
+        }
+
         return redirect()
-            ->route('admin.cashbook.finance.purchase.purchasers.show', [
-                'purchaser' => $purchaser->public_uuid,
-                'period' => $request->input('period', 'month'),
-                'tab' => $tab,
-            ])
+            ->route('admin.cashbook.finance.purchase.purchasers.show', $routeParams)
             ->with('success', "{$label} of ₹".number_format((float) $validated['amount'], 2).' updated successfully.');
     }
 
@@ -3274,12 +3279,17 @@ final class CashbookController extends Controller
             $tab = 'funding';
         }
 
+        $deleteRouteParams = [
+            'purchaser' => $purchaser->public_uuid,
+            'period' => $request->input('period', 'month'),
+            'tab' => $tab,
+        ];
+        if ($request->filled('open_split')) {
+            $deleteRouteParams['open_split'] = $request->input('open_split');
+        }
+
         return redirect()
-            ->route('admin.cashbook.finance.purchase.purchasers.show', [
-                'purchaser' => $purchaser->public_uuid,
-                'period' => $request->input('period', 'month'),
-                'tab' => $tab,
-            ])
+            ->route('admin.cashbook.finance.purchase.purchasers.show', $deleteRouteParams)
             ->with('success', "{$label} of ₹".number_format((float) $credit->amount, 2).' deleted successfully.');
     }
 

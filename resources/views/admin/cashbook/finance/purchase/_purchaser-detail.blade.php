@@ -635,7 +635,7 @@
 @if(in_array($tab, ['finance', 'funding'], true))
     {{-- ── Funding Split & Drill-Down Modal / Drawer ─────────────────────── --}}
     <div id="fundingSplitModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
-        <div class="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+        <div class="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             {{-- Modal Header --}}
             <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
                 <div class="flex items-center gap-3">
@@ -841,6 +841,7 @@
                 @csrf
                 <input type="hidden" name="tab" value="{{ $tab }}">
                 <input type="hidden" name="period" value="{{ $filters['period'] ?? 'month' }}">
+                <input type="hidden" id="editFundingOpenSplit" name="open_split" value="">
                 <div class="p-5 space-y-3.5 overflow-y-auto flex-1 text-xs">
                     <div id="editFundingMatchedWarning" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                         <i data-lucide="alert-triangle" class="inline h-4 w-4 mr-1 text-amber-700"></i>
@@ -913,6 +914,7 @@
                 @csrf
                 <input type="hidden" name="tab" value="{{ $tab }}">
                 <input type="hidden" name="period" value="{{ $filters['period'] ?? 'month' }}">
+                <input type="hidden" id="deleteFundingOpenSplit" name="open_split" value="">
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-1.5 text-slate-700">
                     <div class="flex justify-between">
                         <span class="text-slate-500">Purchaser:</span>
@@ -1380,22 +1382,22 @@
                 const sign = isGiven ? '+' : '-';
 
                 const actions = `
-                    <div class="flex items-center justify-end gap-1 flex-wrap">
-                        <button type="button" onclick='openMovementDetailsModal(${JSON.stringify(m).replace(/'/g, "&apos;")})' class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-xs">
-                            Details
+                    <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                        <button type="button" onclick='openMovementDetailsModal(${JSON.stringify(m).replace(/'/g, "&apos;")})' class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-xs transition">
+                            <i data-lucide="info" class="h-3 w-3 text-slate-500"></i> Details
                         </button>
                         ${!isUsed ? `
                             ${(!m.funding_action_blocked) ? `
-                                <button type="button" onclick="openEditFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${m.payment_source || 'Bank'}', '${m.company_account_id || ''}', '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.funding_description || '').replace(/'/g, "\\'")}', '${m.status}', '${m.type}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-xs">
-                                    Edit
+                                <button type="button" onclick="openEditFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${m.payment_source || 'Bank'}', '${m.company_account_id || ''}', '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.funding_description || '').replace(/'/g, "\\'")}', '${m.status}', '${m.type}', '${activeSplitCard}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-xs transition">
+                                    <i data-lucide="pencil" class="h-3 w-3 text-slate-500"></i> Edit
                                 </button>
-                                <button type="button" onclick="openDeleteFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.company_account || m.payment_source || '—').replace(/'/g, "\\'")}', '${m.status}', '${m.type}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-xs">
-                                    Delete
+                                <button type="button" onclick="openDeleteFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.company_account || m.payment_source || '—').replace(/'/g, "\\'")}', '${m.status}', '${m.type}', '${activeSplitCard}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-xs transition">
+                                    <i data-lucide="trash-2" class="h-3 w-3 text-rose-600"></i> Delete
                                 </button>
                             ` : ''}
                             ${m.status === 'unmatched' ? `
-                                <button type="button" onclick="openMatchStatementModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.company_account || '').replace(/'/g, "\\'")}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-600 shadow-xs">
-                                    Match
+                                <button type="button" onclick="openMatchStatementModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.company_account || '').replace(/'/g, "\\'")}')" class="inline-flex items-center gap-1 rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-600 shadow-xs transition">
+                                    <i data-lucide="git-merge" class="h-3 w-3"></i> Match
                                 </button>
                             ` : ''}
                         ` : ''}
@@ -1416,12 +1418,12 @@
                             <div class="font-bold text-slate-900">${m.company_account || m.payment_source || '—'}</div>
                             <div class="text-[10px] text-slate-500">${m.payment_source ? m.payment_source.toUpperCase() : ''}</div>
                         </td>
-                        <td class="p-3 text-slate-600 max-w-[12rem] truncate">
+                        <td class="p-3 text-slate-600 min-w-[10rem] max-w-xs truncate">
                             <div class="font-medium text-slate-900 truncate">${m.movement_reference || m.funding_reference || '—'}</div>
                             ${m.funding_description ? `<div class="text-[10px] text-slate-500 truncate">${m.funding_description}</div>` : ''}
                         </td>
                         <td class="p-3 text-slate-600 whitespace-nowrap font-medium">${m.created_by_name || 'System / Admin'}</td>
-                        <td class="p-3">${statusBadge}</td>
+                        <td class="p-3 whitespace-nowrap">${statusBadge}</td>
                         <td class="p-3 text-right whitespace-nowrap">${actions}</td>
                     </tr>
                 `;
@@ -1455,11 +1457,11 @@
                             <div>Account: <strong class="text-slate-800">${m.company_account || m.payment_source || '—'}</strong></div>
                             <div>Ref: <span class="font-mono text-slate-700">${m.movement_reference || m.funding_reference || '—'}</span></div>
                         </div>
-                        <div class="flex items-center justify-end gap-1.5 pt-1">
+                        <div class="flex items-center justify-end gap-1.5 pt-1 flex-wrap">
                             <button type="button" onclick='openMovementDetailsModal(${JSON.stringify(m).replace(/'/g, "&apos;")})' class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Details</button>
                             ${!isUsed && !m.funding_action_blocked ? `
-                                <button type="button" onclick="openEditFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${m.payment_source || 'Bank'}', '${m.company_account_id || ''}', '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.funding_description || '').replace(/'/g, "\\'")}', '${m.status}', '${m.type}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Edit</button>
-                                <button type="button" onclick="openDeleteFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.company_account || m.payment_source || '—').replace(/'/g, "\\'")}', '${m.status}', '${m.type}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
+                                <button type="button" onclick="openEditFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${m.payment_source || 'Bank'}', '${m.company_account_id || ''}', '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.funding_description || '').replace(/'/g, "\\'")}', '${m.status}', '${m.type}', '${activeSplitCard}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Edit</button>
+                                <button type="button" onclick="openDeleteFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.company_account || m.payment_source || '—').replace(/'/g, "\\'")}', '${m.status}', '${m.type}', '${activeSplitCard}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Delete</button>
                             ` : ''}
                         </div>
                     </article>
@@ -1556,7 +1558,7 @@
             }
         }
 
-        function openEditFundingModal(creditId, purchaserUuid, date, amount, source, accountId, ref, desc, status, type) {
+        function openEditFundingModal(creditId, purchaserUuid, date, amount, source, accountId, ref, desc, status, type, fromSplitCard = '') {
             const modal = document.getElementById('editFundingModal');
             if (!modal) return;
             const amountInput = document.getElementById('editFundingAmount');
@@ -1575,6 +1577,11 @@
             accountSelect.value = accountId || '';
             document.getElementById('editFundingReference').value = ref || '';
             document.getElementById('editFundingDescription').value = desc || '';
+
+            const splitCardInput = document.getElementById('editFundingOpenSplit');
+            if (splitCardInput) {
+                splitCardInput.value = fromSplitCard || (document.getElementById('fundingSplitModal')?.classList.contains('hidden') ? '' : activeSplitCard);
+            }
 
             const warningEl = document.getElementById('editFundingMatchedWarning');
             const isReconciled = ['matched', 'manual_cash', 'manual_statement'].includes(status);
@@ -1609,7 +1616,7 @@
             return confirm(`Save changes to ₹${formattedAmount} ${label}?`);
         }
 
-        function openDeleteFundingModal(creditId, purchaserUuid, date, amount, account, status, type) {
+        function openDeleteFundingModal(creditId, purchaserUuid, date, amount, account, status, type, fromSplitCard = '') {
             const modal = document.getElementById('deleteFundingModal');
             const formattedAmount = Number(amount).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
             const label = type === 'out' ? 'purchaser return' : 'purchaser funding';
@@ -1618,18 +1625,27 @@
             document.getElementById('deleteFundingDate').textContent = date;
             document.getElementById('deleteFundingAccount').textContent = account || '—';
 
+            const splitCardInput = document.getElementById('deleteFundingOpenSplit');
+            if (splitCardInput) {
+                splitCardInput.value = fromSplitCard || (document.getElementById('fundingSplitModal')?.classList.contains('hidden') ? '' : activeSplitCard);
+            }
+
             const warningEl = document.getElementById('deleteFundingMatchedWarning');
             const confirmBtn = document.getElementById('btnConfirmDeleteFunding');
             const isReconciled = ['matched', 'manual_cash', 'manual_statement'].includes(status);
 
             if (isReconciled) {
                 warningEl.classList.remove('hidden');
-                confirmBtn.disabled = true;
-                confirmBtn.classList.add('opacity-40', 'cursor-not-allowed');
+                if (confirmBtn) {
+                    confirmBtn.disabled = true;
+                    confirmBtn.classList.add('opacity-40', 'cursor-not-allowed');
+                }
             } else {
                 warningEl.classList.add('hidden');
-                confirmBtn.disabled = false;
-                confirmBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+                }
             }
 
             const form = document.getElementById('deleteFundingForm');
@@ -2013,5 +2029,13 @@
             modal.classList.add('hidden');
             modal.classList.remove('flex');
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const openSplitParam = urlParams.get('open_split');
+            if (openSplitParam && ['given', 'returned', 'net_funding', 'used', 'expected_cash'].includes(openSplitParam)) {
+                openFundingSplitModal(openSplitParam);
+            }
+        });
     </script>
 @endif

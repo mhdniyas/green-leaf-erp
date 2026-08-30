@@ -935,4 +935,78 @@ class PurchaserCashMovementLedgerTest extends TestCase
         $response->assertSee('1136243');
         $response->assertSee('1000000');
     }
+
+    public function test_split_modal_edit_workflow_updates_same_record_recalculates_totals_and_preserves_open_split(): void
+    {
+        // 1. Initial funding: ₹20,00,000
+        $credit = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 2000000.00,
+            'business_date' => '2026-08-15',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'TXN-INITIAL-2000K',
+            'description' => 'Initial funding from bank',
+            'created_by' => $this->admin->id,
+        ]);
+        app(JournalService::class)->recordPurchaserCredit($credit);
+
+        // Verify initial state
+        $summaryBefore = $this->purchaserFinanceService->summaryFor((int) $this->purchaser->id);
+        $this->assertEquals(2000000.00, $summaryBefore['cash_given']);
+        $this->assertEquals(2000000.00, $summaryBefore['remaining_advance']);
+
+        $splitsBefore = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $this->assertCount(1, $splitsBefore['given']);
+        $this->assertEquals(2000000.00, $splitsBefore['cumulative']['cash_given']);
+
+        // 2. Perform Edit from inside split modal: change ₹20,00,000 to ₹2,00,000 with open_split=given
+        $response = $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.update', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'credit' => $credit->id,
+        ]), [
+            'amount' => 200000.00,
+            'business_date' => '2026-08-16',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'TXN-CORRECTED-200K',
+            'description' => 'Corrected funding amount',
+            'tab' => 'funding',
+            'open_split' => 'given',
+        ]);
+
+        // Redirect must include tab=funding and open_split=given
+        $response->assertRedirect(route('admin.cashbook.finance.purchase.purchasers.show', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'period' => 'month',
+            'tab' => 'funding',
+            'open_split' => 'given',
+        ]));
+
+        // 3. Verify SAME record updated in DB (no duplicates)
+        $this->assertDatabaseCount('purchaser_credits', 1);
+        $this->assertDatabaseHas('purchaser_credits', [
+            'id' => $credit->id,
+            'amount' => 200000.00,
+            'business_date' => '2026-08-16 00:00:00',
+            'reference' => 'TXN-CORRECTED-200K',
+        ]);
+
+        // 4. Verify Journal entry updated in-place (single journal entry)
+        $this->assertDatabaseCount('journal_entries', 1);
+        $this->assertDatabaseHas('journal_transactions', [
+            'amount' => 200000.00,
+        ]);
+
+        // 5. Verify summary and split totals recalculated
+        $summaryAfter = $this->purchaserFinanceService->summaryFor((int) $this->purchaser->id);
+        $this->assertEquals(200000.00, $summaryAfter['cash_given']);
+        $this->assertEquals(200000.00, $summaryAfter['remaining_advance']);
+
+        $splitsAfter = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $this->assertCount(1, $splitsAfter['given']);
+        $this->assertEquals(200000.00, $splitsAfter['cumulative']['cash_given']);
+        $this->assertEquals(200000.00, $splitsAfter['period']['cash_given']);
+    }
 }
