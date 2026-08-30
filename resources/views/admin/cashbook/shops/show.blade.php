@@ -3,7 +3,76 @@
 @section('title', ($currentShop->name ?: 'Shop').($isDayDetail ? ' — '. \Illuminate\Support\Carbon::parse($businessDate)->format('d M Y') : ' — '. $monthlyData['month_title']))
 
 @section('content')
-<div class="mx-auto max-w-7xl space-y-6 pb-12">
+@php
+    $carbonDate = \Illuminate\Support\Carbon::parse($businessDate);
+    $formattedBusinessDate = $carbonDate->format('d M Y');
+    $dayOfWeek = $carbonDate->format('l');
+    $isToday = $businessDate === $todayDate;
+
+    // Collections partitioning
+    $allCollections = collect($dailySettlement['collections'] ?? []);
+    $needsAcceptance = $allCollections->filter(fn($c) => !empty($c['can_accept']));
+    $needsVerification = $allCollections->filter(fn($c) => in_array($c['tx_status'] ?? '', ['approved', \App\Enums\Cashbook\TransactionStatus::Approved->value], true) && empty($c['is_received']));
+    $receivedCollections = $allCollections->filter(fn($c) => !empty($c['is_received']));
+
+    // Totals for headers & badges
+    $pendingAcceptanceAmount = $needsAcceptance->sum('amount');
+    $pendingVerificationAmount = (float) ($dailySettlement['company_receipt_status']['pending_verification'] ?? 0);
+    $cashWithShopAmount = (float) ($dailySettlement['company_receipt_status']['cash_still_with_shop'] ?? 0);
+    $verifiedReceivedAmount = (float) ($dailySettlement['company_receipt_status']['verified_received'] ?? 0);
+    $expectedPayableAmount = (float) ($dailySettlement['settlement_summary']['expected_payable'] ?? 0);
+    $outstandingAmount = (float) ($dailySettlement['settlement_summary']['outstanding_to_settle'] ?? 0);
+    $grossSalesAmount = (float) ($dailySettlement['gross_sales'] ?? 0);
+    $totalDeductionsAmount = (float) ($dailySettlement['total_deductions'] ?? 0);
+
+    // Day status calculation
+    $dayStatusKey = match(true) {
+        $needsAcceptance->isNotEmpty() => 'needs_review',
+        $needsVerification->isNotEmpty() => 'pending_receipt',
+        $outstandingAmount > 0 => 'outstanding',
+        default => 'settled',
+    };
+
+    $dayStatusLabel = match($dayStatusKey) {
+        'needs_review' => 'Needs Review ('.$needsAcceptance->count().')',
+        'pending_receipt' => 'Pending Receipt ('.$needsVerification->count().')',
+        'outstanding' => 'Outstanding',
+        'settled' => 'Fully Settled',
+    };
+
+    $dayStatusBadgeClass = match($dayStatusKey) {
+        'needs_review' => 'bg-amber-50 text-amber-800 border-amber-200',
+        'pending_receipt' => 'bg-sky-50 text-sky-800 border-sky-200',
+        'outstanding' => 'bg-slate-100 text-slate-800 border-slate-300',
+        'settled' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    };
+
+    // Calendar month grid calculation
+    $monthCarbon = \Illuminate\Support\Carbon::createFromFormat('Y-m', $month);
+    $firstDayOfWeek = $monthCarbon->copy()->startOfMonth()->dayOfWeek; // 0 (Sun) to 6 (Sat)
+    $daysInCurrentMonth = $monthCarbon->daysInMonth;
+    $monthTitle = $monthCarbon->format('F Y');
+@endphp
+
+<div class="mx-auto max-w-7xl space-y-6 pb-16"
+     x-data="{
+        showCalendarModal: false,
+        showAdjustmentsDrawer: false,
+        showAddAdjustmentModal: false,
+        showReverseModal: false,
+        targetAdjustmentId: null,
+        targetAdjustmentName: '',
+        targetAdjustmentAmount: '',
+        reverseReason: '',
+        isSubmitting: false,
+        openReverse(id, name, amount) {
+            this.targetAdjustmentId = id;
+            this.targetAdjustmentName = name;
+            this.targetAdjustmentAmount = amount;
+            this.reverseReason = '';
+            this.showReverseModal = true;
+        }
+     }">
 
     @if(!$isDayDetail)
         <!-- ══════════════════════════════════════════════════════════════════ -->
@@ -66,7 +135,6 @@
 
         <!-- Month KPI Summary Cards -->
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <!-- Total Collections -->
             <div class="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
                 <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Month Collections</span>
                 <div class="text-xl sm:text-2xl font-black font-mono text-slate-900 mt-1">
@@ -75,7 +143,6 @@
                 <span class="text-[10px] text-slate-400 font-bold mt-1 block">{{ $monthlyData['summary']['active_days_count'] }} active days</span>
             </div>
 
-            <!-- Company Received -->
             <div class="p-5 rounded-3xl bg-white border border-emerald-200 shadow-sm">
                 <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Company Received</span>
                 <div class="text-xl sm:text-2xl font-black font-mono text-emerald-800 mt-1">
@@ -84,7 +151,6 @@
                 <span class="text-[10px] text-emerald-600 font-bold mt-1 block">Verified &amp; reconciled</span>
             </div>
 
-            <!-- Pending Acceptance -->
             <div class="p-5 rounded-3xl bg-white border border-amber-200 shadow-sm">
                 <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">Pending Acceptance</span>
                 <div class="text-xl sm:text-2xl font-black font-mono text-amber-800 mt-1">
@@ -93,7 +159,6 @@
                 <span class="text-[10px] text-amber-600 font-bold mt-1 block">Unapproved entries</span>
             </div>
 
-            <!-- Pending Verification -->
             <div class="p-5 rounded-3xl bg-white border border-sky-200 shadow-sm">
                 <span class="text-[10px] font-extrabold uppercase tracking-wider text-sky-700">Pending Verification</span>
                 <div class="text-xl sm:text-2xl font-black font-mono text-sky-800 mt-1">
@@ -102,7 +167,6 @@
                 <span class="text-[10px] text-sky-600 font-bold mt-1 block">Awaiting company verification</span>
             </div>
 
-            <!-- Month Outstanding -->
             <div class="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-sm col-span-2 sm:col-span-1">
                 <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Month Outstanding</span>
                 <div class="text-xl sm:text-2xl font-black font-mono text-white mt-1">
@@ -132,7 +196,6 @@
                     <p class="text-xs font-bold">No ledger activity recorded for {{ $currentShop->name }} in {{ $monthlyData['month_title'] }}.</p>
                 </div>
             @else
-                <!-- Desktop Table View -->
                 <div class="hidden lg:block overflow-x-auto">
                     <table class="w-full text-left text-xs border-collapse">
                         <thead>
@@ -197,10 +260,9 @@
                                     </td>
                                     <td class="py-3.5 px-4 text-right font-sans">
                                         <a href="{{ $dayDetailUrl }}"
-                                           class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-xs cursor-pointer"
-                                           title="Open {{ $day['formatted_date'] }} settlement details">
+                                           class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-xs cursor-pointer">
                                             <span>Open Day Details</span>
-                                            <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                                            <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                                         </a>
                                     </td>
                                 </tr>
@@ -209,8 +271,8 @@
                     </table>
                 </div>
 
-                <!-- Mobile Card Stack -->
-                <div class="lg:hidden space-y-3">
+                <!-- Mobile Card List View -->
+                <div class="lg:hidden space-y-3 font-mono">
                     @foreach($monthlyData['days'] as $day)
                         @php
                             $statusBadgeClass = match($day['status_key']) {
@@ -224,24 +286,24 @@
                                 'date' => $day['business_date'],
                             ]);
                         @endphp
-                        <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <span class="font-black text-sm text-slate-900">{{ $day['formatted_date'] }}</span>
-                                    <span class="text-xs text-slate-500 font-mono">({{ $day['day_name'] }})</span>
+                        <div class="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+                            <div class="flex items-center justify-between font-sans">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-extrabold text-slate-900">{{ $day['formatted_date'] }}</span>
+                                    <span class="text-[10px] text-slate-400 font-bold uppercase font-mono">{{ $day['day_name'] }}</span>
                                 </div>
-                                <span class="inline-flex items-center text-[10px] font-extrabold px-2 py-0.5 rounded-lg border {{ $statusBadgeClass }}">
+                                <span class="inline-flex items-center text-[9px] font-extrabold px-2 py-0.5 rounded-md border {{ $statusBadgeClass }}">
                                     {{ $day['status'] }}
                                 </span>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+                            <div class="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-100">
                                 <div>
-                                    <span class="text-[10px] font-sans font-extrabold text-slate-400 uppercase">Collections</span>
+                                    <span class="text-[10px] font-sans font-extrabold text-slate-400 uppercase">Collection</span>
                                     <div class="font-bold text-slate-800">₹{{ number_format($day['total_collection'], 2) }}</div>
                                 </div>
                                 <div>
-                                    <span class="text-[10px] font-sans font-extrabold text-emerald-700 uppercase">Received</span>
+                                    <span class="text-[10px] font-sans font-extrabold text-emerald-700 uppercase">Company Received</span>
                                     <div class="font-bold text-emerald-800">₹{{ number_format($day['company_received'], 2) }}</div>
                                 </div>
                                 <div>
@@ -273,56 +335,64 @@
 
     @else
         <!-- ══════════════════════════════════════════════════════════════════ -->
-        <!-- ── SINGLE DAY SETTLEMENT DETAILS VIEW ────────────────────────── -->
+        <!-- ── 1. PAGE HEADER & DATE NAVIGATION ────────────────────────── -->
         <!-- ══════════════════════════════════════════════════════════════════ -->
 
-        <!-- Day Details Header with Back to Month button -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-            <div>
-                <div class="flex items-center gap-2">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <div class="space-y-1">
+                <div class="flex items-center gap-2 flex-wrap">
                     <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'month' => $month]) }}"
                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-extrabold transition-all">
                         <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
-                        <span>Back to Month Summary</span>
+                        <span>Month Summary</span>
                     </a>
-                </div>
-                <div class="flex items-center gap-2 mt-2">
-                    <span class="p-2 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <i data-lucide="store" class="w-5 h-5"></i>
+                    <span class="text-slate-300">/</span>
+                    <span class="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold font-mono">
+                        {{ $currentShop->code }}
                     </span>
-                    <h1 class="text-2xl font-black tracking-tight text-slate-900 uppercase">
-                        {{ $currentShop->name }} &mdash; {{ \Illuminate\Support\Carbon::parse($businessDate)->format('d M Y') }}
-                    </h1>
+                    <span class="inline-flex items-center text-xs font-extrabold px-2.5 py-1 rounded-lg border {{ $dayStatusBadgeClass }}">
+                        {{ $dayStatusLabel }}
+                    </span>
                 </div>
-                <p class="text-xs text-slate-500 font-medium mt-1">
-                    Daily operational collection and settlement position for
-                    <span class="font-bold text-slate-800">{{ $currentShop->name }} ({{ $currentShop->code }})</span>
-                </p>
+                <h1 class="text-2xl font-black tracking-tight text-slate-900 uppercase flex items-center gap-2">
+                    <span>{{ $currentShop->name }}</span>
+                    <span class="text-base font-normal text-slate-400 font-mono">&mdash; {{ $formattedBusinessDate }}</span>
+                    <span class="text-xs font-bold text-slate-400 font-sans">({{ $dayOfWeek }})</span>
+                </h1>
             </div>
 
-            <!-- Date & Shop Filter Controls -->
-            <form method="GET" action="{{ route('admin.cashbook.shop.show', $currentShop->slug ?: $currentShop->shop_id) }}" id="shop-day-filter-form" class="flex items-center gap-2 flex-wrap">
+            <!-- Date Switcher, Calendar & Shop Controls -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <!-- Prev Day / Today / Next Day Navigation -->
+                <div class="inline-flex items-center rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-extrabold">
+                    <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'date' => $prevDate]) }}"
+                       class="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition"
+                       title="Previous Day ({{ \Illuminate\Support\Carbon::parse($prevDate)->format('d M') }})">
+                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                    </a>
 
-                <!-- Quick Day Buttons -->
-                <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-bold">
-                    <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'date' => today()->toDateString()]) }}"
-                       class="px-3 py-1.5 rounded-lg transition {{ $businessDate === today()->toDateString() ? 'bg-white text-emerald-800 shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900' }}">
+                    <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'date' => $todayDate]) }}"
+                       class="px-2.5 py-1 rounded-lg transition {{ $isToday ? 'bg-emerald-600 text-white font-black' : 'text-slate-700 hover:bg-white' }}">
                         Today
                     </a>
-                    <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'date' => today()->subDay()->toDateString()]) }}"
-                       class="px-3 py-1.5 rounded-lg transition {{ $businessDate === today()->subDay()->toDateString() ? 'bg-white text-emerald-800 shadow-xs font-extrabold' : 'text-slate-600 hover:text-slate-900' }}">
-                        Yesterday
+
+                    <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'date' => $nextDate]) }}"
+                       class="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-white transition"
+                       title="Next Day ({{ \Illuminate\Support\Carbon::parse($nextDate)->format('d M') }})">
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
                     </a>
                 </div>
 
-                <div class="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
-                    <i data-lucide="calendar" class="w-4 h-4 text-slate-500"></i>
-                    <input type="date" name="date" value="{{ $businessDate }}" onchange="document.getElementById('shop-day-filter-form').submit()"
-                           class="bg-transparent text-xs font-mono font-bold text-slate-800 border-none focus:outline-none cursor-pointer">
-                </div>
+                <!-- Calendar Modal Trigger Button -->
+                <button type="button"
+                        @click="showCalendarModal = true"
+                        class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold border border-slate-200 transition cursor-pointer">
+                    <i data-lucide="calendar" class="w-4 h-4 text-emerald-700"></i>
+                    <span>Calendar</span>
+                </button>
 
                 <!-- Shop Dropdown Selector -->
-                <div class="flex items-center">
+                <div>
                     <select onchange="window.location.href='/admin/cashbook/shops/' + this.value + '?date={{ $businessDate }}'"
                             class="bg-slate-50 text-xs font-bold text-slate-800 px-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 cursor-pointer">
                         @foreach($shops as $shopOption)
@@ -332,528 +402,271 @@
                         @endforeach
                     </select>
                 </div>
-            </form>
-        </div>
-
-    <!-- 1. TODAY'S SETTLEMENT KPI BANNER -->
-    <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">TODAY'S SETTLEMENT</h2>
-            <span class="text-xs font-bold text-slate-500 font-mono">{{ \Illuminate\Support\Carbon::parse($businessDate)->format('d M Y') }}</span>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            <!-- Gross Sales -->
-            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Gross Sales</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-slate-900 mt-1">
-                    ₹{{ number_format($dailySettlement['gross_sales'] ?? 0, 2) }}
-                </div>
-            </div>
-
-            <!-- Company Received -->
-            <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Company Received</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-emerald-900 mt-1">
-                    ₹{{ number_format($dailySettlement['company_receipt_status']['verified_received'] ?? 0, 2) }}
-                </div>
-            </div>
-
-            <!-- Needs Verification -->
-            <div class="p-4 rounded-2xl bg-amber-50 border border-amber-100">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">Needs Verification</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-amber-900 mt-1">
-                    ₹{{ number_format($dailySettlement['company_receipt_status']['pending_verification'] ?? 0, 2) }}
-                </div>
-            </div>
-
-            <!-- Cash With Shop -->
-            <div class="p-4 rounded-2xl bg-sky-50 border border-sky-100">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-sky-700">Cash With Shop</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-sky-900 mt-1">
-                    ₹{{ number_format($dailySettlement['company_receipt_status']['cash_still_with_shop'] ?? 0, 2) }}
-                </div>
-            </div>
-
-            <!-- Floating Cheques -->
-            <div class="p-4 rounded-2xl bg-purple-50 border border-purple-100">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-purple-700">Floating Cheques</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-purple-900 mt-1">
-                    ₹{{ number_format($dailySettlement['company_receipt_status']['floating_cheques'] ?? 0, 2) }}
-                </div>
-            </div>
-
-            <!-- Still To Settle -->
-            <div class="p-4 rounded-2xl bg-slate-900 text-white border border-slate-800">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-300">Still To Settle</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-emerald-400 mt-1">
-                    ₹{{ number_format($dailySettlement['settlement_summary']['outstanding_to_settle'] ?? 0, 2) }}
-                </div>
             </div>
         </div>
-    </div>
 
-    <!-- 2-COLUMN MAIN CONTENT: HOW SALES WERE COLLECTED & ADJUSTMENTS -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+        <!-- ── 3. PRIMARY SHOP POSITION (MAJOR CONTENT SECTION) ───────────── -->
+        <!-- ══════════════════════════════════════════════════════════════════ -->
 
-        <!-- Left 7 Cols: HOW SALES WERE COLLECTED -->
-        <div class="lg:col-span-7 space-y-4">
-            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <h2 class="text-sm font-extrabold uppercase tracking-tight text-slate-900">
-                        HOW SALES WERE COLLECTED
-                    </h2>
-                    <span class="text-xs font-bold text-slate-500 font-mono">
-                        {{ count($dailySettlement['collections'] ?? []) }} entries
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                    <span class="p-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <i data-lucide="scale" class="w-4 h-4"></i>
                     </span>
+                    <h2 class="text-sm font-extrabold uppercase tracking-wide text-slate-900">
+                        Shop Settlement Statement &mdash; Shop Position
+                    </h2>
+                </div>
+                <!-- Canonical Named Dominant Result Badge -->
+                <div class="px-3.5 py-1.5 rounded-xl text-xs font-black tracking-wide uppercase border {{ ($dailySettlement['net_direction'] ?? 'settled') === 'shop_owes_company' ? 'bg-slate-900 text-white border-slate-800' : (($dailySettlement['net_direction'] ?? 'settled') === 'company_owes_shop' ? 'bg-indigo-900 text-white border-indigo-800' : 'bg-emerald-100 text-emerald-900 border-emerald-300') }}">
+                    {{ $dailySettlement['display_statement'] ?? ($currentShop->name . ' OWES GREEN LEAF ₹' . number_format($outstandingAmount, 2)) }}
+                </div>
+            </div>
+
+            <!-- Primary 3 Dominant Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- 1. Net Company Receivable -->
+                <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                    <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                        Net Company Receivable &mdash; Net Shop Obligation
+                    </span>
+                    <div class="text-2xl font-black font-mono text-slate-900">
+                        ₹{{ number_format($dailySettlement['shop_outstanding'] ?? $expectedPayableAmount, 2) }}
+                    </div>
+                    <div class="text-[11px] text-slate-500 font-medium pt-1">
+                        Gross: <strong class="text-slate-800">₹{{ number_format($dailySettlement['shop_obligation_gross'] ?? $grossSalesAmount, 2) }}</strong> &minus; Used: <strong class="text-slate-800">₹{{ number_format($dailySettlement['shop_sales_deductions'] ?? $totalDeductionsAmount, 2) }}</strong>
+                    </div>
                 </div>
 
-                @if(empty($dailySettlement['collections']))
-                    <div class="py-10 text-center text-slate-400 text-xs font-bold">
-                        No collections recorded for this business date.
+                <!-- 2. Received by Company -->
+                <div class="p-5 rounded-2xl bg-emerald-50/80 border border-emerald-200 space-y-1">
+                    <span class="text-[11px] font-extrabold uppercase tracking-wider text-emerald-800">
+                        Received by Company
+                    </span>
+                    <div class="text-2xl font-black font-mono text-emerald-900">
+                        ₹{{ number_format($verifiedReceivedAmount, 2) }}
                     </div>
-                @else
-                    @php
-                        $needsAcceptance = collect($dailySettlement['collections'])->filter(fn($c) => !empty($c['can_accept']));
-                        $needsVerification = collect($dailySettlement['collections'])->filter(fn($c) => !empty($c['can_verify']));
-                        $receivedCollections = collect($dailySettlement['collections'])->filter(fn($c) => !empty($c['is_received']));
-                    @endphp
+                    <div class="text-[11px] text-emerald-700 font-medium pt-1">
+                        Verified &amp; deposited into company accounts
+                    </div>
+                </div>
 
-                    <!-- ── 1. NEEDS ACCEPTANCE BATCH SECTION ──────────────────────── -->
-                    @if($needsAcceptance->isNotEmpty())
-                        <div class="p-4 rounded-2xl border border-amber-200 bg-amber-50/40 space-y-3"
-                             x-data="{
-                                selectedIds: [],
-                                selectedTotal: 0,
-                                showConfirmModal: false,
-                                isSubmitting: false,
-                                allSelected: false,
-                                toggleAll(event) {
-                                    if (event.target.checked) {
-                                        this.selectedIds = Array.from(this.$el.querySelectorAll('.acceptance-checkbox')).map(el => parseInt(el.value));
-                                        this.allSelected = true;
-                                    } else {
-                                        this.selectedIds = [];
-                                        this.allSelected = false;
-                                    }
-                                    this.updateTotal();
-                                },
-                                updateTotal() {
-                                    let total = 0;
-                                    const checkboxes = this.$el.querySelectorAll('.acceptance-checkbox');
-                                    checkboxes.forEach(cb => {
-                                        if (this.selectedIds.includes(parseInt(cb.value))) {
-                                            total += parseFloat(cb.dataset.amount || 0);
-                                        }
-                                    });
-                                    this.selectedTotal = total;
-                                    this.allSelected = checkboxes.length > 0 && this.selectedIds.length === checkboxes.length;
-                                },
-                                submitBatch() {
-                                    if (this.isSubmitting || this.selectedIds.length === 0) return;
-                                    this.isSubmitting = true;
-                                    this.$refs.acceptForm.submit();
+                <!-- 3. Still To Settle (Visually Dominant) -->
+                <div class="p-5 rounded-2xl bg-slate-900 text-white border border-slate-800 shadow-md space-y-1">
+                    <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                        Still To Settle
+                    </span>
+                    <div class="text-3xl font-black font-mono text-white">
+                        ₹{{ number_format($outstandingAmount, 2) }}
+                    </div>
+                    <div class="text-[11px] text-slate-400 font-medium pt-1">
+                        Net receivable &minus; company received
+                    </div>
+                </div>
+            </div>
+
+            <!-- Supporting Secondary 3 Metrics Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 text-xs">
+                <div class="p-3 rounded-xl bg-slate-50/50 border border-slate-100 flex items-center justify-between">
+                    <span class="font-extrabold text-slate-500">Still With Shop (Cash)</span>
+                    <span class="font-mono font-black text-slate-800">₹{{ number_format($cashWithShopAmount, 2) }}</span>
+                </div>
+                <div class="p-3 rounded-xl bg-sky-50/50 border border-sky-100 flex items-center justify-between">
+                    <span class="font-extrabold text-sky-800">Pending Verification</span>
+                    <span class="font-mono font-black text-sky-900">₹{{ number_format($pendingVerificationAmount, 2) }}</span>
+                </div>
+                <div class="p-3 rounded-xl bg-amber-50/50 border border-amber-100 flex items-center justify-between">
+                    <span class="font-extrabold text-amber-800">Pending Review</span>
+                    <span class="font-mono font-black text-amber-900">₹{{ number_format($pendingAcceptanceAmount, 2) }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+        <!-- ── 2-COLUMN MAIN WORKSPACE: COLLECTION FLOW & SETTLEMENT ──────── -->
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- LEFT 7 COLS: COLLECTION BREAKDOWN & WORKFLOWS -->
+            <div class="lg:col-span-7 space-y-6">
+
+                <!-- ── 4. MONEY LOCATION / PAYMENT METHOD BREAKDOWN ─────────── -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div>
+                            <h3 class="text-sm font-extrabold uppercase tracking-tight text-slate-900">
+                                Money Location &amp; Payment Breakdown
+                            </h3>
+                            <p class="text-xs text-slate-500 font-medium">How sales were collected and allocated on this date</p>
+                        </div>
+                        <span class="text-xs font-bold text-slate-400 font-mono">
+                            {{ $allCollections->count() }} {{ Str::plural('method', $allCollections->count()) }}
+                        </span>
+                    </div>
+
+                    @if($allCollections->isEmpty())
+                        <div class="py-8 text-center text-slate-400 text-xs font-bold">
+                            No collections recorded for this business date.
+                        </div>
+                    @else
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead>
+                                    <tr class="border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                                        <th class="py-2.5 px-3">Method</th>
+                                        <th class="py-2.5 px-3 text-right">Collected</th>
+                                        <th class="py-2.5 px-3 text-right">Used From Method</th>
+                                        <th class="py-2.5 px-3 text-right">Net Receivable</th>
+                                        <th class="py-2.5 px-3">Destination</th>
+                                        <th class="py-2.5 px-3 text-center">State</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100/80 font-mono">
+                                    @foreach($allCollections as $col)
+                                        @php
+                                            $methodCollected = (float) ($col['amount'] ?? 0);
+                                            $methodUsed = $col['is_cash'] ? (float) $totalDeductionsAmount : 0.0;
+                                            $methodNet = max(0.0, round($methodCollected - $methodUsed, 2));
+
+                                            $stateBadge = match(true) {
+                                                !empty($col['is_received']) => ['label' => 'Received', 'class' => 'bg-emerald-50 text-emerald-800 border-emerald-200'],
+                                                $col['status'] === 'CASH WITH SHOP' => ['label' => 'Cash With Shop', 'class' => 'bg-sky-50 text-sky-800 border-sky-200'],
+                                                $col['tx_status'] === 'approved' => ['label' => 'Accepted — Awaiting Receipt', 'class' => 'bg-sky-50 text-sky-800 border-sky-200'],
+                                                default => ['label' => 'Awaiting Review', 'class' => 'bg-amber-50 text-amber-800 border-amber-200'],
+                                            };
+                                        @endphp
+                                        <tr class="hover:bg-slate-50/60 transition">
+                                            <td class="py-3 px-3 font-sans">
+                                                <span class="font-extrabold text-slate-900 text-xs block">{{ $col['payment_method'] ?? $col['category_name'] }}</span>
+                                                <span class="text-[10px] text-slate-400 font-mono font-bold">{{ $col['code'] }}</span>
+                                            </td>
+                                            <td class="py-3 px-3 text-right font-black text-slate-900">
+                                                ₹{{ number_format($methodCollected, 2) }}
+                                            </td>
+                                            <td class="py-3 px-3 text-right font-bold {{ $methodUsed > 0 ? 'text-rose-600' : 'text-slate-400' }}">
+                                                {{ $methodUsed > 0 ? '-₹'.number_format($methodUsed, 2) : '—' }}
+                                            </td>
+                                            <td class="py-3 px-3 text-right font-black text-slate-900">
+                                                ₹{{ number_format($methodNet, 2) }}
+                                            </td>
+                                            <td class="py-3 px-3 font-sans text-slate-600 text-[11px] font-medium">
+                                                @if(!empty($col['has_account_mapping']))
+                                                    {{ $col['destination_account_name'] }}
+                                                @else
+                                                    <span class="text-amber-700 font-bold">Destination account not configured</span>
+                                                @endif
+                                            </td>
+                                            <td class="py-3 px-3 text-center font-sans">
+                                                <span class="inline-flex items-center text-[9px] font-black uppercase px-2 py-0.5 rounded-md border {{ $stateBadge['class'] }}">
+                                                    {{ $stateBadge['label'] }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </div>
+
+                <!-- ── 5. REVIEW COLLECTIONS (GUIDED APPROVAL WORKFLOW) ─────── -->
+                @if($needsAcceptance->isNotEmpty())
+                    <div class="p-5 rounded-3xl border border-amber-200 bg-amber-50/30 space-y-4"
+                         x-data="{
+                            selectedIds: [],
+                            selectedTotal: 0,
+                            showConfirmModal: false,
+                            isSubmitting: false,
+                            allSelected: false,
+                            toggleAll(event) {
+                                if (event.target.checked) {
+                                    this.selectedIds = Array.from(this.$el.querySelectorAll('.acceptance-checkbox')).map(el => parseInt(el.value));
+                                    this.allSelected = true;
+                                } else {
+                                    this.selectedIds = [];
+                                    this.allSelected = false;
                                 }
-                             }">
+                                this.updateTotal();
+                            },
+                            updateTotal() {
+                                let total = 0;
+                                const checkboxes = this.$el.querySelectorAll('.acceptance-checkbox');
+                                checkboxes.forEach(cb => {
+                                    if (this.selectedIds.includes(parseInt(cb.value))) {
+                                        total += parseFloat(cb.dataset.amount || 0);
+                                    }
+                                });
+                                this.selectedTotal = total;
+                                this.allSelected = checkboxes.length > 0 && this.selectedIds.length === checkboxes.length;
+                            },
+                            submitBatch() {
+                                if (this.isSubmitting || this.selectedIds.length === 0) return;
+                                this.isSubmitting = true;
+                                this.$refs.acceptForm.submit();
+                            }
+                         }">
 
-                            <form method="POST" action="{{ route('admin.cashbook.shop.day.accept-selected', $currentShop->slug ?: $currentShop->shop_id) }}" x-ref="acceptForm">
-                                @csrf
-                                <input type="hidden" name="business_date" value="{{ $businessDate }}">
+                        <form method="POST" action="{{ route('admin.cashbook.shop.day.accept-selected', $currentShop->slug ?: $currentShop->shop_id) }}" x-ref="acceptForm">
+                            @csrf
+                            <input type="hidden" name="business_date" value="{{ $businessDate }}">
 
-                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/60 pb-3">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/70 pb-3">
+                                <div>
                                     <div class="flex items-center gap-2">
                                         <label class="inline-flex items-center gap-2 cursor-pointer select-none">
                                             <input type="checkbox"
                                                    class="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
                                                    x-model="allSelected"
                                                    @change="toggleAll($event)">
-                                            <span class="text-xs font-black uppercase tracking-wider text-amber-900">Needs Acceptance ({{ $needsAcceptance->count() }})</span>
+                                            <span class="text-xs font-black uppercase tracking-wider text-amber-950">
+                                                Review Collections ({{ $needsAcceptance->count() }})
+                                            </span>
                                         </label>
                                     </div>
-
-                                    <div class="flex items-center gap-3">
-                                        <div class="text-xs font-mono font-bold text-amber-800" x-show="selectedIds.length > 0">
-                                            Selected: <span x-text="selectedIds.length"></span> (<span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>)
-                                        </div>
-                                        <button type="button"
-                                                @click="showConfirmModal = true"
-                                                :disabled="selectedIds.length === 0"
-                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer">
-                                            <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
-                                            <span>Accept Selected</span>
-                                        </button>
-                                    </div>
+                                    <p class="text-[11px] text-amber-800 font-medium mt-0.5">
+                                        Reviewing confirms the shop-reported collection and prepares it for company receipt tracking.
+                                    </p>
                                 </div>
 
-                                <div class="divide-y divide-amber-100/80 mt-3 space-y-2">
-                                    @foreach($needsAcceptance as $col)
-                                        <div class="p-3 rounded-xl bg-white border border-amber-100 flex items-center justify-between gap-3">
-                                            <div class="flex items-center gap-3">
-                                                <input type="checkbox"
-                                                       name="transaction_ids[]"
-                                                       value="{{ $col['id'] }}"
-                                                       data-amount="{{ $col['amount'] }}"
-                                                       x-model="selectedIds"
-                                                       @change="updateTotal"
-                                                       class="acceptance-checkbox w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
-                                                <div>
-                                                    <div class="font-extrabold text-sm text-slate-900">
-                                                        {{ $col['payment_method'] ?? $col['category_name'] }}
-                                                    </div>
-                                                    <div class="text-xs text-slate-500">
-                                                        @if(!empty($col['destination_name']))
-                                                            <span class="font-bold text-slate-700">{{ $col['destination_name'] }}</span>
-                                                        @elseif(!empty($col['location_name']))
-                                                            <span class="font-bold text-slate-700">{{ $col['location_name'] }}</span>
-                                                        @elseif(!empty($col['destination_account']))
-                                                            <span class="font-bold text-slate-700">→ {{ $col['destination_account'] }}</span>
-                                                        @else
-                                                            <span>📍 {{ $currentShop->name }} Shop</span>
-                                                        @endif
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div class="flex items-center gap-3">
-                                                <div class="text-right">
-                                                    <div class="text-sm font-black font-mono text-slate-900">
-                                                        ₹{{ number_format($col['amount'], 2) }}
-                                                    </div>
-                                                    <span class="inline-flex items-center text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
-                                                        POSTED
-                                                    </span>
-                                                </div>
-                                                <a href="{{ route('admin.cashbook.transaction.show', $col['id']) }}"
-                                                   class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white text-xs font-bold transition">
-                                                    <span>View</span>
-                                                </a>
-                                            </div>
-                                        </div>
-                                    @endforeach
-                                </div>
-                            </form>
-
-                            <!-- Acceptance Modal -->
-                            <div x-show="showConfirmModal"
-                                 style="display: none;"
-                                 class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
-                                <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
-                                     @click.away="if(!isSubmitting) showConfirmModal = false">
-                                    <div class="flex items-center gap-3">
-                                        <div class="p-3 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200">
-                                            <i data-lucide="check-circle" class="w-6 h-6"></i>
-                                        </div>
-                                        <div>
-                                            <h3 class="text-base font-black text-slate-900">Confirm Acceptance</h3>
-                                            <p class="text-xs text-slate-500 font-medium">Verify correct recording in shop cashbook</p>
-                                        </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="text-xs font-mono font-bold text-amber-900" x-show="selectedIds.length > 0">
+                                        Selected: <span x-text="selectedIds.length"></span> (<span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>)
                                     </div>
-
-                                    <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-100 text-xs text-slate-700 space-y-2">
-                                        <p class="font-extrabold text-amber-950">
-                                            Accept <span x-text="selectedIds.length"></span> cashbook <span x-text="selectedIds.length === 1 ? 'entry' : 'entries'"></span> totalling <span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>?
-                                        </p>
-                                        <p class="text-slate-500 text-[11px] leading-relaxed">
-                                            This confirms the entries are correct. It does not confirm that the company received the money.
-                                        </p>
-                                    </div>
-
-                                    <div class="flex items-center justify-end gap-2 pt-2">
-                                        <button type="button"
-                                                @click="showConfirmModal = false"
-                                                :disabled="isSubmitting"
-                                                class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
-                                            Cancel
-                                        </button>
-                                        <button type="button"
-                                                @click="submitBatch"
-                                                :disabled="isSubmitting"
-                                                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
-                                            <span x-text="isSubmitting ? 'Accepting...' : 'Confirm Acceptance'"></span>
-                                        </button>
-                                    </div>
+                                    <button type="button"
+                                            @click="showConfirmModal = true"
+                                            :disabled="selectedIds.length === 0"
+                                            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer">
+                                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                                        <span>Approve for receipt tracking</span>
+                                    </button>
                                 </div>
                             </div>
-                        </div>
-                    @endif
 
-                    <!-- ── 2. NEEDS VERIFICATION BATCH SECTION ────────────────────── -->
-                    @if($needsVerification->isNotEmpty())
-                        <div class="p-4 rounded-2xl border border-sky-200 bg-sky-50/40 space-y-3"
-                             x-data="{
-                                selectedIds: [],
-                                selectedTotal: 0,
-                                showConfirmModal: false,
-                                isSubmitting: false,
-                                allSelected: false,
-                                toggleAll(event) {
-                                    if (event.target.checked) {
-                                        this.selectedIds = Array.from(this.$el.querySelectorAll('.verification-checkbox')).map(el => parseInt(el.value));
-                                        this.allSelected = true;
-                                    } else {
-                                        this.selectedIds = [];
-                                        this.allSelected = false;
-                                    }
-                                    this.updateTotal();
-                                },
-                                updateTotal() {
-                                    let total = 0;
-                                    const checkboxes = this.$el.querySelectorAll('.verification-checkbox');
-                                    checkboxes.forEach(cb => {
-                                        if (this.selectedIds.includes(parseInt(cb.value))) {
-                                            total += parseFloat(cb.dataset.amount || 0);
-                                        }
-                                    });
-                                    this.selectedTotal = total;
-                                    this.allSelected = checkboxes.length > 0 && this.selectedIds.length === checkboxes.length;
-                                },
-                                submitBatch() {
-                                    if (this.isSubmitting || this.selectedIds.length === 0) return;
-                                    this.isSubmitting = true;
-                                    this.$refs.verifyForm.submit();
-                                }
-                             }">
-
-                            <form method="POST" action="{{ route('admin.cashbook.shop.day.verify-selected', $currentShop->slug ?: $currentShop->shop_id) }}" x-ref="verifyForm">
-                                @csrf
-                                <input type="hidden" name="business_date" value="{{ $businessDate }}">
-
-                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sky-200/60 pb-3">
-                                    <div class="flex items-center gap-2">
-                                        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                            <div class="divide-y divide-amber-100/80 mt-3 space-y-2">
+                                @foreach($needsAcceptance as $col)
+                                    <div class="p-3.5 rounded-2xl bg-white border border-amber-100 flex items-center justify-between gap-3">
+                                        <div class="flex items-center gap-3">
                                             <input type="checkbox"
-                                                   class="w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
-                                                   x-model="allSelected"
-                                                   @change="toggleAll($event)">
-                                            <span class="text-xs font-black uppercase tracking-wider text-sky-900">Needs Verification ({{ $needsVerification->count() }})</span>
-                                        </label>
-                                    </div>
-
-                                    <div class="flex items-center gap-3">
-                                        <div class="text-xs font-mono font-bold text-sky-800" x-show="selectedIds.length > 0">
-                                            Selected: <span x-text="selectedIds.length"></span> (<span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>)
-                                        </div>
-                                        <button type="button"
-                                                @click="showConfirmModal = true"
-                                                :disabled="selectedIds.length === 0"
-                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer">
-                                            <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-                                            <span>Confirm Selected Received</span>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div class="divide-y divide-sky-100/80 mt-3 space-y-2">
-                                    @foreach($needsVerification as $col)
-                                        <div class="p-3 rounded-xl bg-white border border-sky-100 flex flex-col gap-2">
-                                            <div class="flex items-center justify-between gap-3">
-                                                <div class="flex items-center gap-3">
-                                                    <input type="checkbox"
-                                                           name="transaction_ids[]"
-                                                           value="{{ $col['id'] }}"
-                                                           data-amount="{{ $col['amount'] }}"
-                                                           x-model="selectedIds"
-                                                           @change="updateTotal"
-                                                           class="verification-checkbox w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer">
-                                                    <div>
-                                                        <div class="font-extrabold text-sm text-slate-900">
-                                                            {{ $col['payment_method'] ?? $col['category_name'] }}
-                                                        </div>
-                                                        <div class="text-xs text-slate-500 flex items-center gap-1">
-                                                            @if(!empty($col['destination_name']))
-                                                                <span class="font-extrabold text-emerald-800">{{ $col['destination_name'] }}</span>
-                                                            @elseif(!empty($col['location_name']))
-                                                                <span class="font-extrabold text-slate-700">{{ $col['location_name'] }}</span>
-                                                            @elseif(!empty($col['destination_account']))
-                                                                <span class="font-extrabold text-emerald-800">→ {{ $col['destination_account'] }}</span>
-                                                            @else
-                                                                <span>📍 {{ $currentShop->name }} Shop</span>
-                                                            @endif
-                                                        </div>
-                                                    </div>
+                                                   name="transaction_ids[]"
+                                                   value="{{ $col['id'] }}"
+                                                   data-amount="{{ $col['amount'] }}"
+                                                   x-model="selectedIds"
+                                                   @change="updateTotal"
+                                                   class="acceptance-checkbox w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
+                                            <div>
+                                                <div class="font-extrabold text-sm text-slate-900">
+                                                    {{ $col['payment_method'] ?? $col['category_name'] }}
                                                 </div>
-
-                                                <div class="flex items-center gap-3">
-                                                    <div class="text-right">
-                                                        <div class="text-sm font-black font-mono text-slate-900">
-                                                            ₹{{ number_format($col['amount'], 2) }}
-                                                        </div>
-                                                        @if($col['status'] === 'CASH WITH SHOP')
-                                                            <span class="inline-flex items-center text-[10px] font-extrabold text-sky-800 bg-sky-100 px-2 py-0.5 rounded-md">
-                                                                CASH WITH SHOP
-                                                            </span>
-                                                        @else
-                                                            <span class="inline-flex items-center text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
-                                                                NEEDS VERIFICATION
-                                                            </span>
-                                                        @endif
-                                                    </div>
-                                                    <a href="{{ route('admin.cashbook.transaction.show', $col['id']) }}"
-                                                       class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white text-xs font-bold transition">
-                                                        <span>View</span>
-                                                    </a>
+                                                <div class="text-xs text-slate-500">
+                                                    @if(!empty($col['has_account_mapping']))
+                                                        Destination: <span class="font-bold text-slate-700">{{ $col['destination_account_name'] }}</span>
+                                                    @else
+                                                        <span class="text-amber-700 font-bold">Destination account not configured</span>
+                                                    @endif
                                                 </div>
-                                            </div>
-
-                                            @if(!empty($col['has_bank_adjustment_rules']))
-                                                <div class="mt-1 pt-2 border-t border-slate-100 text-xs" x-data="{
-                                                    open: {{ ($col['adjustment_total'] ?? 0) != 0 ? 'true' : 'false' }},
-                                                    baseAmount: {{ (float) ($col['amount'] ?? 0) }},
-                                                    adjustments: {{ json_encode($col['bank_adjustment_rules'] ?? []) }},
-                                                    saving: false,
-                                                    get expectedAmount() {
-                                                        let total = this.baseAmount;
-                                                        this.adjustments.forEach(a => {
-                                                            const val = parseFloat(a.amount) || 0;
-                                                            if (a.direction === 'plus') total += val;
-                                                            else total -= val;
-                                                        });
-                                                        return total;
-                                                    },
-                                                    get adjustmentTotal() {
-                                                        let adj = 0;
-                                                        this.adjustments.forEach(a => {
-                                                            const val = parseFloat(a.amount) || 0;
-                                                            if (a.direction === 'plus') adj += val;
-                                                            else adj -= val;
-                                                        });
-                                                        return adj;
-                                                    },
-                                                    async saveAdjustments() {
-                                                        this.saving = true;
-                                                        try {
-                                                            const res = await fetch('{{ route('admin.cashbook.api.shops.bank-settlement-adjustments.save', $currentShop->slug ?: $currentShop->shop_id) }}', {
-                                                                method: 'POST',
-                                                                headers: {
-                                                                    'Content-Type': 'application/json',
-                                                                    'Accept': 'application/json',
-                                                                    'X-CSRF-TOKEN': document.querySelector('meta[name=\"csrf-token\"]')?.getAttribute('content') || '{{ csrf_token() }}',
-                                                                    'X-Requested-With': 'XMLHttpRequest'
-                                                                },
-                                                                body: JSON.stringify({
-                                                                    business_date: '{{ $businessDate }}',
-                                                                    entry_type_id: {{ $col['entry_type_id'] }},
-                                                                    adjustments: this.adjustments.map(a => ({
-                                                                        rule_id: a.rule_id,
-                                                                        amount: parseFloat(a.amount) || 0,
-                                                                        notes: a.notes || ''
-                                                                    }))
-                                                                })
-                                                            });
-                                                            const data = await res.json();
-                                                            if (!res.ok || !data.success) {
-                                                                alert(data.message || 'Failed to save bank adjustments');
-                                                            } else {
-                                                                window.location.reload();
-                                                            }
-                                                        } catch (err) {
-                                                            console.error(err);
-                                                            alert('Failed to save bank adjustments');
-                                                        } finally {
-                                                            this.saving = false;
-                                                        }
-                                                    }
-                                                }">
-                                                    <div class="flex items-center justify-between text-[11px] text-slate-500">
-                                                        <span>Bank Expectation: <strong class="font-mono text-slate-800">₹<span x-text="Number(expectedAmount).toFixed(2)"></span></strong></span>
-                                                        <button type="button" @click="open = !open" class="text-emerald-700 hover:underline font-bold">
-                                                            <span x-text="open ? 'Hide Adjustments' : 'Configure Adjustments'"></span>
-                                                        </button>
-                                                    </div>
-                                                    <div x-show="open" class="mt-2 space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                                                        <template x-for="adj in adjustments" :key="adj.rule_id">
-                                                            <div class="flex items-center justify-between gap-2">
-                                                                <span class="text-xs text-slate-600 font-bold" x-text="adj.label"></span>
-                                                                <input type="number" step="0.01" x-model="adj.amount" class="w-24 px-2 py-1 bg-white border border-slate-300 rounded-lg text-right font-mono text-xs">
-                                                            </div>
-                                                        </template>
-                                                        <div class="flex justify-end pt-1">
-                                                            <button type="button" @click="saveAdjustments" :disabled="saving" class="px-3 py-1 bg-slate-900 text-white rounded-lg text-xs font-bold">
-                                                                <span x-text="saving ? 'Saving...' : 'Save'"></span>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            @endif
-                                        </div>
-                                    @endforeach
-                                </div>
-                            </form>
-
-                            <!-- Verification Modal -->
-                            <div x-show="showConfirmModal"
-                                 style="display: none;"
-                                 class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
-                                <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
-                                     @click.away="if(!isSubmitting) showConfirmModal = false">
-                                    <div class="flex items-center gap-3">
-                                        <div class="p-3 rounded-2xl bg-sky-50 text-sky-700 border border-sky-200">
-                                            <i data-lucide="shield-check" class="w-6 h-6"></i>
-                                        </div>
-                                        <div>
-                                            <h3 class="text-base font-black text-slate-900">Confirm Company Receipt</h3>
-                                            <p class="text-xs text-slate-500 font-medium">Verify funds deposited into company accounts</p>
-                                        </div>
-                                    </div>
-
-                                    <div class="p-4 rounded-2xl bg-sky-50/50 border border-sky-100 text-xs text-slate-700 space-y-2">
-                                        <p class="font-extrabold text-sky-950">
-                                            Confirm that the company received <span x-text="selectedIds.length"></span> <span x-text="selectedIds.length === 1 ? 'payment' : 'payments'"></span> totalling <span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>?
-                                        </p>
-                                        <p class="text-slate-500 text-[11px] leading-relaxed">
-                                            This will update company accounts and reduce Shop Outstanding.
-                                        </p>
-                                    </div>
-
-                                    <div class="flex items-center justify-end gap-2 pt-2">
-                                        <button type="button"
-                                                @click="showConfirmModal = false"
-                                                :disabled="isSubmitting"
-                                                class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
-                                            Cancel
-                                        </button>
-                                        <button type="button"
-                                                @click="submitBatch"
-                                                :disabled="isSubmitting"
-                                                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
-                                            <span x-text="isSubmitting ? 'Confirming...' : 'Confirm Received'"></span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    @endif
-
-                    <!-- ── 3. RECEIVED / VERIFIED COLLECTIONS (READ-ONLY) ─────────── -->
-                    @if($receivedCollections->isNotEmpty())
-                        <div class="p-4 rounded-2xl border border-emerald-200 bg-emerald-50/30 space-y-3">
-                            <div class="flex items-center justify-between border-b border-emerald-200/60 pb-2">
-                                <span class="text-xs font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
-                                    <i data-lucide="check-check" class="w-4 h-4 text-emerald-600"></i>
-                                    <span>Received Collections ({{ $receivedCollections->count() }})</span>
-                                </span>
-                                <span class="text-[11px] font-bold text-emerald-700 font-mono">
-                                    ₹{{ number_format($receivedCollections->sum('amount'), 2) }}
-                                </span>
-                            </div>
-
-                            <div class="divide-y divide-emerald-100/80 space-y-2">
-                                @foreach($receivedCollections as $col)
-                                    <div class="p-3 rounded-xl bg-white border border-emerald-100 flex items-center justify-between gap-3">
-                                        <div>
-                                            <div class="font-extrabold text-sm text-slate-900">
-                                                {{ $col['payment_method'] ?? $col['category_name'] }}
-                                            </div>
-                                            <div class="text-xs text-slate-500">
-                                                @if(!empty($col['destination_name']))
-                                                    <span class="font-extrabold text-emerald-800">{{ $col['destination_name'] }}</span>
-                                                @elseif(!empty($col['location_name']))
-                                                    <span class="font-extrabold text-slate-700">{{ $col['location_name'] }}</span>
-                                                @elseif(!empty($col['destination_account']))
-                                                    <span class="font-extrabold text-emerald-800">→ {{ $col['destination_account'] }}</span>
-                                                @else
-                                                    <span>📍 {{ $currentShop->name }} Shop</span>
-                                                @endif
                                             </div>
                                         </div>
 
@@ -862,8 +675,8 @@
                                                 <div class="text-sm font-black font-mono text-slate-900">
                                                     ₹{{ number_format($col['amount'], 2) }}
                                                 </div>
-                                                <span class="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                                                    <i data-lucide="check" class="w-3 h-3"></i> RECEIVED
+                                                <span class="inline-flex items-center text-[9px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
+                                                    Awaiting Review
                                                 </span>
                                             </div>
                                             <a href="{{ route('admin.cashbook.transaction.show', $col['id']) }}"
@@ -874,52 +687,519 @@
                                     </div>
                                 @endforeach
                             </div>
-                        </div>
-                    @endif
-                @endif
-            </div>
+                        </form>
 
-            <!-- SETTLEMENT ADJUSTMENTS -->
-            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4"
-                 x-data="{
-                    showAddModal: false,
-                    showReverseModal: false,
-                    targetAdjustmentId: null,
-                    targetAdjustmentName: '',
-                    targetAdjustmentAmount: '',
-                    reverseReason: '',
-                    isSubmitting: false,
-                    openReverse(id, name, amount) {
-                        this.targetAdjustmentId = id;
-                        this.targetAdjustmentName = name;
-                        this.targetAdjustmentAmount = amount;
-                        this.reverseReason = '';
-                        this.showReverseModal = true;
-                    }
-                 }">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div class="flex items-center gap-2">
-                        <h2 class="text-sm font-extrabold uppercase tracking-tight text-slate-900">
-                            SETTLEMENT ADJUSTMENTS
-                        </h2>
-                        <span class="text-xs font-bold text-slate-500 font-mono">
-                            {{ count($dailySettlement['settlement_adjustments'] ?? []) }} entries
+                        <!-- Approval Confirmation Modal -->
+                        <div x-show="showConfirmModal"
+                             style="display: none;"
+                             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+                            <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
+                                 @click.away="if(!isSubmitting) showConfirmModal = false">
+                                <div class="flex items-center gap-3">
+                                    <div class="p-3 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200">
+                                        <i data-lucide="check-circle" class="w-6 h-6"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-base font-black text-slate-900">Approve for Receipt Tracking</h3>
+                                        <p class="text-xs text-slate-500 font-medium">Confirm shop-reported collection records</p>
+                                    </div>
+                                </div>
+
+                                <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-100 text-xs text-slate-700 space-y-2">
+                                    <p class="font-extrabold text-amber-950">
+                                        Approve <span x-text="selectedIds.length"></span> <span x-text="selectedIds.length === 1 ? 'collection' : 'collections'"></span> totalling <span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>?
+                                    </p>
+                                    <ul class="text-[11px] text-slate-600 list-disc list-inside space-y-1 pt-1">
+                                        <li>Confirms the reported collection is recorded correctly in the shop cashbook.</li>
+                                        <li>Creates and prepares the pending company account statement entry.</li>
+                                        <li class="font-bold text-amber-900">Does NOT mark money as received. Receipt must be confirmed separately.</li>
+                                    </ul>
+                                </div>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <button type="button"
+                                            @click="showConfirmModal = false"
+                                            :disabled="isSubmitting"
+                                            class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
+                                        Cancel
+                                    </button>
+                                    <button type="button"
+                                            @click="submitBatch"
+                                            :disabled="isSubmitting"
+                                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
+                                        <span x-text="isSubmitting ? 'Approving...' : 'Approve for receipt tracking'"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- ── 6. CONFIRM COMPANY RECEIPT (VERIFICATION WORKFLOW) ──── -->
+                @if($needsVerification->isNotEmpty())
+                    <div class="p-5 rounded-3xl border border-sky-200 bg-sky-50/30 space-y-4"
+                         x-data="{
+                            selectedIds: [],
+                            selectedTotal: 0,
+                            showConfirmModal: false,
+                            isSubmitting: false,
+                            allSelected: false,
+                            toggleAll(event) {
+                                if (event.target.checked) {
+                                    this.selectedIds = Array.from(this.$el.querySelectorAll('.verification-checkbox:not(:disabled)')).map(el => parseInt(el.value));
+                                    this.allSelected = this.selectedIds.length > 0;
+                                } else {
+                                    this.selectedIds = [];
+                                    this.allSelected = false;
+                                }
+                                this.updateTotal();
+                            },
+                            updateTotal() {
+                                let total = 0;
+                                const enabledCheckboxes = this.$el.querySelectorAll('.verification-checkbox:not(:disabled)');
+                                enabledCheckboxes.forEach(cb => {
+                                    if (this.selectedIds.includes(parseInt(cb.value))) {
+                                        total += parseFloat(cb.dataset.amount || 0);
+                                    }
+                                });
+                                this.selectedTotal = total;
+                                this.allSelected = enabledCheckboxes.length > 0 && this.selectedIds.length === enabledCheckboxes.length;
+                            },
+                            submitBatch() {
+                                if (this.isSubmitting || this.selectedIds.length === 0) return;
+                                this.isSubmitting = true;
+                                this.$refs.verifyForm.submit();
+                            }
+                         }">
+
+                        <form method="POST" action="{{ route('admin.cashbook.shop.day.verify-selected', $currentShop->slug ?: $currentShop->shop_id) }}" x-ref="verifyForm">
+                            @csrf
+                            <input type="hidden" name="business_date" value="{{ $businessDate }}">
+
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sky-200/70 pb-3">
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                            <input type="checkbox"
+                                                   class="w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                                                   x-model="allSelected"
+                                                   @change="toggleAll($event)">
+                                            <span class="text-xs font-black uppercase tracking-wider text-sky-950">
+                                                Confirm Company Receipt ({{ $needsVerification->count() }})
+                                            </span>
+                                        </label>
+                                    </div>
+                                    <p class="text-[11px] text-sky-800 font-medium mt-0.5">
+                                        Use this only after the money is visible in the mapped company bank or cash account.
+                                    </p>
+                                </div>
+
+                                <div class="flex items-center gap-3">
+                                    <div class="text-xs font-mono font-bold text-sky-900" x-show="selectedIds.length > 0">
+                                        Selected: <span x-text="selectedIds.length"></span> (<span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>)
+                                    </div>
+                                    <button type="button"
+                                            @click="showConfirmModal = true"
+                                            :disabled="selectedIds.length === 0"
+                                            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer">
+                                        <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                                        <span>Confirm received</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="divide-y divide-sky-100/80 mt-3 space-y-2">
+                                @foreach($needsVerification as $col)
+                                    @php
+                                        $canVerifyRow = !empty($col['can_verify']);
+                                    @endphp
+                                    <div class="p-3.5 rounded-2xl bg-white border border-sky-100 flex flex-col gap-2 {{ !$canVerifyRow ? 'opacity-90 bg-slate-50/50' : '' }}">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <div class="flex items-center gap-3">
+                                                @if($canVerifyRow)
+                                                    <input type="checkbox"
+                                                           name="transaction_ids[]"
+                                                           value="{{ $col['id'] }}"
+                                                           data-amount="{{ $col['amount'] }}"
+                                                           x-model="selectedIds"
+                                                           @change="updateTotal"
+                                                           class="verification-checkbox w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer">
+                                                @else
+                                                    <input type="checkbox"
+                                                           disabled
+                                                           class="w-4 h-4 rounded border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                                                           title="{{ $col['verification_block_reason'] ?? 'Cannot verify' }}">
+                                                @endif
+                                                <div>
+                                                    <div class="font-extrabold text-sm text-slate-900 flex items-center gap-2 flex-wrap">
+                                                        <span>{{ $col['payment_method'] ?? $col['category_name'] }}</span>
+                                                        @if(!empty($col['is_cash']) && empty($col['has_account_mapping']))
+                                                            <span class="inline-flex items-center text-[9px] font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                                                                Currently with shop
+                                                            </span>
+                                                        @endif
+                                                        @if(empty($col['has_account_mapping']))
+                                                            <span class="inline-flex items-center text-[9px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
+                                                                Setup required
+                                                            </span>
+                                                        @elseif(!empty($col['has_account_mismatch']))
+                                                            <span class="inline-flex items-center text-[9px] font-extrabold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-md">
+                                                                Account mismatch — review required
+                                                            </span>
+                                                        @endif
+                                                    </div>
+                                                    <div class="text-xs text-slate-500 flex items-center gap-1">
+                                                        @if(!empty($col['has_account_mapping']))
+                                                            Destination: <span class="font-bold text-emerald-800">{{ $col['destination_account_name'] }}</span>
+                                                        @else
+                                                            <span class="text-amber-700 font-bold">Destination account not configured</span>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="flex items-center gap-3">
+                                                <div class="text-right">
+                                                    <div class="text-sm font-black font-mono text-slate-900">
+                                                        ₹{{ number_format($col['amount'], 2) }}
+                                                    </div>
+                                                    @if($col['status'] === 'CASH WITH SHOP')
+                                                        <span class="inline-flex items-center text-[9px] font-extrabold text-sky-800 bg-sky-100 px-2 py-0.5 rounded-md">
+                                                            Cash With Shop
+                                                        </span>
+                                                    @else
+                                                        <span class="inline-flex items-center text-[9px] font-extrabold text-sky-800 bg-sky-100 px-2 py-0.5 rounded-md">
+                                                            Needs Verification
+                                                        </span>
+                                                    @endif
+                                                </div>
+                                                <a href="{{ route('admin.cashbook.transaction.show', $col['id']) }}"
+                                                   class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white text-xs font-bold transition">
+                                                    <span>View</span>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </form>
+
+                        <!-- Verification Confirmation Modal -->
+                        <div x-show="showConfirmModal"
+                             style="display: none;"
+                             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+                            <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
+                                 @click.away="if(!isSubmitting) showConfirmModal = false">
+                                <div class="flex items-center gap-3">
+                                    <div class="p-3 rounded-2xl bg-sky-50 text-sky-700 border border-sky-200">
+                                        <i data-lucide="shield-check" class="w-6 h-6"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-base font-black text-slate-900">Confirm Company Receipt</h3>
+                                        <p class="text-xs text-slate-500 font-medium">Verify funds deposited into company accounts</p>
+                                    </div>
+                                </div>
+
+                                <div class="p-4 rounded-2xl bg-sky-50/50 border border-sky-100 text-xs text-slate-700 space-y-2">
+                                    <p class="font-extrabold text-sky-950">
+                                        Confirm company received <span x-text="selectedIds.length"></span> <span x-text="selectedIds.length === 1 ? 'payment' : 'payments'"></span> totalling <span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>?
+                                    </p>
+                                    <p class="text-slate-500 text-[11px] leading-relaxed">
+                                        This will update company bank and cash account balances and reduce Shop Outstanding.
+                                    </p>
+                                </div>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <button type="button"
+                                            @click="showConfirmModal = false"
+                                            :disabled="isSubmitting"
+                                            class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
+                                        Cancel
+                                    </button>
+                                    <button type="button"
+                                            @click="submitBatch"
+                                            :disabled="isSubmitting"
+                                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
+                                        <span x-text="isSubmitting ? 'Confirming...' : 'Confirm received'"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- ── RECEIVED COLLECTIONS (READ-ONLY) ────────────────────── -->
+                @if($receivedCollections->isNotEmpty())
+                    <div class="p-5 rounded-3xl border border-emerald-200 bg-emerald-50/20 space-y-3">
+                        <div class="flex items-center justify-between border-b border-emerald-200/60 pb-2">
+                            <span class="text-xs font-black uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
+                                <i data-lucide="check-check" class="w-4 h-4 text-emerald-600"></i>
+                                <span>Received Collections ({{ $receivedCollections->count() }})</span>
+                            </span>
+                            <span class="text-xs font-bold text-emerald-800 font-mono">
+                                ₹{{ number_format($receivedCollections->sum('amount'), 2) }}
+                            </span>
+                        </div>
+
+                        <div class="divide-y divide-emerald-100/80 space-y-2">
+                            @foreach($receivedCollections as $col)
+                                <div class="p-3.5 rounded-2xl bg-white border border-emerald-100 flex items-center justify-between gap-3">
+                                    <div>
+                                        <div class="font-extrabold text-sm text-slate-900">
+                                            {{ $col['payment_method'] ?? $col['category_name'] }}
+                                        </div>
+                                        <div class="text-xs text-slate-500">
+                                            Destination: <span class="font-bold text-emerald-800">{{ $col['destination_account'] ?? 'Company Account' }}</span>
+                                            @if(!empty($col['verified_by']))
+                                                <span class="text-slate-400 font-medium"> &middot; Verified by {{ $col['verified_by'] }} {{ $col['verified_at'] ? '('.$col['verified_at'].')' : '' }}</span>
+                                            @endif
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center gap-3">
+                                        <div class="text-right">
+                                            <div class="text-sm font-black font-mono text-slate-900">
+                                                ₹{{ number_format($col['amount'], 2) }}
+                                            </div>
+                                            <span class="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                                <i data-lucide="check" class="w-3 h-3"></i> RECEIVED
+                                            </span>
+                                        </div>
+                                        <a href="{{ route('admin.cashbook.transaction.show', $col['id']) }}"
+                                           class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white text-xs font-bold transition">
+                                            <span>View</span>
+                                        </a>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                <!-- ── 7. COMPACT ADJUSTMENTS SUMMARY ROW & TRIGGER ─────────── -->
+                <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <span class="p-2 rounded-2xl bg-slate-100 text-slate-700 border border-slate-200">
+                            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
                         </span>
+                        <div>
+                            <h4 class="text-sm font-extrabold text-slate-900">Adjustments</h4>
+                            <p class="text-xs text-slate-500 font-medium">
+                                {{ count($dailySettlement['settlement_adjustments'] ?? []) }} entries &middot;
+                                <strong class="font-mono text-slate-800">₹{{ number_format($totalDeductionsAmount, 2) }}</strong> used from collection
+                            </p>
+                        </div>
                     </div>
 
-                    <button type="button" @click="showAddModal = true"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-black shadow-xs transition cursor-pointer">
-                        <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
-                        <span>Add Adjustment</span>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                @click="showAdjustmentsDrawer = true"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold transition cursor-pointer">
+                            <i data-lucide="list" class="w-3.5 h-3.5"></i>
+                            <span>View details</span>
+                        </button>
+                        <button type="button"
+                                @click="showAddAdjustmentModal = true"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold transition cursor-pointer shadow-xs">
+                            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                            <span>Add adjustment</span>
+                        </button>
+                    </div>
                 </div>
 
-                @if(empty($dailySettlement['settlement_adjustments']))
-                    <div class="py-8 text-center text-slate-400 text-xs font-bold">
-                        No settlement adjustments recorded for this business date.
+            </div>
+
+            <!-- RIGHT 5 COLS: SETTLEMENT SUMMARY & BREAKDOWN ───────────────── -->
+            <div class="lg:col-span-5 space-y-6">
+
+                <!-- ── 8. SETTLEMENT SUMMARY (DOMINANT VISUAL RESULT) ───────── -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+                    <div class="border-b border-slate-100 pb-3">
+                        <h2 class="text-sm font-extrabold uppercase tracking-tight text-slate-900">
+                            Settlement Summary
+                        </h2>
                     </div>
-                @else
-                    <div class="overflow-x-auto">
+
+                    <div class="space-y-3.5 text-xs font-bold">
+                        <div class="flex items-center justify-between text-slate-600">
+                            <span>Gross Collection</span>
+                            <span class="font-mono text-sm font-black text-slate-900">
+                                ₹{{ number_format($grossSalesAmount, 2) }}
+                            </span>
+                        </div>
+
+                        <div class="flex items-center justify-between text-rose-600">
+                            <span>Less: Used From Collection</span>
+                            <span class="font-mono text-sm font-black">
+                                -₹{{ number_format($totalDeductionsAmount, 2) }}
+                            </span>
+                        </div>
+
+                        <div class="border-t border-slate-200 pt-3 flex items-center justify-between text-slate-900 font-extrabold">
+                            <span>Net Company Receivable</span>
+                            <span class="font-mono text-base font-black">
+                                ₹{{ number_format($expectedPayableAmount, 2) }}
+                            </span>
+                        </div>
+
+                        <div class="flex items-center justify-between text-emerald-700">
+                            <span>Less: Company Received</span>
+                            <span class="font-mono text-sm font-black">
+                                -₹{{ number_format($verifiedReceivedAmount, 2) }}
+                            </span>
+                        </div>
+
+                        <div class="border-t-2 border-slate-900 pt-4 flex items-center justify-between text-slate-900 font-black">
+                            <span class="text-sm uppercase tracking-wide">Still To Settle</span>
+                            <span class="font-mono text-2xl font-black text-slate-950">
+                                ₹{{ number_format($outstandingAmount, 2) }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── 9. BREAKDOWN OF STILL TO SETTLE (SUPPORTING PANEL) ───── -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4"
+                     x-data="{ showBreakdown: true }">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <h3 class="text-xs font-extrabold uppercase tracking-tight text-slate-700">
+                            Breakdown of Still to Settle
+                        </h3>
+                        <button type="button" @click="showBreakdown = !showBreakdown" class="text-slate-400 hover:text-slate-600 text-xs font-bold">
+                            <span x-text="showBreakdown ? 'Hide' : 'Show'"></span>
+                        </button>
+                    </div>
+
+                    <div x-show="showBreakdown" class="space-y-2.5 text-xs font-bold">
+                        <div class="flex items-center justify-between text-sky-900 bg-sky-50/70 p-3 rounded-2xl border border-sky-100">
+                            <span>Cash With Shop</span>
+                            <span class="font-mono text-sm font-black">
+                                ₹{{ number_format($cashWithShopAmount, 2) }}
+                            </span>
+                        </div>
+
+                        <div class="flex items-center justify-between text-amber-900 bg-amber-50/70 p-3 rounded-2xl border border-amber-100">
+                            <span>Pending Verification (Bank/Other)</span>
+                            <span class="font-mono text-sm font-black">
+                                ₹{{ number_format($pendingVerificationAmount, 2) }}
+                            </span>
+                        </div>
+
+                        <div class="flex items-center justify-between text-purple-900 bg-purple-50/70 p-3 rounded-2xl border border-purple-100">
+                            <span>Floating Cheques</span>
+                            <span class="font-mono text-sm font-black">
+                                ₹{{ number_format((float) ($dailySettlement['company_receipt_status']['floating_cheques'] ?? 0), 2) }}
+                            </span>
+                        </div>
+
+                        <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-slate-500 font-bold text-[11px]">
+                            <span>Reconciled Total</span>
+                            <span class="font-mono font-extrabold text-slate-800">
+                                ₹{{ number_format($cashWithShopAmount + $pendingVerificationAmount + (float) ($dailySettlement['company_receipt_status']['floating_cheques'] ?? 0), 2) }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+        <!-- ── CALENDAR NAVIGATION MODAL / DRAWER ────────────────────────── -->
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+
+        <div x-show="showCalendarModal"
+             style="display: none;"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+            <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
+                 @click.away="showCalendarModal = false">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div class="flex items-center gap-2">
+                        <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'month' => $prevMonth, 'date' => $businessDate]) }}"
+                           class="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+                           title="Previous Month">
+                            <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                        </a>
+                        <h3 class="text-base font-black text-slate-900">{{ $monthTitle }}</h3>
+                        <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'month' => $nextMonth, 'date' => $businessDate]) }}"
+                           class="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+                           title="Next Month">
+                            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                        </a>
+                    </div>
+                    <button type="button" @click="showCalendarModal = false" class="text-slate-400 hover:text-slate-600 font-black text-lg cursor-pointer">&times;</button>
+                </div>
+
+                <!-- 7-Col Calendar Grid -->
+                <div class="space-y-2">
+                    <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-1 text-xs">
+                        @for($i = 0; $i < $firstDayOfWeek; $i++)
+                            <div class="h-9"></div>
+                        @endfor
+
+                        @for($day = 1; $day <= $daysInCurrentMonth; $day++)
+                            @php
+                                $dateStr = sprintf('%s-%02d', $month, $day);
+                                $isCalSelected = $dateStr === $businessDate;
+                                $isCalToday = $dateStr === $todayDate;
+                                $hasActivity = in_array($dateStr, $activeDatesInMonth ?? [], true);
+                                $dayUrl = route('admin.cashbook.shop.show', [
+                                    'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                                    'date' => $dateStr,
+                                ]);
+                            @endphp
+                            <a href="{{ $dayUrl }}"
+                               class="h-9 rounded-xl flex flex-col items-center justify-center transition cursor-pointer relative
+                                      {{ $isCalSelected ? 'bg-slate-900 text-white font-black shadow-xs' : ($isCalToday ? 'border-2 border-emerald-600 font-extrabold text-emerald-950 hover:bg-emerald-50' : 'text-slate-700 hover:bg-slate-100 font-bold') }}">
+                                <span>{{ $day }}</span>
+                                @if($hasActivity)
+                                    <span class="w-1 h-1 rounded-full {{ $isCalSelected ? 'bg-emerald-400' : 'bg-emerald-600' }} absolute bottom-1"></span>
+                                @endif
+                            </a>
+                        @endfor
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-3 border-t border-slate-100 text-xs text-slate-500 font-medium">
+                    <div class="flex items-center gap-3">
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-600"></span> Activity</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full border border-emerald-600"></span> Today</span>
+                    </div>
+                    <button type="button" @click="showCalendarModal = false" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+        <!-- ── ADJUSTMENTS FULL AUDIT DRAWER / MODAL ─────────────────────── -->
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+
+        <div x-show="showAdjustmentsDrawer"
+             style="display: none;"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+            <div class="bg-white rounded-3xl p-6 max-w-2xl w-full border border-slate-200 shadow-2xl space-y-4 max-h-[90vh] flex flex-col"
+                 @click.away="showAdjustmentsDrawer = false">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-base font-black text-slate-900">Settlement Adjustments Details</h3>
+                        <p class="text-xs text-slate-500 font-medium">Audit records for {{ $formattedBusinessDate }}</p>
+                    </div>
+                    <button type="button" @click="showAdjustmentsDrawer = false" class="text-slate-400 hover:text-slate-600 font-black text-lg cursor-pointer">&times;</button>
+                </div>
+
+                <div class="overflow-y-auto flex-1 pr-1">
+                    @if(empty($dailySettlement['settlement_adjustments']))
+                        <div class="py-12 text-center text-slate-400 text-xs font-bold">
+                            No adjustments recorded for this business date.
+                        </div>
+                    @else
                         <table class="w-full text-left text-xs">
                             <thead>
                                 <tr class="border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
@@ -941,7 +1221,7 @@
                                             <span class="font-extrabold text-slate-900 block">{{ $adj['type'] }}</span>
                                             <span class="text-[10px] text-slate-400 font-bold">{{ $adj['name'] }}</span>
                                         </td>
-                                        <td class="py-3 px-3 max-w-[200px] truncate text-slate-600 font-medium" title="{{ $adj['note'] }}">
+                                        <td class="py-3 px-3 max-w-[160px] truncate text-slate-600 font-medium" title="{{ $adj['note'] }}">
                                             {{ $adj['note'] }}
                                             @if(!empty($adj['is_reversal']))
                                                 <a href="{{ route('admin.cashbook.transaction.show', $adj['original_id']) }}" class="text-sky-600 hover:underline font-bold block text-[10px]">
@@ -978,7 +1258,7 @@
                                         <td class="py-3 px-3 text-right">
                                             @if(!empty($adj['can_reverse']))
                                                 <button type="button"
-                                                        @click="openReverse({{ $adj['id'] }}, '{{ addslashes($adj['name']) }}', '{{ number_format($adj['amount'], 2) }}')"
+                                                        @click="showAdjustmentsDrawer = false; openReverse({{ $adj['id'] }}, '{{ addslashes($adj['name']) }}', '{{ number_format($adj['amount'], 2) }}')"
                                                         class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-extrabold transition cursor-pointer border border-rose-200">
                                                     <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
                                                     <span>Reverse</span>
@@ -994,202 +1274,126 @@
                                 @endforeach
                             </tbody>
                         </table>
-                    </div>
-                @endif
-
-                <!-- Add Adjustment Modal -->
-                <div x-show="showAddModal" style="display: none;"
-                     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
-                    <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
-                         @click.away="if(!isSubmitting) showAddModal = false">
-                        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                            <h3 class="text-base font-black text-slate-900">Add Settlement Adjustment</h3>
-                            <button type="button" @click="showAddModal = false" class="text-slate-400 hover:text-slate-600 font-bold">&times;</button>
-                        </div>
-
-                        <form method="POST" action="{{ route('admin.cashbook.shop.day.adjustments.store', $currentShop->slug ?: $currentShop->shop_id) }}" @submit="isSubmitting = true">
-                            @csrf
-                            <input type="hidden" name="business_date" value="{{ $businessDate }}">
-
-                            <div class="space-y-4 text-xs">
-                                <div>
-                                    <label class="block font-extrabold text-slate-700 mb-1">Adjustment Type</label>
-                                    <select name="type" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900 focus:outline-none focus:border-slate-500">
-                                        <option value="expense">Shop Expense (Reduces Shop Outstanding)</option>
-                                        <option value="income">Shop Income (Increases Shop Outstanding)</option>
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label class="block font-extrabold text-slate-700 mb-1">Amount (₹)</label>
-                                    <input type="number" name="amount" step="0.01" min="0.01" max="10000000" required placeholder="0.00"
-                                           class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:border-slate-500">
-                                </div>
-
-                                <div>
-                                    <label class="block font-extrabold text-slate-700 mb-1">Note / Reason</label>
-                                    <textarea name="notes" rows="3" required minlength="3" maxlength="500" placeholder="Describe the reason for adjustment..."
-                                              class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-medium text-slate-900 focus:outline-none focus:border-slate-500"></textarea>
-                                </div>
-
-                                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                                    <button type="button" @click="showAddModal = false" :disabled="isSubmitting"
-                                            class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
-                                        Cancel
-                                    </button>
-                                    <button type="submit" :disabled="isSubmitting"
-                                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
-                                        <span x-text="isSubmitting ? 'Recording...' : 'Record Adjustment'"></span>
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
+                    @endif
                 </div>
 
-                <!-- Reverse Adjustment Modal -->
-                <div x-show="showReverseModal" style="display: none;"
-                     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
-                    <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
-                         @click.away="if(!isSubmitting) showReverseModal = false">
-                        <div class="flex items-center gap-3 text-rose-700">
-                            <div class="p-3 rounded-2xl bg-rose-50 border border-rose-200">
-                                <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
-                            </div>
-                            <div>
-                                <h3 class="text-base font-black text-slate-900">Reverse Adjustment</h3>
-                                <p class="text-xs text-slate-500 font-medium">Create offsetting immutable ledger transaction</p>
-                            </div>
-                        </div>
-
-                        <form method="POST" action="{{ route('admin.cashbook.shop.day.adjustments.reverse', $currentShop->slug ?: $currentShop->shop_id) }}" @submit="isSubmitting = true">
-                            @csrf
-                            <input type="hidden" name="business_date" value="{{ $businessDate }}">
-                            <input type="hidden" name="adjustment_id" :value="targetAdjustmentId">
-
-                            <div class="space-y-4 text-xs">
-                                <div class="p-3 rounded-xl bg-rose-50/50 border border-rose-100 text-slate-700 space-y-1">
-                                    <div class="font-extrabold text-rose-950" x-text="'Reverse ' + targetAdjustmentName + ' of ₹' + targetAdjustmentAmount"></div>
-                                    <p class="text-[11px] text-slate-500">This will record an exact opposite ledger entry to neutralize the outstanding effect while preserving audit history.</p>
-                                </div>
-
-                                <div>
-                                    <label class="block font-extrabold text-slate-700 mb-1">Reversal Reason (Optional)</label>
-                                    <input type="text" name="reason" x-model="reverseReason" placeholder="e.g. Incorrect amount recorded"
-                                           class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-medium text-slate-900 focus:outline-none focus:border-slate-500">
-                                </div>
-
-                                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                                    <button type="button" @click="showReverseModal = false" :disabled="isSubmitting"
-                                            class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
-                                        Cancel
-                                    </button>
-                                    <button type="submit" :disabled="isSubmitting"
-                                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
-                                        <span x-text="isSubmitting ? 'Reversing...' : 'Confirm Reversal'"></span>
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
+                <div class="flex items-center justify-end pt-3 border-t border-slate-100">
+                    <button type="button" @click="showAdjustmentsDrawer = false" class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold">
+                        Close
+                    </button>
                 </div>
             </div>
         </div>
 
-        <!-- Right 5 Cols: SETTLEMENT SUMMARY & BREAKDOWN -->
-        <div class="lg:col-span-5 space-y-6">
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+        <!-- ── ADD ADJUSTMENT MODAL ──────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════════════════════════ -->
 
-            <!-- SETTLEMENT SUMMARY -->
-            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                <div class="border-b border-slate-100 pb-3">
-                    <h2 class="text-sm font-extrabold uppercase tracking-tight text-slate-900">
-                        SETTLEMENT SUMMARY
-                    </h2>
+        <div x-show="showAddAdjustmentModal" style="display: none;"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+            <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
+                 @click.away="if(!isSubmitting) showAddAdjustmentModal = false">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h3 class="text-base font-black text-slate-900">Add Settlement Adjustment</h3>
+                    <button type="button" @click="showAddAdjustmentModal = false" class="text-slate-400 hover:text-slate-600 font-bold">&times;</button>
                 </div>
 
-                <div class="space-y-3 text-xs font-bold">
-                    <div class="flex items-center justify-between text-slate-700">
-                        <span>Gross Sales</span>
-                        <span class="font-mono text-sm font-extrabold text-slate-900">
-                            ₹{{ number_format($dailySettlement['settlement_summary']['gross_sales'] ?? 0, 2) }}
-                        </span>
-                    </div>
+                <form method="POST" action="{{ route('admin.cashbook.shop.day.adjustments.store', $currentShop->slug ?: $currentShop->shop_id) }}" @submit="isSubmitting = true">
+                    @csrf
+                    <input type="hidden" name="business_date" value="{{ $businessDate }}">
 
-                    <div class="flex items-center justify-between text-rose-600">
-                        <span>Less: Sales-funded deductions</span>
-                        <span class="font-mono text-sm font-extrabold">
-                            -₹{{ number_format($dailySettlement['settlement_summary']['settlement_deductions'] ?? 0, 2) }}
-                        </span>
-                    </div>
+                    <div class="space-y-4 text-xs">
+                        <div>
+                            <label class="block font-extrabold text-slate-700 mb-1">Adjustment Type</label>
+                            <select name="type" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900 focus:outline-none focus:border-slate-500">
+                                <option value="expense">Shop Expense (Reduces Shop Outstanding)</option>
+                                <option value="income">Shop Income (Increases Shop Outstanding)</option>
+                            </select>
+                        </div>
 
-                    <div class="border-t border-slate-200 pt-3 flex items-center justify-between text-slate-900 font-extrabold">
-                        <span>Expected Payable</span>
-                        <span class="font-mono text-base font-black">
-                            ₹{{ number_format($dailySettlement['settlement_summary']['expected_payable'] ?? 0, 2) }}
-                        </span>
-                    </div>
+                        <div>
+                            <label class="block font-extrabold text-slate-700 mb-1">Amount (₹)</label>
+                            <input type="number" name="amount" step="0.01" min="0.01" max="10000000" required placeholder="0.00"
+                                   class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:border-slate-500">
+                        </div>
 
-                    <div class="flex items-center justify-between text-emerald-700">
-                        <span>Less: Company Received</span>
-                        <span class="font-mono text-sm font-extrabold">
-                            -₹{{ number_format($dailySettlement['settlement_summary']['verified_company_received'] ?? 0, 2) }}
-                        </span>
-                    </div>
+                        <div>
+                            <label class="block font-extrabold text-slate-700 mb-1">Note / Reason</label>
+                            <textarea name="notes" rows="3" required minlength="3" maxlength="500" placeholder="Describe the reason for adjustment..."
+                                      class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-medium text-slate-900 focus:outline-none focus:border-slate-500"></textarea>
+                        </div>
 
-                    <div class="border-t-2 border-slate-900 pt-3 flex items-center justify-between text-slate-900 font-black">
-                        <span class="text-sm uppercase tracking-wide">Still To Settle</span>
-                        <span class="font-mono text-lg font-black text-emerald-700">
-                            ₹{{ number_format($dailySettlement['settlement_summary']['outstanding_to_settle'] ?? 0, 2) }}
-                        </span>
+                        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                            <button type="button" @click="showAddAdjustmentModal = false" :disabled="isSubmitting"
+                                    class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
+                                Cancel
+                            </button>
+                            <button type="submit" :disabled="isSubmitting"
+                                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
+                                <span x-text="isSubmitting ? 'Recording...' : 'Record Adjustment'"></span>
+                            </button>
+                        </div>
                     </div>
-                </div>
+                </form>
             </div>
-
-            <!-- BREAKDOWN OF STILL TO SETTLE -->
-            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                <div class="border-b border-slate-100 pb-3">
-                    <h2 class="text-sm font-extrabold uppercase tracking-tight text-slate-900">
-                        BREAKDOWN OF STILL TO SETTLE
-                    </h2>
-                </div>
-
-                <div class="space-y-3 text-xs font-bold">
-                    <div class="flex items-center justify-between text-amber-800 bg-amber-50/80 p-2.5 rounded-xl border border-amber-100">
-                        <span>Needs Verification</span>
-                        <span class="font-mono text-sm font-black text-amber-900">
-                            ₹{{ number_format($dailySettlement['company_receipt_status']['pending_verification'] ?? 0, 2) }}
-                        </span>
-                    </div>
-
-                    <div class="flex items-center justify-between text-sky-800 bg-sky-50/80 p-2.5 rounded-xl border border-sky-100">
-                        <span>Cash With Shop</span>
-                        <span class="font-mono text-sm font-black text-sky-900">
-                            ₹{{ number_format($dailySettlement['company_receipt_status']['cash_still_with_shop'] ?? 0, 2) }}
-                        </span>
-                    </div>
-
-                    <div class="flex items-center justify-between text-purple-800 bg-purple-50/80 p-2.5 rounded-xl border border-purple-100">
-                        <span>Floating Cheques</span>
-                        <span class="font-mono text-sm font-black text-purple-900">
-                            ₹{{ number_format($dailySettlement['company_receipt_status']['floating_cheques'] ?? 0, 2) }}
-                        </span>
-                    </div>
-
-                    <div class="border-t border-slate-200 pt-3 flex items-center justify-between text-slate-900 font-black">
-                        <span>Total</span>
-                        <span class="font-mono text-base font-black text-slate-900">
-                            ₹{{ number_format(($dailySettlement['company_receipt_status']['pending_verification'] ?? 0) + ($dailySettlement['company_receipt_status']['cash_still_with_shop'] ?? 0) + ($dailySettlement['company_receipt_status']['floating_cheques'] ?? 0), 2) }}
-                        </span>
-                    </div>
-                </div>
-            </div>
-
         </div>
 
-    </div>
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+        <!-- ── REVERSE ADJUSTMENT MODAL ──────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════════════════════════ -->
+
+        <div x-show="showReverseModal" style="display: none;"
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+            <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
+                 @click.away="if(!isSubmitting) showReverseModal = false">
+                <div class="flex items-center gap-3 text-rose-700">
+                    <div class="p-3 rounded-2xl bg-rose-50 border border-rose-200">
+                        <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-slate-900">Reverse Adjustment</h3>
+                        <p class="text-xs text-slate-500 font-medium">Create offsetting immutable ledger transaction</p>
+                    </div>
+                </div>
+
+                <form method="POST" action="{{ route('admin.cashbook.shop.day.adjustments.reverse', $currentShop->slug ?: $currentShop->shop_id) }}" @submit="isSubmitting = true">
+                    @csrf
+                    <input type="hidden" name="business_date" value="{{ $businessDate }}">
+                    <input type="hidden" name="adjustment_id" :value="targetAdjustmentId">
+
+                    <div class="space-y-4 text-xs">
+                        <div class="p-3 rounded-xl bg-rose-50/50 border border-rose-100 text-slate-700 space-y-1">
+                            <div class="font-extrabold text-rose-950" x-text="'Reverse ' + targetAdjustmentName + ' of ₹' + targetAdjustmentAmount"></div>
+                            <p class="text-[11px] text-slate-500">This will record an exact opposite ledger entry to neutralize the outstanding effect while preserving audit history.</p>
+                        </div>
+
+                        <div>
+                            <label class="block font-extrabold text-slate-700 mb-1">Reversal Reason (Optional)</label>
+                            <input type="text" name="reason" x-model="reverseReason" placeholder="e.g. Incorrect amount recorded"
+                                   class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-medium text-slate-900 focus:outline-none focus:border-slate-500">
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                            <button type="button" @click="showReverseModal = false" :disabled="isSubmitting"
+                                    class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
+                                Cancel
+                            </button>
+                            <button type="submit" :disabled="isSubmitting"
+                                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
+                                <span x-text="isSubmitting ? 'Reversing...' : 'Confirm Reversal'"></span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
     @endif
 
-    <!-- Collapsible Monthly Financial Overview (Preserves Backward Compatibility) -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- ── MONTHLY FINANCIAL OVERVIEW (BACKWARD COMPATIBILITY) ───────── -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+
     <details class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4" {{ request()->has('month') ? 'open' : '' }}>
         <summary class="cursor-pointer text-xs font-black uppercase tracking-wider text-slate-500 hover:text-slate-900 flex items-center justify-between">
             <span>Shop Financial Overview &amp; Monthly Summary ({{ \Illuminate\Support\Carbon::parse($monthStart)->format('F Y') }})</span>
@@ -1238,7 +1442,7 @@
                 </article>
             </div>
 
-            <!-- Recent Payments Bound Listing -->
+            <!-- Recent Payments Listing -->
             <div class="border border-slate-100 rounded-2xl p-4 divide-y divide-slate-100">
                 @foreach($recentPayments as $payment)
                     <div class="py-2 flex items-center justify-between text-xs font-mono">

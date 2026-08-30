@@ -280,10 +280,10 @@ class CashbookShopDayBulkOperationsTest extends TestCase
         ]));
 
         $response->assertOk()
-            ->assertSee('Needs Acceptance (1)')
-            ->assertSee('Accept Selected')
-            ->assertSee('Needs Verification (1)')
-            ->assertSee('Confirm Selected Received')
+            ->assertSee('Review Collections (1)')
+            ->assertSee('Approve for receipt tracking')
+            ->assertSee('Confirm Company Receipt (1)')
+            ->assertSee('Confirm received')
             ->assertSee('Received Collections (1)')
             ->assertSee('₹14,280.00')
             ->assertSee('₹2,421.00')

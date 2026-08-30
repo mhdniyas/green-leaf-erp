@@ -790,6 +790,10 @@ Route::middleware('auth')->group(function () {
             Route::get('shops/{shop}/accept-payment', [CashbookController::class, 'shopSettlementPage'])->name('shop.accept-payment');
             Route::post('shops/{shop}/accept-payment', [CashbookController::class, 'recordShopPayment'])->name('shop.accept-payment.store');
             Route::post('shops/{shop}/accept-payment/reconcile', [CashbookController::class, 'reconcileShopPaymentLedger'])->name('shop.accept-payment.reconcile');
+            Route::post('shops/{shop}/company-payments', [CashbookController::class, 'storeCompanyPayment'])->name('shop.company-payments.store');
+            Route::post('shops/{shop}/allocations', [CashbookController::class, 'storeCompanyExpenseAllocation'])->name('shop.allocations.store');
+            Route::post('shops/{shop}/allocations/{allocation}/reverse', [CashbookController::class, 'reverseCompanyExpenseAllocation'])->name('shop.allocations.reverse');
+            Route::get('reports/expense-audit', [CashbookController::class, 'expenseAuditReport'])->name('reports.expense-audit');
             Route::get('shops/{shop}/post-entry', [CashbookController::class, 'postEntryPageForShop'])->name('shop.post-entry');
             Route::get('rules-config', [CashbookController::class, 'rulesPage'])->name('rules-config');
             Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');

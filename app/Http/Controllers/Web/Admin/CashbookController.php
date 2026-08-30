@@ -26,6 +26,7 @@ use App\Models\Account;
 use App\Models\BusinessSetting;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\CompanyExpenseLedgerAllocation;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\LedgerClient;
 use App\Models\Cashbook\LedgerEntryType;
@@ -72,6 +73,7 @@ use App\Services\Cashbook\CashbookTransactionReversalService;
 use App\Services\Cashbook\CashFlowTransactionPresenter;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\CompanyAccountingCashbookService;
+use App\Services\Cashbook\CompanyExpenseAllocationService;
 use App\Services\Cashbook\CompanyMoneyPositionService;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Cashbook\DailyLedgerService;
@@ -139,6 +141,7 @@ final class CashbookController extends Controller
         private readonly CompanyMoneyPositionService $moneyPositionService,
         private readonly CashFlowTransactionPresenter $transactionPresenter,
         private readonly CashbookTransactionReversalService $reversalService,
+        private readonly CompanyExpenseAllocationService $expenseAllocationService,
         private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService,
     ) {}
 
@@ -488,6 +491,22 @@ final class CashbookController extends Controller
             ->where('settlement_delta', '!=', 0)
             ->whereNotIn('status', ['void', 'voided'])
             ->count();
+        $activeDatesInMonth = ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$monthStart, $monthEnd])
+            ->whereNotIn('status', ['void', 'voided'])
+            ->distinct()
+            ->pluck('business_date')
+            ->map(fn ($d) => Carbon::parse($d)->toDateString())
+            ->unique()
+            ->values()
+            ->all();
+
+        $prevDate = Carbon::parse($businessDate)->subDay()->toDateString();
+        $nextDate = Carbon::parse($businessDate)->addDay()->toDateString();
+        $todayDate = today()->toDateString();
+        $prevMonth = Carbon::createFromFormat('Y-m', $month)->subMonth()->format('Y-m');
+        $nextMonth = Carbon::createFromFormat('Y-m', $month)->addMonth()->format('Y-m');
 
         return view('admin.cashbook.shops.show', compact(
             'shops',
@@ -500,6 +519,12 @@ final class CashbookController extends Controller
             'month',
             'monthStart',
             'monthEnd',
+            'prevDate',
+            'nextDate',
+            'todayDate',
+            'prevMonth',
+            'nextMonth',
+            'activeDatesInMonth',
             'position',
             'paymentCard',
             'paymentSubmitted',
@@ -620,11 +645,20 @@ final class CashbookController extends Controller
                 }
 
                 $statements = CompanyAccountStatementEntry::query()
+                    ->with('companyAccount')
                     ->where('source_type', ShopLedgerTransaction::class)
                     ->whereIn('source_id', $transactionIds)
                     ->lockForUpdate()
                     ->get()
                     ->keyBy('source_id');
+
+                $settings = ShopLedgerEntrySetting::query()
+                    ->with('companyAccount')
+                    ->where('shop_id', $shopId)
+                    ->where('enabled', true)
+                    ->effectiveOn($businessDate)
+                    ->get()
+                    ->keyBy('entry_type_id');
 
                 foreach ($transactions as $tx) {
                     if ((int) $tx->shop_id !== $shopId) {
@@ -639,6 +673,13 @@ final class CashbookController extends Controller
                         throw new \InvalidArgumentException("Transaction #{$tx->id} must be accepted/approved before it can be verified.");
                     }
 
+                    $setting = $settings->get($tx->entry_type_id);
+                    $paymentMethod = $tx->entryType?->name ?: 'collection';
+
+                    if (! $setting || ! $setting->enabled || ! $setting->company_account_id || ! $setting->companyAccount || ! $setting->companyAccount->enabled) {
+                        throw new \InvalidArgumentException("Configure a destination company account for {$paymentMethod} before confirming receipt.");
+                    }
+
                     $stmt = $statements->get($tx->id);
                     if (! $stmt) {
                         throw new \InvalidArgumentException("No company statement entry found for transaction #{$tx->id}.");
@@ -646,6 +687,12 @@ final class CashbookController extends Controller
 
                     if ($stmt->is_finalized && $stmt->status === 'reconciled') {
                         throw new \InvalidArgumentException("Transaction #{$tx->id} has already been verified and reconciled.");
+                    }
+
+                    if ((int) $stmt->company_account_id !== (int) $setting->company_account_id) {
+                        $stmtAccount = $stmt->companyAccount?->name ?? 'Account #'.$stmt->company_account_id;
+                        $cfgAccount = $setting->companyAccount?->name ?? 'Account #'.$setting->company_account_id;
+                        throw new \InvalidArgumentException("Statement for transaction #{$tx->id} points to {$stmtAccount} but setting is configured to {$cfgAccount}. Account mismatch — review required.");
                     }
 
                     if ($stmt->duplicate_status === 'possible_duplicate') {
@@ -832,6 +879,219 @@ final class CashbookController extends Controller
                 'date' => $businessDate,
             ])->with('error', 'Reversal failed: '.$e->getMessage());
         }
+    }
+
+    /**
+     * Record and verify a Green Leaf -> Shop payment from a specific company bank/cash account.
+     */
+    public function storeCompanyPayment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'payment_date' => ['required', 'date_format:Y-m-d'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:100000000'],
+            'destination_reference' => ['nullable', 'string', 'max:160'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $account = CompanyAccount::query()
+            ->whereKey($validated['company_account_id'])
+            ->where('enabled', true)
+            ->first();
+
+        if (! $account) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $validated['payment_date'],
+            ])->with('error', 'Selected source company account is inactive or not found.');
+        }
+
+        try {
+            DB::transaction(function () use ($validated, $account, $shopId, $currentShop, $request): void {
+                $amount = round((float) $validated['amount'], 2);
+                $userId = (int) $request->user()?->id;
+
+                CompanyAccountStatementEntry::create([
+                    'company_account_id' => $account->id,
+                    'transaction_date' => $validated['payment_date'],
+                    'value_date' => $validated['payment_date'],
+                    'direction' => 'out',
+                    'amount' => $amount,
+                    'reference' => $validated['destination_reference'] ?: ('COMP-PAY-SHOP-'.$shopId),
+                    'narration' => 'Company payment to shop: '.($currentShop->name ?: ('Shop #'.$shopId)),
+                    'source' => 'manual',
+                    'source_type' => Shop::class,
+                    'source_id' => $shopId,
+                    'status' => 'reconciled',
+                    'is_finalized' => true,
+                    'notes' => $validated['notes'] ?? null,
+                    'reconciled_by' => $userId,
+                    'reconciled_at' => now(),
+                ]);
+
+                $account->decrement('current_balance', $amount);
+            });
+
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $validated['payment_date'],
+            ])->with('success', 'Green Leaf payment to shop recorded and verified successfully.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $validated['payment_date'],
+            ])->with('error', 'Failed to record company payment: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Allocate a verified company payment across accepted shop expense obligations.
+     */
+    public function storeCompanyExpenseAllocation(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'statement_entry_id' => ['required', 'integer', 'exists:cashbook_company_account_statement_entries,id'],
+            'allocations' => ['required', 'array', 'min:1'],
+            'allocations.*.ledger_transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+            'allocations.*.amount' => ['required', 'numeric', 'min:0.01'],
+            'allocation_date' => ['nullable', 'date_format:Y-m-d'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        /** @var CompanyAccountStatementEntry $statement */
+        $statement = CompanyAccountStatementEntry::findOrFail($validated['statement_entry_id']);
+
+        try {
+            $this->expenseAllocationService->allocate(
+                $statement,
+                $shopId,
+                $validated['allocations'],
+                (int) $request->user()?->id,
+                $validated['allocation_date'] ?? null,
+                $validated['notes'] ?? null
+            );
+
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $validated['allocation_date'] ?? ($statement->transaction_date?->toDateString() ?: today()->toDateString()),
+            ])->with('success', 'Company payment allocation confirmed.');
+        } catch (ValidationException $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $validated['allocation_date'] ?? ($statement->transaction_date?->toDateString() ?: today()->toDateString()),
+            ])->with('error', collect($e->errors())->flatten()->first());
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $validated['allocation_date'] ?? ($statement->transaction_date?->toDateString() ?: today()->toDateString()),
+            ])->with('error', 'Allocation failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Soft-reverse an active company payment expense allocation.
+     */
+    public function reverseCompanyExpenseAllocation(Request $request, int|string $shop, CompanyExpenseLedgerAllocation $allocation): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        if ((int) $allocation->shop_id !== $shopId) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            ])->with('error', 'Allocation does not belong to this shop.');
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        try {
+            $this->expenseAllocationService->reverseAllocation($allocation, (int) $request->user()?->id, $validated['reason']);
+
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $allocation->allocation_date?->toDateString() ?: today()->toDateString(),
+            ])->with('success', 'Payment allocation reversed successfully.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            ])->with('error', 'Reversal failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Date-range Expense Audit Report across shops, categories, and funding sources.
+     */
+    public function expenseAuditReport(Request $request): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
+        $fromDate = $request->input('from_date', Carbon::now()->startOfMonth()->toDateString());
+        $toDate = $request->input('to_date', Carbon::now()->toDateString());
+        $fundingSource = $request->input('funding_source');
+        $entryTypeId = $request->filled('entry_type_id') ? (int) $request->input('entry_type_id') : null;
+        $coverageStatus = $request->input('coverage_status');
+
+        $query = ShopLedgerTransaction::query()
+            ->with(['shop', 'entryType', 'enteredBy', 'approvedBy', 'companyExpenseAllocations.statementEntry'])
+            ->where('direction', 'expense')
+            ->whereBetween('business_date', [$fromDate, $toDate])
+            ->whereNotIn('status', ['void', 'voided']);
+
+        if ($shopId) {
+            $query->where('shop_id', $shopId);
+        }
+        if ($entryTypeId) {
+            $query->where('entry_type_id', $entryTypeId);
+        }
+        if ($fundingSource) {
+            $query->where('funding_source', $fundingSource);
+        }
+
+        $expenses = $query->orderBy('business_date', 'desc')->orderBy('id', 'desc')->get();
+
+        $auditItems = $expenses->map(function ($tx) {
+            $coverage = $this->expenseAllocationService->getObligationCoverage($tx);
+
+            return [
+                'transaction' => $tx,
+                'payable_amount' => $coverage['payable_amount'],
+                'covered_amount' => $coverage['covered_amount'],
+                'remaining_amount' => $coverage['remaining_amount'],
+                'coverage_status' => $coverage['status'],
+                'is_reimbursable' => $coverage['is_reimbursable'],
+            ];
+        });
+
+        if ($coverageStatus) {
+            $auditItems = $auditItems->filter(fn ($item) => strtolower((string) $item['coverage_status']) === strtolower((string) $coverageStatus))->values();
+        }
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $expenseTypes = LedgerEntryType::where('category', 'expense')->orderBy('name')->get();
+
+        return view('admin.cashbook.reports.expense-audit', compact(
+            'auditItems',
+            'shops',
+            'expenseTypes',
+            'shopId',
+            'fromDate',
+            'toDate',
+            'fundingSource',
+            'entryTypeId',
+            'coverageStatus'
+        ));
     }
 
     public function exportShopData(Request $request, int|string $shop)

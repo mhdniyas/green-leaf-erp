@@ -72,6 +72,11 @@ class ShopLedgerTransaction extends Model
         return $this->hasMany(ShopPaymentLedgerAllocation::class, 'shop_ledger_transaction_id');
     }
 
+    public function companyExpenseAllocations(): HasMany
+    {
+        return $this->hasMany(CompanyExpenseLedgerAllocation::class, 'shop_ledger_transaction_id');
+    }
+
     public function enteredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'entered_by');

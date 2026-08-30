@@ -8,7 +8,6 @@ use App\Enums\Cashbook\FundingSource;
 use App\Enums\Cashbook\LedgerDirection;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
-use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -17,15 +16,16 @@ class BalanceCalculator
 {
     public function __construct(
         private readonly FundingSourceEffectResolver $effectResolver,
+        private readonly LedgerRuleResolver $ruleResolver,
     ) {}
 
     /**
      * Recalculate and persist the snapshot for one shop/day, carrying
      * forward the previous day's closing balances as today's opening.
      *
-     * Before summing, each transaction's stored deltas are re-derived from
-     * the current active ShopLedgerEntrySetting so that retroactive config
-     * changes (e.g. adding petty_behavior = 'decrease') apply automatically.
+     * Draft/posted entries are re-derived using the effective rule for
+     * their business date. Accepted/approved/reconciled entries preserve
+     * their stored canonical snapshot deltas.
      *
      * Uses DB transaction and lockForUpdate for concurrency safety.
      */
@@ -49,24 +49,16 @@ class BalanceCalculator
                 ->lockForUpdate()
                 ->get();
 
-            // Pre-load all active settings for this shop keyed by entry_type_id
-            $settings = ShopLedgerEntrySetting::query()
-                ->where('shop_id', $shopId)
-                ->where('enabled', true)
-                ->get()
-                ->keyBy('entry_type_id');
-
-            // Re-derive deltas for every transaction from current settings.
-            // Generated children (generated_by_rule = true) keep their stored
-            // values because they are fully derived from the parent.
+            // Re-derive deltas only for draft/posted unaccepted transactions using the effective rule for the business date.
+            // Accepted/approved/closed entries and rule-generated entries preserve their canonical snapshot deltas.
             foreach ($transactions as $tx) {
-                if ($tx->generated_by_rule) {
+                if ($tx->generated_by_rule || in_array($tx->status, [TransactionStatus::Approved->value, TransactionStatus::Closed->value, 'approved', 'closed', 'reconciled'], true)) {
                     continue;
                 }
 
-                /** @var ShopLedgerEntrySetting|null $setting */
-                $setting = $settings->get($tx->entry_type_id);
-                if (! $setting) {
+                try {
+                    $setting = $this->ruleResolver->resolve((int) $shopId, (int) $tx->entry_type_id, $date);
+                } catch (\Throwable) {
                     continue;
                 }
 

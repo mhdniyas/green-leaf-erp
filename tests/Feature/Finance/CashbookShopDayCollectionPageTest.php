@@ -275,24 +275,20 @@ class CashbookShopDayCollectionPageTest extends TestCase
         ]));
 
         $response->assertOk()
-            ->assertSee("TODAY'S SETTLEMENT", false)
-            ->assertSee('HOW SALES WERE COLLECTED')
-            ->assertSee('SETTLEMENT ADJUSTMENTS')
-            ->assertSee('SETTLEMENT SUMMARY')
-            ->assertSee('BREAKDOWN OF STILL TO SETTLE')
+            ->assertSee('Shop Position')
+            ->assertSee('Money Location &amp; Payment Breakdown', false)
+            ->assertSee('Adjustments')
+            ->assertSee('Settlement Summary')
+            ->assertSee('Breakdown of Still to Settle')
             ->assertSee('₹68,292.00') // Gross Sales
             ->assertSee('₹48,962.00') // Company Received
             ->assertSee('₹2,780.00')  // Needs Verification
             ->assertSee('₹14,550.00') // Cash With Shop (16550 - 2000 rent deduction)
             ->assertSee('₹17,330.00') // Still To Settle (66292 - 48962 = 17330)
-            ->assertSee('→ Kotak Bank')
-            ->assertSee('→ HDFC Bank')
-            ->assertSee('📍 Sana Shop')
+            ->assertSee('Kotak Bank')
+            ->assertSee('HDFC Bank')
             ->assertSee('RECEIVED')
-            ->assertSee('NEEDS VERIFICATION')
-            ->assertSee('CASH WITH SHOP')
-            ->assertSee('FROM SALES')
-            ->assertSee('PAID BY COMPANY');
+            ->assertSee('Cash With Shop');
     }
 
     public function test_collection_rows_only_expose_view_and_do_not_expose_verify_or_reconcile(): void
@@ -414,8 +410,8 @@ class CashbookShopDayCollectionPageTest extends TestCase
         // 2. Open Day Details for 2026-08-12
         $dayResponse = $this->actingAs($this->admin)->get($expectedDayUrl);
         $dayResponse->assertOk()
-            ->assertSee("TODAY'S SETTLEMENT", false)
-            ->assertSee('Back to Month Summary')
+            ->assertSee('Shop Position')
+            ->assertSee('Month Summary')
             ->assertSee('₹20,000.00');
     }
 }

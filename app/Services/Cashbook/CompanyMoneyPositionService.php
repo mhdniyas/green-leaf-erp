@@ -7,6 +7,7 @@ namespace App\Services\Cashbook;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\CompanyExpenseLedgerAllocation;
 use App\Models\Cashbook\ShopBankSettlementAdjustment;
 use App\Models\Cashbook\ShopBankSettlementAdjustmentRule;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
@@ -375,13 +376,48 @@ class CompanyMoneyPositionService
             $isAdjustmentIncome = $isIncome && ($code === 'other_income' || $tx->reference_type === ShopLedgerTransaction::class);
 
             if ($isIncome && ! $isAdjustmentIncome) {
-                $grossSales += (float) $tx->amount;
                 $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+                $isCpContra = $code === 'income_cp' || ($setting && ! $setting->include_in_sales && $setting->generates_secondary_entry);
+                if (! $isCpContra) {
+                    $grossSales += (float) $tx->amount;
+                }
                 $statement = $statements->get($tx->id);
 
-                $destinationName = $statement?->companyAccount?->name
-                    ?? $setting?->companyAccount?->name
-                    ?? 'Configured Company Account';
+                $configuredAccount = ($setting && $setting->enabled && $setting->company_account_id && $setting->companyAccount?->enabled)
+                    ? $setting->companyAccount
+                    : null;
+
+                $hasAccountMapping = $configuredAccount !== null;
+                $destinationAccountId = $configuredAccount?->id;
+                $destinationAccountName = $configuredAccount?->name;
+
+                $statementAccountId = $statement?->company_account_id;
+                $statementAccountName = $statement?->companyAccount?->name;
+
+                $hasAccountMismatch = false;
+                $accountMappingStatus = 'unconfigured';
+                $verificationBlockReason = null;
+
+                if ($statement) {
+                    if ($hasAccountMapping && (int) $statementAccountId !== (int) $configuredAccount->id) {
+                        $hasAccountMismatch = true;
+                        $accountMappingStatus = 'mismatched';
+                        $verificationBlockReason = 'Account mismatch — review required';
+                    } elseif (! $hasAccountMapping) {
+                        $hasAccountMismatch = true;
+                        $accountMappingStatus = 'unconfigured';
+                        $verificationBlockReason = 'Destination account not configured';
+                    } else {
+                        $accountMappingStatus = 'configured';
+                    }
+                } else {
+                    if ($hasAccountMapping) {
+                        $accountMappingStatus = 'configured';
+                    } else {
+                        $accountMappingStatus = 'unconfigured';
+                        $verificationBlockReason = 'Destination account not configured';
+                    }
+                }
 
                 $lowerCode = strtolower($code);
                 $isCash = str_contains($lowerCode, 'cash')
@@ -400,14 +436,17 @@ class CompanyMoneyPositionService
                 $destinationFormatted = null;
                 $locationFormatted = null;
 
-                if ($tx->status !== 'approved') {
+                $isApproved = in_array($tx->status, [TransactionStatus::Approved->value, 'approved'], true);
+                $isReconciled = (bool) ($statement && $statement->is_finalized && $statement->status === 'reconciled');
+
+                if (! $isApproved) {
                     $status = 'POSTED';
                     $actionType = 'approve';
                     $locationFormatted = '📍 '.$shopName.' Shop';
-                } elseif ($statement && $statement->is_finalized && $statement->status === 'reconciled') {
+                } elseif ($isReconciled) {
                     $status = 'VERIFIED';
                     $actionType = null;
-                    $destinationFormatted = '→ '.($destinationName ?: 'Company Account');
+                    $destinationFormatted = '→ '.($destinationAccountName ?? $statementAccountName ?? 'Company Account');
                     $verifiedReceived += (float) $tx->amount;
                 } elseif ($isCash) {
                     $status = 'CASH WITH SHOP';
@@ -417,9 +456,11 @@ class CompanyMoneyPositionService
                 } else {
                     $status = 'NEEDS VERIFICATION';
                     $actionType = 'verify_received';
-                    $destinationFormatted = '→ '.($destinationName ?: 'Company Bank');
+                    $destinationFormatted = $destinationAccountName ? '→ '.$destinationAccountName : null;
                     $pendingVerification += (float) $tx->amount;
                 }
+
+                $canVerify = $isApproved && ! $isReconciled && $hasAccountMapping && ! $hasAccountMismatch;
 
                 $entryTypeId = (int) $tx->entry_type_id;
                 $rulesForType = $bankRules->get($entryTypeId, collect());
@@ -454,7 +495,15 @@ class CompanyMoneyPositionService
                     'amount' => (float) $tx->amount,
                     'status' => $status,
                     'is_cash' => $isCash,
-                    'destination_account' => $destinationName,
+                    'destination_account' => $destinationAccountName,
+                    'destination_account_id' => $destinationAccountId,
+                    'destination_account_name' => $destinationAccountName,
+                    'has_account_mapping' => $hasAccountMapping,
+                    'account_mapping_status' => $accountMappingStatus,
+                    'statement_account_id' => $statementAccountId,
+                    'statement_account_name' => $statementAccountName,
+                    'has_account_mismatch' => $hasAccountMismatch,
+                    'verification_block_reason' => $verificationBlockReason,
                     'destination_name' => $destinationFormatted,
                     'location_name' => $locationFormatted,
                     'statement_ref' => $statement?->reference,
@@ -474,8 +523,8 @@ class CompanyMoneyPositionService
                     'adjustments_detail' => $resolvedExpected['adjustments'],
                     'tx_status' => (string) $tx->status,
                     'can_accept' => in_array($tx->status, [TransactionStatus::Posted->value, TransactionStatus::Submitted->value], true),
-                    'can_verify' => $tx->status === TransactionStatus::Approved->value && (! $statement || (! $statement->is_finalized && $statement->status !== 'reconciled')),
-                    'is_received' => (bool) ($statement && $statement->is_finalized && $statement->status === 'reconciled'),
+                    'can_verify' => $canVerify,
+                    'is_received' => $isReconciled,
                 ];
             } elseif ($isExpense && ! $isSettlement) {
                 $effectOnPayable = 0.0;
@@ -579,9 +628,86 @@ class CompanyMoneyPositionService
         $expectedPayable = max(0.0, round($grossSales + $settlementAdditions - $settlementDeductions, 2));
         $outstandingToSettle = max(0.0, round($expectedPayable - $verifiedReceived, 2));
 
+        // Canonical Bidirectional Settlement Obligations
+        $shop = Shop::find($shopId);
+        $shopName = $shop?->name ?? 'Shop';
+
+        $prevSnapshot = ShopDailyLedgerSnapshot::query()
+            ->where('shop_id', $shopId)
+            ->where('business_date', '<', $businessDate)
+            ->orderByDesc('business_date')
+            ->first();
+
+        $openingShopOutstanding = max(0.0, (float) ($prevSnapshot?->closing_shop_position ?? 0.0));
+        $openingCompanyOutstanding = max(0.0, (float) ($prevSnapshot?->closing_company_pending ?? 0.0));
+
+        $shopObligationGross = round($grossSales + $settlementAdditions, 2);
+        $shopSalesDeductions = round($settlementDeductions, 2);
+        $shopToPettyTransfers = (float) $transactions
+            ->filter(fn ($t) => ! in_array($t->status, ['void', 'voided'], true) && (string) $t->funding_source === 'sales' && (float) $t->petty_delta > 0)
+            ->sum('amount');
+        $shopPaymentsVerified = round($verifiedReceived, 2);
+
+        $dayShopObligations = max(0.0, round($shopObligationGross - $shopSalesDeductions - $shopToPettyTransfers, 2));
+        $dayShopPayments = $shopPaymentsVerified;
+
+        $companyExpensesFundedByShop = (float) $transactions
+            ->filter(fn ($t) => ! in_array($t->status, ['void', 'voided'], true) && ((string) $t->funding_source === 'company_later' || (float) $t->company_pending_delta > 0))
+            ->sum('amount');
+        $companyObligationGross = round($companyExpensesFundedByShop, 2);
+        $dayCompanyObligations = $companyObligationGross;
+        $dayCompanyPayments = (float) CompanyExpenseLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->where('status', 'active')
+            ->whereDate('allocation_date', $businessDate)
+            ->sum('allocated_amount');
+
+        $totalCompanyPaymentsVerified = (float) CompanyExpenseLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->where('status', 'active')
+            ->whereDate('allocation_date', '<=', $businessDate)
+            ->sum('allocated_amount');
+
+        $closingShopOutstanding = max(0.0, round($openingShopOutstanding + $dayShopObligations - $dayShopPayments, 2));
+        $closingCompanyOutstanding = max(0.0, round($openingCompanyOutstanding + $dayCompanyObligations - $dayCompanyPayments, 2));
+
+        $closingNetDiff = round($closingShopOutstanding - $closingCompanyOutstanding, 2);
+        if ($closingNetDiff > 0) {
+            $closingNetAmount = $closingNetDiff;
+            $closingNetDirection = 'shop_owes_company';
+            $creditorName = 'Green Leaf';
+            $debtorName = $shopName;
+            $displayStatement = "{$shopName} OWES GREEN LEAF ₹".number_format($closingNetAmount, 2);
+        } elseif ($closingNetDiff < 0) {
+            $closingNetAmount = abs($closingNetDiff);
+            $closingNetDirection = 'company_owes_shop';
+            $creditorName = $shopName;
+            $debtorName = 'Green Leaf';
+            $displayStatement = "GREEN LEAF OWES {$shopName} ₹".number_format($closingNetAmount, 2);
+        } else {
+            $closingNetAmount = 0.0;
+            $closingNetDirection = 'settled';
+            $creditorName = null;
+            $debtorName = null;
+            $displayStatement = "GREEN LEAF AND {$shopName} ARE FULLY SETTLED";
+        }
+
+        // Petty Cash Analysis
+        $openingPetty = (float) ($prevSnapshot?->closing_petty ?? 0.0);
+        $companyPettyReceived = (float) $transactions
+            ->filter(fn ($t) => ! in_array($t->status, ['void', 'voided'], true) && (string) $t->funding_source === 'company' && (float) $t->petty_delta > 0)
+            ->sum('amount');
+        $salesTransferredToPetty = $shopToPettyTransfers;
+        $pettyExpenses = (float) $transactions
+            ->filter(fn ($t) => ! in_array($t->status, ['void', 'voided'], true) && ((string) $t->funding_source === 'petty' || (float) $t->petty_delta < 0))
+            ->sum('amount');
+        $closingPetty = round($openingPetty + $companyPettyReceived + $salesTransferredToPetty - $pettyExpenses, 2);
+        $shopFundedPettyShortfall = $closingPetty < 0 ? abs($closingPetty) : 0.0;
+
         return [
             'shop_id' => $shopId,
             'business_date' => $businessDate,
+            'as_of_date' => $businessDate,
             'gross_sales' => round($grossSales, 2),
             'collections' => $collections,
             'settlement_adjustments' => $adjustments,
@@ -600,7 +726,63 @@ class CompanyMoneyPositionService
                 'expected_payable' => $expectedPayable,
                 'verified_company_received' => round($verifiedReceived, 2),
                 'outstanding_to_settle' => $outstandingToSettle,
+                'opening_shop_outstanding' => $openingShopOutstanding,
+                'opening_company_outstanding' => $openingCompanyOutstanding,
+                'day_shop_obligations' => $dayShopObligations,
+                'day_shop_payments' => $dayShopPayments,
+                'day_company_obligations' => $dayCompanyObligations,
+                'day_company_payments' => $dayCompanyPayments,
+                'closing_shop_outstanding' => $closingShopOutstanding,
+                'closing_company_outstanding' => $closingCompanyOutstanding,
+                'closing_net_amount' => $closingNetAmount,
+                'closing_net_direction' => $closingNetDirection,
+                'shop_obligation_gross' => $shopObligationGross,
+                'shop_sales_deductions' => $shopSalesDeductions,
+                'shop_to_petty_transfers' => $shopToPettyTransfers,
+                'shop_payments_verified' => $shopPaymentsVerified,
+                'shop_outstanding' => $closingShopOutstanding,
+                'company_obligation_gross' => $companyObligationGross,
+                'company_payments_verified' => $totalCompanyPaymentsVerified,
+                'company_outstanding' => $closingCompanyOutstanding,
+                'net_amount' => $closingNetAmount,
+                'net_direction' => $closingNetDirection,
+                'creditor_name' => $creditorName,
+                'debtor_name' => $debtorName,
+                'display_statement' => $displayStatement,
             ],
+            'petty_position' => [
+                'opening_petty' => $openingPetty,
+                'company_petty_received' => $companyPettyReceived,
+                'sales_transferred_to_petty' => $salesTransferredToPetty,
+                'petty_expenses' => $pettyExpenses,
+                'closing_petty' => $closingPetty,
+                'approved_shop_funded_petty_shortfall' => $shopFundedPettyShortfall,
+                'pending_review_shortfall' => 0.0,
+            ],
+            // Direct top-level aliases for canonical fields
+            'opening_shop_outstanding' => $openingShopOutstanding,
+            'opening_company_outstanding' => $openingCompanyOutstanding,
+            'day_shop_obligations' => $dayShopObligations,
+            'day_shop_payments' => $dayShopPayments,
+            'day_company_obligations' => $dayCompanyObligations,
+            'day_company_payments' => $dayCompanyPayments,
+            'closing_shop_outstanding' => $closingShopOutstanding,
+            'closing_company_outstanding' => $closingCompanyOutstanding,
+            'closing_net_amount' => $closingNetAmount,
+            'closing_net_direction' => $closingNetDirection,
+            'shop_obligation_gross' => $shopObligationGross,
+            'shop_sales_deductions' => $shopSalesDeductions,
+            'shop_to_petty_transfers' => $shopToPettyTransfers,
+            'shop_payments_verified' => $shopPaymentsVerified,
+            'shop_outstanding' => $closingShopOutstanding,
+            'company_obligation_gross' => $companyObligationGross,
+            'company_payments_verified' => $totalCompanyPaymentsVerified,
+            'company_outstanding' => $closingCompanyOutstanding,
+            'net_amount' => $closingNetAmount,
+            'net_direction' => $closingNetDirection,
+            'creditor_name' => $creditorName,
+            'debtor_name' => $debtorName,
+            'display_statement' => $displayStatement,
         ];
     }
 
