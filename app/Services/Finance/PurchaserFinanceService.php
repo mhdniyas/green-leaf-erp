@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\JournalEntry;
 use App\Models\PurchaserCredit;
@@ -12,6 +13,7 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 final class PurchaserFinanceService
@@ -576,5 +578,145 @@ final class PurchaserFinanceService
             ->when($startDate !== '', fn (Builder $query) => $query->whereRaw('COALESCE(DATE(purchaser_carts.business_date), DATE(purchase_invoices.created_at)) >= ?', [$startDate]))
             ->when($endDate !== '', fn (Builder $query) => $query->whereRaw('COALESCE(DATE(purchaser_carts.business_date), DATE(purchase_invoices.created_at)) <= ?', [$endDate]))
             ->selectRaw('(purchase_invoices.amount - purchase_invoices.discount_amount) as amount');
+    }
+
+    /**
+     * Correct a committed manual statement counterpart for a purchaser funding movement.
+     * Atomically reverses the old counterpart balance effect on the company account, marks the
+     * old statement entry as reversed preserving full audit trail, updates the PurchaserCredit and
+     * funding JournalEntry in-place, and creates a replacement counterpart entry matched to the journal.
+     *
+     * @param  array{amount: float|numeric-string, business_date: string, payment_source?: string, company_account_id: int|numeric-string, reference?: string|null, description?: string|null}  $data
+     */
+    public function correctCommittedFundingCounterpart(
+        PurchaserCredit $credit,
+        array $data,
+        int $userId,
+        string $reason
+    ): PurchaserCredit {
+        $reason = trim($reason);
+        if (mb_strlen($reason) < 3) {
+            throw ValidationException::withMessages([
+                'reason' => 'A valid correction reason (at least 3 characters) is required.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($credit, $data, $userId, $reason): PurchaserCredit {
+            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+
+            if ($credit->purchase_invoice_id !== null || $credit->type !== 'in') {
+                throw ValidationException::withMessages([
+                    'credit' => 'Only Company → Purchaser funding movements can be corrected.',
+                ]);
+            }
+
+            $oldStatement = CompanyAccountStatementEntry::query()
+                ->where('source_type', self::FUNDING_SOURCE_TYPE)
+                ->where('source_id', $credit->id)
+                ->where('is_finalized', true)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $oldStatement) {
+                throw ValidationException::withMessages([
+                    'credit' => 'No active finalized statement counterpart found to correct.',
+                ]);
+            }
+
+            $isImported = $oldStatement->source === 'imported'
+                || ! empty($oldStatement->import_file_name)
+                || ! empty($oldStatement->import_fingerprint);
+
+            if ($isImported) {
+                throw ValidationException::withMessages([
+                    'credit' => 'Imported statements should be unlinked using Unmatch instead of counterpart correction.',
+                ]);
+            }
+
+            // 1. Reverse old statement entry financial effect on the old company account
+            if ($oldStatement->company_account_id) {
+                $oldAccount = CompanyAccount::query()
+                    ->whereKey($oldStatement->company_account_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($oldAccount instanceof CompanyAccount) {
+                    if ($oldStatement->direction === 'out' || $oldStatement->direction === 'debit') {
+                        $oldAccount->increment('current_balance', (float) $oldStatement->amount);
+                    } elseif ($oldStatement->direction === 'in' || $oldStatement->direction === 'credit') {
+                        $oldAccount->decrement('current_balance', (float) $oldStatement->amount);
+                    }
+                }
+            }
+
+            // 2. Mark old statement as reversed preserving audit trail
+            $oldStatement->update([
+                'is_finalized' => false,
+                'status' => 'reversed',
+                'matched_amount' => 0,
+                'source_type' => null,
+                'source_id' => null,
+                'counterpart_type' => self::FUNDING_SOURCE_TYPE,
+                'counterpart_id' => $credit->id,
+                'journal_entry_id' => null,
+                'notes' => trim(($oldStatement->notes ?? '')." [Reversed for correction: {$reason}]"),
+            ]);
+
+            // 3. Update PurchaserCredit model with corrected parameters
+            $newAmount = round((float) $data['amount'], 2);
+            $newAccount = CompanyAccount::query()
+                ->whereKey((int) $data['company_account_id'])
+                ->where('enabled', true)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $paymentSource = $data['payment_source'] ?? ($newAccount->account_type === 'cash' ? 'Cash' : 'Bank');
+
+            $credit->update([
+                'amount' => $newAmount,
+                'business_date' => $data['business_date'],
+                'payment_source' => $paymentSource,
+                'company_account_id' => $newAccount->id,
+                'reference' => $data['reference'] ?? null,
+                'description' => $data['description'] ?? null,
+            ]);
+
+            // 4. Update existing funding journal in-place
+            $journalEntry = app(JournalService::class)->recordPurchaserCredit($credit, updateExisting: true);
+
+            // 5. Create new replacement statement counterpart entry and reconcile it
+            $purchaser = $credit->purchaser;
+            $newStatement = $this->reconciliationService->createStatementEntry([
+                'company_account_id' => $newAccount->id,
+                'transaction_date' => $data['business_date'],
+                'direction' => 'out',
+                'amount' => $newAmount,
+                'reference' => $data['reference'] ?? "CASH-{$credit->id}",
+                'narration' => $data['description'] ?? 'Cash given to purchaser '.($purchaser?->name ?? '#'.$credit->purchaser_id),
+                'source' => 'manual',
+                'source_type' => self::FUNDING_SOURCE_TYPE,
+                'source_id' => $credit->id,
+                'notes' => "Replacement counterpart for statement #{$oldStatement->id}. Reason: {$reason}",
+            ], $userId);
+
+            $this->reconciliationService->reconcileStatementJournal(
+                $newStatement,
+                $journalEntry,
+                $newAmount,
+                $userId,
+            );
+
+            Log::info('Committed purchaser funding counterpart corrected', [
+                'credit_id' => $credit->id,
+                'old_statement_id' => $oldStatement->id,
+                'new_statement_id' => $newStatement->id,
+                'old_amount' => $oldStatement->amount,
+                'new_amount' => $newAmount,
+                'reason' => $reason,
+                'user_id' => $userId,
+            ]);
+
+            return $credit->fresh(['purchaser', 'companyAccount']);
+        }, attempts: 3);
     }
 }

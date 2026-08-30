@@ -536,13 +536,22 @@
                                                 <button type="button" onclick="openManualEntryModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ $movement->company_account_id }}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition">
                                                     <i data-lucide="plus-circle" class="h-3 w-3"></i> Add Cash/Statement
                                                 </button>
-                                            @elseif(in_array($movement->status, ['matched', 'manual_cash', 'manual_statement'], true))
+                                            @elseif($movement->status === 'matched')
                                                 <button type="button" onclick="openViewMatchModal({{ $movement->id }}, '{{ $record->public_uuid }}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition">
                                                     <i data-lucide="eye" class="h-3 w-3"></i> Trace
                                                 </button>
                                                 <button type="button" onclick="openUnmatchModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->statement_account_name ?? $movement->company_account ?? '') }}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-sm transition">
                                                     <i data-lucide="unlink" class="h-3 w-3"></i> Unmatch
                                                 </button>
+                                            @elseif(in_array($movement->status, ['manual_cash', 'manual_statement'], true))
+                                                <button type="button" onclick="openViewMatchModal({{ $movement->id }}, '{{ $record->public_uuid }}')" class="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 shadow-sm transition">
+                                                    <i data-lucide="eye" class="h-3 w-3"></i> Trace
+                                                </button>
+                                                @if(auth()->user()->isMainAdmin() || auth()->user()->hasRole('admin'))
+                                                    <button type="button" onclick="openCorrectFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}')" class="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 shadow-sm transition">
+                                                        <i data-lucide="refresh-cw" class="h-3 w-3"></i> Correct Movement
+                                                    </button>
+                                                @endif
                                             @endif
                                         @endif
                                     </div>
@@ -607,8 +616,14 @@
                                     @endif
                                     @if($movement->status === 'unmatched')
                                         <button type="button" onclick="openMatchStatementModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->company_account ?? '') }}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white">Match Statement</button>
-                                    @elseif(in_array($movement->status, ['matched', 'manual_cash', 'manual_statement'], true))
+                                    @elseif($movement->status === 'matched')
                                         <button type="button" onclick="openViewMatchModal({{ $movement->id }}, '{{ $record->public_uuid }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Trace</button>
+                                        <button type="button" onclick="openUnmatchModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ addslashes($movement->statement_account_name ?? $movement->company_account ?? '') }}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Unmatch</button>
+                                    @elseif(in_array($movement->status, ['manual_cash', 'manual_statement'], true))
+                                        <button type="button" onclick="openViewMatchModal({{ $movement->id }}, '{{ $record->public_uuid }}')" class="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700">Trace</button>
+                                        @if(auth()->user()->isMainAdmin() || auth()->user()->hasRole('admin'))
+                                            <button type="button" onclick="openCorrectFundingModal({{ $movement->id }}, '{{ $record->public_uuid }}', '{{ $movement->business_date }}', {{ (float) $movement->amount }}, '{{ $movement->payment_source }}', '{{ $movement->company_account_id }}', '{{ addslashes($movement->funding_reference ?? $movement->movement_reference ?? '') }}', '{{ addslashes($movement->funding_description ?? '') }}')" class="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">Correct</button>
+                                        @endif
                                     @endif
                                 @endif
                             </div>
@@ -885,6 +900,89 @@
                 <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3.5 shrink-0">
                     <button type="button" onclick="closeEditFundingModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
                     <button type="submit" class="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white hover:bg-emerald-600 shadow-sm">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- ── Correct Committed Funding Modal ─────────────────────────────── --}}
+    <div id="correctFundingModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div class="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between border-b border-indigo-100 bg-indigo-50/75 px-5 py-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="refresh-cw" class="h-5 w-5 text-indigo-700"></i>
+                    <h3 class="font-black text-slate-900">Correct Committed Cashbook Movement</h3>
+                </div>
+                <button type="button" onclick="closeCorrectFundingModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            
+            <form id="correctFundingForm" method="POST" action="" class="flex flex-col flex-1 overflow-hidden" onsubmit="return confirmCorrectFundingSave()">
+                @csrf
+                <input type="hidden" name="tab" value="{{ $tab }}">
+                <input type="hidden" name="period" value="{{ $filters['period'] ?? 'month' }}">
+                <input type="hidden" id="correctFundingOpenSplit" name="open_split" value="">
+                <div class="p-5 space-y-3.5 overflow-y-auto flex-1 text-xs">
+                    <div class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 text-xs text-indigo-950 space-y-1">
+                        <div class="flex items-center gap-1.5 font-black text-indigo-900">
+                            <i data-lucide="shield-alert" class="h-4 w-4 text-indigo-700 shrink-0"></i>
+                            Committed Cashbook Entry
+                        </div>
+                        <p class="text-indigo-800 text-[11px] leading-relaxed">
+                            This movement is already committed to the cashbook. Correction will preserve the original entry in audit history and post an adjustment/replacement with updated parameters.
+                        </p>
+                    </div>
+
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div>
+                            <label for="correctFundingAmount" class="mb-1 block font-bold text-slate-600">Correct Amount (₹) <span class="text-rose-500">*</span></label>
+                            <input id="correctFundingAmount" name="amount" type="number" step="0.01" min="0.01" required class="min-h-11 w-full rounded-lg border border-slate-300 px-3 font-mono text-sm font-bold text-slate-900">
+                        </div>
+                        <div>
+                            <label for="correctFundingDate" class="mb-1 block font-bold text-slate-600">Correct Date <span class="text-rose-500">*</span></label>
+                            <input id="correctFundingDate" name="business_date" type="date" required class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-800">
+                        </div>
+                    </div>
+
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div>
+                            <label for="correctFundingSource" class="mb-1 block font-bold text-slate-600">Payment Method <span class="text-rose-500">*</span></label>
+                            <select id="correctFundingSource" name="payment_source" required class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                                <option value="Bank">Bank</option>
+                                <option value="Cash">Cash</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="correctFundingAccount" class="mb-1 block font-bold text-slate-600">Company Account <span class="text-rose-500">*</span></label>
+                            <select id="correctFundingAccount" name="company_account_id" required class="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                                <option value="">Select account</option>
+                                @foreach($companyAccounts as $account)
+                                    <option value="{{ $account->id }}">{{ $account->name }} / {{ strtoupper($account->account_type) }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="correctFundingReference" class="mb-1 block font-bold text-slate-600">Reference</label>
+                        <input id="correctFundingReference" name="reference" type="text" maxlength="160" placeholder="UTR or voucher" class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                    </div>
+
+                    <div>
+                        <label for="correctFundingDescription" class="mb-1 block font-bold text-slate-600">Note / Description</label>
+                        <input id="correctFundingDescription" name="description" type="text" maxlength="255" placeholder="Funding note" class="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                    </div>
+
+                    <div>
+                        <label for="correctFundingReason" class="mb-1 block font-bold text-slate-700">Reason for Correction <span class="text-rose-500">*</span></label>
+                        <textarea id="correctFundingReason" name="reason" rows="2" required minlength="3" maxlength="500" placeholder="State reason for correcting this committed movement (e.g. amount was miskeyed, wrong bank account selected)" class="w-full rounded-lg border border-slate-300 p-2.5 text-xs font-medium text-slate-800 focus:border-indigo-500"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3.5 shrink-0">
+                    <button type="button" onclick="closeCorrectFundingModal()" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="rounded-lg bg-indigo-700 px-4 py-2 text-xs font-black text-white hover:bg-indigo-600 shadow-sm">Apply Correction</button>
                 </div>
             </form>
         </div>
@@ -1394,9 +1492,14 @@
                                     <i data-lucide="git-merge" class="h-3 w-3"></i> Match
                                 </button>
                             ` : ''}
-                            ${['matched', 'manual_statement', 'manual_cash'].includes(m.status) ? `
+                            ${m.status === 'matched' ? `
                                 <button type="button" onclick="openUnmatchModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.statement_account_name || m.company_account || '').replace(/'/g, "\\'")}', '${activeSplitCard}')" class="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100 shadow-xs transition">
                                     <i data-lucide="unlink" class="h-3 w-3"></i> Unmatch
+                                </button>
+                            ` : ''}
+                            ${['manual_statement', 'manual_cash'].includes(m.status) ? `
+                                <button type="button" onclick="openCorrectFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${m.payment_source || 'Bank'}', '${m.company_account_id || ''}', '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.funding_description || '').replace(/'/g, "\\'")}', '${activeSplitCard}')" class="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 shadow-xs transition">
+                                    <i data-lucide="refresh-cw" class="h-3 w-3"></i> Correct Movement
                                 </button>
                             ` : ''}
                         ` : ''}
@@ -1465,8 +1568,11 @@
                             ${!isUsed && m.status === 'unmatched' ? `
                                 <button type="button" onclick="openMatchStatementModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.company_account || '').replace(/'/g, "\\'")}')" class="rounded bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-600">Match</button>
                             ` : ''}
-                            ${!isUsed && ['matched', 'manual_statement', 'manual_cash'].includes(m.status) ? `
+                            ${!isUsed && m.status === 'matched' ? `
                                 <button type="button" onclick="openUnmatchModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${(m.statement_account_name || m.company_account || '').replace(/'/g, "\\'")}', '${activeSplitCard}')" class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Unmatch</button>
+                            ` : ''}
+                            ${!isUsed && ['manual_statement', 'manual_cash'].includes(m.status) ? `
+                                <button type="button" onclick="openCorrectFundingModal(${m.id}, '{{ $record->public_uuid }}', '${m.business_date}', ${Number(m.amount)}, '${m.payment_source || 'Bank'}', '${m.company_account_id || ''}', '${(m.funding_reference || m.movement_reference || '').replace(/'/g, "\\'")}', '${(m.funding_description || '').replace(/'/g, "\\'")}', '${activeSplitCard}')" class="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">Correct Movement</button>
                             ` : ''}
                         </div>
                     </article>
@@ -2038,6 +2144,44 @@
             const modal = document.getElementById('unmatchModal');
             modal.classList.add('hidden');
             modal.classList.remove('flex');
+        }
+
+        function openCorrectFundingModal(creditId, purchaserUuid, date, amount, source, accountId, reference, description, fromSplitCard = '') {
+            const form = document.getElementById('correctFundingForm');
+            form.action = `/admin/cashbook/finance/purchase/purchasers/${purchaserUuid}/funding/${creditId}/correct`;
+
+            document.getElementById('correctFundingAmount').value = amount || '';
+            document.getElementById('correctFundingDate').value = date || '';
+            document.getElementById('correctFundingSource').value = source || 'Bank';
+            document.getElementById('correctFundingAccount').value = accountId || '';
+            document.getElementById('correctFundingReference').value = reference || '';
+            document.getElementById('correctFundingDescription').value = description || '';
+            document.getElementById('correctFundingReason').value = '';
+
+            const splitCardInput = document.getElementById('correctFundingOpenSplit');
+            if (splitCardInput) {
+                splitCardInput.value = fromSplitCard || (document.getElementById('fundingSplitModal')?.classList.contains('hidden') ? '' : activeSplitCard);
+            }
+
+            const modal = document.getElementById('correctFundingModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeCorrectFundingModal() {
+            const modal = document.getElementById('correctFundingModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function confirmCorrectFundingSave() {
+            const reason = document.getElementById('correctFundingReason')?.value || '';
+            if (reason.trim().length < 3) {
+                alert('Please enter a valid correction reason (at least 3 characters).');
+                return false;
+            }
+            return confirm('Confirm correction of this committed cashbook movement? Original entry will be preserved in audit history and replaced.');
         }
 
         document.addEventListener('DOMContentLoaded', () => {

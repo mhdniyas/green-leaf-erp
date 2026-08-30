@@ -756,6 +756,7 @@ Route::middleware('auth')->group(function () {
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/match-manual', [CashbookController::class, 'matchManualPurchaserFunding'])->name('finance.purchasers.funding.match-manual');
             Route::get('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/trace', [CashbookController::class, 'tracePurchaserFunding'])->name('finance.purchasers.funding.trace');
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/unmatch', [CashbookController::class, 'unmatchPurchaserFunding'])->name('finance.purchasers.funding.unmatch');
+            Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/correct', [CashbookController::class, 'correctPurchaserFunding'])->name('finance.purchasers.funding.correct');
 
             // Direct aliases under /finance/purchase/purchasers/
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/update', [CashbookController::class, 'updatePurchaserFunding']);
@@ -767,6 +768,7 @@ Route::middleware('auth')->group(function () {
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/match-manual', [CashbookController::class, 'matchManualPurchaserFunding']);
             Route::get('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/trace', [CashbookController::class, 'tracePurchaserFunding']);
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/unmatch', [CashbookController::class, 'unmatchPurchaserFunding']);
+            Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/correct', [CashbookController::class, 'correctPurchaserFunding']);
             Route::get('finance/vendor-credit', [CashbookController::class, 'companyFinanceVendorCredit'])->name('finance.vendor-credit');
             Route::get('finance/vendor-credit/settlements', [CashbookController::class, 'companyFinanceVendorSettlementHistory'])->name('finance.vendor-credit.settlements');
             Route::get('finance/vendor-credit/settlements/{vendorSettlement:public_uuid}', [CashbookController::class, 'companyFinanceVendorSettlementDetails'])->whereUuid('vendorSettlement')->name('finance.vendor-credit.settlements.show');

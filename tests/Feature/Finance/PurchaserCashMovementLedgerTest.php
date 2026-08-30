@@ -12,6 +12,7 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\PurchaserFinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -1146,5 +1147,188 @@ class PurchaserCashMovementLedgerTest extends TestCase
 
         $this->assertNull($this->purchaserFinanceService->fundingMutationBlockReason($credit833));
         $this->assertNull($this->purchaserFinanceService->fundingMutationBlockReason($credit834));
+    }
+
+    public function test_committed_manual_counterpart_correction_workflow_preserves_original_and_updates_all_ledgers(): void
+    {
+        $initialBankBalance = (float) $this->bankAccount->current_balance;
+
+        // 1. Create a committed manual funding counterpart: ₹80,000
+        $credit = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 80000.00,
+            'business_date' => '2026-08-10',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'ORIG-80K',
+            'description' => 'Original 80k funding',
+            'created_by' => $this->admin->id,
+        ]);
+        $journal = app(JournalService::class)->recordPurchaserCredit($credit);
+
+        $reconService = app(CompanyPaymentReconciliationService::class);
+        $statement = $reconService->createStatementEntry([
+            'company_account_id' => $this->bankAccount->id,
+            'transaction_date' => '2026-08-10',
+            'direction' => 'out',
+            'amount' => 80000.00,
+            'reference' => 'ORIG-80K-STMT',
+            'narration' => 'Cash given to purchaser',
+            'source' => 'manual',
+            'source_type' => PurchaserCredit::class,
+            'source_id' => $credit->id,
+        ], (int) $this->admin->id);
+
+        $reconService->reconcileStatementJournal(
+            $statement,
+            $journal,
+            80000.00,
+            (int) $this->admin->id,
+        );
+
+        // Verify bank balance decremented by 80k
+        $this->bankAccount->refresh();
+        $this->assertEquals($initialBankBalance - 80000.00, (float) $this->bankAccount->current_balance);
+
+        // Verify split modal / UI actions: Shows Correct Movement, not Unmatch
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'period' => 'month',
+            'tab' => 'funding',
+        ]));
+        $response->assertOk();
+        $response->assertSee('Correct Movement');
+        $response->assertSee('MATCHED TO STATEMENT');
+
+        // 2. Perform correction to ₹50,000 with date change and note
+        $postResponse = $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.correct', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'credit' => $credit->id,
+        ]), [
+            'amount' => 50000.00,
+            'business_date' => '2026-08-12',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'CORR-50K',
+            'description' => 'Corrected 50k funding',
+            'reason' => 'Miskeyed amount on movement, actual bank transfer was 50k',
+            'open_split' => 'given',
+        ]);
+
+        $postResponse->assertRedirect();
+        $postResponse->assertSessionHas('success');
+
+        // 3. Verify original statement entry is preserved as reversed
+        $statement->refresh();
+        $this->assertSame('reversed', $statement->status);
+        $this->assertFalse((bool) $statement->is_finalized);
+        $this->assertStringContainsString('Reversed for correction: Miskeyed amount', (string) $statement->notes);
+
+        // 4. Verify PurchaserCredit is updated to 50k
+        $credit->refresh();
+        $this->assertEquals(50000.00, (float) $credit->amount);
+        $this->assertSame('2026-08-12', $credit->business_date->toDateString());
+        $this->assertSame('CORR-50K', $credit->reference);
+
+        // 5. Verify new replacement statement is active and reconciled
+        $newStatement = CompanyAccountStatementEntry::query()
+            ->where('source_type', PurchaserCredit::class)
+            ->where('source_id', $credit->id)
+            ->where('is_finalized', true)
+            ->first();
+
+        $this->assertNotNull($newStatement);
+        $this->assertNotEquals($statement->id, $newStatement->id);
+        $this->assertEquals(50000.00, (float) $newStatement->amount);
+        $this->assertSame('2026-08-12', $newStatement->transaction_date->toDateString());
+        $this->assertSame('reconciled', $newStatement->status);
+
+        // 6. Verify CompanyAccount bank balance net effect is -₹50,000 from initial
+        $this->bankAccount->refresh();
+        $this->assertEquals($initialBankBalance - 50000.00, (float) $this->bankAccount->current_balance);
+
+        // 7. Verify JournalEntry debits = credits
+        $journal->refresh();
+        $journal->load('transactions');
+        $this->assertEquals(50000.00, (float) $journal->primary_amount);
+        $debits = (float) $journal->transactions->where('type', 'debit')->sum('amount');
+        $credits = (float) $journal->transactions->where('type', 'credit')->sum('amount');
+        $this->assertEquals(50000.00, $debits);
+        $this->assertEquals(50000.00, $credits);
+
+        // 8. Verify split modal calculations
+        $splits = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $this->assertEquals(50000.00, $splits['cumulative']['cash_given']);
+        $this->assertEquals(50000.00, $splits['cumulative']['net_funding']);
+        $this->assertEquals(50000.00, $splits['cumulative']['remaining_advance']);
+    }
+
+    public function test_imported_statement_match_shows_unmatch_and_can_be_unlinked_safely(): void
+    {
+        $credit = PurchaserCredit::query()->create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 75000.00,
+            'business_date' => '2026-08-15',
+            'payment_source' => 'Bank',
+            'company_account_id' => $this->bankAccount->id,
+            'reference' => 'IMP-75K',
+            'created_by' => $this->admin->id,
+        ]);
+        $journal = app(JournalService::class)->recordPurchaserCredit($credit);
+
+        $reconService = app(CompanyPaymentReconciliationService::class);
+        $importedStatement = $reconService->createStatementEntry([
+            'company_account_id' => $this->bankAccount->id,
+            'transaction_date' => '2026-08-15',
+            'direction' => 'out',
+            'amount' => 75000.00,
+            'reference' => 'BANK-STMT-75K',
+            'narration' => 'NEFT to purchaser',
+            'source' => 'imported',
+            'statement_batch' => 'BATCH-2026-08',
+        ], (int) $this->admin->id);
+
+        $importedStatement->import_file_name = 'bank_statement_aug.csv';
+        $importedStatement->save();
+
+        $reconService->reconcileStatementJournal(
+            $importedStatement,
+            $journal,
+            75000.00,
+            (int) $this->admin->id,
+        );
+
+        // UI renders Unmatch for imported statement match
+        $splits = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $splitRow = collect($splits['given'])->firstWhere('id', $credit->id);
+        $this->assertSame('matched', $splitRow->status);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'period' => 'month',
+            'tab' => 'funding',
+        ]));
+        $response->assertOk();
+        $response->assertSee('Unmatch');
+
+        // Unmatching unlinks the imported statement and reverts funding to unmatched
+        $unmatchResponse = $this->actingAs($this->admin)->post(route('admin.cashbook.finance.purchasers.funding.unmatch', [
+            'purchaser' => $this->purchaser->public_uuid,
+            'credit' => $credit->id,
+        ]));
+        $unmatchResponse->assertRedirect();
+        $unmatchResponse->assertSessionHas('success');
+
+        $importedStatement->refresh();
+        $this->assertSame('unmatched', $importedStatement->status);
+        $this->assertFalse((bool) $importedStatement->is_finalized);
+        $this->assertNull($importedStatement->journal_entry_id);
+
+        $splitsAfter = $this->purchaserFinanceService->fundingSplitsFor((int) $this->purchaser->id, '2026-08-01', '2026-08-31');
+        $splitRowAfter = collect($splitsAfter['given'])->firstWhere('id', $credit->id);
+        $this->assertSame('unmatched', $splitRowAfter->status);
+        $this->assertSame(0, (int) $splitRowAfter->funding_action_blocked);
     }
 }

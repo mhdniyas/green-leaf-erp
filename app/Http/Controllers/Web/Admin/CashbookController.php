@@ -142,6 +142,7 @@ final class CashbookController extends Controller
         private readonly CashFlowTransactionPresenter $transactionPresenter,
         private readonly CashbookTransactionReversalService $reversalService,
         private readonly CompanyExpenseAllocationService $expenseAllocationService,
+        private readonly PurchaserFinanceService $purchaserFinanceService,
         private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService,
     ) {}
 
@@ -3592,6 +3593,41 @@ final class CashbookController extends Controller
         }
 
         return redirect()->back()->with('success', 'Reconciliation unlinked successfully.');
+    }
+
+    public function correctPurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && $credit->type === 'in', 404);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'business_date' => ['required', 'date'],
+            'payment_source' => ['required', 'in:Cash,Bank'],
+            'company_account_id' => ['required', 'exists:cashbook_company_accounts,id'],
+            'reference' => ['nullable', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:500'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        $this->purchaserFinanceService->correctCommittedFundingCounterpart(
+            $credit,
+            $validated,
+            (int) $request->user()->id,
+            $validated['reason'],
+        );
+
+        if ($request->filled('open_split')) {
+            return redirect()->route('admin.cashbook.finance.purchase.purchasers.show', array_filter([
+                'purchaser' => $purchaser->public_uuid,
+                'period' => $request->input('period', 'month'),
+                'tab' => $request->input('tab', 'finance'),
+                'open_split' => $request->input('open_split'),
+            ]))->with('success', 'Committed movement corrected successfully. Original entry preserved and replacement posted.');
+        }
+
+        return redirect()->back()->with('success', 'Committed movement corrected successfully. Original entry preserved and replacement posted.');
     }
 
     public function companyFinanceVendorCredit(Request $request): RedirectResponse
