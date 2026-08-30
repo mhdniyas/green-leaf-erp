@@ -345,4 +345,77 @@ class CashbookShopDayCollectionPageTest extends TestCase
         // Ensure zero DB mutation on read
         $this->assertSame($initialTxCount, ShopLedgerTransaction::count());
     }
+
+    public function test_shop_monthly_page_renders_daily_summary_rows_and_open_day_details_action(): void
+    {
+        $month = '2026-08';
+
+        // Day 1: 2026-08-10 (Paytm ₹10,000 unapproved -> Pending Acceptance)
+        $this->dailyLedgerService->recordEntry([
+            'shop_id' => $this->sana->id,
+            'business_date' => '2026-08-10',
+            'entry_type_code' => $this->paytmType->code,
+            'amount' => 10000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // Day 2: 2026-08-11 (Card ₹15,000 approved -> Pending Verification)
+        $txCard = $this->dailyLedgerService->recordEntry([
+            'shop_id' => $this->sana->id,
+            'business_date' => '2026-08-11',
+            'entry_type_code' => $this->cardType->code,
+            'amount' => 15000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+        $this->dailyLedgerService->approveEntry($txCard['transaction'], $this->admin->id);
+
+        // Day 3: 2026-08-12 (Paytm ₹20,000 verified -> Company Received)
+        $txPaytm = $this->dailyLedgerService->recordEntry([
+            'shop_id' => $this->sana->id,
+            'business_date' => '2026-08-12',
+            'entry_type_code' => $this->paytmType->code,
+            'amount' => 20000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+        $this->dailyLedgerService->approveEntry($txPaytm['transaction'], $this->admin->id);
+        $stmtPaytm = CompanyAccountStatementEntry::where('source_id', $txPaytm['transaction']->id)->firstOrFail();
+        $this->reconciliationService->verifyPendingShopCollection($stmtPaytm, $this->admin->id);
+
+        // 1. Visit Monthly Shop Page (no date parameter)
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.shop.show', [
+            'shop' => $this->sanaProfile->slug,
+            'month' => $month,
+        ]));
+
+        $response->assertOk()
+            ->assertViewIs('admin.cashbook.shops.show')
+            ->assertSee('Daily Settlement Summaries')
+            ->assertSee('August 2026')
+            ->assertSee('Month Collections')
+            ->assertSee('₹45,000.00') // Total month collections
+            ->assertSee('₹20,000.00') // Company Received
+            ->assertSee('₹10,000.00') // Pending Acceptance
+            ->assertSee('₹15,000.00') // Pending Verification
+            ->assertSee('10 Aug 2026')
+            ->assertSee('11 Aug 2026')
+            ->assertSee('12 Aug 2026')
+            ->assertSee('Open Day Details');
+
+        // Check Open Day Details URL for 2026-08-12
+        $expectedDayUrl = route('admin.cashbook.shop.show', [
+            'shop' => $this->sanaProfile->slug,
+            'date' => '2026-08-12',
+        ]);
+        $response->assertSee($expectedDayUrl);
+
+        // 2. Open Day Details for 2026-08-12
+        $dayResponse = $this->actingAs($this->admin)->get($expectedDayUrl);
+        $dayResponse->assertOk()
+            ->assertSee("TODAY'S SETTLEMENT", false)
+            ->assertSee('Back to Month Summary')
+            ->assertSee('₹20,000.00');
+    }
 }

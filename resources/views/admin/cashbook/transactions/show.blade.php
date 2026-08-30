@@ -195,140 +195,32 @@
 
         </div>
 
-        <!-- EXACTLY ONE NEXT ACTION SECTION -->
+        <!-- SHOP DAY OPERATIONS NOTICE & LINK -->
         <div class="p-6 sm:p-8 bg-slate-50/70 space-y-4">
-            <h2 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                NEXT ACTION
-            </h2>
-
-            @if($presented['stage'] === 'posted')
-                <!-- ACTION: APPROVE -->
-                <div class="space-y-3">
-                    <p class="text-xs font-bold text-slate-600">
-                        This retail collection has been recorded by shop staff and is awaiting admin approval.
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="space-y-1">
+                    <h2 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+                        SHOP DAY OPERATIONS
+                    </h2>
+                    <p class="text-xs font-medium text-slate-600">
+                        @if($presented['stage'] === 'verified')
+                            <span class="text-emerald-800 font-bold">✓ Completed.</span> Verified and confirmed received into {{ $presented['destination_account_name'] }}.
+                        @elseif($presented['stage'] === 'exception')
+                            <span class="text-amber-800 font-bold">⚠ Exception.</span> This transaction requires resolution in Day Operations or Reconciliation workspace.
+                        @elseif($presented['stage'] === 'posted')
+                            This retail collection was posted and is managed in batch operations on the Shop Day Details workspace.
+                        @else
+                            Managed on the Shop Day Details workspace.
+                        @endif
                     </p>
-                    <form method="POST" action="{{ $presented['next_action_url'] }}">
-                        @csrf
-                        <button type="submit"
-                                class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-sm transition-all cursor-pointer">
-                            <i data-lucide="check-circle" class="w-4 h-4"></i>
-                            <span>APPROVE</span>
-                        </button>
-                    </form>
                 </div>
 
-            @elseif($presented['stage'] === 'approved_online')
-                <!-- ACTION: VERIFY RECEIVED (ONLINE) -->
-                <div x-data="{ openConfirm: false }" class="space-y-3">
-                    <p class="text-xs font-bold text-slate-600">
-                        Confirm that this payment of <span class="text-slate-900 font-extrabold">₹{{ number_format($presented['amount'], 2) }}</span> was received in the configured company account (<span class="font-extrabold text-slate-900">{{ $presented['destination_account_name'] }}</span>).
-                    </p>
-
-                    <button type="button" @click="openConfirm = true"
-                            class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-sm transition-all cursor-pointer">
-                        <i data-lucide="badge-check" class="w-4 h-4"></i>
-                        <span>VERIFY RECEIVED</span>
-                    </button>
-
-                    <!-- Simple Confirmation Modal -->
-                    <div x-show="openConfirm" x-cloak
-                         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-                        <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
-                             @click.away="openConfirm = false">
-                            <h3 class="text-base font-black text-slate-900">Confirm Company Received?</h3>
-                            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1 text-xs">
-                                <div class="font-extrabold text-slate-900">{{ $presented['shop_name'] }} &bull; {{ $presented['payment_method'] }}</div>
-                                <div class="text-lg font-black font-mono text-emerald-800">₹{{ number_format($presented['amount'], 2) }}</div>
-                                <div class="text-slate-600 font-bold">{{ $presented['destination_formatted'] }}</div>
-                            </div>
-                            <div class="flex items-center justify-end gap-2 pt-2">
-                                <button type="button" @click="openConfirm = false"
-                                        class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
-                                    Cancel
-                                </button>
-                                <form method="POST" action="{{ $presented['next_action_url'] }}">
-                                    @csrf
-                                    <button type="submit"
-                                            class="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs transition cursor-pointer">
-                                        Confirm Received
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            @elseif($presented['stage'] === 'approved_cash')
-                <!-- ACTION: VERIFY CASH RECEIVED -->
-                <div x-data="{ openCashConfirm: false }" class="space-y-3">
-                    <p class="text-xs font-bold text-slate-600">
-                        Confirm physical cash handover of <span class="text-slate-900 font-extrabold">₹{{ number_format($presented['amount'], 2) }}</span> from <span class="font-extrabold text-slate-900">{{ $presented['shop_name'] }} Shop</span> into the company vault.
-                    </p>
-
-                    <button type="button" @click="openCashConfirm = true"
-                            class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-black shadow-sm transition-all cursor-pointer">
-                        <i data-lucide="hand-coins" class="w-4 h-4"></i>
-                        <span>VERIFY CASH RECEIVED</span>
-                    </button>
-
-                    <!-- Simple Confirmation Modal -->
-                    <div x-show="openCashConfirm" x-cloak
-                         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-                        <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
-                             @click.away="openCashConfirm = false">
-                            <h3 class="text-base font-black text-slate-900">Confirm Physical Cash Received?</h3>
-                            <div class="p-4 rounded-2xl bg-sky-50 border border-sky-200 space-y-1 text-xs">
-                                <div class="font-extrabold text-slate-900">{{ $presented['shop_name'] }} Shop Cash</div>
-                                <div class="text-lg font-black font-mono text-sky-900">₹{{ number_format($presented['amount'], 2) }}</div>
-                                <div class="text-slate-600 font-bold mt-2">From: {{ $presented['shop_name'] }} Shop</div>
-                                <div class="text-slate-600 font-bold">To: Company Cash Box</div>
-                            </div>
-                            <div class="flex items-center justify-end gap-2 pt-2">
-                                <button type="button" @click="openCashConfirm = false"
-                                        class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
-                                    Cancel
-                                </button>
-                                <form method="POST" action="{{ $presented['next_action_url'] }}">
-                                    @csrf
-                                    <button type="submit"
-                                            class="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-black shadow-xs transition cursor-pointer">
-                                        Confirm Cash Received
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            @elseif($presented['stage'] === 'exception')
-                <!-- ACTION: RESOLVE ISSUE -->
-                <div class="space-y-3">
-                    <p class="text-xs font-bold text-amber-800">
-                        This transaction encountered an exception or amount mismatch requiring resolution in the reconciliation workspace.
-                    </p>
-                    <a href="{{ $presented['next_action_url'] }}"
-                       class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-sm transition-all cursor-pointer">
-                        <i data-lucide="wrench" class="w-4 h-4"></i>
-                        <span>RESOLVE ISSUE</span>
-                    </a>
-                </div>
-
-            @elseif($presented['stage'] === 'verified')
-                <!-- COMPLETED / NO ACTION -->
-                <div class="flex items-center gap-3 text-xs font-bold text-emerald-800 bg-emerald-50 p-4 rounded-2xl border border-emerald-200">
-                    <i data-lucide="badge-check" class="w-5 h-5 text-emerald-600 flex-shrink-0"></i>
-                    <div>
-                        <span class="font-extrabold text-sm text-emerald-950 block">✓ Completed</span>
-                        <span>Verified and confirmed received into {{ $presented['destination_account_name'] }}. No further action needed.</span>
-                    </div>
-                </div>
-
-            @else
-                <!-- VOID OR SUPERSEDED -->
-                <div class="text-xs font-bold text-slate-500 bg-slate-100 p-4 rounded-2xl border border-slate-200">
-                    This transaction is inactive. No action required.
-                </div>
-            @endif
+                <a href="{{ route('admin.cashbook.shop.show', ['shop' => $presented['shop_slug'], 'date' => $presented['raw_business_date']]) }}"
+                   class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-black shadow-xs transition-all cursor-pointer flex-shrink-0">
+                    <span>Open Shop Day Operations</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </a>
+            </div>
         </div>
 
         <!-- DETAILS SECTION -->

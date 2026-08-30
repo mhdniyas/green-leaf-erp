@@ -6,6 +6,7 @@ namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use Illuminate\Support\Carbon;
 
@@ -35,7 +36,8 @@ class CashFlowTransactionPresenter
         $code = (string) ($transaction->entryType?->code ?: ($transaction->entry_type_code ?? ''));
         $lowerCode = strtolower($code);
         $shopName = $transaction->shop?->name ?? 'Shop';
-        $shopSlug = $transaction->shop?->slug ?: ($transaction->shop?->shop_id ?: 1);
+        $profile = ShopLedgerProfile::query()->where('shop_id', $transaction->shop_id)->first();
+        $shopSlug = $profile?->slug ?: ($transaction->shop_id ?: 1);
 
         $paymentMethod = match (true) {
             str_contains($lowerCode, 'paytm') => 'Paytm',

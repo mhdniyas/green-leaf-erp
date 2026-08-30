@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Enums\Cashbook\TransactionStatus;
 use App\Exports\PurchaserReportArrayExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Cashbook\AddShopRequest;
@@ -425,11 +426,14 @@ final class CashbookController extends Controller
         $company = config('greenleaf');
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client', 'preset', 'shop');
+        $isDayDetail = $request->filled('date');
         $businessDate = $request->input('date') ? (string) $request->input('date') : today()->toDateString();
         $month = Carbon::parse((string) $request->input('month', $businessDate))->format('Y-m');
         $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
         $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
         $shopId = (int) $currentShop->shop_id;
+
+        $monthlyData = $this->moneyPositionService->getShopMonthlyDailySummaries($shopId, $month);
         $dailySettlement = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $businessDate);
         $position = $this->ledgerService->dailySummary($shopId, $monthEnd);
         $paymentCard = $this->shopPaymentCard($currentShop, $monthStart, $monthEnd);
@@ -489,8 +493,10 @@ final class CashbookController extends Controller
             'shops',
             'company',
             'currentShop',
+            'isDayDetail',
             'businessDate',
             'dailySettlement',
+            'monthlyData',
             'month',
             'monthStart',
             'monthEnd',
@@ -507,6 +513,325 @@ final class CashbookController extends Controller
             'recentPettyActivity',
             'openLedgerItems',
         ));
+    }
+
+    /**
+     * Accept (approve) selected posted collection entries for a shop day.
+     */
+    public function acceptSelectedDayEntries(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $user = $request->user();
+        $userId = (int) $user->id;
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'transaction_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'transaction_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $businessDate = (string) $validated['business_date'];
+        $transactionIds = array_map('intval', $validated['transaction_ids']);
+
+        try {
+            $acceptedCount = DB::transaction(function () use ($shopId, $businessDate, $transactionIds, $userId): int {
+                $transactions = ShopLedgerTransaction::query()
+                    ->whereIn('id', $transactionIds)
+                    ->lockForUpdate()
+                    ->get();
+
+                if ($transactions->count() !== count($transactionIds)) {
+                    throw new \InvalidArgumentException('One or more selected transactions do not exist.');
+                }
+
+                foreach ($transactions as $tx) {
+                    if ((int) $tx->shop_id !== $shopId) {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} does not belong to the selected shop.");
+                    }
+
+                    if ($tx->business_date?->toDateString() !== $businessDate) {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} does not belong to business date {$businessDate}.");
+                    }
+
+                    $allowedAcceptanceStatuses = [
+                        TransactionStatus::Posted->value,
+                        TransactionStatus::Submitted->value,
+                    ];
+                    if (! in_array($tx->status, $allowedAcceptanceStatuses, true)) {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} has status '{$tx->status}' and is not eligible for acceptance.");
+                    }
+
+                    $isIncome = $tx->direction === 'income' || $tx->affects_income || $tx->affects_sales;
+                    if (! $isIncome) {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} is not an income collection entry.");
+                    }
+
+                    $this->ledgerService->approveEntry($tx, $userId);
+                }
+
+                return $transactions->count();
+            });
+
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('success', "Successfully accepted {$acceptedCount} cashbook ".Str::plural('entry', $acceptedCount).'. They are now pending company verification.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('error', 'Acceptance failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Confirm received (verify and reconcile) selected approved collection entries for a shop day.
+     */
+    public function verifySelectedDayEntries(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $user = $request->user();
+        $userId = (int) $user->id;
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'transaction_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'transaction_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $businessDate = (string) $validated['business_date'];
+        $transactionIds = array_map('intval', $validated['transaction_ids']);
+
+        try {
+            $verifiedCount = DB::transaction(function () use ($shopId, $businessDate, $transactionIds, $userId): int {
+                $transactions = ShopLedgerTransaction::query()
+                    ->whereIn('id', $transactionIds)
+                    ->lockForUpdate()
+                    ->get();
+
+                if ($transactions->count() !== count($transactionIds)) {
+                    throw new \InvalidArgumentException('One or more selected transactions do not exist.');
+                }
+
+                $statements = CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->whereIn('source_id', $transactionIds)
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('source_id');
+
+                foreach ($transactions as $tx) {
+                    if ((int) $tx->shop_id !== $shopId) {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} does not belong to the selected shop.");
+                    }
+
+                    if ($tx->business_date?->toDateString() !== $businessDate) {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} does not belong to business date {$businessDate}.");
+                    }
+
+                    if ($tx->status !== 'approved') {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} must be accepted/approved before it can be verified.");
+                    }
+
+                    $stmt = $statements->get($tx->id);
+                    if (! $stmt) {
+                        throw new \InvalidArgumentException("No company statement entry found for transaction #{$tx->id}.");
+                    }
+
+                    if ($stmt->is_finalized && $stmt->status === 'reconciled') {
+                        throw new \InvalidArgumentException("Transaction #{$tx->id} has already been verified and reconciled.");
+                    }
+
+                    if ($stmt->duplicate_status === 'possible_duplicate') {
+                        throw new \InvalidArgumentException("Statement for transaction #{$tx->id} is flagged as a possible duplicate and requires review.");
+                    }
+
+                    $this->companyPaymentReconciliationService->verifyPendingShopCollection($stmt, $userId);
+                }
+
+                return $transactions->count();
+            });
+
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('success', "Successfully confirmed receipt of {$verifiedCount} ".Str::plural('payment', $verifiedCount).'. Company accounts updated and shop outstanding reduced.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('error', 'Verification failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Store an immutable Shop Expense or Shop Income adjustment for a shop day.
+     */
+    public function storeDayAdjustment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $user = $request->user();
+        $userId = (int) $user->id;
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'type' => ['required', 'string', 'in:expense,income,shop_expense,shop_income'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:10000000'],
+            'notes' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        $businessDate = (string) $validated['business_date'];
+        $type = (string) $validated['type'];
+        $amount = round((float) $validated['amount'], 2);
+        $notes = trim((string) $validated['notes']);
+
+        $isExpense = in_array($type, ['expense', 'shop_expense'], true);
+        $entryTypeCode = $isExpense ? 'other_expense' : 'other_income';
+        $fundingSource = $isExpense ? 'sales' : 'none';
+        $label = $isExpense ? 'Shop expense' : 'Shop income';
+
+        try {
+            DB::transaction(function () use ($shopId, $businessDate, $entryTypeCode, $amount, $fundingSource, $notes, $userId): void {
+                $entryType = LedgerEntryType::firstOrCreate(
+                    ['code' => $entryTypeCode],
+                    [
+                        'name' => $entryTypeCode === 'other_expense' ? 'Other Expense' : 'Other Income',
+                        'category' => $entryTypeCode === 'other_expense' ? 'expense' : 'income',
+                        'active' => true,
+                        'is_system' => true,
+                    ]
+                );
+
+                $this->ledgerService->recordEntry([
+                    'shop_id' => $shopId,
+                    'business_date' => $businessDate,
+                    'entry_type_code' => $entryType->code,
+                    'amount' => $amount,
+                    'funding_source' => $fundingSource,
+                    'notes' => $notes,
+                    'entered_by' => $userId,
+                ]);
+            });
+
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('success', "{$label} adjustment of ₹".number_format($amount, 2).' recorded successfully.');
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('error', 'Failed to record adjustment: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Reverse an adjustment with an opposite immutable ledger transaction.
+     */
+    public function reverseDayAdjustment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $user = $request->user();
+        $userId = (int) $user->id;
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'adjustment_id' => ['required', 'integer'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $businessDate = (string) $validated['business_date'];
+        $adjustmentId = (int) $validated['adjustment_id'];
+        $reason = trim((string) ($validated['reason'] ?? 'Admin reversal'));
+
+        try {
+            DB::transaction(function () use ($shopId, $businessDate, $adjustmentId, $reason, $userId): void {
+                /** @var ShopLedgerTransaction $origTx */
+                $origTx = ShopLedgerTransaction::query()
+                    ->whereKey($adjustmentId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if ((int) $origTx->shop_id !== $shopId) {
+                    throw new \InvalidArgumentException("Adjustment #{$origTx->id} does not belong to the selected shop.");
+                }
+
+                if ($origTx->business_date?->toDateString() !== $businessDate) {
+                    throw new \InvalidArgumentException("Adjustment #{$origTx->id} does not belong to business date {$businessDate}.");
+                }
+
+                if ($origTx->reference_type === ShopLedgerTransaction::class && $origTx->reference_id) {
+                    throw new \InvalidArgumentException('Cannot reverse a reversal transaction.');
+                }
+
+                if (in_array($origTx->status, ['void', 'voided'], true)) {
+                    throw new \InvalidArgumentException('Voided adjustments cannot be reversed.');
+                }
+
+                $alreadyReversed = ShopLedgerTransaction::query()
+                    ->where('reference_type', ShopLedgerTransaction::class)
+                    ->where('reference_id', $origTx->id)
+                    ->whereNotIn('status', ['void', 'voided'])
+                    ->lockForUpdate()
+                    ->exists();
+
+                if ($alreadyReversed || $origTx->status === 'reversed') {
+                    throw new \InvalidArgumentException("Adjustment #{$origTx->id} has already been reversed.");
+                }
+
+                $isExpense = $origTx->direction === 'expense' || ($origTx->entryType?->category === 'expense');
+                $reversalEntryTypeCode = $isExpense ? 'other_income' : 'other_expense';
+                $reversalFundingSource = $isExpense ? 'none' : 'sales';
+
+                $reversalEntryType = LedgerEntryType::firstOrCreate(
+                    ['code' => $reversalEntryTypeCode],
+                    [
+                        'name' => $reversalEntryTypeCode === 'other_expense' ? 'Other Expense' : 'Other Income',
+                        'category' => $reversalEntryTypeCode === 'other_expense' ? 'expense' : 'income',
+                        'active' => true,
+                        'is_system' => true,
+                    ]
+                );
+
+                $reversalNotes = "Reversal of adjustment #{$origTx->id}: ".($origTx->notes ?: $reason);
+
+                $this->ledgerService->recordEntry([
+                    'shop_id' => $shopId,
+                    'business_date' => $businessDate,
+                    'entry_type_code' => $reversalEntryType->code,
+                    'amount' => (float) $origTx->amount,
+                    'funding_source' => $reversalFundingSource,
+                    'reference_type' => ShopLedgerTransaction::class,
+                    'reference_id' => $origTx->id,
+                    'notes' => $reversalNotes,
+                    'entered_by' => $userId,
+                ]);
+
+                $origTx->update(['status' => 'reversed']);
+            });
+
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('success', "Successfully reversed adjustment #{$adjustmentId}.");
+        } catch (Throwable $e) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'date' => $businessDate,
+            ])->with('error', 'Reversal failed: '.$e->getMessage());
+        }
     }
 
     public function exportShopData(Request $request, int|string $shop)
@@ -1129,6 +1454,8 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $businessDate = $request->query('date', today()->toDateString());
+        $startDate = $request->query('start_date', $request->query('date_from', $businessDate));
+        $endDate = $request->query('end_date', $request->query('date_to', $businessDate));
         $calendarMonth = $request->query('calendar_month');
         $shopId = $request->query('shop_id') ? (int) $request->query('shop_id') : null;
         $statusFilter = $request->query('status', 'all');
@@ -1136,6 +1463,7 @@ final class CashbookController extends Controller
         $moneySummary = $this->moneyPositionService->getMoneyPositionSummary($businessDate);
         $moneyFlowItems = $this->moneyPositionService->getUnifiedMoneyFlowList($businessDate, $shopId, $statusFilter);
         $shops = $this->shopSyncService->syncAndGetProfiles();
+        $shopCards = $this->moneyPositionService->getShopMoneyFlowCards($startDate, $endDate, $shopId, $statusFilter, $businessDate, $shops);
 
         $page = LengthAwarePaginator::resolveCurrentPage();
         $perPage = 25;
@@ -1152,9 +1480,12 @@ final class CashbookController extends Controller
 
         return view('admin.cashbook.money-flow.index', [
             'businessDate' => $businessDate,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
             'selectedShopId' => $shopId,
             'selectedStatus' => $statusFilter,
             'summary' => $moneySummary,
+            'shopCards' => $shopCards,
             'items' => $paginatedItems,
             'calendarData' => $calendarData,
             'shops' => $shops,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Cashbook;
 
+use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\ShopBankSettlementAdjustment;
@@ -265,7 +266,10 @@ class CompanyMoneyPositionService
                     ->orWhere('payment_method', 'Cheque');
             })
             ->where('cheque_status', 'cleared')
-            ->whereDate('updated_at', $businessDate)
+            ->where(function ($query) use ($businessDate): void {
+                $query->whereDate('updated_at', $businessDate)
+                    ->orWhereDate('payment_date', $businessDate);
+            })
             ->sum('reconciled_amount');
 
         $rejectedTotal = (float) ShopInvoicePaymentRequest::query()
@@ -303,7 +307,7 @@ class CompanyMoneyPositionService
             ->with(['entryType', 'shop', 'enteredBy', 'approvedBy'])
             ->where('shop_id', $shopId)
             ->whereDate('business_date', $businessDate)
-            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->whereNotIn('status', ['void', 'voided'])
             ->orderBy('id', 'asc')
             ->get();
 
@@ -352,6 +356,15 @@ class CompanyMoneyPositionService
         $pendingVerification = 0.0;
         $cashStillWithShop = 0.0;
         $settlementDeductions = 0.0;
+        $settlementAdditions = 0.0;
+
+        $reversals = ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->where('reference_type', ShopLedgerTransaction::class)
+            ->whereNotNull('reference_id')
+            ->whereNotIn('status', ['void', 'voided'])
+            ->get()
+            ->keyBy('reference_id');
 
         foreach ($transactions as $tx) {
             $code = (string) ($tx->entryType?->code ?: ($tx->entry_type_code ?? ''));
@@ -359,8 +372,9 @@ class CompanyMoneyPositionService
             $isIncome = $tx->direction === 'income' || $category === 'income';
             $isExpense = $tx->direction === 'expense' || $category === 'expense';
             $isSettlement = $code === 'shop_paid_company' || $category === 'settlement';
+            $isAdjustmentIncome = $isIncome && ($code === 'other_income' || $tx->reference_type === ShopLedgerTransaction::class);
 
-            if ($isIncome) {
+            if ($isIncome && ! $isAdjustmentIncome) {
                 $grossSales += (float) $tx->amount;
                 $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
                 $statement = $statements->get($tx->id);
@@ -458,6 +472,10 @@ class CompanyMoneyPositionService
                     'minus_adjustments' => (float) $resolvedExpected['minus_adjustments'],
                     'adjustment_total' => (float) $resolvedExpected['adjustment_total'],
                     'adjustments_detail' => $resolvedExpected['adjustments'],
+                    'tx_status' => (string) $tx->status,
+                    'can_accept' => in_array($tx->status, [TransactionStatus::Posted->value, TransactionStatus::Submitted->value], true),
+                    'can_verify' => $tx->status === TransactionStatus::Approved->value && (! $statement || (! $statement->is_finalized && $statement->status !== 'reconciled')),
+                    'is_received' => (bool) ($statement && $statement->is_finalized && $statement->status === 'reconciled'),
                 ];
             } elseif ($isExpense && ! $isSettlement) {
                 $effectOnPayable = 0.0;
@@ -465,7 +483,9 @@ class CompanyMoneyPositionService
 
                 if ($fundingSource === 'sales' || $tx->settlement_delta < 0) {
                     $effectOnPayable = -(float) $tx->amount;
-                    $settlementDeductions += (float) $tx->amount;
+                    if (! in_array($tx->status, ['void', 'voided'], true)) {
+                        $settlementDeductions += (float) $tx->amount;
+                    }
                 }
 
                 $statusLabel = match ($fundingSource) {
@@ -475,13 +495,55 @@ class CompanyMoneyPositionService
                     default => ($effectOnPayable < 0 ? 'FROM SALES' : 'NO EFFECT'),
                 };
 
+                $isReversal = $tx->reference_type === ShopLedgerTransaction::class && ! empty($tx->reference_id);
+                $isReversed = $reversals->has($tx->id) || $tx->status === 'reversed';
+                $reversalId = $reversals->get($tx->id)?->id;
+
                 $adjustments[] = [
                     'id' => $tx->id,
+                    'time' => $tx->created_at?->format('H:i') ?: '—',
+                    'type' => 'Shop Expense',
                     'name' => $tx->entryType?->name ?: $code,
+                    'note' => $tx->notes ?: '—',
                     'amount' => (float) $tx->amount,
                     'funding_source' => $fundingSource,
                     'effect_on_payable' => $effectOnPayable,
-                    'status' => $statusLabel,
+                    'admin' => $tx->enteredBy?->name ?: 'Admin',
+                    'status' => $isReversed ? 'REVERSED' : (string) $tx->status,
+                    'status_label' => $statusLabel,
+                    'is_reversal' => $isReversal,
+                    'original_id' => $isReversal ? (int) $tx->reference_id : null,
+                    'is_reversed' => $isReversed,
+                    'reversal_id' => $reversalId ? (int) $reversalId : null,
+                    'can_reverse' => ! $isReversal && ! $isReversed && ! in_array($tx->status, ['void', 'voided'], true),
+                ];
+            } elseif ($isAdjustmentIncome) {
+                $effectOnPayable = (float) $tx->amount;
+                if (! in_array($tx->status, ['void', 'voided'], true)) {
+                    $settlementAdditions += (float) $tx->amount;
+                }
+
+                $isReversal = $tx->reference_type === ShopLedgerTransaction::class && ! empty($tx->reference_id);
+                $isReversed = $reversals->has($tx->id) || $tx->status === 'reversed';
+                $reversalId = $reversals->get($tx->id)?->id;
+
+                $adjustments[] = [
+                    'id' => $tx->id,
+                    'time' => $tx->created_at?->format('H:i') ?: '—',
+                    'type' => 'Shop Income',
+                    'name' => $tx->entryType?->name ?: $code,
+                    'note' => $tx->notes ?: '—',
+                    'amount' => (float) $tx->amount,
+                    'funding_source' => (string) ($tx->funding_source ?: 'none'),
+                    'effect_on_payable' => $effectOnPayable,
+                    'admin' => $tx->enteredBy?->name ?: 'Admin',
+                    'status' => $isReversed ? 'REVERSED' : (string) $tx->status,
+                    'status_label' => 'SHOP INCOME',
+                    'is_reversal' => $isReversal,
+                    'original_id' => $isReversal ? (int) $tx->reference_id : null,
+                    'is_reversed' => $isReversed,
+                    'reversal_id' => $reversalId ? (int) $reversalId : null,
+                    'can_reverse' => ! $isReversal && ! $isReversed && ! in_array($tx->status, ['void', 'voided'], true),
                 ];
             }
         }
@@ -514,7 +576,7 @@ class CompanyMoneyPositionService
             })
             ->sum('requested_amount');
 
-        $expectedPayable = max(0.0, round($grossSales - $settlementDeductions, 2));
+        $expectedPayable = max(0.0, round($grossSales + $settlementAdditions - $settlementDeductions, 2));
         $outstandingToSettle = max(0.0, round($expectedPayable - $verifiedReceived, 2));
 
         return [
@@ -524,6 +586,7 @@ class CompanyMoneyPositionService
             'collections' => $collections,
             'settlement_adjustments' => $adjustments,
             'total_deductions' => round($settlementDeductions, 2),
+            'total_additions' => round($settlementAdditions, 2),
             'company_receipt_status' => [
                 'verified_received' => round($verifiedReceived, 2),
                 'pending_verification' => round($pendingVerification, 2),
@@ -533,11 +596,336 @@ class CompanyMoneyPositionService
             'settlement_summary' => [
                 'gross_sales' => round($grossSales, 2),
                 'settlement_deductions' => round($settlementDeductions, 2),
+                'settlement_additions' => round($settlementAdditions, 2),
                 'expected_payable' => $expectedPayable,
                 'verified_company_received' => round($verifiedReceived, 2),
                 'outstanding_to_settle' => $outstandingToSettle,
             ],
         ];
+    }
+
+    /**
+     * Get monthly breakdown of daily settlement summaries for a specific shop.
+     *
+     * @return array<string, mixed>
+     */
+    public function getShopMonthlyDailySummaries(int $shopId, string $yearMonth): array
+    {
+        $monthCarbon = Carbon::parse($yearMonth.'-01');
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+        $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+        $monthTitle = $monthCarbon->format('F Y');
+
+        $transactions = ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$monthStart, $monthEnd])
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->orderBy('business_date', 'desc')
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $statements = $transactions->isEmpty()
+            ? collect()
+            : CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->whereIn('source_id', $transactions->pluck('id'))
+                ->get()
+                ->keyBy('source_id');
+
+        $txByDate = $transactions->groupBy(fn ($tx) => $tx->business_date->toDateString());
+
+        $dailyRows = [];
+        $monthTotalCollections = 0.0;
+        $monthCompanyReceived = 0.0;
+        $monthPendingAcceptance = 0.0;
+        $monthPendingVerification = 0.0;
+        $monthOutstanding = 0.0;
+        $monthPendingCount = 0;
+
+        $dates = $txByDate->keys()->sortDesc();
+
+        foreach ($dates as $dateStr) {
+            $dayTxs = $txByDate->get($dateStr, collect());
+            $carbonDate = Carbon::parse($dateStr);
+
+            $dayCollections = 0.0;
+            $dayReceived = 0.0;
+            $dayPendingAcceptance = 0.0;
+            $dayPendingVerification = 0.0;
+            $dayDeductions = 0.0;
+            $dayPendingAcceptanceCount = 0;
+            $dayPendingVerificationCount = 0;
+            $hasAttention = false;
+
+            foreach ($dayTxs as $tx) {
+                $amount = (float) $tx->amount;
+                $stmt = $statements->get($tx->id);
+
+                if ($stmt && $stmt->duplicate_status === 'possible_duplicate') {
+                    $hasAttention = true;
+                }
+
+                $isIncome = $tx->direction === 'income' || $tx->affects_income || $tx->affects_sales;
+                $isExpense = $tx->direction === 'expense' || $tx->affects_expense;
+
+                if ($isIncome) {
+                    $dayCollections += $amount;
+
+                    if ($tx->status !== 'approved') {
+                        $dayPendingAcceptance += $amount;
+                        $dayPendingAcceptanceCount++;
+                    } elseif ($stmt && $stmt->is_finalized && $stmt->status === 'reconciled') {
+                        $dayReceived += $amount;
+                    } else {
+                        $dayPendingVerification += $amount;
+                        $dayPendingVerificationCount++;
+                    }
+                } elseif ($isExpense && ($tx->funding_source === 'sales' || (float) $tx->settlement_delta < 0) && $tx->reference_type !== CompanyAccountStatementEntry::class) {
+                    $dayDeductions += $amount;
+                }
+            }
+
+            $expectedPayable = max(0.0, round($dayCollections - $dayDeductions, 2));
+            $dayOutstanding = max(0.0, round($expectedPayable - $dayReceived, 2));
+            $pendingOpCount = $dayPendingAcceptanceCount + $dayPendingVerificationCount;
+
+            if ($hasAttention) {
+                $status = 'Needs Attention';
+                $statusKey = 'needs_attention';
+            } elseif ($dayPendingAcceptanceCount > 0) {
+                $status = 'Needs Acceptance';
+                $statusKey = 'needs_acceptance';
+            } elseif ($dayPendingVerificationCount > 0) {
+                $status = 'Pending Verification';
+                $statusKey = 'pending_verification';
+            } else {
+                $status = 'Complete';
+                $statusKey = 'complete';
+            }
+
+            $monthTotalCollections += $dayCollections;
+            $monthCompanyReceived += $dayReceived;
+            $monthPendingAcceptance += $dayPendingAcceptance;
+            $monthPendingVerification += $dayPendingVerification;
+            $monthOutstanding += $dayOutstanding;
+            $monthPendingCount += $pendingOpCount;
+
+            $dailyRows[] = [
+                'business_date' => $dateStr,
+                'formatted_date' => $carbonDate->format('d M Y'),
+                'day_name' => $carbonDate->format('D'),
+                'day_number' => $carbonDate->format('d'),
+                'is_today' => $dateStr === today()->toDateString(),
+                'total_collection' => round($dayCollections, 2),
+                'company_received' => round($dayReceived, 2),
+                'pending_acceptance' => round($dayPendingAcceptance, 2),
+                'pending_verification' => round($dayPendingVerification, 2),
+                'deductions' => round($dayDeductions, 2),
+                'expected_payable' => $expectedPayable,
+                'outstanding' => $dayOutstanding,
+                'pending_operation_count' => $pendingOpCount,
+                'status' => $status,
+                'status_key' => $statusKey,
+                'entries_count' => $dayTxs->count(),
+            ];
+        }
+
+        return [
+            'year_month' => $yearMonth,
+            'month_title' => $monthTitle,
+            'prev_month' => $prevMonth,
+            'next_month' => $nextMonth,
+            'days' => $dailyRows,
+            'summary' => [
+                'total_collections' => round($monthTotalCollections, 2),
+                'company_received' => round($monthCompanyReceived, 2),
+                'pending_acceptance' => round($monthPendingAcceptance, 2),
+                'pending_verification' => round($monthPendingVerification, 2),
+                'outstanding' => round($monthOutstanding, 2),
+                'pending_count' => $monthPendingCount,
+                'active_days_count' => count($dailyRows),
+            ],
+        ];
+    }
+
+    /**
+     * Get presentation-ready Shop Money Flow summary cards.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getShopMoneyFlowCards(
+        ?string $startDate = null,
+        ?string $endDate = null,
+        ?int $shopId = null,
+        ?string $statusFilter = null,
+        ?string $businessDate = null,
+        mixed $shops = null
+    ): array {
+        if ($startDate === null && $endDate === null) {
+            $startDate = $businessDate ?? today()->toDateString();
+            $endDate = $startDate;
+        } elseif ($startDate !== null && $endDate === null) {
+            $endDate = $startDate;
+        } elseif ($startDate === null && $endDate !== null) {
+            $startDate = $endDate;
+        }
+
+        if ($shops instanceof Collection || $shops instanceof \Illuminate\Database\Eloquent\Collection) {
+            if ($shopId) {
+                $shops = $shops->filter(fn ($s) => (int) ($s->shop_id ?? $s->id) === $shopId)->values();
+            }
+        } else {
+            $shopsQuery = Shop::query()
+                ->where('status', 'active')
+                ->orderBy('name');
+
+            if ($shopId) {
+                $shopsQuery->where('id', $shopId);
+            }
+
+            $shops = $shopsQuery->get();
+        }
+
+        if ($shops->isEmpty()) {
+            return [];
+        }
+
+        $targetShopIds = $shops->map(fn ($s) => (int) ($s->shop_id ?? $s->id))->filter()->unique()->values()->all();
+
+        $periodTransactions = ShopLedgerTransaction::query()
+            ->whereIn('shop_id', $targetShopIds)
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->where(function ($q): void {
+                $q->where('direction', 'income')
+                    ->orWhere('affects_income', true)
+                    ->orWhere('affects_sales', true)
+                    ->orWhere('funding_source', 'sales')
+                    ->orWhere('settlement_delta', '<', 0);
+            })
+            ->get();
+
+        $incomeTransactions = $periodTransactions->filter(fn ($tx) => $tx->direction === 'income' || $tx->affects_income || $tx->affects_sales);
+
+        $statements = $incomeTransactions->isEmpty()
+            ? collect()
+            : CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopLedgerTransaction::class)
+                ->whereIn('source_id', $incomeTransactions->pluck('id'))
+                ->get()
+                ->keyBy('source_id');
+
+        $asOfDate = max($endDate, today()->toDateString());
+        $runningOutstanding = ShopLedgerTransaction::query()
+            ->whereIn('shop_id', $targetShopIds)
+            ->whereDate('business_date', '<=', $asOfDate)
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->select('shop_id', DB::raw('SUM(settlement_delta) as net_outstanding'))
+            ->groupBy('shop_id')
+            ->pluck('net_outstanding', 'shop_id');
+
+        $periodDeductions = $periodTransactions
+            ->filter(fn ($tx) => ($tx->funding_source === 'sales' || $tx->settlement_delta < 0) && $tx->reference_type !== CompanyAccountStatementEntry::class)
+            ->groupBy('shop_id')
+            ->map(fn ($group) => (float) $group->sum('amount'));
+
+        $txByShop = $incomeTransactions->groupBy('shop_id');
+        $cards = [];
+
+        foreach ($shops as $shop) {
+            $shopIdVal = (int) ($shop->shop_id ?? $shop->id);
+            $shopTxs = $txByShop->get($shopIdVal, collect());
+
+            $totalCollection = 0.0;
+            $companyReceived = 0.0;
+            $pendingAcceptance = 0.0;
+            $pendingVerification = 0.0;
+            $pendingAcceptanceCount = 0;
+            $pendingVerificationCount = 0;
+            $hasAttentionFlag = false;
+
+            foreach ($shopTxs as $tx) {
+                $amount = (float) $tx->amount;
+                $totalCollection += $amount;
+                $stmt = $statements->get($tx->id);
+
+                if ($stmt && $stmt->duplicate_status === 'possible_duplicate') {
+                    $hasAttentionFlag = true;
+                }
+
+                if ($tx->status !== 'approved') {
+                    $pendingAcceptance += $amount;
+                    $pendingAcceptanceCount++;
+                } elseif ($stmt && $stmt->is_finalized && $stmt->status === 'reconciled') {
+                    $companyReceived += $amount;
+                } else {
+                    $pendingVerification += $amount;
+                    $pendingVerificationCount++;
+                }
+            }
+
+            $periodDeduction = (float) ($periodDeductions->get($shopIdVal) ?? 0.0);
+            $periodExpectedPayable = max(0.0, round($totalCollection - $periodDeduction, 2));
+            $periodOutstanding = max(0.0, round($periodExpectedPayable - $companyReceived, 2));
+
+            $cumulativeOutstanding = (float) ($runningOutstanding->get($shopIdVal) ?? $periodOutstanding);
+            $currentOutstanding = max(0.0, round($cumulativeOutstanding, 2));
+
+            $pendingOpCount = $pendingAcceptanceCount + $pendingVerificationCount;
+
+            if ($hasAttentionFlag) {
+                $status = 'Needs Attention';
+                $statusKey = 'needs_attention';
+            } elseif ($pendingAcceptanceCount > 0) {
+                $status = 'Needs Acceptance';
+                $statusKey = 'needs_acceptance';
+            } elseif ($pendingVerificationCount > 0) {
+                $status = 'Pending Verification';
+                $statusKey = 'pending_verification';
+            } else {
+                $status = 'Complete';
+                $statusKey = 'complete';
+            }
+
+            $shopSlug = $shop->slug ?: ($shop->code ? strtolower($shop->code) : (string) $shopIdVal);
+
+            $cards[] = [
+                'shop_id' => $shopIdVal,
+                'shop_name' => (string) $shop->name,
+                'shop_code' => (string) ($shop->code ?? ''),
+                'shop_slug' => (string) $shopSlug,
+                'total_collection' => round($totalCollection, 2),
+                'company_received' => round($companyReceived, 2),
+                'pending_acceptance' => round($pendingAcceptance, 2),
+                'pending_verification' => round($pendingVerification, 2),
+                'current_outstanding' => $currentOutstanding,
+                'pending_operation_count' => $pendingOpCount,
+                'pending_count' => $pendingOpCount,
+                'pending_acceptance_count' => $pendingAcceptanceCount,
+                'pending_verification_count' => $pendingVerificationCount,
+                'status' => $status,
+                'status_key' => $statusKey,
+                'open_shop_url' => route('admin.cashbook.shop.show', ['shop' => $shopSlug]),
+            ];
+        }
+
+        if ($statusFilter && $statusFilter !== 'all') {
+            if ($statusFilter === 'needs_attention') {
+                $cards = array_values(array_filter($cards, fn ($c) => in_array($c['status_key'], ['needs_attention', 'needs_acceptance', 'pending_verification'], true)));
+            } elseif ($statusFilter === 'pending') {
+                $cards = array_values(array_filter($cards, fn ($c) => $c['status_key'] !== 'complete'));
+            } elseif ($statusFilter === 'needs_acceptance') {
+                $cards = array_values(array_filter($cards, fn ($c) => $c['status_key'] === 'needs_acceptance'));
+            } elseif ($statusFilter === 'pending_verification') {
+                $cards = array_values(array_filter($cards, fn ($c) => $c['status_key'] === 'pending_verification'));
+            } elseif ($statusFilter === 'complete' || $statusFilter === 'verified') {
+                $cards = array_values(array_filter($cards, fn ($c) => $c['status_key'] === 'complete'));
+            }
+        }
+
+        return $cards;
     }
 
     /**

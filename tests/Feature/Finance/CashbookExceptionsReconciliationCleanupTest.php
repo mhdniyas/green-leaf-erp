@@ -174,18 +174,18 @@ class CashbookExceptionsReconciliationCleanupTest extends TestCase
             'funding_source' => 'shop_collection',
         ]);
 
-        // Detail page of normal collection shows normal VERIFY action, not RESOLVE ISSUE
+        // Detail page of normal collection shows normal NEEDS VERIFICATION state and Day Operations link
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.transaction.show', $paytm['transaction']->id));
         $response->assertOk()
             ->assertSee('NEEDS VERIFICATION')
-            ->assertSee('VERIFY RECEIVED')
+            ->assertSee('Open Shop Day Operations')
             ->assertDontSee('RESOLVE ISSUE');
 
-        // Cash detail page shows VERIFY CASH RECEIVED, not RESOLVE ISSUE
+        // Cash detail page shows CASH WITH SHOP and Day Operations link
         $cashResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.transaction.show', $cash['transaction']->id));
         $cashResponse->assertOk()
             ->assertSee('CASH WITH SHOP')
-            ->assertSee('VERIFY CASH RECEIVED')
+            ->assertSee('Open Shop Day Operations')
             ->assertDontSee('RESOLVE ISSUE');
     }
 
@@ -211,8 +211,8 @@ class CashbookExceptionsReconciliationCleanupTest extends TestCase
 
         $response->assertOk()
             ->assertSee('NEEDS ATTENTION')
-            ->assertSee('RESOLVE ISSUE')
-            ->assertSee('Possible duplicate bank statement entry detected.');
+            ->assertSee('Exception')
+            ->assertSee('Open Shop Day Operations');
     }
 
     public function test_needs_attention_page_renders_clean_workspace(): void

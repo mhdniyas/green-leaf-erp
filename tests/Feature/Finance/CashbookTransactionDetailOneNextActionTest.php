@@ -182,7 +182,7 @@ class CashbookTransactionDetailOneNextActionTest extends TestCase
         $this->moneyPositionService = app(CompanyMoneyPositionService::class);
     }
 
-    public function test_posted_collection_shows_approve_action_only(): void
+    public function test_posted_collection_shows_read_only_with_day_operations_link(): void
     {
         $card = $this->dailyLedgerService->recordEntry([
             'shop_id' => $this->sana->id,
@@ -192,20 +192,19 @@ class CashbookTransactionDetailOneNextActionTest extends TestCase
             'funding_source' => 'none',
             'entered_by' => $this->admin->id,
         ]);
-        // Kept as unapproved posted
 
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.transaction.show', $card['transaction']->id));
 
         $response->assertOk()
             ->assertSee('POSTED')
             ->assertSee('₹12,500.00')
-            ->assertSee('APPROVE')
+            ->assertSee('Open Shop Day Operations')
             ->assertDontSee('VERIFY RECEIVED')
             ->assertDontSee('VERIFY CASH RECEIVED')
             ->assertDontSee('RECONCILE');
     }
 
-    public function test_approved_online_shows_verify_received_only(): void
+    public function test_approved_online_shows_read_only_with_day_operations_link(): void
     {
         $card = $this->dailyLedgerService->recordEntry([
             'shop_id' => $this->sana->id,
@@ -222,14 +221,13 @@ class CashbookTransactionDetailOneNextActionTest extends TestCase
         $response->assertOk()
             ->assertSee('NEEDS VERIFICATION')
             ->assertSee('₹12,500.00')
-            ->assertSee('VERIFY RECEIVED')
-            ->assertSee('→ HDFC Bank')
-            ->assertDontSee('>APPROVE<', false)
+            ->assertSee('Open Shop Day Operations')
+            ->assertSee('HDFC Bank')
             ->assertDontSee('VERIFY CASH RECEIVED')
             ->assertDontSee('RECONCILE');
     }
 
-    public function test_approved_cash_shows_verify_cash_received_only(): void
+    public function test_approved_cash_shows_read_only_with_day_operations_link(): void
     {
         $cash = $this->dailyLedgerService->recordEntry([
             'shop_id' => $this->sana->id,
@@ -246,9 +244,7 @@ class CashbookTransactionDetailOneNextActionTest extends TestCase
         $response->assertOk()
             ->assertSee('CASH WITH SHOP')
             ->assertSee('₹14,550.00')
-            ->assertSee('📍 Sana Shop')
-            ->assertSee('VERIFY CASH RECEIVED')
-            ->assertDontSee('>APPROVE<', false)
+            ->assertSee('Open Shop Day Operations')
             ->assertDontSee('VERIFY RECEIVED')
             ->assertDontSee('RECONCILE');
     }
@@ -274,7 +270,7 @@ class CashbookTransactionDetailOneNextActionTest extends TestCase
             ->assertSee('RECEIVED')
             ->assertSee('✓ Completed')
             ->assertSee('Kotak Bank')
-            ->assertDontSee('>APPROVE<', false)
+            ->assertSee('Open Shop Day Operations')
             ->assertDontSee('VERIFY RECEIVED')
             ->assertDontSee('VERIFY CASH RECEIVED')
             ->assertDontSee('RECONCILE');

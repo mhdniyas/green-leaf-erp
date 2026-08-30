@@ -164,23 +164,22 @@ class CashbookFinalIntegrationUxAuditTest extends TestCase
             ->assertSee('POSTED')
             ->assertSee($detailUrl, false);
 
-        // Step B: Transaction Detail shows ONE action: APPROVE
+        // Step B: Transaction Detail shows POSTED and link to Shop Day Operations
         $txResponse = $this->actingAs($this->admin)->get($detailUrl);
         $txResponse->assertOk()
             ->assertSee('POSTED')
-            ->assertSee('APPROVE')
+            ->assertSee('Open Shop Day Operations')
             ->assertDontSee('VERIFY RECEIVED');
 
         // Step C: Perform APPROVE
         $approveResponse = $this->actingAs($this->admin)->post(route('admin.cashbook.transaction.approve', $tx->id));
         $approveResponse->assertRedirect($detailUrl);
 
-        // Step D: Transaction Detail now shows ONE action: VERIFY RECEIVED
+        // Step D: Transaction Detail now shows NEEDS VERIFICATION and link to Shop Day Operations
         $txResponse2 = $this->actingAs($this->admin)->get($detailUrl);
         $txResponse2->assertOk()
             ->assertSee('NEEDS VERIFICATION')
-            ->assertSee('VERIFY RECEIVED')
-            ->assertDontSee('APPROVE');
+            ->assertSee('Open Shop Day Operations');
 
         // Step E: Perform VERIFY RECEIVED
         $verifyResponse = $this->actingAs($this->admin)->post(route('admin.cashbook.transaction.verify', $tx->id));
@@ -217,11 +216,11 @@ class CashbookFinalIntegrationUxAuditTest extends TestCase
         // Step A: Approve cash collection
         $this->actingAs($this->admin)->post(route('admin.cashbook.transaction.approve', $tx->id));
 
-        // Step B: Transaction Detail shows CASH WITH SHOP & VERIFY CASH RECEIVED
+        // Step B: Transaction Detail shows CASH WITH SHOP & Day Operations link
         $txResponse = $this->actingAs($this->admin)->get($detailUrl);
         $txResponse->assertOk()
             ->assertSee('CASH WITH SHOP')
-            ->assertSee('VERIFY CASH RECEIVED');
+            ->assertSee('Open Shop Day Operations');
 
         // Step C: Verify Company Money does NOT count unverified cash with shop into verified cash
         $financeResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.finance', ['date' => $businessDate]));
@@ -262,8 +261,8 @@ class CashbookFinalIntegrationUxAuditTest extends TestCase
 
         $txResponse->assertOk()
             ->assertSee('NEEDS ATTENTION')
-            ->assertSee('RESOLVE ISSUE')
-            ->assertSee(route('admin.cashbook.finance.reconciliation'), false);
+            ->assertSee('Exception')
+            ->assertSee('Open Shop Day Operations');
     }
 
     public function test_money_conservation_and_equations(): void

@@ -781,6 +781,10 @@ Route::middleware('auth')->group(function () {
             Route::get('post-entry', [CashbookController::class, 'postEntryPage'])->name('post-entry');
             Route::get('post-entry/{shop}', [CashbookController::class, 'postEntryPageForShop'])->name('post-entry.shop');
             Route::get('shops/{shop}', [CashbookController::class, 'showShop'])->name('shop.show');
+            Route::post('shops/{shop}/day/accept-selected', [CashbookController::class, 'acceptSelectedDayEntries'])->name('shop.day.accept-selected');
+            Route::post('shops/{shop}/day/verify-selected', [CashbookController::class, 'verifySelectedDayEntries'])->name('shop.day.verify-selected');
+            Route::post('shops/{shop}/day/adjustments', [CashbookController::class, 'storeDayAdjustment'])->name('shop.day.adjustments.store');
+            Route::post('shops/{shop}/day/adjustments/reverse', [CashbookController::class, 'reverseDayAdjustment'])->name('shop.day.adjustments.reverse');
             Route::get('shops/{shop}/export', [CashbookController::class, 'exportShopData'])->name('shop.export');
             Route::get('shops/{shop}/settlement', [CashbookController::class, 'redirectShopSettlement'])->name('shop.settlement');
             Route::get('shops/{shop}/accept-payment', [CashbookController::class, 'shopSettlementPage'])->name('shop.accept-payment');

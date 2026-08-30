@@ -168,6 +168,106 @@
         @endforeach
     </div>
 
+    <!-- ── SHOP MONEY FLOW SUMMARY CARDS ────────────────────────────────── -->
+    <div class="space-y-3">
+        <div class="flex items-center justify-between">
+            <h2 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <i data-lucide="store" class="w-4 h-4 text-emerald-600"></i>
+                <span>Shop Summary Positions</span>
+                <span class="text-xs text-slate-400 font-mono font-normal">({{ count($shopCards) }} {{ Str::plural('shop', count($shopCards)) }})</span>
+            </h2>
+        </div>
+
+        @if(empty($shopCards))
+            <div class="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm">
+                <p class="text-xs text-slate-400 font-bold">No active shops found matching the selected filter.</p>
+            </div>
+        @else
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                @foreach($shopCards as $card)
+                    @php
+                        $statusBadgeClass = match($card['status_key']) {
+                            'needs_attention' => 'bg-rose-50 text-rose-800 border-rose-200',
+                            'needs_acceptance' => 'bg-amber-50 text-amber-800 border-amber-200',
+                            'pending_verification' => 'bg-sky-50 text-sky-800 border-sky-200',
+                            default => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                        };
+                    @endphp
+                    <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4">
+
+                        <!-- Top: Shop Name, Status & Open Action -->
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="font-black text-base text-slate-900">{{ $card['shop_name'] }}</h3>
+                                    @if(!empty($card['shop_code']))
+                                        <span class="px-1.5 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600 border border-slate-200 font-mono">
+                                            {{ $card['shop_code'] }}
+                                        </span>
+                                    @endif
+                                </div>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg border {{ $statusBadgeClass }}">
+                                        {{ $card['status'] }}
+                                    </span>
+                                    @if($card['pending_operation_count'] > 0)
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs" title="{{ $card['pending_operation_count'] }} pending operations">
+                                            {{ $card['pending_operation_count'] }} pending
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <a href="{{ $card['open_shop_url'] }}"
+                               class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-xs flex-shrink-0 cursor-pointer"
+                               title="Open {{ $card['shop_name'] }} Cashbook">
+                                <span>Open Shop</span>
+                                <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
+                            </a>
+                        </div>
+
+                        <!-- Mid: Detailed Breakdown Metrics -->
+                        <div class="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-100 text-xs">
+                            <div>
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Total Collection</span>
+                                <div class="font-mono font-bold text-slate-800 text-sm mt-0.5">
+                                    ₹{{ number_format($card['total_collection'], 2) }}
+                                </div>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Company Received</span>
+                                <div class="font-mono font-bold text-emerald-800 text-sm mt-0.5">
+                                    ₹{{ number_format($card['company_received'], 2) }}
+                                </div>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">Pending Acceptance</span>
+                                <div class="font-mono font-bold text-amber-800 text-sm mt-0.5">
+                                    ₹{{ number_format($card['pending_acceptance'], 2) }}
+                                </div>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-sky-700">Pending Verification</span>
+                                <div class="font-mono font-bold text-sky-800 text-sm mt-0.5">
+                                    ₹{{ number_format($card['pending_verification'], 2) }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bottom: Current Outstanding -->
+                        <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+                            <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Current Outstanding</span>
+                            <span class="font-mono text-base font-black text-slate-900">
+                                ₹{{ number_format($card['current_outstanding'], 2) }}
+                            </span>
+                        </div>
+
+                    </div>
+                @endforeach
+            </div>
+        @endif
+    </div>
+
     <!-- Daily Collections List -->
     <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
         <div class="flex items-center justify-between">
