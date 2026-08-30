@@ -582,13 +582,6 @@ class CashbookPurchaseReportTest extends TestCase
             ->assertSee('₹700.00')
             ->assertSee('Pending Reconciliation')
             ->assertSee('₹1,000.00')
-            ->assertSee('Purchaser Funding')
-            ->assertSee('Cash Used')
-            ->assertSee('Operations Bank')
-            ->assertSee('FUND-REF-700')
-            ->assertSee('reconciled')
-            ->assertSee('advance utilized')
-            ->assertSee('Give Funding')
             ->assertSee('Cash and Credit History')
             ->assertSee($invoice->invoice_number)
             ->assertSee($creditInvoice->invoice_number)
@@ -596,11 +589,24 @@ class CashbookPurchaseReportTest extends TestCase
             ->assertSee('name="period"', false)
             ->assertSee('Vendor Credit Payments')
             ->assertSee(route('admin.cashbook.finance.vendor-credit.show', $invoice->supplier), false)
-            ->assertSee(route('admin.cashbook.finance.purchasers.funding.store', $purchaser->public_uuid), false)
             ->assertDontSee('href="'.route('admin.cashbook.finance.purchasers').'"', false)
             ->assertDontSee('href="'.route('admin.cashbook.finance.purchasers.details', $purchaser->public_uuid).'"', false)
             ->assertSee(route('admin.cashbook.finance.reconciliation'));
         $this->assertLessThan(35, $queryCount, "Purchaser workspace finance tab executed {$queryCount} queries.");
+
+        $fundingResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', [
+            'purchaser' => $purchaser->public_uuid,
+            'period' => 'today',
+            'tab' => 'funding',
+        ]));
+
+        $fundingResponse->assertOk()
+            ->assertSee('Purchaser Funding')
+            ->assertSee('Operations Bank')
+            ->assertSee('FUND-REF-700')
+            ->assertSee('matched')
+            ->assertSee('advance utilized')
+            ->assertSee(route('admin.cashbook.finance.purchasers.funding.store', $purchaser->public_uuid), false);
 
         $creditHistory = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.purchasers.show', [
             'purchaser' => $purchaser->public_uuid,

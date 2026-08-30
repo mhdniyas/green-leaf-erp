@@ -82,22 +82,8 @@ final class PurchaserFinanceService
             return 'Manual reconciliation allocation exists — editing is protected.';
         }
 
-        if ($credit->purchase_invoice_id || $journals->count() !== 1 || $journals->first()->source_event !== 'purchaser_funding') {
+        if ($credit->purchase_invoice_id || $journals->count() !== 1 || ! in_array($journals->first()->source_event, ['purchaser_funding', 'purchaser_funding_return'], true)) {
             return 'Historical funding dependency — editing is protected.';
-        }
-
-        $movementsQuery = PurchaserCredit::query()->where('purchaser_id', $credit->purchaser_id)->orderBy('id');
-        if ($lock) {
-            $movementsQuery->lockForUpdate();
-        }
-
-        $movements = $movementsQuery->get();
-        $balance = $movements->sum(fn (PurchaserCredit $movement): float => $movement->type === 'in' ? (float) $movement->amount : -(float) $movement->amount);
-        $subsequentUsage = $movements->contains(fn (PurchaserCredit $movement): bool => $movement->type === 'out'
-            && $movement->business_date >= $credit->business_date);
-
-        if ($subsequentUsage || $balance + 0.009 < (float) $credit->amount) {
-            return 'Used by purchase bills — editing is protected.';
         }
 
         return null;
@@ -133,13 +119,21 @@ final class PurchaserFinanceService
     public function balanceRows(string $startDate = '', string $endDate = ''): Builder
     {
         return DB::table('purchaser_credits')
-            ->selectRaw("purchaser_id, COUNT(*) as transaction_count, SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as cash_given, SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) as cash_used, SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as remaining_advance")
+            ->selectRaw("
+                purchaser_id,
+                COUNT(*) as transaction_count,
+                SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as cash_given,
+                SUM(CASE WHEN type = 'out' AND purchase_invoice_id IS NULL THEN amount ELSE 0 END) as cash_returned,
+                SUM(CASE WHEN type = 'out' AND purchase_invoice_id IS NOT NULL THEN amount ELSE 0 END) as cash_used_invoices,
+                SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) as cash_used,
+                SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as remaining_advance
+            ")
             ->when($startDate !== '', fn (Builder $query) => $query->whereDate('business_date', '>=', $startDate))
             ->when($endDate !== '', fn (Builder $query) => $query->whereDate('business_date', '<=', $endDate))
             ->groupBy('purchaser_id');
     }
 
-    /** @return array{cash_given:float,cash_used:float,remaining_advance:float,credit_purchases:float} */
+    /** @return array{cash_given:float,cash_returned:float,net_funding:float,cash_used_invoices:float,cash_used:float,remaining_advance:float,credit_purchases:float} */
     public function summaryFor(int $purchaserId): array
     {
         $balance = $this->balanceRows()->where('purchaser_id', $purchaserId)->first();
@@ -147,15 +141,24 @@ final class PurchaserFinanceService
             ->fromSub($this->creditPurchaseRowsQuery($purchaserId), 'credit_rows')
             ->sum('amount');
 
+        $cashGiven = round((float) ($balance->cash_given ?? 0), 2);
+        $cashReturned = round((float) ($balance->cash_returned ?? 0), 2);
+        $cashUsedInvoices = round((float) ($balance->cash_used_invoices ?? 0), 2);
+        $cashUsed = round((float) ($balance->cash_used ?? 0), 2);
+        $remainingAdvance = round((float) ($balance->remaining_advance ?? 0), 2);
+
         return [
-            'cash_given' => round((float) ($balance->cash_given ?? 0), 2),
-            'cash_used' => round((float) ($balance->cash_used ?? 0), 2),
-            'remaining_advance' => round((float) ($balance->remaining_advance ?? 0), 2),
+            'cash_given' => $cashGiven,
+            'cash_returned' => $cashReturned,
+            'net_funding' => round($cashGiven - $cashReturned, 2),
+            'cash_used_invoices' => $cashUsedInvoices,
+            'cash_used' => $cashUsed,
+            'remaining_advance' => $remainingAdvance,
             'credit_purchases' => round((float) $creditPurchases, 2),
         ];
     }
 
-    /** @return array{cash_given:float,cash_used:float,remaining_advance:float,credit_purchases:float} */
+    /** @return array{cash_given:float,cash_returned:float,net_funding:float,cash_used_invoices:float,cash_used:float,remaining_advance:float,credit_purchases:float} */
     public function activityFor(int $purchaserId, string $startDate, string $endDate): array
     {
         $balance = $this->balanceRows($startDate, $endDate)->where('purchaser_id', $purchaserId)->first();
@@ -163,10 +166,19 @@ final class PurchaserFinanceService
             ->fromSub($this->creditPurchaseRowsQuery($purchaserId, $startDate, $endDate), 'credit_rows')
             ->sum('amount');
 
+        $cashGiven = round((float) ($balance->cash_given ?? 0), 2);
+        $cashReturned = round((float) ($balance->cash_returned ?? 0), 2);
+        $cashUsedInvoices = round((float) ($balance->cash_used_invoices ?? 0), 2);
+        $cashUsed = round((float) ($balance->cash_used ?? 0), 2);
+        $remainingAdvance = round((float) ($balance->remaining_advance ?? 0), 2);
+
         return [
-            'cash_given' => round((float) ($balance->cash_given ?? 0), 2),
-            'cash_used' => round((float) ($balance->cash_used ?? 0), 2),
-            'remaining_advance' => round((float) ($balance->remaining_advance ?? 0), 2),
+            'cash_given' => $cashGiven,
+            'cash_returned' => $cashReturned,
+            'net_funding' => round($cashGiven - $cashReturned, 2),
+            'cash_used_invoices' => $cashUsedInvoices,
+            'cash_used' => $cashUsed,
+            'remaining_advance' => $remainingAdvance,
             'credit_purchases' => round((float) $creditPurchases, 2),
         ];
     }
@@ -258,23 +270,47 @@ final class PurchaserFinanceService
             })
             ->leftJoin('cashbook_company_accounts as stmt_accounts', 'stmt_accounts.id', '=', 'statements.company_account_id')
             ->leftJoin('users as reconcilers', 'reconcilers.id', '=', 'statements.reconciled_by')
+            ->leftJoin('users as creators', 'creators.id', '=', 'credits.created_by')
             ->where('credits.purchaser_id', $purchaserId)
             ->whereDate('credits.business_date', '>=', $startDate)
-            ->whereDate('credits.business_date', '<=', $endDate)
             ->selectRaw("
                 credits.id,
                 credits.business_date,
-                CASE WHEN credits.type = 'in' THEN 'Purchaser Funding' ELSE 'Cash Used' END as movement_type,
+                credits.created_at,
+                credits.updated_at,
+                CASE
+                    WHEN credits.type = 'in' THEN 'Company → Purchaser'
+                    WHEN credits.type = 'out' AND credits.purchase_invoice_id IS NULL THEN 'Purchaser → Company'
+                    ELSE 'Cash Purchase Spend'
+                END as direction_label,
+                CASE
+                    WHEN credits.type = 'in' THEN 'company_to_purchaser'
+                    WHEN credits.type = 'out' AND credits.purchase_invoice_id IS NULL THEN 'purchaser_to_company'
+                    ELSE 'cash_purchase_usage'
+                END as direction_type,
+                CASE
+                    WHEN credits.type = 'in' THEN 'Purchaser Funding'
+                    WHEN credits.type = 'out' AND credits.purchase_invoice_id IS NULL THEN 'Funding Returned'
+                    ELSE 'Cash Used'
+                END as movement_type,
                 credits.type,
                 credits.amount,
+                credits.purchase_invoice_id,
                 accounts.name as company_account,
                 credits.company_account_id,
                 credits.payment_source,
+                creators.name as created_by_name,
                 COALESCE(credits.reference, invoices.invoice_number, credits.description) as movement_reference,
                 credits.reference as funding_reference,
                 credits.description as funding_description,
+                (
+                    SELECT COALESCE(SUM(CASE WHEN b.type = 'in' THEN b.amount ELSE -b.amount END), 0)
+                    FROM purchaser_credits b
+                    WHERE b.purchaser_id = credits.purchaser_id
+                      AND (b.business_date < credits.business_date OR (b.business_date = credits.business_date AND b.id <= credits.id))
+                ) as running_balance,
                 CASE 
-                    WHEN credits.type = 'out' THEN 'advance_utilized'
+                    WHEN credits.type = 'out' AND credits.purchase_invoice_id IS NOT NULL THEN 'advance_utilized'
                     WHEN statements.id IS NULL OR statements.is_finalized = 0 THEN 'unmatched'
                     WHEN statements.source = 'imported' OR statements.import_file_name IS NOT NULL OR statements.import_fingerprint IS NOT NULL THEN 'matched'
                     WHEN stmt_accounts.account_type = 'cash' THEN 'manual_cash'
@@ -296,10 +332,8 @@ final class PurchaserFinanceService
             ")
             ->selectRaw("(
                 credits.purchase_invoice_id IS NOT NULL
-                OR EXISTS (SELECT 1 FROM purchaser_credits used WHERE used.purchaser_id = credits.purchaser_id AND used.type = 'out' AND used.business_date >= credits.business_date)
-                OR (SELECT COALESCE(SUM(CASE WHEN balance.type = 'in' THEN balance.amount ELSE -balance.amount END), 0) FROM purchaser_credits balance WHERE balance.purchaser_id = credits.purchaser_id) + 0.009 < credits.amount
                 OR (SELECT COUNT(*) FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id) != 1
-                OR NOT EXISTS (SELECT 1 FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id AND funding_journal.source_event = 'purchaser_funding')
+                OR NOT EXISTS (SELECT 1 FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id AND funding_journal.source_event IN ('purchaser_funding', 'purchaser_funding_return'))
                 OR EXISTS (SELECT 1 FROM cashbook_company_payment_reconciliations allocation JOIN journal_entries allocation_journal ON allocation_journal.id = allocation.journal_entry_id WHERE allocation_journal.source_type = ? AND allocation_journal.source_id = credits.id)
                 OR EXISTS (
                     SELECT 1 FROM cashbook_company_account_statement_entries linked
@@ -341,9 +375,9 @@ final class PurchaserFinanceService
                     WHEN EXISTS (SELECT 1 FROM cashbook_company_payment_reconciliations allocation JOIN journal_entries allocation_journal ON allocation_journal.id = allocation.journal_entry_id WHERE allocation_journal.source_type = ? AND allocation_journal.source_id = credits.id) THEN 'Manual reconciliation allocation exists — editing is protected.'
                     WHEN credits.purchase_invoice_id IS NOT NULL
                         OR (SELECT COUNT(*) FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id) != 1
-                        OR NOT EXISTS (SELECT 1 FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id AND funding_journal.source_event = 'purchaser_funding')
+                        OR NOT EXISTS (SELECT 1 FROM journal_entries funding_journal WHERE funding_journal.source_type = ? AND funding_journal.source_id = credits.id AND funding_journal.source_event IN ('purchaser_funding', 'purchaser_funding_return'))
                     THEN 'Historical funding dependency — editing is protected.'
-                    WHEN EXISTS (SELECT 1 FROM purchaser_credits used WHERE used.purchaser_id = credits.purchaser_id AND used.type = 'out' AND used.business_date >= credits.business_date)
+                    WHEN EXISTS (SELECT 1 FROM purchaser_credits used WHERE used.purchaser_id = credits.purchaser_id AND used.type = 'out' AND used.business_date >= credits.business_date AND used.id > credits.id)
                         OR (SELECT COALESCE(SUM(CASE WHEN balance.type = 'in' THEN balance.amount ELSE -balance.amount END), 0) FROM purchaser_credits balance WHERE balance.purchaser_id = credits.purchaser_id) + 0.009 < credits.amount
                     THEN 'Used by purchase bills — editing is protected.'
                     ELSE NULL
@@ -378,11 +412,12 @@ final class PurchaserFinanceService
         $credit->loadMissing(['purchaser', 'companyAccount']);
         $creditAmount = round((float) $credit->amount, 2);
         $fundingDate = $credit->business_date ?: today();
+        $direction = $credit->type === 'in' ? 'out' : 'in';
 
         $candidates = $this->reconciliationService->findStatementCandidates(
             companyAccountId: $credit->company_account_id,
             amount: $creditAmount,
-            direction: 'out',
+            direction: $direction,
             referenceDate: $fundingDate,
         );
 
@@ -402,6 +437,124 @@ final class PurchaserFinanceService
             'pending' => $candidates['pending'],
             'reconciled' => $candidates['reconciled'],
             'counts' => $candidates['counts'],
+        ];
+    }
+
+    /**
+     * Exact split records backing each summary card for Purchaser Funding / Cash Movement.
+     * All calculations come directly from canonical purchaser_credits and invoices.
+     *
+     * @return array<string, mixed>
+     */
+    public function fundingSplitsFor(int $purchaserId, string $startDate = '', string $endDate = ''): array
+    {
+        $allCredits = DB::table('purchaser_credits as credits')
+            ->leftJoin('cashbook_company_accounts as accounts', 'accounts.id', '=', 'credits.company_account_id')
+            ->leftJoin('purchase_invoices as invoices', 'invoices.id', '=', 'credits.purchase_invoice_id')
+            ->leftJoin('cashbook_company_account_statement_entries as statements', function ($join): void {
+                $join->on('statements.source_id', '=', 'credits.id')
+                    ->where('statements.source_type', PurchaserCredit::class)
+                    ->where('statements.is_finalized', 1);
+            })
+            ->leftJoin('cashbook_company_accounts as stmt_accounts', 'stmt_accounts.id', '=', 'statements.company_account_id')
+            ->leftJoin('suppliers', 'suppliers.id', '=', 'invoices.supplier_id')
+            ->leftJoin('users as creators', 'creators.id', '=', 'credits.created_by')
+            ->where('credits.purchaser_id', $purchaserId)
+            ->selectRaw("
+                credits.id,
+                credits.type,
+                credits.amount,
+                credits.business_date,
+                credits.created_at,
+                credits.updated_at,
+                credits.payment_source,
+                credits.company_account_id,
+                accounts.name as company_account,
+                credits.reference as funding_reference,
+                credits.description as funding_description,
+                creators.name as created_by_name,
+                credits.purchase_invoice_id,
+                invoices.invoice_number,
+                suppliers.name as supplier_name,
+                CASE 
+                    WHEN credits.type = 'out' AND credits.purchase_invoice_id IS NOT NULL THEN 'advance_utilized'
+                    WHEN statements.id IS NULL OR statements.is_finalized = 0 THEN 'unmatched'
+                    WHEN statements.source = 'imported' OR statements.import_file_name IS NOT NULL OR statements.import_fingerprint IS NOT NULL THEN 'matched'
+                    WHEN stmt_accounts.account_type = 'cash' THEN 'manual_cash'
+                    WHEN stmt_accounts.account_type = 'bank' THEN 'manual_statement'
+                    ELSE 'matched'
+                END as status,
+                CASE
+                    WHEN statements.id IS NOT NULL AND statements.is_finalized = 1 THEN 1
+                    ELSE 0
+                END as funding_action_blocked
+            ")
+            ->orderByDesc('credits.business_date')
+            ->orderByDesc('credits.id')
+            ->get();
+
+        $given = collect();
+        $returned = collect();
+        $used = collect();
+
+        $periodGiven = 0.0;
+        $periodReturned = 0.0;
+        $periodUsed = 0.0;
+
+        foreach ($allCredits as $credit) {
+            $dateStr = $credit->business_date ? substr((string) $credit->business_date, 0, 10) : '';
+            $inPeriod = true;
+            if ($startDate !== '' && $dateStr < $startDate) {
+                $inPeriod = false;
+            }
+            if ($endDate !== '' && $dateStr > $endDate) {
+                $inPeriod = false;
+            }
+
+            $credit->funding_action_blocked = (bool) $credit->funding_action_blocked;
+            $credit->in_period = $inPeriod;
+
+            if ($credit->type === 'in') {
+                $given->push($credit);
+                if ($inPeriod) {
+                    $periodGiven += (float) $credit->amount;
+                }
+            } elseif ($credit->type === 'out' && $credit->purchase_invoice_id === null) {
+                $returned->push($credit);
+                if ($inPeriod) {
+                    $periodReturned += (float) $credit->amount;
+                }
+            } elseif ($credit->type === 'out' && $credit->purchase_invoice_id !== null) {
+                $used->push($credit);
+                if ($inPeriod) {
+                    $periodUsed += (float) $credit->amount;
+                }
+            }
+        }
+
+        $cumulativeGiven = (float) $given->sum('amount');
+        $cumulativeReturned = (float) $returned->sum('amount');
+        $cumulativeNetFunding = round($cumulativeGiven - $cumulativeReturned, 2);
+        $cumulativeUsed = (float) $used->sum('amount');
+        $expectedCash = round($cumulativeNetFunding - $cumulativeUsed, 2);
+
+        return [
+            'given' => $given,
+            'returned' => $returned,
+            'used' => $used,
+            'cumulative' => [
+                'cash_given' => $cumulativeGiven,
+                'cash_returned' => $cumulativeReturned,
+                'net_funding' => $cumulativeNetFunding,
+                'cash_used_invoices' => $cumulativeUsed,
+                'remaining_advance' => $expectedCash,
+            ],
+            'period' => [
+                'cash_given' => round($periodGiven, 2),
+                'cash_returned' => round($periodReturned, 2),
+                'net_funding' => round($periodGiven - $periodReturned, 2),
+                'cash_used_invoices' => round($periodUsed, 2),
+            ],
         ];
     }
 

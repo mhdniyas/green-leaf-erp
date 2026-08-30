@@ -463,26 +463,37 @@ class JournalService
         $credit->loadMissing('purchaser');
         $amount = round((float) $credit->amount, 2);
 
-        if ($amount <= 0.00 || $credit->type !== 'in') {
-            throw new RuntimeException('Purchaser funding journal amount must be a positive incoming credit.');
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Purchaser funding journal amount must be greater than zero.');
         }
 
         $advanceAccountId = $this->getAccountIdByCode('1300');
         $cashAccountId = $this->cashAccountIdForPaymentMode($credit->payment_source);
 
-        $lines = [
-            ['account_id' => $advanceAccountId, 'type' => 'debit', 'amount' => $amount],
-            ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
-        ];
+        if ($credit->type === 'in') {
+            $lines = [
+                ['account_id' => $advanceAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ];
+            $event = 'purchaser_funding';
+            $desc = 'Company funding given to purchaser '.($credit->purchaser?->name ?? '#'.$credit->purchaser_id);
+        } else {
+            $lines = [
+                ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $advanceAccountId, 'type' => 'credit', 'amount' => $amount],
+            ];
+            $event = 'purchaser_funding_return';
+            $desc = 'Purchaser return of funding to company '.($credit->purchaser?->name ?? '#'.$credit->purchaser_id);
+        }
 
         $data = new JournalEntryData(
             entryDate: $credit->business_date->format('Y-m-d'),
             reference: $credit->reference ?: "PURCH-FUND-{$credit->id}",
-            description: 'Company funding given to purchaser '.($credit->purchaser?->name ?? '#'.$credit->purchaser_id),
+            description: $credit->description ?: $desc,
             lines: $lines,
             sourceType: PurchaserCredit::class,
             sourceId: $credit->id,
-            sourceEvent: 'purchaser_funding',
+            sourceEvent: $event,
         );
 
         if ($updateExisting) {
@@ -491,7 +502,7 @@ class JournalService
                 $entry = JournalEntry::query()
                     ->where('source_type', PurchaserCredit::class)
                     ->where('source_id', $credit->id)
-                    ->where('source_event', 'purchaser_funding')
+                    ->whereIn('source_event', ['purchaser_funding', 'purchaser_funding_return'])
                     ->lockForUpdate()
                     ->firstOrFail();
                 $entry->update($data->toArray());

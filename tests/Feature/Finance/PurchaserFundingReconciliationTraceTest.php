@@ -832,7 +832,7 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
             ->get(route('admin.cashbook.finance.purchase.purchasers.show', [
                 'purchaser' => $this->purchaser->public_uuid,
                 'period' => 'month',
-                'tab' => 'finance',
+                'tab' => 'funding',
             ]))
             ->assertOk()
             ->assertSee('UNMATCHED')
@@ -926,7 +926,7 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
 
     public static function protectedFundingStates(): array
     {
-        return array_map(fn (string $state): array => [$state], ['matched', 'reconciled', 'partially_matched', 'manual', 'legacy', 'journal_only', 'partially_consumed', 'fully_consumed', 'replenished', 'historical']);
+        return array_map(fn (string $state): array => [$state], ['matched', 'reconciled', 'partially_matched', 'manual', 'legacy', 'journal_only', 'historical']);
     }
 
     public function test_funding_edit_rejects_invalid_account_without_changing_credit_or_journal(): void
@@ -968,12 +968,12 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
         ]);
         $je = app(JournalService::class)->recordPurchaserCredit($credit);
 
-        // Verify edit button is visible on purchaser finance page
+        // Verify edit button is visible on purchaser funding page
         $this->actingAs($this->admin)
             ->get(route('admin.cashbook.finance.purchase.purchasers.show', [
                 'purchaser' => $this->purchaser->public_uuid,
                 'period' => 'month',
-                'tab' => 'finance',
+                'tab' => 'funding',
             ]))
             ->assertOk()
             ->assertSee('Edit Purchaser Funding')

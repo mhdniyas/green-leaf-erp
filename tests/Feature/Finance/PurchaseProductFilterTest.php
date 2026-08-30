@@ -278,13 +278,14 @@ class PurchaseProductFilterTest extends TestCase
 
     public function test_filtering_purchase_dashboard_with_product_filter(): void
     {
+        $today = now()->toDateString();
         $supplier = Supplier::factory()->create(['name' => 'Daily Veg Supplier']);
         $purchaser = User::factory()->create(['name' => 'Ram Purchaser']);
 
-        $tomatoInvoice = $this->createPurchaseInvoice($supplier, $purchaser, '2026-08-25', 'Cash', [
+        $tomatoInvoice = $this->createPurchaseInvoice($supplier, $purchaser, $today, 'Cash', [
             ['product' => $this->tomato, 'qty' => 10, 'unit_price' => 20, 'line_total' => 200],
         ]);
-        $appleInvoice = $this->createPurchaseInvoice($supplier, $purchaser, '2026-08-25', 'Cash', [
+        $appleInvoice = $this->createPurchaseInvoice($supplier, $purchaser, $today, 'Cash', [
             ['product' => $this->apple, 'qty' => 5, 'unit_price' => 100, 'line_total' => 500],
         ]);
 
@@ -315,11 +316,12 @@ class PurchaseProductFilterTest extends TestCase
 
     public function test_mixed_invoice_item_level_apportionment_with_product_filter(): void
     {
+        $today = now()->toDateString();
         $supplier = Supplier::factory()->create(['name' => 'Mixed Fresh Farm']);
         $purchaser = User::factory()->create(['name' => 'Suresh Purchaser']);
 
         // Single invoice with BOTH Tomato (₹300) and Apple (₹700) = Total ₹1,000 Cash
-        $mixedInvoice = $this->createPurchaseInvoice($supplier, $purchaser, '2026-08-25', 'Cash', [
+        $mixedInvoice = $this->createPurchaseInvoice($supplier, $purchaser, $today, 'Cash', [
             ['product' => $this->tomato, 'qty' => 15, 'unit_price' => 20, 'line_total' => 300],
             ['product' => $this->apple, 'qty' => 7, 'unit_price' => 100, 'line_total' => 700],
         ]);
@@ -376,13 +378,14 @@ class PurchaseProductFilterTest extends TestCase
 
     public function test_legacy_produce_type_falls_back_to_all_products(): void
     {
+        $today = now()->toDateString();
         $supplier = Supplier::factory()->create(['name' => 'All Supplier']);
         $purchaser = User::factory()->create(['name' => 'Ravi Purchaser']);
 
-        $tomatoInvoice = $this->createPurchaseInvoice($supplier, $purchaser, '2026-08-25', 'Cash', [
+        $tomatoInvoice = $this->createPurchaseInvoice($supplier, $purchaser, $today, 'Cash', [
             ['product' => $this->tomato, 'qty' => 10, 'unit_price' => 20, 'line_total' => 200],
         ]);
-        $appleInvoice = $this->createPurchaseInvoice($supplier, $purchaser, '2026-08-25', 'Cash', [
+        $appleInvoice = $this->createPurchaseInvoice($supplier, $purchaser, $today, 'Cash', [
             ['product' => $this->apple, 'qty' => 5, 'unit_price' => 100, 'line_total' => 500],
         ]);
 
