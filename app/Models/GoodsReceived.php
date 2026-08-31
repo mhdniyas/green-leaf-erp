@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
@@ -200,9 +201,129 @@ class GoodsReceived extends Model
         return $query->where('goods_received.receipt_type', 'warehouse_advance');
     }
 
+    public function scopeOpenWarehouseAdvance(
+        Builder $query,
+        int|array|null $warehouseId = null,
+        ?int $productId = null
+    ): Builder {
+        return $query->where(function (Builder $typeQuery): void {
+            $typeQuery->where('goods_received.receipt_type', 'warehouse_advance')
+                ->orWhere(function (Builder $legacy): void {
+                    $legacy->whereNull('goods_received.receipt_type')
+                        ->whereNull('goods_received.purchase_order_id');
+                });
+        })
+            ->where('goods_received.status', 'approved')
+            ->where('goods_received.bill_status', 'bill_pending')
+            ->whereDoesntHave('purchaseInvoices')
+            ->whereHas('stockBatches', function (Builder $batchQuery) use ($productId): void {
+                $batchQuery->where('warehouse_receive_pending', false)
+                    ->when($productId !== null, fn (Builder $pq) => $pq->where('product_id', $productId));
+            })
+            ->when($warehouseId !== null, function (Builder $whQuery) use ($warehouseId): void {
+                if (is_array($warehouseId)) {
+                    $whQuery->where(function (Builder $w) use ($warehouseId): void {
+                        $w->whereIn('goods_received.warehouse_id', $warehouseId)
+                            ->orWhereIn('goods_received.destination_shop_id', $warehouseId);
+                    });
+                } else {
+                    $whQuery->where(function (Builder $w) use ($warehouseId): void {
+                        $w->where('goods_received.warehouse_id', $warehouseId)
+                            ->orWhere('goods_received.destination_shop_id', $warehouseId);
+                    });
+                }
+            })
+            ->whereExists(function (QueryBuilder $itemQuery) use ($productId): void {
+                $itemQuery->selectRaw('1')
+                    ->from('goods_received_items as gri')
+                    ->join('products as p', 'p.id', '=', 'gri.product_id')
+                    ->whereColumn('gri.goods_received_id', 'goods_received.id')
+                    ->whereNull('gri.deleted_at')
+                    ->when($productId !== null, fn ($pq) => $pq->where('gri.product_id', $productId))
+                    ->whereRaw('(
+                        (
+                            SELECT SUM(gri_inner.received_qty * (
+                                CASE
+                                    WHEN LOWER(TRIM(gri_inner.received_unit)) = LOWER(TRIM(p_inner.unit)) THEN 1.0
+                                    ELSE COALESCE((
+                                        SELECT pu.conversion_to_base
+                                        FROM product_units pu
+                                        WHERE pu.product_id = gri_inner.product_id
+                                          AND LOWER(TRIM(pu.unit)) = LOWER(TRIM(gri_inner.received_unit))
+                                        LIMIT 1
+                                    ), 1.0)
+                                END
+                            ))
+                            FROM goods_received_items gri_inner
+                            JOIN products p_inner ON p_inner.id = gri_inner.product_id
+                            WHERE gri_inner.goods_received_id = goods_received.id
+                              AND gri_inner.product_id = gri.product_id
+                              AND gri_inner.deleted_at IS NULL
+                        )
+                        -
+                        COALESCE((
+                            SELECT SUM(arm.base_qty)
+                            FROM advance_receive_matches arm
+                            WHERE arm.advance_goods_received_id = goods_received.id
+                              AND arm.product_id = gri.product_id
+                        ), 0.0)
+                    ) > 0.0001');
+            });
+    }
+
     public function scopeNormalPurchase(Builder $query): Builder
     {
         return $query->where('goods_received.receipt_type', 'normal_purchase');
+    }
+
+    public function getReceivedBaseQtyAttribute(): float
+    {
+        if (array_key_exists('received_base_qty', $this->attributes)) {
+            return round((float) $this->attributes['received_base_qty'], 3);
+        }
+
+        if ($this->relationLoaded('items')) {
+            return round((float) $this->items->sum(function (GoodsReceivedItem $item): float {
+                $prod = $item->relationLoaded('product') ? $item->product : Product::find($item->product_id);
+                $conv = (float) ($prod?->conversionToBaseForUnit($item->received_unit) ?? 1.0);
+
+                return (float) $item->received_qty * $conv;
+            }), 3);
+        }
+
+        return round((float) $this->items()
+            ->join('products', 'products.id', '=', 'goods_received_items.product_id')
+            ->selectRaw('COALESCE(SUM(goods_received_items.received_qty * (
+                CASE
+                    WHEN LOWER(TRIM(goods_received_items.received_unit)) = LOWER(TRIM(products.unit)) THEN 1.0
+                    ELSE COALESCE((
+                        SELECT pu.conversion_to_base
+                        FROM product_units pu
+                        WHERE pu.product_id = goods_received_items.product_id
+                          AND LOWER(TRIM(pu.unit)) = LOWER(TRIM(goods_received_items.received_unit))
+                        LIMIT 1
+                    ), 1.0)
+                END
+            )), 0.0) as base_qty')
+            ->value('base_qty'), 3);
+    }
+
+    public function getBillMatchedBaseQtyAttribute(): float
+    {
+        if (array_key_exists('bill_matched_base_qty', $this->attributes)) {
+            return round((float) $this->attributes['bill_matched_base_qty'], 3);
+        }
+
+        if ($this->relationLoaded('advanceMatchesAsAdvance')) {
+            return round((float) $this->advanceMatchesAsAdvance->sum('base_qty'), 3);
+        }
+
+        return round((float) $this->advanceMatchesAsAdvance()->sum('base_qty'), 3);
+    }
+
+    public function getUnbilledBaseQtyAttribute(): float
+    {
+        return max(0.0, round($this->received_base_qty - $this->bill_matched_base_qty, 3));
     }
 
     public function isWarehouseAdvance(): bool

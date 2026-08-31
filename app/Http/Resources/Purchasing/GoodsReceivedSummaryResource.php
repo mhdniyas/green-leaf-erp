@@ -37,6 +37,9 @@ class GoodsReceivedSummaryResource extends JsonResource
             'received_at_formatted' => $this->approved_at?->format('h:i A') ?? ($this->created_at?->format('h:i A') ?? ''),
             'total_items_count' => (int) ($this->items_count ?? ($this->relationLoaded('items') ? $this->items->count() : 0)),
             'total_received_qty' => (float) ($this->items_sum_received_qty ?? ($this->relationLoaded('items') ? $this->items->sum('received_qty') : 0.0)),
+            'received_base_qty' => round($this->received_base_qty, 3),
+            'bill_matched_base_qty' => round($this->bill_matched_base_qty, 3),
+            'unbilled_base_qty' => round($this->unbilled_base_qty, 3),
             'created_at' => $this->created_at?->toDateTimeString(),
             'updated_at' => $this->updated_at?->toDateTimeString(),
         ];

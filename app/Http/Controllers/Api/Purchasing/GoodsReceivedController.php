@@ -13,11 +13,12 @@ use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
+use App\Services\Purchasing\AutoAdvanceClearExecutionService;
+use App\Services\Purchasing\AutoAdvanceClearPlanningService;
 use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Support\ApiResponse;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -160,6 +161,52 @@ class GoodsReceivedController extends Controller
         return ApiResponse::paginated($candidates);
     }
 
+    public function autoClearPreview(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $warehouseId = (int) $validated['warehouse_id'];
+        app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan(
+            $warehouseId,
+            (int) $request->user()->id
+        );
+
+        return ApiResponse::success($plan, 'Auto-match clear preview generated successfully');
+    }
+
+    public function autoClearExecute(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'plan_hash' => ['required', 'string', 'size:64', 'regex:/^[a-f0-9]{64}$/i'],
+            'client_submission_id' => ['required', 'string', 'uuid'],
+        ]);
+
+        $warehouseId = (int) $validated['warehouse_id'];
+        app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+
+        $result = app(AutoAdvanceClearExecutionService::class)->execute(
+            $warehouseId,
+            (string) $validated['plan_hash'],
+            (string) $validated['client_submission_id'],
+            (int) $request->user()->id
+        );
+
+        if (isset($result['status_code']) && $result['status_code'] === 409) {
+            return response()->json($result['error'], 409);
+        }
+
+        return ApiResponse::success($result, 'Automatic advance reconciliation completed');
+    }
+
     public function pendingSuggestions(Request $request): JsonResponse
     {
         $this->authorizeAdminOrPurchaser($request);
@@ -241,16 +288,7 @@ class GoodsReceivedController extends Controller
         $receivedToday = $receivedQuery->count();
 
         // Open Advance
-        $advanceQuery = GoodsReceived::query()
-            ->where(function (Builder $q): void {
-                $q->warehouseAdvance()
-                    ->orWhere(function (Builder $legacy): void {
-                        $legacy->whereNull('receipt_type')
-                            ->whereNull('purchase_order_id')
-                            ->where('bill_status', 'bill_pending');
-                    });
-            })
-            ->where('status', 'approved');
+        $advanceQuery = GoodsReceived::query()->openWarehouseAdvance();
         app(WarehouseReceiptReadScope::class)->receipts($advanceQuery, $authWarehouseIds);
         $openAdvance = $advanceQuery->count();
 

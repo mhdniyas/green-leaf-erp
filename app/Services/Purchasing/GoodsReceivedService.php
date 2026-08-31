@@ -52,7 +52,30 @@ class GoodsReceivedService
             ->where('status', '!=', 'draft')
             ->with(['purchaseOrder:id,supplier_id,destination_shop_id', 'purchaseOrder.supplier:id,name', 'purchaseOrder.destinationShop:id,name', 'destinationShop:id,name', 'receivedBy:id,name'])
             ->withCount(['items', 'purchaseInvoices'])
-            ->withSum('items', 'received_qty');
+            ->withSum('items', 'received_qty')
+            ->selectSub(function ($sub): void {
+                $sub->from('goods_received_items as gri')
+                    ->join('products as p', 'p.id', '=', 'gri.product_id')
+                    ->whereColumn('gri.goods_received_id', 'goods_received.id')
+                    ->whereNull('gri.deleted_at')
+                    ->selectRaw('COALESCE(SUM(gri.received_qty * (
+                        CASE
+                            WHEN LOWER(TRIM(gri.received_unit)) = LOWER(TRIM(p.unit)) THEN 1.0
+                            ELSE COALESCE((
+                                SELECT pu.conversion_to_base
+                                FROM product_units pu
+                                WHERE pu.product_id = gri.product_id
+                                  AND LOWER(TRIM(pu.unit)) = LOWER(TRIM(gri.received_unit))
+                                LIMIT 1
+                            ), 1.0)
+                        END
+                    )), 0.0)');
+            }, 'received_base_qty')
+            ->selectSub(function ($sub): void {
+                $sub->from('advance_receive_matches as arm')
+                    ->whereColumn('arm.advance_goods_received_id', 'goods_received.id')
+                    ->selectRaw('COALESCE(SUM(arm.base_qty), 0.0)');
+            }, 'bill_matched_base_qty');
 
         if (! empty($filters['receipt_type'])) {
             if ($filters['receipt_type'] === 'warehouse_advance') {
@@ -77,9 +100,13 @@ class GoodsReceivedService
         if (! empty($filters['bill_status'])) {
             $status = (string) $filters['bill_status'];
             if ($status === 'bill_pending') {
-                $query->where('bill_status', 'bill_pending')
-                    ->whereDoesntHave('purchaseInvoices')
-                    ->whereNotNull('received_at');
+                if (($filters['receipt_status'] ?? null) === 'pending') {
+                    $query->where('goods_received.bill_status', 'bill_pending')
+                        ->whereDoesntHave('purchaseInvoices')
+                        ->whereNotNull('goods_received.received_at');
+                } else {
+                    $query->openWarehouseAdvance();
+                }
             } elseif ($status === 'bill_available') {
                 $query->where(function ($q): void {
                     $q->where('bill_status', 'bill_available')
