@@ -453,10 +453,14 @@ class ApiWarehouseLoadoutController extends Controller
                 ->count(),
         ]);
 
-        if (! in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch'])) {
+        if (! in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch'])
+            || $shopOrder->shop_checked_at !== null
+            || in_array($shopOrder->delivery_review_status, ['pending', 'approved'], true)) {
             $msg = $shopOrder->delivery_status === 'in_transit'
                 ? 'This order is already out for delivery.'
-                : 'This order is already delivered.';
+                : ($shopOrder->shop_checked_at !== null || in_array($shopOrder->delivery_review_status, ['pending', 'approved'], true)
+                    ? 'Orders with submitted or completed delivery check-in cannot be edited.'
+                    : 'This order is already delivered.');
 
             return response()->json(['success' => false, 'message' => $msg], 422);
         }
