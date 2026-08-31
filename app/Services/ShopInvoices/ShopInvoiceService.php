@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\ShopInvoices;
 
 use App\Models\BusinessSetting;
+use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\Shop;
@@ -15,6 +17,7 @@ use App\Models\ShopInvoicePaymentAllocation;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\User;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
@@ -887,14 +890,18 @@ class ShopInvoiceService
         });
     }
 
-    public function repriceInvoice(ShopInvoice $invoice, int $userId, ?string $reason = null): ShopInvoice
+    public function repriceInvoice(ShopInvoice $invoice, int $userId, ?string $reason = null, bool $allowFinalized = false): ShopInvoice
     {
         $invoice->loadMissing(['shop.priceGroup', 'items.product', 'order.items.product']);
 
-        if ($invoice->isFinalLocked()) {
+        if (! $allowFinalized && $invoice->isFinalLocked()) {
             throw ValidationException::withMessages([
                 'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
             ]);
+        }
+
+        if ($allowFinalized && $invoice->isFinalLocked()) {
+            $this->assertInvoiceSafeForRepricing($invoice);
         }
 
         if ($this->isHistoricalInvoice($invoice->business_date) && ! $this->allowHistoricalRepricing()) {
@@ -904,6 +911,12 @@ class ShopInvoiceService
         }
 
         return DB::transaction(function () use ($invoice, $userId, $reason): ShopInvoice {
+            $beforeTotals = [
+                'subtotal' => round((float) $invoice->subtotal, 2),
+                'final_total' => round((float) $invoice->final_total, 2),
+                'balance_amount' => round((float) $invoice->balance_amount, 2),
+            ];
+
             $orderItemsByProduct = $invoice->order
                 ? $invoice->order->items
                     ->filter(fn (ShopOrderItem $item): bool => $this->shouldIncludeOrderItemInInvoice($item))
@@ -990,8 +1003,54 @@ class ShopInvoiceService
                 ]);
             }
 
+            $afterTotals = [
+                'subtotal' => round((float) $invoice->subtotal, 2),
+                'final_total' => round((float) $invoice->final_total, 2),
+                'balance_amount' => round((float) $invoice->balance_amount, 2),
+            ];
+
+            $this->recordInvoiceActivity($invoice, 'repriced', $userId, $beforeTotals, $afterTotals, $reason, 'bill_price_edit');
+
+            if ($invoice->isFinalized()) {
+                $this->invoiceCashbookProjectionService->syncInvoice($invoice, $userId);
+            }
+
+            $this->syncOwnedShopBalanceForInvoice($invoice, $userId);
+
             return $invoice;
         });
+    }
+
+    public function assertInvoiceSafeForRepricing(ShopInvoice $invoice): void
+    {
+        if ((float) $invoice->paid_amount > 0.0001 || in_array((string) $invoice->payment_status, ['partially_paid', 'paid'], true)) {
+            throw ValidationException::withMessages([
+                'invoice' => 'Prices cannot be edited on an invoice with recorded payments.',
+            ]);
+        }
+
+        if ($invoice->paymentRequests()->whereIn('status', ['approved', 'completed'])->exists()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'Prices cannot be edited because approved payment requests exist for this invoice.',
+            ]);
+        }
+
+        $purchaseBillType = LedgerEntryType::query()->where('code', 'purchase_bill')->first();
+        if ($purchaseBillType) {
+            $hasAllocations = ShopLedgerTransaction::query()
+                ->where('shop_id', $invoice->shop_id)
+                ->where('entry_type_id', $purchaseBillType->id)
+                ->where('reference_type', ShopInvoice::class)
+                ->where('reference_id', $invoice->id)
+                ->whereHas('paymentLedgerAllocations')
+                ->exists();
+
+            if ($hasAllocations) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Prices cannot be edited because ledger allocations already exist for this invoice.',
+                ]);
+            }
+        }
     }
 
     /**
@@ -1290,11 +1349,13 @@ class ShopInvoiceService
      * @param  array<string, mixed>  $before
      * @param  array<string, mixed>  $after
      */
-    private function recordInvoiceActivity(ShopInvoice $invoice, string $event, int $userId, array $before, array $after, ?string $reason, string $source): void
+    private function recordInvoiceActivity(ShopInvoice $invoice, string $event, int|User $userIdOrUser, array $before, array $after, ?string $reason, string $source): void
     {
+        $causer = $userIdOrUser instanceof User ? $userIdOrUser : (User::query()->find($userIdOrUser) ?? $userIdOrUser);
+
         activity('shop_invoice')
             ->performedOn($invoice)
-            ->causedBy($userId)
+            ->causedBy($causer)
             ->event($event)
             ->withProperties([
                 'before' => $before,
@@ -1592,7 +1653,7 @@ class ShopInvoiceService
         return $orderItem->sorting_status === 'loaded' && (float) ($orderItem->loaded_qty ?? 0) > 0;
     }
 
-    private function syncOwnedShopBalanceForInvoice(ShopInvoice $invoice, int $userId): void
+    public function syncOwnedShopBalanceForInvoice(ShopInvoice $invoice, int $userId): void
     {
         $invoice->loadMissing('shop');
 

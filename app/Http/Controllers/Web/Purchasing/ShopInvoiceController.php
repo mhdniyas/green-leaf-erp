@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Domains\ShopOrder\Actions\BulkFinalizeShopInvoicesAction;
 use App\Domains\ShopOrder\Actions\ResolveDeliveryReviewAction;
+use App\Domains\ShopOrder\Actions\RevertShopInvoiceFinalizationAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\RepriceShopInvoiceRequest;
 use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
@@ -258,14 +259,43 @@ class ShopInvoiceController extends Controller
 
     public function reprice(RepriceShopInvoiceRequest $request, ShopInvoice $invoice): RedirectResponse
     {
-        $this->shopInvoiceService->repriceInvoice(
-            $invoice,
-            (int) $request->user()->id,
-            $request->validated('reason'),
-        );
+        try {
+            $this->shopInvoiceService->repriceInvoice(
+                $invoice,
+                (int) $request->user()->id,
+                $request->validated('reason'),
+                allowFinalized: true,
+            );
+        } catch (ValidationException $exception) {
+            return redirect()->route('purchasing.shop-invoices.show', $invoice)
+                ->withErrors($exception->errors());
+        }
 
         return redirect()->route('purchasing.shop-invoices.show', $invoice)
             ->with('success', 'Daily invoice prices refreshed.');
+    }
+
+    public function revertFinalization(Request $request, ShopInvoice $invoice, RevertShopInvoiceFinalizationAction $revertFinalizationAction): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        try {
+            $revertFinalizationAction->execute(
+                $invoice,
+                $request->user(),
+                $validated['reason'],
+            );
+        } catch (ValidationException $exception) {
+            return redirect()->route('purchasing.shop-invoices.show', $invoice)
+                ->withErrors($exception->errors());
+        }
+
+        return redirect()->route('purchasing.shop-invoices.show', $invoice)
+            ->with('success', "Finalization for invoice {$invoice->invoice_number} has been reverted.");
     }
 
     public function updateItem(Request $request, ShopInvoice $invoice, ShopInvoiceItem $item): JsonResponse|RedirectResponse

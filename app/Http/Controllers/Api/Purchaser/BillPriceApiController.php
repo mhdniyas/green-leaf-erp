@@ -110,11 +110,17 @@ class BillPriceApiController extends Controller
                     $invoice,
                     $userId,
                     'Mobile bill price update by '.$request->user()->name.' for '.$invoice->invoice_number,
+                    allowFinalized: true,
                 );
                 $invoiceRepriced = true;
-            } catch (ValidationException) {
+            } catch (ValidationException $e) {
                 $invoiceRepriceSkipped = true;
                 $invoice->refresh();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->validator->errors()->first() ?? $e->getMessage(),
+                ], 422);
             }
 
             $freshItem = $invoice->items()

@@ -280,6 +280,7 @@ class BillPriceApprovalController extends Controller
                 $invoice,
                 $userId,
                 'Selected product discount applied by '.$request->user()->name.' for '.$invoice->invoice_number,
+                allowFinalized: true,
             );
         } catch (ValidationException $exception) {
             return back()->withErrors($exception->errors())->withInput();
@@ -415,10 +416,19 @@ class BillPriceApprovalController extends Controller
                     $invoice,
                     $userId,
                     'Special price auto-saved by '.$request->user()->name.' for '.$invoice->invoice_number,
+                    allowFinalized: true,
                 );
                 $invoiceRepriced = true;
-            } catch (ValidationException) {
+            } catch (ValidationException $e) {
                 $invoiceRepriceSkipped = true;
+                if ($request->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => $e->validator->errors()->first() ?? $e->getMessage(),
+                    ], 422);
+                }
+
+                return back()->withErrors($e->errors());
             }
         }
 
@@ -674,10 +684,11 @@ class BillPriceApprovalController extends Controller
             $this->shopInvoiceService->repriceInvoice(
                 $invoice,
                 $userId,
-                'Special price updated for '.$specialPrice->product?->name.' on '.$specialPrice->business_date->toDateString()
+                'Special price updated for '.$specialPrice->product?->name.' on '.$specialPrice->business_date->toDateString(),
+                allowFinalized: true,
             );
         } catch (ValidationException) {
-            // Finalized or historical-locked invoices remain unchanged.
+            // Unsafe or historical-locked invoices remain unchanged.
         }
     }
 

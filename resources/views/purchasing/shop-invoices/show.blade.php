@@ -257,6 +257,9 @@
                                 <a href="{{ route('purchasing.bill-prices.show', $invoice) }}" class="inline-flex h-11 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-black text-amber-800 hover:bg-amber-100">
                                     Edit Finalized Invoice
                                 </a>
+                                <button type="button" class="inline-flex h-11 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 px-4 text-sm font-black text-rose-800 hover:bg-rose-100 cursor-pointer" data-open-revert-finalization>
+                                    Revert Finalization
+                                </button>
                             @elseif (($canFinalize ?? false) && $reviewAction)
                                 <button type="button" class="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800 sm:w-auto" data-open-finalize>
                                     Finalize Invoice
@@ -590,6 +593,67 @@
             </div>
         </div>
     @endif
+
+    @if ($isFinalized && auth()->user()?->hasRole('admin'))
+        <div class="fixed inset-0 z-50 hidden items-end bg-slate-950/50 p-0 sm:items-center sm:p-4 backdrop-blur-xs transition-opacity" data-revert-finalization-modal>
+            <form method="POST" action="{{ route('purchasing.shop-invoices.revert-finalization', $invoice) }}" class="w-full rounded-t-2xl bg-white p-5 shadow-2xl sm:mx-auto sm:max-w-lg sm:rounded-2xl sm:p-6" data-revert-finalization-form>
+                @csrf
+                <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-rose-800">
+                            Admin Action
+                        </span>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">Revert Invoice Finalization</h3>
+                    </div>
+                    <button type="button" class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-600 hover:bg-slate-50 cursor-pointer" data-close-revert-modal>✕</button>
+                </div>
+
+                <div class="mt-4 space-y-3">
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-700">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Invoice</span>
+                                <p class="font-black text-slate-900">{{ $invoice->invoice_number }}</p>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Shop</span>
+                                <p class="font-black text-slate-900">{{ $invoice->shop?->name ?? 'Shop' }}</p>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Business Date</span>
+                                <p class="font-black text-slate-900">{{ $invoice->business_date->format('d M Y') }}</p>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Total</span>
+                                <p class="font-black text-slate-900">{{ $money($finalTotal) }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="rounded-xl border border-rose-200 bg-rose-50/70 p-3 text-xs text-rose-900">
+                        <p class="font-bold">⚠️ Warning:</p>
+                        <p class="mt-0.5 text-slate-600">Reverting finalization will restore the invoice and order to an open review state, void the ledger transaction projection, and allow price modifications or re-finalization. Recorded payments cannot exist.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-black uppercase tracking-[0.12em] text-slate-700 mb-1">
+                            Reason for Reversion <span class="text-rose-500">*</span>
+                        </label>
+                        <textarea name="reason" rows="3" required placeholder="Enter mandatory reason for reverting finalization..." class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-950 focus:border-rose-500 focus:ring-rose-500 focus:outline-hidden" data-revert-reason></textarea>
+                    </div>
+                </div>
+
+                <div class="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 hover:bg-slate-50 cursor-pointer" data-close-revert-modal>
+                        Cancel
+                    </button>
+                    <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-600 px-5 text-xs font-black text-white hover:bg-rose-700 transition-all shadow-xs cursor-pointer" data-confirm-revert>
+                        Confirm Revert Finalization
+                    </button>
+                </div>
+            </form>
+        </div>
+    @endif
 @endsection
 
 @push('scripts')
@@ -873,6 +937,48 @@
 
                 form.submit();
             });
+
+            // Revert Finalization Modal Handling
+            const openRevertBtn = document.querySelector('[data-open-revert-finalization]');
+            const revertModal = document.querySelector('[data-revert-finalization-modal]');
+            const closeRevertBtns = document.querySelectorAll('[data-close-revert-modal]');
+            const revertForm = document.querySelector('[data-revert-finalization-form]');
+            const revertReason = document.querySelector('[data-revert-reason]');
+            const confirmRevertBtn = document.querySelector('[data-confirm-revert]');
+
+            if (openRevertBtn && revertModal) {
+                openRevertBtn.addEventListener('click', () => {
+                    revertModal.classList.remove('hidden');
+                    revertModal.classList.add('flex');
+                    if (revertReason) {
+                        revertReason.focus();
+                    }
+                });
+
+                closeRevertBtns.forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        revertModal.classList.add('hidden');
+                        revertModal.classList.remove('flex');
+                    });
+                });
+
+                if (revertForm) {
+                    revertForm.addEventListener('submit', (e) => {
+                        const reasonVal = (revertReason?.value || '').trim();
+                        if (reasonVal.length < 3) {
+                            e.preventDefault();
+                            alert('Please provide a detailed reason (at least 3 characters) to revert finalization.');
+                            revertReason?.focus();
+                            return;
+                        }
+
+                        if (confirmRevertBtn) {
+                            confirmRevertBtn.disabled = true;
+                            confirmRevertBtn.textContent = 'Reverting...';
+                        }
+                    });
+                }
+            }
         });
     </script>
 @endpush

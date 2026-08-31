@@ -741,7 +741,7 @@ class ResolveDeliveryReviewAction
             ->notify(new ShopDeliveryReviewSubmittedNotification($order));
     }
 
-    private function reverseInventoryAdjustmentsForApprovedReview(ShopOrder $order, int $userId): void
+    public function reverseInventoryAdjustmentsForApprovedReview(ShopOrder $order, int $userId): void
     {
         $orderNumber = (string) $order->order_number;
         $itemIds = $order->items->pluck('id')->map(static fn ($id): int => (int) $id)->all();
