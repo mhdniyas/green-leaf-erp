@@ -53,10 +53,7 @@ class AutoAdvanceClearPlanningService
                             ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
                     });
             })
-            ->where(function (Builder $w) use ($warehouseId): void {
-                $w->where('destination_shop_id', $warehouseId)
-                    ->orWhere('warehouse_id', $warehouseId);
-            })
+            ->where('destination_shop_id', $warehouseId)
             ->with([
                 'items.product.orderUnits',
                 'supplier:id,name',

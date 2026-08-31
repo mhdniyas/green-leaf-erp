@@ -69,7 +69,7 @@ class ApproveGoodsReceiptAction
                     $this->vendorPriceService->syncPrice($item->product_id, $costPerKg);
                 }
 
-                $isWarehouseAdvance = $grn->receipt_type === 'warehouse_advance' || ($grn->receipt_type === null && $grn->purchase_order_id === null);
+                $isWarehouseAdvance = $grn->receipt_type === 'warehouse_advance';
 
                 // Create StockBatch in inventory
                 $this->stockBatchRepository->create([

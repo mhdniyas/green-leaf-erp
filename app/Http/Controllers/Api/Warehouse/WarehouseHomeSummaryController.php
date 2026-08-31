@@ -17,39 +17,55 @@ class WarehouseHomeSummaryController extends Controller
      */
     public function show(Request $request): JsonResponse
     {
-        $warehouseId = $request->query('warehouse_id');
+        $warehouseId = $request->filled('warehouse_id') ? (int) $request->input('warehouse_id') : null;
         $today = Carbon::today();
 
         // 1. Receive counts
         $receivePendingQuery = PurchaseOrder::query()
-            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received'])
+            ->when($warehouseId !== null, fn ($q) => $q->where('destination_shop_id', $warehouseId));
 
         $billPendingCount = GoodsReceived::query()
-            ->where('is_bill_pending', true)
+            ->where('bill_status', 'bill_pending')
             ->where(function ($q) {
                 $q->whereNull('status')->orWhere('status', '!=', 'cancelled');
+            })
+            ->when($warehouseId !== null, function ($q) use ($warehouseId) {
+                $q->where(function ($w) use ($warehouseId) {
+                    $w->where('warehouse_id', $warehouseId)
+                        ->orWhere('destination_shop_id', $warehouseId);
+                });
             })
             ->count();
 
         $receivedTodayCount = GoodsReceived::query()
-            ->whereDate('received_date', $today)
+            ->whereDate('received_at', $today)
             ->where(function ($q) {
                 $q->whereNull('status')->orWhere('status', '!=', 'cancelled');
+            })
+            ->when($warehouseId !== null, function ($q) use ($warehouseId) {
+                $q->where(function ($w) use ($warehouseId) {
+                    $w->where('warehouse_id', $warehouseId)
+                        ->orWhere('destination_shop_id', $warehouseId);
+                });
             })
             ->count();
 
         // 2. Loadout counts
         $loadoutPendingQuery = ShopOrder::query()
             ->whereDate('delivery_date', $today)
-            ->whereIn('loadout_status', ['pending', 'not_started']);
+            ->whereIn('loadout_status', ['pending', 'not_started'])
+            ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId));
 
         $loadoutPartialQuery = ShopOrder::query()
             ->whereDate('delivery_date', $today)
-            ->whereIn('loadout_status', ['partially_loaded', 'partial', 'in_progress']);
+            ->whereIn('loadout_status', ['partially_loaded', 'partial', 'in_progress'])
+            ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId));
 
         $loadoutCompletedTodayQuery = ShopOrder::query()
             ->whereDate('delivery_date', $today)
-            ->whereIn('loadout_status', ['completed', 'loaded', 'delivered']);
+            ->whereIn('loadout_status', ['completed', 'loaded', 'delivered'])
+            ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId));
 
         $receivePendingCount = $receivePendingQuery->count();
         $loadoutPendingCount = $loadoutPendingQuery->count();
