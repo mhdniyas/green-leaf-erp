@@ -12,6 +12,11 @@
         $showAdminDeliveryOverride = ($canOverride ?? false) && ! $isDeliveryReviewPending;
         $canReviewDelivery = ($canEdit ?? false) && ($isDeliveryReviewPending || $showAdminDeliveryOverride);
         $isFinalized = $isFinalized ?? $invoice->isFinalized();
+        $canMoveBackToTransit = auth()->user()?->hasRole('admin')
+            && ! $isFinalized
+            && $invoice->order !== null
+            && ((float) $invoice->paid_amount <= 0.0001)
+            && ($invoice->order->delivery_status !== 'in_transit' || $invoice->order->delivery_review_status !== 'not_started' || $invoice->order->shop_checked_at !== null || $invoice->delivery_status !== 'pending');
         $canEditBill = ! $isFinalized;
         $canEditPrices = $canEditBill && (auth()->user()?->hasRole('admin') || auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('purchaser'));
         $canEditDiscount = $canManageInvoiceMoney && ! $isFinalized && ! $isDeliveryReviewPending;
@@ -260,7 +265,15 @@
                                 <button type="button" class="inline-flex h-11 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 px-4 text-sm font-black text-rose-800 hover:bg-rose-100 cursor-pointer" data-open-revert-finalization>
                                     Revert Finalization
                                 </button>
-                            @elseif (($canFinalize ?? false) && $reviewAction)
+                            @endif
+
+                            @if ($canMoveBackToTransit)
+                                <button type="button" class="inline-flex h-11 items-center justify-center rounded-lg border border-sky-300 bg-sky-50 px-4 text-sm font-black text-sky-800 hover:bg-sky-100 cursor-pointer" data-open-move-back-to-transit>
+                                    Move Back to In Transit
+                                </button>
+                            @endif
+
+                            @if (! $isFinalized && ($canFinalize ?? false) && $reviewAction)
                                 <button type="button" class="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800 sm:w-auto" data-open-finalize>
                                     Finalize Invoice
                                 </button>
@@ -270,6 +283,44 @@
                 </div>
             </div>
         </section>
+
+        @if (auth()->user()?->hasRole('admin'))
+            <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div class="flex flex-col gap-1 border-b border-slate-100 pb-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-sm font-black uppercase tracking-[0.16em] text-slate-950">Admin Actions</h3>
+                            <p class="text-xs font-semibold text-slate-500">Supervisory corrections and workflow state overrides</p>
+                        </div>
+                        <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-slate-700">Admin Only</span>
+                    </div>
+                </div>
+
+                <div class="mt-4 flex flex-wrap items-center gap-3">
+                    @if ($isFinalized)
+                        <a href="{{ route('purchasing.bill-prices.show', $invoice) }}" class="inline-flex h-10 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-800 hover:bg-amber-100">
+                            Edit Finalized Invoice
+                        </a>
+                        <button type="button" class="inline-flex h-10 items-center justify-center rounded-lg border border-rose-300 bg-rose-50 px-4 text-xs font-black text-rose-800 hover:bg-rose-100 cursor-pointer" data-open-revert-finalization>
+                            Revert Finalization
+                        </button>
+                    @endif
+
+                    @if ($canMoveBackToTransit)
+                        <button type="button" class="inline-flex h-10 items-center justify-center rounded-lg border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-800 hover:bg-sky-100 cursor-pointer" data-open-move-back-to-transit>
+                            Move Back to In Transit
+                        </button>
+                    @endif
+
+                    @if (! $isFinalized && ! $canMoveBackToTransit && $invoice->order?->delivery_status === 'in_transit')
+                        <span class="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700">
+                            <span class="h-2 w-2 rounded-full bg-sky-500 animate-pulse"></span>
+                            Order is currently in transit awaiting shop check-in.
+                        </span>
+                    @endif
+                </div>
+            </section>
+        @endif
 
         <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <div class="flex flex-col gap-1 border-b border-slate-100 pb-3">
@@ -654,6 +705,67 @@
             </form>
         </div>
     @endif
+
+    @if ($canMoveBackToTransit)
+        <div class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/50 p-4 backdrop-blur-xs" data-move-transit-modal>
+            <form method="POST" action="{{ route('purchasing.shop-invoices.move-back-to-transit', $invoice) }}" class="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" data-move-transit-form>
+                @csrf
+                <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-sky-800">
+                            Admin Workflow Correction
+                        </span>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">Move Back to In Transit</h3>
+                    </div>
+                    <button type="button" class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-600 hover:bg-slate-50 cursor-pointer" data-close-move-transit-modal>✕</button>
+                </div>
+
+                <div class="mt-4 space-y-3">
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-700">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Invoice</span>
+                                <p class="font-black text-slate-900">{{ $invoice->invoice_number }}</p>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Shop</span>
+                                <p class="font-black text-slate-900">{{ $invoice->shop?->name ?? 'Shop' }}</p>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Current Status</span>
+                                <p class="font-black text-slate-900">Order: {{ strtoupper(str_replace('_', ' ', (string) $invoice->order?->delivery_status)) }} ({{ strtoupper(str_replace('_', ' ', (string) $invoice->order?->delivery_review_status)) }})</p>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Destination Status</span>
+                                <p class="font-black text-sky-700">IN TRANSIT (Pending Shop Check-in)</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="rounded-xl border border-sky-200 bg-sky-50/70 p-3 text-xs text-sky-950">
+                        <p class="font-bold">ℹ️ Note:</p>
+                        <p class="mt-0.5 text-slate-600">This action will reset the shop check-in and delivery discrepancy resolution, allowing the shop and warehouse to receive and verify the delivery freshly. Previous verification details will be recorded in the audit history.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-black uppercase tracking-[0.12em] text-slate-700 mb-1">
+                            Reason for Correction <span class="text-rose-500">*</span>
+                        </label>
+                        <textarea name="reason" rows="3" required placeholder="Enter mandatory reason for moving back to in transit..." class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-950 focus:border-sky-500 focus:ring-sky-500 focus:outline-hidden" data-move-transit-reason></textarea>
+                    </div>
+                </div>
+
+                <div class="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 hover:bg-slate-50 cursor-pointer" data-close-move-transit-modal>
+                        Cancel
+                    </button>
+                    <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-sky-600 px-5 text-xs font-black text-white hover:bg-sky-700 transition-all shadow-xs cursor-pointer" data-confirm-move-transit>
+                        Confirm Move to In Transit
+                    </button>
+                </div>
+            </form>
+        </div>
+    @endif
 @endsection
 
 @push('scripts')
@@ -939,20 +1051,22 @@
             });
 
             // Revert Finalization Modal Handling
-            const openRevertBtn = document.querySelector('[data-open-revert-finalization]');
+            const openRevertBtn = document.querySelectorAll('[data-open-revert-finalization]');
             const revertModal = document.querySelector('[data-revert-finalization-modal]');
             const closeRevertBtns = document.querySelectorAll('[data-close-revert-modal]');
             const revertForm = document.querySelector('[data-revert-finalization-form]');
             const revertReason = document.querySelector('[data-revert-reason]');
             const confirmRevertBtn = document.querySelector('[data-confirm-revert]');
 
-            if (openRevertBtn && revertModal) {
-                openRevertBtn.addEventListener('click', () => {
-                    revertModal.classList.remove('hidden');
-                    revertModal.classList.add('flex');
-                    if (revertReason) {
-                        revertReason.focus();
-                    }
+            if (openRevertBtn.length > 0 && revertModal) {
+                openRevertBtn.forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        revertModal.classList.remove('hidden');
+                        revertModal.classList.add('flex');
+                        if (revertReason) {
+                            revertReason.focus();
+                        }
+                    });
                 });
 
                 closeRevertBtns.forEach((btn) => {
@@ -975,6 +1089,50 @@
                         if (confirmRevertBtn) {
                             confirmRevertBtn.disabled = true;
                             confirmRevertBtn.textContent = 'Reverting...';
+                        }
+                    });
+                }
+            }
+
+            // Move Back to In Transit Modal Handling
+            const openMoveTransitBtns = document.querySelectorAll('[data-open-move-back-to-transit]');
+            const moveTransitModal = document.querySelector('[data-move-transit-modal]');
+            const closeMoveTransitBtns = document.querySelectorAll('[data-close-move-transit-modal]');
+            const moveTransitForm = document.querySelector('[data-move-transit-form]');
+            const moveTransitReason = document.querySelector('[data-move-transit-reason]');
+            const confirmMoveTransitBtn = document.querySelector('[data-confirm-move-transit]');
+
+            if (openMoveTransitBtns.length > 0 && moveTransitModal) {
+                openMoveTransitBtns.forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        moveTransitModal.classList.remove('hidden');
+                        moveTransitModal.classList.add('flex');
+                        if (moveTransitReason) {
+                            moveTransitReason.focus();
+                        }
+                    });
+                });
+
+                closeMoveTransitBtns.forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        moveTransitModal.classList.add('hidden');
+                        moveTransitModal.classList.remove('flex');
+                    });
+                });
+
+                if (moveTransitForm) {
+                    moveTransitForm.addEventListener('submit', (e) => {
+                        const reasonVal = (moveTransitReason?.value || '').trim();
+                        if (reasonVal.length < 3) {
+                            e.preventDefault();
+                            alert('Please provide a detailed reason (at least 3 characters) to move back to in transit.');
+                            moveTransitReason?.focus();
+                            return;
+                        }
+
+                        if (confirmMoveTransitBtn) {
+                            confirmMoveTransitBtn.disabled = true;
+                            confirmMoveTransitBtn.textContent = 'Moving to In Transit...';
                         }
                     });
                 }

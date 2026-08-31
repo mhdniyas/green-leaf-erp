@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Domains\ShopOrder\Actions\BulkFinalizeShopInvoicesAction;
+use App\Domains\ShopOrder\Actions\MoveShopInvoiceBackToTransitAction;
 use App\Domains\ShopOrder\Actions\ResolveDeliveryReviewAction;
 use App\Domains\ShopOrder\Actions\RevertShopInvoiceFinalizationAction;
 use App\Http\Controllers\Controller;
@@ -296,6 +297,29 @@ class ShopInvoiceController extends Controller
 
         return redirect()->route('purchasing.shop-invoices.show', $invoice)
             ->with('success', "Finalization for invoice {$invoice->invoice_number} has been reverted.");
+    }
+
+    public function moveBackToTransit(Request $request, ShopInvoice $invoice, MoveShopInvoiceBackToTransitAction $moveBackToTransitAction): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        try {
+            $moveBackToTransitAction->execute(
+                $invoice,
+                (int) $request->user()->id,
+                $validated['reason'],
+            );
+        } catch (ValidationException $exception) {
+            return redirect()->route('purchasing.shop-invoices.show', $invoice)
+                ->withErrors($exception->errors());
+        }
+
+        return redirect()->route('purchasing.shop-invoices.show', $invoice)
+            ->with('success', "Invoice {$invoice->invoice_number} and order have been moved back to in transit.");
     }
 
     public function updateItem(Request $request, ShopInvoice $invoice, ShopInvoiceItem $item): JsonResponse|RedirectResponse
