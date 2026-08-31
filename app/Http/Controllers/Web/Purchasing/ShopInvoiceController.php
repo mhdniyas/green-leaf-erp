@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Domains\ShopOrder\Actions\BulkFinalizeShopInvoicesAction;
 use App\Domains\ShopOrder\Actions\ResolveDeliveryReviewAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\RepriceShopInvoiceRequest;
@@ -17,6 +18,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -27,6 +29,7 @@ class ShopInvoiceController extends Controller
     public function __construct(
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly ResolveDeliveryReviewAction $resolveDeliveryReviewAction,
+        private readonly BulkFinalizeShopInvoicesAction $bulkFinalizeAction,
     ) {}
 
     public function index(Request $request): View
@@ -81,6 +84,14 @@ class ShopInvoiceController extends Controller
         $totalFinalizedAmount = round((float) $baseInvoiceQuery()
             ->where($finalizedInvoiceScope)
             ->sum('final_total'), 2);
+        $allInvoicesForDate = ShopInvoice::query()
+            ->with(['shop.priceGroup', 'items.product', 'order.items.product'])
+            ->whereDate('business_date', $selectedDate)
+            ->get();
+
+        $eligibleInvoicesCount = $allInvoicesForDate
+            ->filter(fn (ShopInvoice $inv): bool => $this->bulkFinalizeAction->checkEligibility($inv, $request->user())['eligible'])
+            ->count();
 
         return view('purchasing.shop-invoices.index', [
             'invoices' => $invoices,
@@ -88,6 +99,7 @@ class ShopInvoiceController extends Controller
             'selectedDate' => $selectedDate,
             'todayDate' => today()->toDateString(),
             'allInvoicesCount' => $baseInvoiceQuery()->count(),
+            'eligibleInvoicesCount' => $eligibleInvoicesCount,
             'pendingApprovalCount' => $pendingApprovalCount,
             'shopNotesCount' => $shopNotesCount,
             'varianceCount' => $varianceCount,
@@ -97,6 +109,50 @@ class ShopInvoiceController extends Controller
             'pendingReviewBillsCount' => max(0, $baseInvoiceQuery()->count() - $finalizedBillsCount),
             'totalFinalizedAmount' => $totalFinalizedAmount,
         ]);
+    }
+
+    public function finalizeAll(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user?->hasRole('purchase') || $user?->hasRole('admin') || $user?->can('purchasing.order.approve'), 403);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date_format:Y-m-d'],
+            'review_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $selectedDate = $validated['date'];
+        $lockKey = "shop_invoices_bulk_finalize_{$selectedDate}";
+        $lock = Cache::lock($lockKey, 30);
+
+        if (! $lock->get()) {
+            return redirect()
+                ->route('purchasing.shop-invoices.index', ['date' => $selectedDate])
+                ->with('warning', 'A finalization process for this date is currently in progress. Please wait a moment and refresh.');
+        }
+
+        try {
+            $result = $this->bulkFinalizeAction->finalizeAllForDate(
+                $selectedDate,
+                $user,
+                $validated['review_note'] ?? null,
+            );
+        } finally {
+            $lock->release();
+        }
+
+        $message = match (true) {
+            $result['finalized'] > 0 && $result['failed'] === 0 => "Successfully finalized {$result['finalized']} shop bill(s) for {$selectedDate}.",
+            $result['finalized'] > 0 && $result['failed'] > 0 => "Finalized {$result['finalized']} shop bill(s), but {$result['failed']} bill(s) could not be finalized.",
+            $result['finalized'] === 0 && $result['failed'] > 0 => "Could not finalize {$result['failed']} shop bill(s). See details below.",
+            $result['total'] === 0 => 'No shop bills found for this date.',
+            default => 'All bills for this date were already finalized.',
+        };
+
+        return redirect()
+            ->route('purchasing.shop-invoices.index', ['date' => $selectedDate])
+            ->with('bulk_finalize_result', $result)
+            ->with($result['failed'] > 0 ? 'warning' : 'success', $message);
     }
 
     public function show(Request $request, ShopInvoice $invoice): View

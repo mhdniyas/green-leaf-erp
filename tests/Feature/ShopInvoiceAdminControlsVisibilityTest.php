@@ -348,8 +348,11 @@ class ShopInvoiceAdminControlsVisibilityTest extends TestCase
                 'approved_delivered_qty' => [
                     $orderItem->id => 16,
                 ],
+                'delivery_discrepancy_types' => [
+                    $orderItem->id => 'wastage_damage',
+                ],
                 'item_inventory_actions' => [
-                    $orderItem->id => 'none',
+                    $orderItem->id => 'wastage',
                 ],
                 'item_review_notes' => [
                     $orderItem->id => 'Admin corrected.',

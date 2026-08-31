@@ -375,6 +375,7 @@ Route::middleware('auth')->group(function () {
         Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);
         Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');
+        Route::post('shop-invoices/finalize-all', [ShopInvoiceController::class, 'finalizeAll'])->name('shop-invoices.finalize-all');
         Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
         Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
         Route::patch('shop-invoices/{invoice}/items/{item}', [ShopInvoiceController::class, 'updateItem'])->name('shop-invoices.items.update');
