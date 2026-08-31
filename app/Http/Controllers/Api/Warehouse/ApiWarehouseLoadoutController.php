@@ -697,6 +697,10 @@ class ApiWarehouseLoadoutController extends Controller
             return response()->json(['success' => false, 'message' => 'Order is already in transit.'], 422);
         }
 
+        if ($shopOrder->shop_checked_at !== null || in_array($shopOrder->delivery_review_status, ['pending', 'approved'], true) || in_array($shopOrder->delivery_status, ['pending_approval', 'delivered'], true)) {
+            return response()->json(['success' => false, 'message' => 'Orders with submitted or completed delivery check-in cannot be moved to delivery.'], 422);
+        }
+
         if ($shopOrder->delivery_status !== 'ready_for_dispatch') {
             return response()->json(['success' => false, 'message' => 'Order is not ready for delivery.'], 422);
         }
@@ -766,6 +770,10 @@ class ApiWarehouseLoadoutController extends Controller
 
         if ($shopOrder->delivery_status === 'delivered') {
             return response()->json(['success' => false, 'message' => 'Delivered orders cannot be reopened.'], 422);
+        }
+
+        if ($shopOrder->shop_checked_at !== null || in_array($shopOrder->delivery_review_status, ['pending', 'approved'], true) || in_array($shopOrder->delivery_status, ['pending_approval', 'delivered'], true)) {
+            return response()->json(['success' => false, 'message' => 'Orders with submitted or completed delivery check-in cannot be moved back to loadout.'], 422);
         }
 
         DB::transaction(function () use ($shopOrder) {

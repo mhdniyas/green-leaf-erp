@@ -734,6 +734,10 @@ class WarehouseLoadoutController extends Controller
             return redirect()->back()->withErrors(['Delivered orders cannot be edited. Delivery has already been verified and locked.']);
         }
 
+        if ($shopOrder->shop_checked_at !== null || in_array($shopOrder->delivery_review_status, ['pending', 'approved'], true) || in_array($shopOrder->delivery_status, ['pending_approval', 'delivered'], true)) {
+            return redirect()->back()->withErrors(['Orders with submitted or completed delivery check-in cannot be moved back to loadout.']);
+        }
+
         DB::transaction(function () use ($shopOrder) {
             $shopOrder->update([
                 'delivery_status' => 'ready_for_dispatch',
@@ -764,6 +768,10 @@ class WarehouseLoadoutController extends Controller
 
         if ($shopOrder->delivery_status === 'delivered') {
             return redirect()->back()->withErrors(['This order is already delivered.']);
+        }
+
+        if ($shopOrder->shop_checked_at !== null || in_array($shopOrder->delivery_review_status, ['pending', 'approved'], true) || in_array($shopOrder->delivery_status, ['pending_approval', 'delivered'], true)) {
+            return redirect()->back()->withErrors(['Orders with submitted or completed delivery check-in cannot be moved to delivery.']);
         }
 
         if ($shopOrder->delivery_status !== 'ready_for_dispatch') {
