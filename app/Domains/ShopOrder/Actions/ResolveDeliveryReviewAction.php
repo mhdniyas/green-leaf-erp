@@ -208,6 +208,7 @@ class ResolveDeliveryReviewAction
                 $excessValue = round($excessQty * (float) $item->unit_cost, 2);
 
                 $beforeDeliveredQty = (float) ($item->shop_reported_received_qty ?? $item->delivered_qty ?? $expectedQty);
+                $itemUnitPrice = (float) ($invoiceItemsByProductId->get((int) $item->product_id)?->unit_price ?? $item->locked_selling_price ?? $item->unit_price);
                 if (abs($deliveredQty - $beforeDeliveredQty) > 0.0001 || abs($deliveredQty - $expectedQty) > 0.0001) {
                     $productChanges[] = [
                         'product_id' => $item->product_id,
@@ -216,8 +217,8 @@ class ResolveDeliveryReviewAction
                         'loaded_qty' => $expectedQty,
                         'before_qty' => $beforeDeliveredQty,
                         'final_qty' => $deliveredQty,
-                        'before_price' => (float) $item->unit_price,
-                        'final_price' => (float) $item->unit_price,
+                        'before_price' => $itemUnitPrice,
+                        'final_price' => $itemUnitPrice,
                     ];
                 }
 
@@ -284,6 +285,8 @@ class ResolveDeliveryReviewAction
                     'excess_value' => $excessValue,
                     'delivery_discrepancy_type' => $discrepancyType,
                     'delivery_discrepancy_note' => $discrepancyNote,
+                    'locked_selling_price' => $itemUnitPrice,
+                    'line_total' => round($deliveredQty * $itemUnitPrice, 2),
                     'notes' => $itemReviewNote !== ''
                         ? $this->appendReviewNote($item->notes, 'Delivery review', $itemReviewNote)
                         : $item->notes,
@@ -303,13 +306,25 @@ class ResolveDeliveryReviewAction
                     $shortageQty = round((float) $items->sum('shortage_qty'), 2);
                     $excessQty = round((float) $items->sum('excess_qty'), 2);
 
-                    $invoiceItem->update($this->shopInvoiceService->calculateDeliveryAdjustmentForInvoiceItem(
+                    $adjustment = $this->shopInvoiceService->calculateDeliveryAdjustmentForInvoiceItem(
                         $invoiceItem,
                         $deliveredQty,
                         $shortageQty,
                         $excessQty,
                         $items instanceof Collection ? $items->values() : collect($items)->values(),
-                    ));
+                    );
+
+                    $invoiceItem->update($adjustment);
+
+                    $unitPrice = (float) $invoiceItem->unit_price;
+                    foreach ($items as $orderItem) {
+                        $orderItem->update([
+                            'locked_selling_price' => $unitPrice,
+                            'line_total' => round((float) ($orderItem->delivered_qty ?? 0) * $unitPrice, 2),
+                            'shortage_value' => round((float) ($orderItem->shortage_qty ?? 0) * $unitPrice, 2),
+                            'excess_value' => round((float) ($orderItem->excess_qty ?? 0) * $unitPrice, 2),
+                        ]);
+                    }
                 });
 
             $summaryLines = [];

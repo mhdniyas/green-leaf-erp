@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\Shop;
 use App\Models\ShopCredit;
+use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\ShopInvoicePaymentAllocation;
@@ -811,19 +812,23 @@ class ShopInvoiceService
     ): ShopInvoice {
         return DB::transaction(function () use ($invoice, $invoiceItem, $finalQty, $finalPrice, $userId, $note): ShopInvoice {
             $invoice = ShopInvoice::query()
-                ->with(['items.product', 'order'])
+                ->with(['items.product', 'order.items'])
                 ->lockForUpdate()
                 ->findOrFail($invoice->id);
 
+            if ($invoice->isFinalized()) {
+                $this->assertInvoiceSafeForRepricing($invoice);
+            }
+
             $invoiceItem = ShopInvoiceItem::query()
-                ->with('product')
+                ->with(['product', 'orderItem'])
                 ->where('shop_invoice_id', $invoice->id)
                 ->lockForUpdate()
                 ->findOrFail($invoiceItem->id);
 
             $priceUnit = (string) ($invoiceItem->price_unit ?: $invoiceItem->unit);
             $approvedQty = (float) $invoiceItem->approved_qty;
-            $beforeQty = round((float) ($invoiceItem->delivered_price_quantity ?: $invoiceItem->price_quantity ?: $invoiceItem->delivered_qty ?: $approvedQty), 4);
+            $beforeQty = round((float) ($invoiceItem->delivered_price_quantity !== null ? $invoiceItem->delivered_price_quantity : ($invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? $approvedQty)), 4);
             $beforePrice = round((float) $invoiceItem->unit_price, 2);
             $beforeAmount = round((float) ($invoiceItem->final_line_total ?: $invoiceItem->line_subtotal), 2);
             $newQty = round($finalQty, 4);
@@ -853,6 +858,38 @@ class ShopInvoiceService
                 'final_line_total' => $finalLineTotal,
             ]);
 
+            if ($invoiceItem->orderItem) {
+                $invoiceItem->orderItem->update([
+                    'delivered_qty' => $deliveredQty,
+                    'shop_reported_received_qty' => $deliveredQty,
+                    'shortage_qty' => $shortageQty,
+                    'excess_qty' => $excessQty,
+                    'shortage_value' => $shortageAmount,
+                    'excess_value' => $excessAmount,
+                    'locked_selling_price' => $newPrice,
+                    'line_total' => $finalLineTotal,
+                ]);
+            }
+
+            if (abs($beforePrice - $newPrice) > 0.0001 && $invoiceItem->product_id) {
+                ShopDailyProductPrice::query()->updateOrCreate(
+                    [
+                        'business_date' => $invoice->business_date->toDateString(),
+                        'shop_id' => (int) $invoice->shop_id,
+                        'product_id' => (int) $invoiceItem->product_id,
+                    ],
+                    [
+                        'selling_price' => $newPrice,
+                        'price_unit' => $priceUnit,
+                        'status' => 'approved',
+                        'approved_by' => $userId,
+                        'approved_at' => now(),
+                        'reason' => $note ?: 'Adjusted via invoice item editor',
+                        'created_by' => $userId,
+                    ]
+                );
+            }
+
             $invoice->update([
                 'admin_price_note' => $note,
                 'price_updated_by' => $userId,
@@ -878,6 +915,8 @@ class ShopInvoiceService
 
             if ($invoice->order) {
                 $invoice->order->update([
+                    'total_shortage_value' => $invoice->shortage_total,
+                    'total_excess_value' => $invoice->excess_total,
                     'cash_discrepancy' => round((float) $invoice->final_total - (float) $invoice->paid_amount, 2),
                     'payment_status' => $invoice->payment_status,
                     'balance_amount' => $invoice->balance_amount,
@@ -957,6 +996,7 @@ class ShopInvoiceService
                     $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
                     $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
 
+                    $finalLineTotal = round($lineSubtotal - $shortageAmount + $excessAmount, 2);
                     $invoiceItem->update([
                         'price_unit' => $priceUnit,
                         'price_quantity' => $priceQuantity,
@@ -969,8 +1009,17 @@ class ShopInvoiceService
                         'line_subtotal' => $lineSubtotal,
                         'shortage_amount' => $shortageAmount,
                         'excess_amount' => $excessAmount,
-                        'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
+                        'final_line_total' => $finalLineTotal,
                     ]);
+
+                    if ($invoiceItem->orderItem) {
+                        $invoiceItem->orderItem->update([
+                            'locked_selling_price' => $unitPrice,
+                            'line_total' => $finalLineTotal,
+                            'shortage_value' => $shortageAmount,
+                            'excess_value' => $excessAmount,
+                        ]);
+                    }
                 } catch (Throwable $e) {
                     // Skip this product if pricing data is missing or invalid.
                     // The loadout save must not be blocked by a single product's price issue.

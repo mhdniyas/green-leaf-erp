@@ -25,10 +25,28 @@
             : strtoupper(str_replace('_', ' ', \App\Models\ProductUnit::normalizeUnit($unit)));
         $money = fn (float|int|string|null $amount): string => 'Rs. '.number_format((float) $amount, 2);
         $lineQuantity = function ($item): float {
-            return round((float) ($item->delivered_price_quantity ?: $item->price_quantity ?: $item->delivered_qty ?: $item->approved_qty), 4);
+            if ($item->delivered_price_quantity !== null && $item->delivered_price_quantity !== '') {
+                return round((float) $item->delivered_price_quantity, 4);
+            }
+            if ($item->price_quantity !== null && $item->price_quantity !== '') {
+                return round((float) $item->price_quantity, 4);
+            }
+            if ($item->delivered_qty !== null && $item->delivered_qty !== '') {
+                return round((float) $item->delivered_qty, 4);
+            }
+            return round((float) ($item->approved_qty ?? 0), 4);
         };
         $finalQuantity = function ($item) use ($lineQuantity): float {
-            return round((float) ($item->orderItem?->shop_reported_received_qty ?: $item->delivered_qty ?: $item->orderItem?->delivered_qty ?: $lineQuantity($item)), 4);
+            if ($item->delivered_qty !== null && $item->delivered_qty !== '') {
+                return round((float) $item->delivered_qty, 4);
+            }
+            if ($item->orderItem?->delivered_qty !== null && $item->orderItem?->delivered_qty !== '') {
+                return round((float) $item->orderItem->delivered_qty, 4);
+            }
+            if ($item->orderItem?->shop_reported_received_qty !== null && $item->orderItem?->shop_reported_received_qty !== '') {
+                return round((float) $item->orderItem->shop_reported_received_qty, 4);
+            }
+            return round((float) $lineQuantity($item), 4);
         };
         $lineAmount = fn ($item): float => round((float) ($item->final_line_total ?: $item->line_subtotal), 2);
         $discountTotal = round((float) $invoice->discount_total, 2);
