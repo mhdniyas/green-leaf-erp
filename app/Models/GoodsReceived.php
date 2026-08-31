@@ -216,25 +216,9 @@ class GoodsReceived extends Model
             ->where('goods_received.status', 'approved')
             ->where('goods_received.bill_status', 'bill_pending')
             ->whereDoesntHave('purchaseInvoices')
-            ->where(function (Builder $confirmQuery) use ($productId): void {
-                $confirmQuery->whereHas('stockBatches', function (Builder $batchQuery) use ($productId): void {
-                    $batchQuery->where(function (Builder $bq): void {
-                        $bq->where('warehouse_receive_pending', false)
-                            ->orWhere(function (Builder $adv): void {
-                                $adv->whereHas('goodsReceived', function (Builder $g): void {
-                                    $g->where('receipt_type', 'warehouse_advance')
-                                        ->orWhere(function (Builder $leg): void {
-                                            $leg->whereNull('receipt_type')->whereNull('purchase_order_id');
-                                        });
-                                });
-                            });
-                    })->when($productId !== null, fn (Builder $pq) => $pq->where('product_id', $productId));
-                })->orWhere(function (Builder $adv): void {
-                    $adv->where('goods_received.receipt_type', 'warehouse_advance')
-                        ->orWhere(function (Builder $leg): void {
-                            $leg->whereNull('goods_received.receipt_type')->whereNull('goods_received.purchase_order_id');
-                        });
-                });
+            ->whereHas('stockBatches', function (Builder $batchQuery) use ($productId): void {
+                $batchQuery->where('warehouse_receive_pending', false)
+                    ->when($productId !== null, fn (Builder $pq) => $pq->where('product_id', $productId));
             })
             ->when($warehouseId !== null, function (Builder $whQuery) use ($warehouseId): void {
                 if (is_array($warehouseId)) {

@@ -342,7 +342,7 @@ class WarehouseReceiveFlowTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.bill_status', 'bill_pending')
             ->assertJsonPath('data.is_bill_pending', true)
-            ->assertJsonPath('data.status_label', 'PENDING WAREHOUSE RECEIVE')
+            ->assertJsonPath('data.status_label', 'RECEIVED')
             ->assertJsonPath('data.bill_status_label', 'BILL PENDING')
             ->assertJsonCount(2, 'data.items');
 
@@ -413,7 +413,7 @@ class WarehouseReceiveFlowTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.bill_status', 'bill_available')
             ->assertJsonPath('data.is_bill_pending', false)
-            ->assertJsonPath('data.status_label', 'PENDING WAREHOUSE RECEIVE')
+            ->assertJsonPath('data.status_label', 'RECEIVED')
             ->assertJsonPath('data.bill_status_label', 'BILL AVAILABLE')
             ->assertJsonPath('data.bill_number', 'INV-SUP-9988');
 

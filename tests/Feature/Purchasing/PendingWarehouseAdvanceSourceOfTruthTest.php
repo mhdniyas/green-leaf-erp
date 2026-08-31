@@ -609,6 +609,7 @@ class PendingWarehouseAdvanceSourceOfTruthTest extends TestCase
         $countsRes->assertOk();
         $this->assertEquals(1, $countsRes->json('data.open_advance'));
     }
+
     public function test_advances_across_all_dates_28_to_31_aug_are_returned_ordered_newest_first(): void
     {
         Sanctum::actingAs($this->warehouseUser);
@@ -647,7 +648,7 @@ class PendingWarehouseAdvanceSourceOfTruthTest extends TestCase
             'warehouse_id' => $this->warehouseA->id,
             'bill_status' => 'bill_pending',
             'received_at' => '2026-08-31',
-            'client_submission_id' => (string) \Illuminate\Support\Str::uuid(),
+            'client_submission_id' => (string) Str::uuid(),
             'items' => [
                 [
                     'product_id' => $this->appleProduct->id,

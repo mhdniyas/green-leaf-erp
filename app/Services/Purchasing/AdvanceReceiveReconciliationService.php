@@ -508,9 +508,8 @@ class AdvanceReceiveReconciliationService
                 }
 
                 // Check that the advance has confirmed physical inventory
-                $isAdvanceReceipt = $advanceGrn->receipt_type === 'warehouse_advance' || ($advanceGrn->receipt_type === null && $advanceGrn->purchase_order_id === null);
-                $hasConfirmedBatches = $advanceGrn->stockBatches->contains(fn ($b) => ! $b->warehouse_receive_pending);
-                if (! $isAdvanceReceipt && ! $hasConfirmedBatches) {
+                $confirmedBatches = $advanceGrn->stockBatches->where('warehouse_receive_pending', false);
+                if ($confirmedBatches->isEmpty()) {
                     throw ValidationException::withMessages([
                         'advance_matches' => "Advance Receive {$advanceGrn->grn_number} has not been physically confirmed by warehouse.",
                     ]);
