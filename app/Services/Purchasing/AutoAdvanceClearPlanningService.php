@@ -74,7 +74,7 @@ class AutoAdvanceClearPlanningService
             ->openWarehouseAdvance($warehouseId)
             ->with([
                 'items.product.orderUnits',
-                'stockBatches' => fn ($q) => $q->where('warehouse_receive_pending', false),
+                'stockBatches',
             ])
             ->orderBy('received_at')
             ->orderBy('id')

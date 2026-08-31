@@ -69,7 +69,9 @@ class ApproveGoodsReceiptAction
                     $this->vendorPriceService->syncPrice($item->product_id, $costPerKg);
                 }
 
-                // Create StockBatch in inventory — flagged as warehouse_receive_pending
+                $isWarehouseAdvance = $grn->receipt_type === 'warehouse_advance' || ($grn->receipt_type === null && $grn->purchase_order_id === null);
+
+                // Create StockBatch in inventory
                 $this->stockBatchRepository->create([
                     'product_id' => $item->product_id,
                     'warehouse_id' => $grn->warehouse_id,
@@ -85,7 +87,9 @@ class ApproveGoodsReceiptAction
                     'transport_cost' => round($allocatedTransport, 2),
                     'labour_cost' => round($allocatedLabour, 2),
                     'status' => BatchStatus::Pending,
-                    'warehouse_receive_pending' => true,
+                    'warehouse_receive_pending' => ! $isWarehouseAdvance,
+                    'warehouse_confirmed_at' => $isWarehouseAdvance ? now() : null,
+                    'warehouse_confirmed_by' => $isWarehouseAdvance ? $userId : null,
                     'notes' => "Auto-created from GRN: {$grn->grn_number}",
                 ]);
             }

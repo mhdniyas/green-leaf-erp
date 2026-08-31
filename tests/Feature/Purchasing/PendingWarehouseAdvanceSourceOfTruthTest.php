@@ -609,4 +609,79 @@ class PendingWarehouseAdvanceSourceOfTruthTest extends TestCase
         $countsRes->assertOk();
         $this->assertEquals(1, $countsRes->json('data.open_advance'));
     }
+    public function test_advances_across_all_dates_28_to_31_aug_are_returned_ordered_newest_first(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        // Advances on 28, 29, 30, 31 Aug
+        $adv28 = $this->createAdvanceGrn($this->warehouseA, 50.0, 'approved', 'bill_pending', 'warehouse_advance', true, null);
+        $adv28->update(['received_at' => '2026-08-28 10:00:00']);
+
+        $adv29 = $this->createAdvanceGrn($this->warehouseA, 60.0, 'approved', 'bill_pending', 'warehouse_advance', true, null);
+        $adv29->update(['received_at' => '2026-08-29 11:00:00']);
+
+        $adv30 = $this->createAdvanceGrn($this->warehouseA, 70.0, 'approved', 'bill_pending', 'warehouse_advance', true, null);
+        $adv30->update(['received_at' => '2026-08-30 12:00:00']);
+
+        $adv31 = $this->createAdvanceGrn($this->warehouseA, 80.0, 'approved', 'bill_pending', 'warehouse_advance', true, null);
+        $adv31->update(['received_at' => '2026-08-31 09:00:00']);
+
+        $listRes = $this->getJson("/api/v1/purchasing/grns?bill_status=bill_pending&warehouse_id={$this->warehouseA->id}");
+        $listRes->assertOk();
+        $this->assertEquals(4, $listRes->json('meta.total'));
+
+        $ids = array_column($listRes->json('data'), 'id');
+        // Ordered newest first (received_at DESC, id DESC)
+        $this->assertEquals([$adv31->id, $adv30->id, $adv29->id, $adv28->id], $ids);
+
+        $countsRes = $this->getJson("/api/v1/purchasing/grns/receive-counts?warehouse_id={$this->warehouseA->id}");
+        $countsRes->assertOk();
+        $this->assertEquals(4, $countsRes->json('data.open_advance'));
+    }
+
+    public function test_fast_advance_intake_via_api_is_automatically_confirmed_and_appears_immediately(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $payload = [
+            'warehouse_id' => $this->warehouseA->id,
+            'bill_status' => 'bill_pending',
+            'received_at' => '2026-08-31',
+            'client_submission_id' => (string) \Illuminate\Support\Str::uuid(),
+            'items' => [
+                [
+                    'product_id' => $this->appleProduct->id,
+                    'received_qty' => 125.0,
+                    'received_unit' => 'kg',
+                ],
+            ],
+        ];
+
+        $res = $this->postJson('/api/v1/purchasing/grns', $payload);
+        $res->assertCreated();
+
+        $grnId = $res->json('data.id');
+        $grn = GoodsReceived::findOrFail($grnId);
+
+        $this->assertEquals('warehouse_advance', $grn->receipt_type);
+        $this->assertEquals('bill_pending', $grn->bill_status);
+        $this->assertEquals('approved', $grn->status);
+
+        // Stock batch is automatically confirmed without warehouse_receive_pending = true
+        $batch = $grn->stockBatches->first();
+        $this->assertNotNull($batch);
+        $this->assertFalse((bool) $batch->warehouse_receive_pending);
+
+        // Immediately appears in open advances and receive counts
+        $this->assertTrue(GoodsReceived::openWarehouseAdvance($this->warehouseA->id)->whereKey($grnId)->exists());
+
+        $listRes = $this->getJson("/api/v1/purchasing/grns?bill_status=bill_pending&warehouse_id={$this->warehouseA->id}");
+        $listRes->assertOk();
+        $this->assertEquals(1, $listRes->json('meta.total'));
+        $this->assertEquals($grnId, $listRes->json('data.0.id'));
+
+        $countsRes = $this->getJson("/api/v1/purchasing/grns/receive-counts?warehouse_id={$this->warehouseA->id}");
+        $countsRes->assertOk();
+        $this->assertEquals(1, $countsRes->json('data.open_advance'));
+    }
 }
