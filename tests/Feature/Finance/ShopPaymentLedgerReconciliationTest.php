@@ -318,11 +318,12 @@ class ShopPaymentLedgerReconciliationTest extends TestCase
 
     public function test_shop_finance_overview_uses_summary_cards_and_bounds_recent_payments(): void
     {
-        foreach (range(1, 6) as $number) {
+        foreach (range(1, 25) as $number) {
+            $numStr = str_pad((string) $number, 2, '0', STR_PAD_LEFT);
             ShopInvoicePaymentRequest::factory()->create([
                 'shop_id' => $this->shop->id,
                 'requested_by' => $this->admin->id,
-                'payment_reference' => 'OVERVIEW-'.$number,
+                'payment_reference' => 'OVERVIEW-'.$numStr,
                 'payment_date' => today()->toDateString(),
                 'requested_amount' => 100.00 * $number,
             ]);
@@ -336,8 +337,8 @@ class ShopPaymentLedgerReconciliationTest extends TestCase
             ->assertSee('Company → Shop Pending')
             ->assertSee('GL Bill Pending')
             ->assertSee('Current Net Balance')
-            ->assertSee('OVERVIEW-6')
-            ->assertDontSee('OVERVIEW-1')
+            ->assertSee('OVERVIEW-25')
+            ->assertDontSee('OVERVIEW-01')
             ->assertSee(route('admin.cashbook.shop.accept-payment', ['shop' => $this->profile->uuid, 'month' => today()->format('Y-m')]), false);
     }
 

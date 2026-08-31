@@ -13,6 +13,7 @@ use App\Models\Cashbook\ShopBankSettlementAdjustmentRule;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use Carbon\Carbon;
@@ -610,6 +611,17 @@ class CompanyMoneyPositionService
         }
         $cashStillWithShop = max(0.0, round($grossCashCollected - $settlementDeductions - $cashVerified, 2));
 
+        // Reconciled shop payment allocations applied to this business date
+        $reconciledAllocationsForDay = (float) ShopPaymentLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->whereHas('paymentRequest', fn ($q) => $q->where('reconciliation_status', 'reconciled')->whereNotIn('status', ['rejected', 'cancelled']))
+            ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $businessDate))
+            ->sum('amount');
+
+        if ($reconciledAllocationsForDay > 0) {
+            $verifiedReceived = max($verifiedReceived, $reconciledAllocationsForDay);
+        }
+
         // Floating cheques for this shop
         $floatingCheques = (float) ShopInvoicePaymentRequest::query()
             ->where('shop_id', $shopId)
@@ -816,6 +828,28 @@ class CompanyMoneyPositionService
                 ->get()
                 ->keyBy('source_id');
 
+        $reconciledAllocationsByDate = ShopPaymentLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->whereHas('paymentRequest', fn ($q) => $q->where('reconciliation_status', 'reconciled')->whereNotIn('status', ['rejected', 'cancelled']))
+            ->whereHas('ledgerTransaction', fn ($q) => $q->whereBetween('business_date', [$monthStart, $monthEnd]))
+            ->with('ledgerTransaction')
+            ->get()
+            ->groupBy(fn ($alloc) => $alloc->ledgerTransaction->business_date->toDateString())
+            ->map(fn ($group) => (float) $group->sum('amount'));
+
+        $monthReconciledPayments = (float) ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->where('reconciliation_status', 'reconciled')
+            ->where(function ($q) use ($monthStart, $monthEnd): void {
+                $q->whereBetween('payment_date', [$monthStart, $monthEnd])
+                    ->orWhere(function ($q2) use ($monthStart, $monthEnd): void {
+                        $q2->whereNull('payment_date')
+                            ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+                    });
+            })
+            ->sum('requested_amount');
+
         $txByDate = $transactions->groupBy(fn ($tx) => $tx->business_date->toDateString());
 
         $dailyRows = [];
@@ -869,6 +903,11 @@ class CompanyMoneyPositionService
                 }
             }
 
+            $allocReceivedForDay = (float) ($reconciledAllocationsByDate->get($dateStr, 0.0));
+            if ($allocReceivedForDay > 0) {
+                $dayReceived = max($dayReceived, $allocReceivedForDay);
+            }
+
             $expectedPayable = max(0.0, round($dayCollections - $dayDeductions, 2));
             $dayOutstanding = max(0.0, round($expectedPayable - $dayReceived, 2));
             $pendingOpCount = $dayPendingAcceptanceCount + $dayPendingVerificationCount;
@@ -913,6 +952,8 @@ class CompanyMoneyPositionService
                 'entries_count' => $dayTxs->count(),
             ];
         }
+
+        $monthCompanyReceived = max($monthCompanyReceived, $monthReconciledPayments);
 
         return [
             'year_month' => $yearMonth,

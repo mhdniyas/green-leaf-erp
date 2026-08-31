@@ -503,6 +503,129 @@ final class CashbookController extends Controller
             ->values()
             ->all();
 
+        $companyAccounts = CompanyAccount::query()
+            ->where('enabled', true)
+            ->orderBy('is_default', 'desc')
+            ->orderBy('name')
+            ->get();
+
+        $allShopPayments = ShopInvoicePaymentRequest::query()
+            ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'ledgerAllocations.ledgerTransaction.entryType', 'requestedBy'])
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->where(function (Builder $query) use ($monthStart, $monthEnd): void {
+                $query->whereBetween('payment_date', [$monthStart, $monthEnd])
+                    ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
+                        $q2->whereNull('payment_date')
+                            ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+                    });
+            })
+            ->latest('payment_date')
+            ->latest('created_at')
+            ->latest('id')
+            ->paginate(20, ['*'], 'payments_page')
+            ->withQueryString();
+
+        $allShopPayments->through(function (ShopInvoicePaymentRequest $payment) use ($shopId): ShopInvoicePaymentRequest {
+            $allocatedAmount = round((float) $payment->ledgerAllocations->sum('amount'), 2);
+            $payment->allocated_amount_calc = $allocatedAmount;
+            $payment->unallocated_amount_calc = round(max(0, (float) $payment->requested_amount - $allocatedAmount), 2);
+            $payment->allocation_status = match (true) {
+                $payment->cheque_status === 'pending' => 'pending_cheque',
+                $allocatedAmount <= 0 => 'unallocated',
+                $allocatedAmount >= (float) $payment->requested_amount => 'fully_allocated',
+                default => 'partially_allocated',
+            };
+            $payment->reconciliation_status = $payment->reconciliation_status ?? ($payment->cheque_status === 'pending' ? 'floating' : 'unreconciled');
+            $payment->is_reconciled = $payment->reconciliation_status === 'reconciled';
+            $payment->can_reconcile = in_array($payment->reconciliation_status, ['unreconciled', 'pending', 'floating', 'partially_reconciled']);
+
+            $reconciliation = $payment->reconciliations->first();
+            $statementEntry = $reconciliation?->statementEntry;
+
+            $isCheque = $payment->payment_method === 'cheque' || $payment->cheque_status !== null;
+            $hasStatement = $statementEntry !== null;
+            $isBankImportOrigin = $payment->request_type === 'bank_import' || ($hasStatement && ($statementEntry->import_fingerprint !== null || $statementEntry->statement_batch !== null || $payment->payment_reference === $statementEntry->reference));
+
+            $payment->payment_source = match (true) {
+                $isCheque => 'CHEQUE',
+                $isBankImportOrigin && $payment->reconciliation_status === 'reconciled' => 'BANK IMPORT',
+                $hasStatement && $payment->reconciliation_status === 'reconciled' => 'MANUAL → BANK RECONCILED',
+                $payment->reconciliation_status === 'reconciled' => 'MANUAL (RECONCILED)',
+                default => 'MANUAL',
+            };
+
+            $payment->ledgerAllocations->each(function (ShopPaymentLedgerAllocation $alloc) use ($shopId): void {
+                $txDate = $alloc->ledgerTransaction?->business_date?->format('Y-m-d');
+                if ($txDate) {
+                    $daySummary = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $txDate);
+                    $expectedPayable = round((float) ($daySummary['settlement_summary']['expected_payable'] ?? 0.0), 2);
+                    $totalAllocForDate = round((float) ShopPaymentLedgerAllocation::query()
+                        ->where('shop_id', $shopId)
+                        ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $txDate))
+                        ->sum('amount'), 2);
+                    $remainingAfter = round(max(0, $expectedPayable - $totalAllocForDate), 2);
+
+                    $alloc->canonical_company_payable = $expectedPayable;
+                    $alloc->remaining_after = $remainingAfter;
+                    $alloc->settlement_status = $remainingAfter <= 0.0 ? 'SETTLED' : 'PARTIALLY SETTLED';
+                }
+            });
+
+            return $payment;
+        });
+
+        $unmatchedStatementEntries = CompanyAccountStatementEntry::query()
+            ->where('direction', 'in')
+            ->where('status', 'unmatched')
+            ->where('is_finalized', false)
+            ->latest('transaction_date')
+            ->limit(25)
+            ->get(['id', 'company_account_id', 'transaction_date', 'amount', 'reference', 'narration']);
+
+        $openSettlementTransactions = $this->shopPaymentLedgerReconciliationService->getOpenDailySettlements($shopId);
+
+        // Cumulative Carry-Forward Metrics
+        $totalSettlementDueCumulative = (float) ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->where('settlement_delta', '>', 0)
+            ->sum('settlement_delta');
+
+        $totalSettlementDeductionsCumulative = abs((float) ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->where('settlement_delta', '<', 0)
+            ->sum('settlement_delta'));
+
+        $netSettlementDue = round(max(0, $totalSettlementDueCumulative - $totalSettlementDeductionsCumulative), 2);
+
+        $totalSettlementAllocated = (float) ShopPaymentLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->sum('amount');
+
+        $settlementOutstanding = round(max(0, $netSettlementDue - $totalSettlementAllocated), 2);
+
+        $totalPaymentsReceived = (float) ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->where('reconciliation_status', 'reconciled')
+            ->sum('requested_amount');
+
+        $totalPaymentsAllocated = (float) ShopPaymentLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->sum('amount');
+
+        $unallocatedPayments = round(max(0, $totalPaymentsReceived - $totalPaymentsAllocated), 2);
+
+        $netDifference = round($settlementOutstanding - $unallocatedPayments, 2);
+        $netPositionDirection = match (true) {
+            $netDifference > 0 => 'shop_owes_company',
+            $netDifference < 0 => 'company_owes_shop',
+            default => 'settled',
+        };
+        $netPositionAmount = abs($netDifference);
+
         $prevDate = Carbon::parse($businessDate)->subDay()->toDateString();
         $nextDate = Carbon::parse($businessDate)->addDay()->toDateString();
         $todayDate = today()->toDateString();
@@ -538,6 +661,18 @@ final class CashbookController extends Controller
             'recentLedgerActivity',
             'recentPettyActivity',
             'openLedgerItems',
+            'companyAccounts',
+            'unmatchedStatementEntries',
+            'allShopPayments',
+            'openSettlementTransactions',
+            'netSettlementDue',
+            'totalSettlementAllocated',
+            'settlementOutstanding',
+            'totalPaymentsReceived',
+            'totalPaymentsAllocated',
+            'unallocatedPayments',
+            'netPositionDirection',
+            'netPositionAmount',
         ));
     }
 
@@ -1474,6 +1609,100 @@ final class CashbookController extends Controller
             'month' => $request->input('month', now()->format('Y-m')),
             'payment_ref' => $paymentRequest->secureRouteKey(),
         ])->with('success', 'Shop payment reconciled against the selected ledger transactions.');
+    }
+
+    public function receiveShopPayment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'payment_date' => ['required', 'date'],
+            'payment_method' => ['required', 'string', 'in:bank,cash,upi,card,cheque,bank_transfer,online'],
+            'company_account_id' => ['required', 'integer', 'exists:cashbook_company_accounts,id'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'cheque_bank_name' => ['nullable', 'string', 'max:255'],
+            'cheque_date' => ['nullable', 'date'],
+        ]);
+
+        $payment = $this->shopPaymentLedgerReconciliationService->recordReceivedPayment(
+            $shopModel,
+            $validated,
+            (int) $request->user()->id,
+        );
+
+        $month = Carbon::parse($payment->payment_date)->format('Y-m');
+
+        return redirect()->route('admin.cashbook.shop.show', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Payment of ₹'.number_format((float) $payment->requested_amount, 2).' received into company account. Money is currently unallocated.');
+    }
+
+    public function allocateShopPayment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        // Filter incoming allocations to non-empty positive amounts
+        $rawAllocations = $request->input('allocations', []);
+        $filteredAllocations = is_array($rawAllocations)
+            ? array_values(array_filter(
+                $rawAllocations,
+                fn ($a) => is_array($a) && filled($a['amount'] ?? null) && (float) $a['amount'] > 0
+            ))
+            : [];
+
+        $request->merge(['allocations' => $filteredAllocations]);
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+            'month' => ['nullable', 'string'],
+            'allocations' => ['required', 'array', 'min:1'],
+            'allocations.*.ledger_transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+            'allocations.*.amount' => ['required', 'numeric', 'min:0.01'],
+        ], [
+            'allocations.required' => 'Please enter an allocation amount for at least one settlement.',
+            'allocations.min' => 'Please enter an allocation amount for at least one settlement.',
+        ]);
+
+        $payment = ShopInvoicePaymentRequest::query()
+            ->whereKey($validated['payment_request_id'])
+            ->where('shop_id', $shopId)
+            ->firstOrFail();
+
+        $this->shopPaymentLedgerReconciliationService->allocatePayment(
+            $payment,
+            $validated['allocations'],
+            (int) $request->user()->id,
+        );
+
+        $month = $request->input('month', Carbon::parse($payment->payment_date)->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.show', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Payment allocated to selected daily settlements successfully.');
+    }
+
+    public function removeShopAllocation(Request $request, int|string $shop, ShopPaymentLedgerAllocation $allocation): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        abort_unless((int) $allocation->shop_id === $shopId, 403, 'Unauthorized allocation action.');
+
+        $this->shopPaymentLedgerReconciliationService->removeAllocation($allocation, (int) $request->user()->id);
+
+        return redirect()->route('admin.cashbook.shop.show', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $request->input('month', now()->format('Y-m')),
+        ])->with('success', 'Settlement allocation removed successfully.');
     }
 
     public function rulesPage(Request $request): View
@@ -5688,6 +5917,11 @@ final class CashbookController extends Controller
             $validated,
             (int) $request->user()->id,
         );
+
+        if ($request->filled('redirect_to')) {
+            return redirect($request->input('redirect_to'))
+                ->with('success', 'Payment reconciled and finance balances updated.');
+        }
 
         return redirect()->route('admin.cashbook.finance')
             ->with('success', 'Payment reconciled and finance balances updated.');

@@ -60,17 +60,94 @@
         showAdjustmentsDrawer: false,
         showAddAdjustmentModal: false,
         showReverseModal: false,
+        showReceivePaymentModal: false,
+        showAllocateModal: false,
+        showPaymentDetailsModal: false,
+        showAllocationBreakdownModal: false,
+        showReconcilePaymentModal: false,
+        selectedPaymentForAlloc: null,
+        selectedPaymentForDetails: null,
+        selectedPaymentForBreakdown: null,
+        selectedPaymentForReconcile: null,
+        allocationsInput: {},
         targetAdjustmentId: null,
         targetAdjustmentName: '',
         targetAdjustmentAmount: '',
         reverseReason: '',
         isSubmitting: false,
+        openSettlementsList: @js($openSettlementTransactions->values()),
         openReverse(id, name, amount) {
             this.targetAdjustmentId = id;
             this.targetAdjustmentName = name;
             this.targetAdjustmentAmount = amount;
             this.reverseReason = '';
             this.showReverseModal = true;
+        },
+        openReceivePayment() {
+            this.showReceivePaymentModal = true;
+        },
+        openAllocateModal(payment) {
+            this.selectedPaymentForAlloc = payment;
+            this.allocationsInput = {};
+            this.showAllocateModal = true;
+        },
+        openDetailsModal(payment) {
+            this.selectedPaymentForDetails = payment;
+            this.showPaymentDetailsModal = true;
+        },
+        openAllocationBreakdownModal(payment) {
+            this.selectedPaymentForBreakdown = payment;
+            this.showAllocationBreakdownModal = true;
+        },
+        openReconcileModal(payment) {
+            this.selectedPaymentForReconcile = payment;
+            this.showReconcilePaymentModal = true;
+        },
+        autoAllocate() {
+            if (!this.selectedPaymentForAlloc) return;
+            let paymentRemaining = parseFloat(this.selectedPaymentForAlloc.unallocated_amount_calc || 0);
+            if (isNaN(paymentRemaining) || paymentRemaining <= 0) return;
+
+            this.allocationsInput = {};
+
+            // Sort settlements oldest business_date first (FIFO), then by ID
+            let sortedSettlements = [...this.openSettlementsList].sort((a, b) => {
+                let dateA = new Date(a.business_date);
+                let dateB = new Date(b.business_date);
+                if (dateA < dateB) return -1;
+                if (dateA > dateB) return 1;
+                return (parseInt(a.id) || 0) - (parseInt(b.id) || 0);
+            });
+
+            for (let s of sortedSettlements) {
+                let due = parseFloat(s.remaining_due || 0);
+                if (due <= 0) continue;
+
+                if (paymentRemaining > 0) {
+                    let alloc = Math.min(paymentRemaining, due);
+                    alloc = Math.round(alloc * 100) / 100;
+                    if (alloc > 0) {
+                        this.allocationsInput[s.id] = alloc.toFixed(2);
+                        paymentRemaining = Math.round((paymentRemaining - alloc) * 100) / 100;
+                    }
+                }
+            }
+        },
+        clearAllAllocations() {
+            this.allocationsInput = {};
+        },
+        totalAllocatedSum() {
+            let sum = 0;
+            for (let k in this.allocationsInput) {
+                let val = parseFloat(this.allocationsInput[k]);
+                if (!isNaN(val) && val > 0) sum += val;
+            }
+            return Math.round(sum * 100) / 100;
+        },
+        remainingUnallocatedPayment() {
+            if (!this.selectedPaymentForAlloc) return 0;
+            let unalloc = parseFloat(this.selectedPaymentForAlloc.unallocated_amount_calc || 0);
+            return Math.round((unalloc - this.totalAllocatedSum()) * 100) / 100;
         }
      }">
 
@@ -98,12 +175,20 @@
                     <span class="text-base font-normal text-slate-400 font-mono">&mdash; {{ $monthlyData['month_title'] }}</span>
                 </h1>
                 <p class="text-xs text-slate-500 font-medium">
-                    Monthly operational collections and daily settlement rows for <span class="font-bold text-slate-800">{{ $currentShop->name }}</span>
+                    Monthly operational collections, payments received, and daily settlement allocations for <span class="font-bold text-slate-800">{{ $currentShop->name }}</span>
                 </p>
             </div>
 
             <!-- Month Switcher & Shop Controls -->
             <div class="flex items-center gap-2 flex-wrap">
+                <!-- Receive Payment Primary Action -->
+                <button type="button"
+                        @click="openReceivePayment()"
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-sm transition cursor-pointer">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                    <span>Receive Payment</span>
+                </button>
+
                 <!-- Month Switcher -->
                 <div class="inline-flex items-center rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-extrabold">
                     <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'month' => $monthlyData['prev_month']]) }}"
@@ -131,6 +216,299 @@
                     </select>
                 </div>
             </div>
+        </div>
+
+        <!-- ── CUMULATIVE SETTLEMENT & PAYMENT NET POSITION CARDS ─────────── -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Settlement Obligations Card -->
+            <div class="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span class="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                        <i data-lucide="receipt" class="w-3.5 h-3.5 text-slate-400"></i>
+                        Settlement Obligations
+                    </span>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">All-Time</span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 pt-1 font-mono">
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Total Due</span>
+                        <span class="text-sm font-black text-slate-900">₹{{ number_format($netSettlementDue, 2) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Allocated</span>
+                        <span class="text-sm font-black text-emerald-700">₹{{ number_format($totalSettlementAllocated, 2) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Outstanding</span>
+                        <span class="text-sm font-black {{ $settlementOutstanding > 0 ? 'text-amber-700' : 'text-slate-500' }}">₹{{ number_format($settlementOutstanding, 2) }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payments Received Card -->
+            <div class="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span class="text-[11px] font-black uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                        <i data-lucide="wallet" class="w-3.5 h-3.5 text-emerald-600"></i>
+                        Company Money Received
+                    </span>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700">Actual Cash/Bank</span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 pt-1 font-mono">
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Received</span>
+                        <span class="text-sm font-black text-slate-900">₹{{ number_format($totalPaymentsReceived, 2) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Allocated</span>
+                        <span class="text-sm font-black text-emerald-700">₹{{ number_format($totalPaymentsAllocated, 2) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Unallocated</span>
+                        <span class="text-sm font-black {{ $unallocatedPayments > 0 ? 'text-sky-700' : 'text-slate-500' }}">₹{{ number_format($unallocatedPayments, 2) }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Net Position Directional Card -->
+            <div class="p-5 rounded-3xl border shadow-sm flex flex-col justify-between {{ $netPositionDirection === 'shop_owes_company' ? 'bg-amber-950 text-white border-amber-900' : ($netPositionDirection === 'company_owes_shop' ? 'bg-sky-950 text-white border-sky-900' : 'bg-slate-900 text-white border-slate-800') }}">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">Net Position Direction</span>
+                    <span class="text-[9px] font-black px-2 py-0.5 rounded-full {{ $netPositionDirection === 'shop_owes_company' ? 'bg-amber-500/20 text-amber-300' : ($netPositionDirection === 'company_owes_shop' ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300') }}">
+                        {{ strtoupper(str_replace('_', ' ', $netPositionDirection)) }}
+                    </span>
+                </div>
+                <div class="mt-2">
+                    <p class="text-xs font-bold text-slate-300 uppercase">
+                        @if($netPositionDirection === 'shop_owes_company')
+                            Shop Owes Company
+                        @elseif($netPositionDirection === 'company_owes_shop')
+                            Company Owes Shop (Advance/Credit)
+                        @else
+                            Fully Balanced &amp; Settled
+                        @endif
+                    </p>
+                    <p class="text-2xl font-black font-mono mt-0.5 {{ $netPositionDirection === 'shop_owes_company' ? 'text-amber-400' : ($netPositionDirection === 'company_owes_shop' ? 'text-sky-400' : 'text-emerald-400') }}">
+                        ₹{{ number_format($netPositionAmount, 2) }}
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── SHOP PAYMENTS & SETTLEMENT ALLOCATION TABLE ────────────────── -->
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="layers" class="w-4 h-4 text-emerald-600"></i>
+                    <h2 class="text-sm font-extrabold text-slate-900 uppercase tracking-wide">
+                        Shop Payments &amp; Settlement Allocation
+                    </h2>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400 font-mono font-bold">
+                        {{ $allShopPayments->total() }} {{ Str::plural('Payment', $allShopPayments->total()) }} Recorded
+                    </span>
+                </div>
+            </div>
+
+            @if($allShopPayments->isEmpty())
+                <div class="p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                    <i data-lucide="wallet" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                    <p class="text-xs font-bold">No payments recorded from {{ $currentShop->name }} yet.</p>
+                    <button type="button"
+                            @click="openReceivePayment()"
+                            class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 cursor-pointer">
+                        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                        <span>Receive First Payment</span>
+                    </button>
+                </div>
+            @else
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 bg-slate-50/50">
+                                <th class="py-3 px-4 rounded-l-xl">Date &amp; Ref</th>
+                                <th class="py-3 px-4">Source</th>
+                                <th class="py-3 px-4">Method &amp; Account</th>
+                                <th class="py-3 px-4 text-right">Received</th>
+                                <th class="py-3 px-4 text-right">Allocated</th>
+                                <th class="py-3 px-4 text-right">Unallocated</th>
+                                <th class="py-3 px-4 text-center">Allocation</th>
+                                <th class="py-3 px-4 text-center">Reconciliation</th>
+                                <th class="py-3 px-4 text-right rounded-r-xl">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-mono">
+                            @foreach($allShopPayments as $payment)
+                                @php
+                                    $reconciliation = $payment->reconciliations->first();
+                                    $destinationAccount = $reconciliation?->companyAccount;
+                                    $statementEntry = $reconciliation?->statementEntry;
+
+                                    $statusBadge = match($payment->allocation_status) {
+                                        'unallocated' => 'bg-amber-50 text-amber-800 border-amber-200',
+                                        'partially_allocated' => 'bg-sky-50 text-sky-800 border-sky-200',
+                                        'fully_allocated' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                                        'pending_cheque' => 'bg-violet-50 text-violet-800 border-violet-200',
+                                        default => 'bg-slate-100 text-slate-700 border-slate-200',
+                                    };
+                                    $statusLabel = match($payment->allocation_status) {
+                                        'unallocated' => 'Unallocated',
+                                        'partially_allocated' => 'Partially Allocated',
+                                        'fully_allocated' => 'Fully Allocated',
+                                        'pending_cheque' => 'Pending Cheque',
+                                        default => 'Recorded',
+                                    };
+
+                                    $sourceBadge = match($payment->payment_source) {
+                                        'BANK IMPORT' => 'bg-blue-50 text-blue-800 border-blue-200',
+                                        'MANUAL → BANK RECONCILED' => 'bg-teal-50 text-teal-800 border-teal-200',
+                                        'CHEQUE' => 'bg-violet-50 text-violet-800 border-violet-200',
+                                        default => 'bg-slate-100 text-slate-700 border-slate-200',
+                                    };
+
+                                    $allocationsData = $payment->ledgerAllocations->map(fn ($alloc) => [
+                                        'id' => $alloc->id,
+                                        'date' => $alloc->ledgerTransaction?->business_date?->format('d M Y') ?? 'N/A',
+                                        'name' => $alloc->ledgerTransaction?->entryType?->name ?? 'Daily Settlement',
+                                        'company_payable' => (float) ($alloc->canonical_company_payable ?? $alloc->amount),
+                                        'applied_amount' => (float) $alloc->amount,
+                                        'remaining_after' => (float) ($alloc->remaining_after ?? 0.0),
+                                        'settlement_status' => (string) ($alloc->settlement_status ?? 'SETTLED'),
+                                    ])->values()->all();
+
+                                    $paymentPayload = [
+                                        'id' => $payment->id,
+                                        'date' => $payment->payment_date?->format('d M Y') ?? 'N/A',
+                                        'reference' => $payment->payment_reference,
+                                        'source' => $payment->payment_source,
+                                        'method' => str_replace('_', ' ', $payment->payment_method),
+                                        'company_account_id' => $destinationAccount?->id ?? $payment->company_account_id,
+                                        'account' => $destinationAccount?->name ?? 'Company Account',
+                                        'amount' => (float) $payment->requested_amount,
+                                        'allocated' => (float) $payment->allocated_amount_calc,
+                                        'unallocated' => (float) $payment->unallocated_amount_calc,
+                                        'allocated_amount_calc' => (float) $payment->allocated_amount_calc,
+                                        'unallocated_amount_calc' => (float) $payment->unallocated_amount_calc,
+                                        'allocation_status' => $payment->allocation_status,
+                                        'allocation_status_label' => $statusLabel,
+                                        'reconciliation_status' => $payment->reconciliation_status,
+                                        'is_reconciled' => (bool) $payment->is_reconciled,
+                                        'can_reconcile' => (bool) $payment->can_reconcile,
+                                        'statement_ref' => $statementEntry?->reference ?: $statementEntry?->narration,
+                                        'reconciled_at' => $reconciliation?->reconciled_at?->format('d M Y H:i'),
+                                        'reconciled_by' => $reconciliation?->reconciledBy?->name ?? 'System',
+                                        'notes' => $payment->shop_note ?: $payment->admin_note,
+                                        'created_by' => $payment->requestedBy?->name ?? 'Admin',
+                                        'allocations' => $allocationsData,
+                                    ];
+                                @endphp
+                                <tr class="hover:bg-slate-50/80 transition-colors">
+                                    <td class="py-3 px-4 font-sans">
+                                        <span class="font-extrabold text-slate-900 text-sm block">
+                                            {{ $payment->payment_date?->format('d M Y') ?? 'N/A' }}
+                                        </span>
+                                        <span class="text-[10px] text-slate-400 font-mono">
+                                            {{ $payment->payment_reference ?: 'No reference' }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 font-sans">
+                                        <span class="inline-flex items-center text-[10px] font-extrabold px-2 py-0.5 rounded-lg border {{ $sourceBadge }}">
+                                            {{ $payment->payment_source }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 font-sans">
+                                        <span class="font-bold text-slate-800 uppercase text-[11px] block">
+                                            {{ str_replace('_', ' ', $payment->payment_method) }}
+                                        </span>
+                                        <span class="text-[10px] text-slate-500 font-mono">
+                                            {{ $destinationAccount?->name ?: 'Company Account' }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-bold text-slate-900">
+                                        ₹{{ number_format((float) $payment->requested_amount, 2) }}
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-bold">
+                                        <button type="button"
+                                                @click="openAllocationBreakdownModal({{ json_encode($paymentPayload) }})"
+                                                class="text-emerald-700 hover:text-emerald-900 font-bold underline underline-offset-2 decoration-emerald-300 hover:decoration-emerald-700 transition cursor-pointer"
+                                                title="Click to view allocation breakdown">
+                                            ₹{{ number_format((float) $payment->allocated_amount_calc, 2) }}
+                                        </button>
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-black {{ (float) $payment->unallocated_amount_calc > 0 ? 'text-amber-700' : 'text-slate-400' }}">
+                                        ₹{{ number_format((float) $payment->unallocated_amount_calc, 2) }}
+                                    </td>
+                                    <td class="py-3 px-4 text-center font-sans">
+                                        <span class="inline-flex items-center text-[10px] font-extrabold px-2.5 py-0.5 rounded-lg border {{ $statusBadge }}">
+                                            {{ $statusLabel }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 text-center font-sans">
+                                        @if($payment->reconciliation_status === 'reconciled')
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-emerald-50 text-emerald-800 border-emerald-200">
+                                                <i data-lucide="check" class="w-3 h-3 text-emerald-600"></i>
+                                                <span>Reconciled</span>
+                                            </span>
+                                        @elseif($payment->reconciliation_status === 'floating')
+                                            <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-violet-50 text-violet-800 border-violet-200">
+                                                Pending Cheque
+                                            </span>
+                                        @elseif($payment->reconciliation_status === 'partially_reconciled')
+                                            <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-sky-50 text-sky-800 border-sky-200">
+                                                Partially Reconciled
+                                            </span>
+                                        @else
+                                            <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-amber-50 text-amber-800 border-amber-200">
+                                                Unreconciled
+                                            </span>
+                                        @endif
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-sans">
+                                        <div class="flex items-center justify-end gap-1.5">
+                                            <button type="button"
+                                                    @click="openDetailsModal({{ json_encode($paymentPayload) }})"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
+                                                <i data-lucide="eye" class="w-3 h-3"></i>
+                                                <span>Details</span>
+                                            </button>
+
+                                            @if((float) $payment->unallocated_amount_calc > 0 && $payment->cheque_status !== 'pending')
+                                                <button type="button"
+                                                        @click="openAllocateModal({{ json_encode($paymentPayload) }})"
+                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer">
+                                                    <i data-lucide="check-square" class="w-3 h-3"></i>
+                                                    <span>Allocate</span>
+                                                </button>
+                                            @endif
+
+                                            @if($payment->can_reconcile)
+                                                <button type="button"
+                                                        @click="openReconcileModal({{ json_encode($paymentPayload) }})"
+                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold transition cursor-pointer">
+                                                    <i data-lucide="link-2" class="w-3 h-3 text-indigo-600"></i>
+                                                    <span>Reconcile</span>
+                                                </button>
+                                            @endif
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                @if($allShopPayments->hasPages())
+                    <div class="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 font-sans">
+                        <div class="text-xs text-slate-500 font-medium">
+                            Showing <span class="font-bold text-slate-800">{{ $allShopPayments->firstItem() }}</span> to <span class="font-bold text-slate-800">{{ $allShopPayments->lastItem() }}</span> of <span class="font-bold text-slate-800">{{ $allShopPayments->total() }}</span> payments
+                        </div>
+                        <div>
+                            {{ $allShopPayments->appends(request()->query())->links() }}
+                        </div>
+                    </div>
+                @endif
+            @endif
         </div>
 
         <!-- Month KPI Summary Cards -->
@@ -1453,6 +1831,671 @@
             </div>
         </div>
     </details>
+
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+    <!-- ── MODALS: RECEIVE PAYMENT, ALLOCATION, PAYMENT DETAILS ──────── -->
+    <!-- ══════════════════════════════════════════════════════════════════ -->
+
+    <!-- 1. RECEIVE PAYMENT MODAL -->
+    <div x-show="showReceivePaymentModal"
+         x-cloak
+         @keydown.escape.window="showReceivePaymentModal = false"
+         class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showReceivePaymentModal = false"
+             class="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="px-6 py-5 bg-gradient-to-r from-emerald-800 to-teal-900 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-white/10">
+                        <i data-lucide="wallet" class="w-5 h-5 text-emerald-300"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Receive Shop Payment</h3>
+                        <p class="text-[11px] text-emerald-200 font-medium">Record incoming money from {{ $currentShop->name }}</p>
+                    </div>
+                </div>
+                <button type="button" @click="showReceivePaymentModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form method="POST"
+                  action="{{ route('admin.cashbook.shop.receive-payment', $currentShop->slug ?: $currentShop->shop_id) }}"
+                  class="p-6 space-y-4 text-xs font-medium text-slate-700"
+                  x-data="{ paymentMethod: 'bank' }">
+                @csrf
+
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Amount -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Amount (₹) <span class="text-rose-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 font-bold">₹</span>
+                            <input type="number"
+                                   step="0.01"
+                                   min="0.01"
+                                   name="amount"
+                                   required
+                                   placeholder="0.00"
+                                   class="w-full pl-7 pr-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                        </div>
+                    </div>
+
+                    <!-- Payment Date -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Business Date <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="date"
+                               name="payment_date"
+                               value="{{ $businessDate }}"
+                               required
+                               class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Payment Method -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Payment Method <span class="text-rose-500">*</span>
+                        </label>
+                        <select name="payment_method"
+                                x-model="paymentMethod"
+                                required
+                                class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none cursor-pointer">
+                            <option value="bank">Bank Transfer</option>
+                            <option value="cash">Cash</option>
+                            <option value="upi">UPI / Online</option>
+                            <option value="card">Card</option>
+                            <option value="cheque">Cheque</option>
+                        </select>
+                    </div>
+
+                    <!-- Destination Company Account -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Destination Account <span class="text-rose-500">*</span>
+                        </label>
+                        <select name="company_account_id"
+                                required
+                                class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none cursor-pointer">
+                            @foreach($companyAccounts as $acc)
+                                <option value="{{ $acc->id }}">
+                                    {{ $acc->name }} ({{ ucfirst($acc->account_type) }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Cheque fields if Cheque selected -->
+                <div x-show="paymentMethod === 'cheque'" x-cloak class="p-3 bg-violet-50 rounded-2xl border border-violet-200 grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[9px] font-black uppercase text-violet-800 mb-1">Cheque Bank Name</label>
+                        <input type="text" name="cheque_bank_name" placeholder="e.g. HDFC / SBI" class="w-full px-2.5 py-1.5 bg-white rounded-lg border border-violet-300 text-xs font-bold text-slate-900">
+                    </div>
+                    <div>
+                        <label class="block text-[9px] font-black uppercase text-violet-800 mb-1">Cheque Date</label>
+                        <input type="date" name="cheque_date" class="w-full px-2.5 py-1.5 bg-white rounded-lg border border-violet-300 text-xs font-bold text-slate-900">
+                    </div>
+                </div>
+
+                <!-- Payment Reference -->
+                <div>
+                    <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                        Reference Number / Transaction ID
+                    </label>
+                    <input type="text"
+                           name="payment_reference"
+                           placeholder="e.g. UTR / IMPS / Cheque # / Deposit Slip"
+                           class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                </div>
+
+                <!-- Notes -->
+                <div>
+                    <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                        Notes / Remarks
+                    </label>
+                    <textarea name="notes"
+                              rows="2"
+                              placeholder="Add any internal remarks regarding this shop payment..."
+                              class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-medium text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"></textarea>
+                </div>
+
+                <div class="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 text-[11px] font-medium leading-relaxed">
+                    <span class="font-black">Notice:</span> Recording this receipt moves money into the Company Account and keeps the ₹ amount <strong>unallocated</strong>. You can manually allocate it to daily settlements afterwards.
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button type="button" @click="showReceivePaymentModal = false" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black shadow-sm transition cursor-pointer">
+                        Record Received Payment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 2. ALLOCATE / VERIFY SETTLEMENT MODAL -->
+    <div x-show="showAllocateModal"
+         x-cloak
+         @keydown.escape.window="showAllocateModal = false"
+         class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showAllocateModal = false"
+             class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="px-6 py-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-white/10">
+                        <i data-lucide="check-square" class="w-5 h-5 text-emerald-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Manual Settlement Allocation</h3>
+                        <p class="text-[11px] text-slate-300 font-medium">Select daily settlements to clear with this payment</p>
+                    </div>
+                </div>
+                <button type="button" @click="showAllocateModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <template x-if="selectedPaymentForAlloc">
+                <form method="POST"
+                      action="{{ route('admin.cashbook.shop.allocate-payment', $currentShop->slug ?: $currentShop->shop_id) }}"
+                      class="p-6 space-y-4">
+                    @csrf
+                    <input type="hidden" name="payment_request_id" :value="selectedPaymentForAlloc.id">
+                    <input type="hidden" name="month" value="{{ $month }}">
+
+                    @if($errors->has('allocations'))
+                        <div class="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 text-xs font-bold font-sans">
+                            <i data-lucide="alert-circle" class="w-4 h-4 inline-block mr-1"></i>
+                            {{ $errors->first('allocations') }}
+                        </div>
+                    @endif
+
+                    <!-- Selected Payment Info Banner -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
+                        <div>
+                            <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Payment Received</span>
+                            <span class="text-base font-black text-slate-900" x-text="'₹' + Number(selectedPaymentForAlloc.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            <span class="text-[10px] text-slate-500 block" x-text="selectedPaymentForAlloc.method + ' • ' + selectedPaymentForAlloc.account"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Available Unallocated</span>
+                            <span class="text-base font-black text-amber-700" x-text="'₹' + Number(selectedPaymentForAlloc.unallocated_amount_calc).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Remaining After Allocation</span>
+                            <span class="text-base font-black"
+                                  :class="remainingUnallocatedPayment() < 0 ? 'text-rose-600' : 'text-emerald-700'"
+                                  x-text="'₹' + Number(remainingUnallocatedPayment()).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                        </div>
+                    </div>
+
+                    <!-- Settlements Picker Table -->
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-black uppercase tracking-wide text-slate-700 block">
+                                Open Daily Settlements ({{ $openSettlementTransactions->where('remaining_due', '>', 0)->count() }} Available)
+                            </span>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button"
+                                        @click="autoAllocate()"
+                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-[11px] font-extrabold transition cursor-pointer">
+                                    <i data-lucide="zap" class="w-3 h-3 text-emerald-600"></i>
+                                    <span>Auto Allocate</span>
+                                </button>
+                                <button type="button"
+                                        @click="clearAllAllocations()"
+                                        class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-extrabold transition cursor-pointer">
+                                    <i data-lucide="rotate-ccw" class="w-3 h-3 text-slate-400"></i>
+                                    <span>Clear All</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        @if($openSettlementTransactions->where('remaining_due', '>', 0)->isEmpty())
+                            <div class="p-6 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl text-xs font-bold">
+                                No open settlement obligations found for {{ $currentShop->name }}.
+                            </div>
+                        @else
+                            <div class="max-h-64 overflow-y-auto rounded-2xl border border-slate-200 divide-y divide-slate-100 font-mono text-xs">
+                                @foreach($openSettlementTransactions->where('remaining_due', '>', 0) as $index => $settlement)
+                                    <div class="p-3 hover:bg-slate-50 flex items-center justify-between gap-3">
+                                        <div class="font-sans">
+                                            <span class="font-extrabold text-slate-900 text-xs block">
+                                                {{ $settlement['formatted_date'] }}
+                                            </span>
+                                            <span class="text-[10px] text-slate-500 font-mono">
+                                                Company Payable: ₹{{ number_format((float) $settlement['company_payable'], 2) }}
+                                                @if((float) ($settlement['already_allocated'] ?? 0) > 0)
+                                                    • Settled: ₹{{ number_format((float) $settlement['already_allocated'], 2) }}
+                                                @endif
+                                                • <strong class="text-slate-800">Remaining Due: ₹{{ number_format((float) $settlement['remaining_due'], 2) }}</strong>
+                                            </span>
+                                            @if((float) ($settlement['deductions'] ?? 0) > 0)
+                                                <span class="text-[9px] text-slate-400 block font-mono">
+                                                    (Gross: ₹{{ number_format((float) $settlement['gross_sales'], 2) }} − Deductions: ₹{{ number_format((float) $settlement['deductions'], 2) }})
+                                                </span>
+                                            @endif
+                                        </div>
+
+                                        <div class="flex items-center gap-2">
+                                            <input type="hidden" name="allocations[{{ $index }}][ledger_transaction_id]" value="{{ $settlement['id'] }}">
+                                            <div class="relative w-32">
+                                                <span class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400 text-xs font-bold">₹</span>
+                                                <input type="number"
+                                                       step="0.01"
+                                                       min="0"
+                                                       max="{{ $settlement['remaining_due'] }}"
+                                                       placeholder="0.00"
+                                                       name="allocations[{{ $index }}][amount]"
+                                                       x-model="allocationsInput['{{ $settlement['id'] }}']"
+                                                       class="w-full pl-6 pr-2 py-1.5 bg-slate-50 rounded-xl border border-slate-300 font-mono font-bold text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+
+                    <div x-show="remainingUnallocatedPayment() < 0" x-cloak class="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 text-xs font-bold">
+                        Warning: Allocated total exceeds available payment amount!
+                    </div>
+
+                    <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+                        <div class="font-mono text-xs">
+                            <span class="text-slate-400 font-bold">Total Selected: </span>
+                            <span class="font-black text-slate-900" x-text="'₹' + Number(totalAllocatedSum()).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <button type="button" @click="showAllocateModal = false" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
+                                Cancel
+                            </button>
+                            <button type="submit"
+                                    :disabled="totalAllocatedSum() <= 0 || remainingUnallocatedPayment() < 0"
+                                    class="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-xs shadow-sm transition cursor-pointer">
+                                Confirm Settlement Allocation
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </template>
+        </div>
+    </div>
+
+    <!-- 3. PAYMENT DETAILS MODAL -->
+    <div x-show="showPaymentDetailsModal"
+         x-cloak
+         @keydown.escape.window="showPaymentDetailsModal = false"
+         class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showPaymentDetailsModal = false"
+             class="bg-white rounded-3xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="px-6 py-5 bg-slate-900 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-white/10">
+                        <i data-lucide="info" class="w-5 h-5 text-emerald-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Payment Details &amp; Audit Trail</h3>
+                        <p class="text-[11px] text-slate-300 font-medium">Traceability, allocations &amp; company reconciliation</p>
+                    </div>
+                </div>
+                <button type="button" @click="showPaymentDetailsModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <template x-if="selectedPaymentForDetails">
+                <div class="p-6 space-y-4 text-xs font-sans">
+                    <!-- Summary Grid -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Total Received</span>
+                            <span class="text-base font-black text-slate-900 font-mono" x-text="'₹' + Number(selectedPaymentForDetails.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Allocated / Unallocated</span>
+                            <span class="text-xs font-bold text-emerald-700 font-mono" x-text="'₹' + Number(selectedPaymentForDetails.allocated).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            <span class="text-slate-400"> / </span>
+                            <span class="text-xs font-bold font-mono"
+                                  :class="parseFloat(selectedPaymentForDetails.unallocated) > 0 ? 'text-amber-700' : 'text-slate-400'"
+                                  x-text="'₹' + Number(selectedPaymentForDetails.unallocated).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Payment Source</span>
+                            <span class="inline-flex items-center text-[10px] font-extrabold px-2 py-0.5 rounded-lg border bg-white text-slate-800 border-slate-300" x-text="selectedPaymentForDetails.source || 'MANUAL'"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Method &amp; Account</span>
+                            <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.method + ' (' + selectedPaymentForDetails.account + ')'"></span>
+                        </div>
+                        <div class="sm:col-span-2">
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Date &amp; Reference</span>
+                            <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.date + ' • ' + (selectedPaymentForDetails.reference || 'No ref')"></span>
+                        </div>
+                    </div>
+
+                    <!-- 1. Settlement Allocation Status & Breakdown Link -->
+                    <div class="p-4 rounded-2xl border border-emerald-100 bg-emerald-50/40 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <span class="text-[10px] font-black uppercase tracking-wide text-emerald-900 block">Settlement Allocation</span>
+                                <span class="text-[11px] text-emerald-700 font-bold" x-text="selectedPaymentForDetails.allocation_status_label"></span>
+                            </div>
+                            <button type="button"
+                                    @click="showPaymentDetailsModal = false; openAllocationBreakdownModal(selectedPaymentForDetails)"
+                                    class="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold shadow-xs transition cursor-pointer">
+                                <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+                                <span>View Allocation Breakdown</span>
+                            </button>
+                        </div>
+                        <p class="text-[11px] text-slate-500 font-medium">
+                            <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.allocations.length"></span> daily settlements cleared with this payment.
+                        </p>
+                    </div>
+
+                    <!-- 2. Company Cash Movement / Bank Reconciliation Section -->
+                    <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-black uppercase tracking-wide text-slate-700 block">Company Reconciliation</span>
+                            <template x-if="selectedPaymentForDetails.is_reconciled">
+                                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 text-[10px] font-black uppercase border border-emerald-300">
+                                    <i data-lucide="check" class="w-3 h-3 text-emerald-700"></i>
+                                    <span>Reconciled</span>
+                                </span>
+                            </template>
+                            <template x-if="!selectedPaymentForDetails.is_reconciled">
+                                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-black uppercase border border-amber-300">
+                                    <span x-text="selectedPaymentForDetails.reconciliation_status === 'floating' ? 'Pending Cheque' : 'Unreconciled'"></span>
+                                </span>
+                            </template>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                            <div>
+                                <span class="text-[9px] font-sans font-bold text-slate-400 block uppercase">Destination Account</span>
+                                <span class="font-bold text-slate-800 font-sans" x-text="selectedPaymentForDetails.account"></span>
+                            </div>
+                            <div>
+                                <span class="text-[9px] font-sans font-bold text-slate-400 block uppercase">Statement Reference</span>
+                                <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.statement_ref || 'Matched via cashbook receipt'"></span>
+                            </div>
+                            <div>
+                                <span class="text-[9px] font-sans font-bold text-slate-400 block uppercase">Reconciled At</span>
+                                <span class="text-slate-700" x-text="selectedPaymentForDetails.reconciled_at || 'Pending verification'"></span>
+                            </div>
+                            <div>
+                                <span class="text-[9px] font-sans font-bold text-slate-400 block uppercase">Reconciled By</span>
+                                <span class="text-slate-700 font-sans" x-text="selectedPaymentForDetails.reconciled_by || '—'"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-2 border-t border-slate-100">
+                        <button type="button" @click="showPaymentDetailsModal = false" class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition cursor-pointer">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- 4. ALLOCATION BREAKDOWN MODAL -->
+    <div x-show="showAllocationBreakdownModal"
+         x-cloak
+         @keydown.escape.window="showAllocationBreakdownModal = false"
+         class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showAllocationBreakdownModal = false"
+             class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="px-6 py-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-white/10">
+                        <i data-lucide="layers" class="w-5 h-5 text-emerald-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Settlement Allocation Breakdown</h3>
+                        <p class="text-[11px] text-slate-300 font-medium">Daily company payable settlements cleared by this payment</p>
+                    </div>
+                </div>
+                <button type="button" @click="showAllocationBreakdownModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <template x-if="selectedPaymentForBreakdown">
+                <div class="p-6 space-y-4">
+                    <!-- Payment Header Summary -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 font-sans text-xs">
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Payment Date &amp; Ref</span>
+                            <span class="font-extrabold text-slate-900 block" x-text="selectedPaymentForBreakdown.date"></span>
+                            <span class="text-[10px] text-slate-500 font-mono" x-text="selectedPaymentForBreakdown.reference || 'No ref'"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Received Amount</span>
+                            <span class="text-sm font-black text-slate-900 font-mono" x-text="'₹' + Number(selectedPaymentForBreakdown.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            <span class="text-[10px] text-slate-500" x-text="selectedPaymentForBreakdown.method"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Total Allocated</span>
+                            <span class="text-sm font-black text-emerald-700 font-mono" x-text="'₹' + Number(selectedPaymentForBreakdown.allocated).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            <span class="text-[10px] text-emerald-600 font-bold" x-text="selectedPaymentForBreakdown.allocation_status_label"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Unallocated</span>
+                            <span class="text-sm font-black font-mono"
+                                  :class="parseFloat(selectedPaymentForBreakdown.unallocated) > 0 ? 'text-amber-700' : 'text-slate-400'"
+                                  x-text="'₹' + Number(selectedPaymentForBreakdown.unallocated).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                        </div>
+                    </div>
+
+                    <!-- Allocations Table -->
+                    <div class="space-y-2">
+                        <span class="text-[11px] font-black uppercase tracking-wide text-slate-700 block font-sans">
+                            Settlements Cleared By This Payment (<span x-text="selectedPaymentForBreakdown.allocations.length"></span>)
+                        </span>
+
+                        <template x-if="selectedPaymentForBreakdown.allocations.length === 0">
+                            <div class="p-6 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl text-xs font-bold font-sans">
+                                This payment has not been allocated to any daily settlements yet.
+                            </div>
+                        </template>
+
+                        <template x-if="selectedPaymentForBreakdown.allocations.length > 0">
+                            <div class="overflow-x-auto rounded-2xl border border-slate-200">
+                                <table class="w-full text-left text-xs">
+                                    <thead>
+                                        <tr class="border-b border-slate-200 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 bg-slate-50 font-sans">
+                                            <th class="py-2.5 px-3">Date</th>
+                                            <th class="py-2.5 px-3 text-right">Company Payable</th>
+                                            <th class="py-2.5 px-3 text-right">Applied From This Payment</th>
+                                            <th class="py-2.5 px-3 text-right">Remaining After</th>
+                                            <th class="py-2.5 px-3 text-center">Settlement Status</th>
+                                            <th class="py-2.5 px-3 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 font-mono">
+                                        <template x-for="alloc in selectedPaymentForBreakdown.allocations" :key="alloc.id">
+                                            <tr class="hover:bg-slate-50/80 transition-colors">
+                                                <td class="py-3 px-3 font-sans">
+                                                    <span class="font-extrabold text-slate-900 block" x-text="alloc.date"></span>
+                                                    <span class="text-[10px] text-slate-400" x-text="alloc.name || 'Daily Settlement'"></span>
+                                                </td>
+                                                <td class="py-3 px-3 text-right font-bold text-slate-800" x-text="'₹' + Number(alloc.company_payable).toLocaleString('en-IN', {minimumFractionDigits: 2})"></td>
+                                                <td class="py-3 px-3 text-right font-black text-emerald-700" x-text="'₹' + Number(alloc.applied_amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></td>
+                                                <td class="py-3 px-3 text-right font-bold"
+                                                    :class="parseFloat(alloc.remaining_after) > 0 ? 'text-amber-700' : 'text-slate-400'"
+                                                    x-text="'₹' + Number(alloc.remaining_after).toLocaleString('en-IN', {minimumFractionDigits: 2})"></td>
+                                                <td class="py-3 px-3 text-center font-sans">
+                                                    <span class="inline-flex items-center text-[9px] font-black uppercase px-2 py-0.5 rounded-md border"
+                                                          :class="alloc.settlement_status === 'SETTLED' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'"
+                                                          x-text="alloc.settlement_status"></span>
+                                                </td>
+                                                <td class="py-3 px-3 text-right font-sans">
+                                                    <form method="POST" :action="'/admin/cashbook/shops/{{ $currentShop->slug ?: $currentShop->shop_id }}/allocations/' + alloc.id + '/remove'">
+                                                        @csrf
+                                                        <button type="submit"
+                                                                onclick="return confirm('Remove this settlement allocation? The payment unallocated balance will increase.')"
+                                                                class="p-1 rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-800 transition cursor-pointer"
+                                                                title="Remove Allocation">
+                                                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                    <tfoot>
+                                        <tr class="border-t border-slate-200 bg-slate-50 font-bold font-mono">
+                                            <td class="py-2.5 px-3 font-sans uppercase text-[10px] text-slate-500">Total Applied</td>
+                                            <td class="py-2.5 px-3"></td>
+                                            <td class="py-2.5 px-3 text-right text-sm font-black text-emerald-700"
+                                                x-text="'₹' + Number(selectedPaymentForBreakdown.allocated).toLocaleString('en-IN', {minimumFractionDigits: 2})"></td>
+                                            <td colspan="3" class="py-2.5 px-3 text-right font-sans text-[10px] text-slate-400">
+                                                Matches payment allocated total
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="flex justify-end pt-2 border-t border-slate-100 font-sans">
+                        <button type="button" @click="showAllocationBreakdownModal = false" class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition cursor-pointer">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- 5. RECONCILE PAYMENT MODAL -->
+    <div x-show="showReconcilePaymentModal"
+         x-cloak
+         @keydown.escape.window="showReconcilePaymentModal = false"
+         class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div @click.away="showReconcilePaymentModal = false"
+             class="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="px-6 py-5 bg-gradient-to-r from-slate-900 to-indigo-900 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-white/10">
+                        <i data-lucide="link-2" class="w-5 h-5 text-indigo-400"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Reconcile Company Payment</h3>
+                        <p class="text-[11px] text-slate-300 font-medium">Verify actual company bank / cash movement</p>
+                    </div>
+                </div>
+                <button type="button" @click="showReconcilePaymentModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <template x-if="selectedPaymentForReconcile">
+                <form method="POST"
+                      :action="'/admin/cashbook/finance/payments/' + selectedPaymentForReconcile.id + '/reconcile'"
+                      class="p-6 space-y-4 text-xs font-medium text-slate-700">
+                    @csrf
+                    <input type="hidden" name="redirect_to" value="{{ url()->full() }}">
+                    <input type="hidden" name="difference_action" value="none">
+
+                    <!-- Payment Details Card -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 grid grid-cols-2 gap-3 font-sans">
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Payment Date &amp; Ref</span>
+                            <span class="font-extrabold text-slate-900 block" x-text="selectedPaymentForReconcile.date"></span>
+                            <span class="text-[10px] text-slate-500 font-mono" x-text="selectedPaymentForReconcile.reference || 'No ref'"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Payment Amount</span>
+                            <span class="text-base font-black text-slate-900 font-mono" x-text="'₹' + Number(selectedPaymentForReconcile.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            <span class="text-[10px] text-slate-500 uppercase" x-text="selectedPaymentForReconcile.method"></span>
+                        </div>
+                    </div>
+
+                    <!-- Destination Company Account -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Company Account <span class="text-rose-500">*</span>
+                        </label>
+                        <select name="company_account_id"
+                                x-model="selectedPaymentForReconcile.company_account_id"
+                                required
+                                class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none cursor-pointer">
+                            @foreach($companyAccounts as $acc)
+                                <option value="{{ $acc->id }}">
+                                    {{ $acc->name }} ({{ ucfirst($acc->account_type) }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <!-- Cleared Amount -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Cleared Amount (₹) <span class="text-rose-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 font-bold">₹</span>
+                            <input type="number"
+                                   step="0.01"
+                                   min="0.01"
+                                   name="cleared_amount"
+                                   :value="selectedPaymentForReconcile.amount"
+                                   required
+                                   class="w-full pl-7 pr-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                        </div>
+                    </div>
+
+                    <!-- Statement Entry (Optional Match) -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Match Bank Statement Entry (Optional)
+                        </label>
+                        <select name="statement_entry_id"
+                                class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-medium text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none cursor-pointer">
+                            <option value="">-- Direct Clear (No Bank Statement Link) --</option>
+                            @foreach($unmatchedStatementEntries as $entry)
+                                <option value="{{ $entry->id }}">
+                                    {{ $entry->transaction_date?->format('d M Y') }} • ₹{{ number_format((float) $entry->amount, 2) }} • {{ $entry->reference ?: $entry->narration ?: 'Statement #'.$entry->id }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <!-- Admin Note -->
+                    <div>
+                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                            Reconciliation Notes
+                        </label>
+                        <textarea name="admin_note"
+                                  rows="2"
+                                  placeholder="Add any verification notes..."
+                                  class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-medium text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"></textarea>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 font-sans">
+                        <button type="button" @click="showReconcilePaymentModal = false" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-5 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-black shadow-sm transition cursor-pointer">
+                            Confirm Reconciliation
+                        </button>
+                    </div>
+                </form>
+            </template>
+        </div>
+    </div>
 
 </div>
 @endsection
