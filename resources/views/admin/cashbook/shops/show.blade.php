@@ -1899,12 +1899,34 @@
                                         </td>
                                         <td class="py-3 px-3 text-right">
                                             @if(!empty($adj['can_reverse']))
-                                                <button type="button"
-                                                        @click="showAdjustmentsDrawer = false; openReverse({{ $adj['id'] }}, '{{ addslashes($adj['name']) }}', '{{ number_format($adj['amount'], 2) }}')"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-extrabold transition cursor-pointer border border-rose-200">
-                                                    <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                                                    <span>Reverse</span>
-                                                </button>
+                                                <div class="inline-flex items-center justify-end gap-1.5">
+                                                    @if(($adj['status'] ?? null) === 'approved')
+                                                        <form method="POST" action="{{ route('admin.cashbook.transaction.revert-approval', $adj['id']) }}" class="inline-flex">
+                                                            @csrf
+                                                            <button type="submit"
+                                                                    @click="showAdjustmentsDrawer = false"
+                                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-extrabold transition cursor-pointer border border-amber-200">
+                                                                <i data-lucide="undo-2" class="w-3 h-3"></i>
+                                                                <span>Revert</span>
+                                                            </button>
+                                                        </form>
+                                                    @else
+                                                        <button type="button"
+                                                                disabled
+                                                                title="Only approved entries can be reverted"
+                                                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 text-[11px] font-extrabold border border-slate-200 cursor-not-allowed">
+                                                            <i data-lucide="undo-2" class="w-3 h-3"></i>
+                                                            <span>Revert</span>
+                                                        </button>
+                                                    @endif
+
+                                                    <button type="button"
+                                                            @click="showAdjustmentsDrawer = false; openReverse({{ $adj['id'] }}, '{{ addslashes($adj['name']) }}', '{{ number_format($adj['amount'], 2) }}')"
+                                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-extrabold transition cursor-pointer border border-rose-200">
+                                                        <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                                                        <span>Reverse</span>
+                                                    </button>
+                                                </div>
                                             @else
                                                 <a href="{{ route('admin.cashbook.transaction.show', $adj['id']) }}"
                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white text-[11px] font-bold transition">

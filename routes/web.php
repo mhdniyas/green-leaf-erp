@@ -681,6 +681,7 @@ Route::middleware('auth')->group(function () {
             Route::get('transactions/{transaction}/edit', [CashbookController::class, 'editTransaction'])->name('transaction.edit');
             Route::put('transactions/{transaction}', [CashbookController::class, 'updateTransaction'])->name('transaction.update');
             Route::post('transactions/{transaction}/reverse', [CashbookController::class, 'reverseTransaction'])->name('transaction.reverse');
+            Route::post('transactions/{transaction}/revert-approval', [CashbookController::class, 'revertTransactionApproval'])->name('transaction.revert-approval');
             Route::delete('transactions/{transaction}', [CashbookController::class, 'deleteTransaction'])->name('transaction.delete');
             Route::post('transactions/{transaction}/approve', [CashbookController::class, 'approveTransaction'])->name('transaction.approve');
             Route::post('transactions/{transaction}/verify', [CashbookController::class, 'verifyTransaction'])->name('transaction.verify');

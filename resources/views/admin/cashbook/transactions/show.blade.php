@@ -388,6 +388,17 @@
                 @elseif($presented['can_admin_edit'] || $presented['can_admin_delete'])
                     <!-- Normal Unreconciled Controls -->
                     <div class="flex flex-wrap items-center gap-3">
+                        @if($transaction->status === 'approved')
+                            <form method="POST" action="{{ route('admin.cashbook.transaction.revert-approval', $transaction->id) }}">
+                                @csrf
+                                <button type="submit"
+                                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-black transition cursor-pointer">
+                                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                                    <span>REVERT APPROVAL</span>
+                                </button>
+                            </form>
+                        @endif
+
                         <!-- [EDIT] -->
                         <a href="{{ route('admin.cashbook.transaction.edit', $transaction->id) }}"
                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-black shadow-xs transition">

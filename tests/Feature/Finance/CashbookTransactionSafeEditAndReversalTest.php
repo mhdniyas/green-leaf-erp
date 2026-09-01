@@ -356,6 +356,44 @@ class CashbookTransactionSafeEditAndReversalTest extends TestCase
         $this->assertDatabaseMissing('shop_ledger_transactions', ['id' => $tx->id]);
     }
 
+    public function test_admin_can_revert_approved_unverified_transaction_to_posted_state_only(): void
+    {
+        $recordResult = $this->dailyLedgerService->recordEntry([
+            'shop_id' => $this->sana->id,
+            'business_date' => '2026-08-28',
+            'entry_type_code' => 'cash_sales',
+            'entry_type_id' => $this->cashSalesType->id,
+            'amount' => 2200.00,
+            'funding_source' => 'cash',
+            'company_account_id' => $this->cashBox->id,
+            'entered_by' => $this->shopUser->id,
+        ]);
+
+        /** @var ShopLedgerTransaction $tx */
+        $tx = $recordResult['transaction'];
+
+        $this->dailyLedgerService->approveEntry($tx, $this->admin->id);
+
+        $statement = CompanyAccountStatementEntry::query()
+            ->where('source_type', ShopLedgerTransaction::class)
+            ->where('source_id', $tx->id)
+            ->firstOrFail();
+
+        $response = $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.transaction.revert-approval', $tx->id));
+
+        $response->assertRedirect(route('admin.cashbook.transaction.show', $tx->id));
+        $response->assertSessionHas('success');
+
+        $tx->refresh();
+        $statement->refresh();
+
+        $this->assertSame('posted', $tx->status);
+        $this->assertNull($tx->approved_by);
+        $this->assertSame('unmatched', $statement->status);
+        $this->assertFalse((bool) $statement->is_finalized);
+    }
+
     /**
      * Test Authorization: Non-admin users cannot reverse or correct transactions.
      */

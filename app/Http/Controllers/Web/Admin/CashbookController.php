@@ -2593,6 +2593,46 @@ final class CashbookController extends Controller
     }
 
     /**
+     * Revert an approved transaction back to posted state.
+     */
+    public function revertTransactionApproval(Request $request, ShopLedgerTransaction $transaction): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        if (in_array($transaction->status, ['void', 'voided', 'reversed'], true)) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'This transaction cannot be moved back to posted from its current state.');
+        }
+
+        if ($transaction->status !== 'approved') {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('info', 'Only approved transactions can be reverted to posted.');
+        }
+
+        $isVerified = CompanyAccountStatementEntry::query()
+            ->where('source_type', ShopLedgerTransaction::class)
+            ->where('source_id', $transaction->id)
+            ->where('is_finalized', true)
+            ->where('status', 'reconciled')
+            ->exists();
+
+        if ($isVerified) {
+            return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+                ->with('error', 'Verified transactions cannot be reverted to posted. Use reversal instead.');
+        }
+
+        ShopLedgerTransaction::query()
+            ->whereKey($transaction->id)
+            ->update([
+                'status' => 'posted',
+                'approved_by' => null,
+            ]);
+
+        return redirect()->route('admin.cashbook.transaction.show', $transaction->id)
+            ->with('success', 'Approval reverted. Transaction moved back to posted.');
+    }
+
+    /**
      * Action: Verify approved collection received into company account.
      */
     public function verifyTransaction(Request $request, ShopLedgerTransaction $transaction): RedirectResponse

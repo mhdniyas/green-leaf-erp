@@ -551,4 +551,34 @@ class CashbookShopDayAdjustmentsTest extends TestCase
             ->assertSee('Recorded')
             ->assertDontSee('action="{{ route(\'admin.cashbook.transaction.approve\'', false);
     }
+
+    public function test_adjustments_popup_shows_revert_next_to_reverse_for_approved_adjustment(): void
+    {
+        $date = '2026-08-25';
+
+        $record = $this->dailyLedgerService->recordEntry([
+            'shop_id' => $this->sana->id,
+            'business_date' => $date,
+            'entry_type_code' => $this->otherExpenseType->code,
+            'entry_type_id' => $this->otherExpenseType->id,
+            'amount' => 1900.00,
+            'funding_source' => 'sales',
+            'notes' => 'Approved adjustment for revert visibility',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        /** @var ShopLedgerTransaction $tx */
+        $tx = $record['transaction'];
+        $this->dailyLedgerService->approveEntry($tx, $this->admin->id);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.shop.show', [
+            'shop' => $this->sanaProfile->slug,
+            'date' => $date,
+        ]));
+
+        $response->assertOk()
+            ->assertSee(route('admin.cashbook.transaction.revert-approval', $tx->id), false)
+            ->assertSee('Revert')
+            ->assertSee('Reverse');
+    }
 }
