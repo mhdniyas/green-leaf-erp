@@ -167,18 +167,23 @@
             </div>
         </div>
 
-        <section class="grid grid-cols-3 border-b border-slate-200">
-            <div class="border-r border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('sales')" title="Click for details">
+        <section class="grid grid-cols-2 sm:grid-cols-4 border-b border-slate-200">
+            <div class="border-r border-b sm:border-b-0 border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('sales')" title="Click for details">
                 <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Total Sales</p>
                 <p class="mt-0.5 truncate text-xs font-black tracking-tight text-emerald-700 sm:text-sm whitespace-nowrap" x-text="currency(displaySales())"></p>
             </div>
-            <div class="border-r border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('expense')" title="Click for details">
+            <div class="border-b sm:border-b-0 sm:border-r border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('expense')" title="Click for details">
                 <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Total Expense</p>
                 <p class="mt-0.5 truncate text-xs font-black tracking-tight text-rose-700 sm:text-sm whitespace-nowrap" x-text="currency(displayExpense())"></p>
             </div>
-            <div class="px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('closing_balance')" title="Click for details">
+            <div class="border-r border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('closing_balance')" title="Click for details">
                 <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Closing Balance</p>
                 <p class="mt-0.5 truncate text-xs font-black tracking-tight sm:text-sm whitespace-nowrap" :class="displayClosingBalance() >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(displayClosingBalance())"></p>
+            </div>
+            <div class="px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('petty')" title="Click for details">
+                <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Petty Balance</p>
+                <p class="mt-0.5 truncate text-xs font-black tracking-tight sm:text-sm whitespace-nowrap" :class="(snapshot?.closing_petty ?? 0) < 0 ? 'text-rose-700' : 'text-sky-700'" x-text="snapshot ? currency(snapshot.closing_petty ?? 0) : '—'"></p>
+                <span class="text-[8px] sm:text-[9px] font-bold block truncate" :class="(snapshot?.closing_petty ?? 0) < 0 ? 'text-rose-500' : 'text-sky-600'">Petty cash remaining</span>
             </div>
         </section>
 
@@ -238,6 +243,7 @@
                                 </td>
                                 <td class="px-2 py-1.5 font-semibold" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'">
                                     <span x-text="entryTypeName(tx)"></span>
+                                    <span x-show="tx.funding_source === 'petty'" class="block text-[10px] font-semibold text-rose-500">Funded from: Petty</span>
                                 </td>
                                 <td class="px-3 py-1.5 text-right font-bold text-xs whitespace-nowrap" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(tx.amount)"></td>
                             </tr>
