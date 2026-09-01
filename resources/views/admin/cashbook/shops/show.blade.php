@@ -952,36 +952,64 @@
 
                 <!-- ── 5. REVIEW COLLECTIONS (GUIDED APPROVAL WORKFLOW) ─────── -->
                 @if($needsAcceptance->isNotEmpty())
+                    @php
+                        $acceptanceEntries = $needsAcceptance->map(fn($c) => [
+                            'id' => (int) $c['id'],
+                            'amount_paise' => (int) round(((float) $c['amount']) * 100),
+                            'amount' => (float) $c['amount'],
+                        ])->values();
+                    @endphp
                     <div class="p-5 rounded-3xl border border-amber-200 bg-amber-50/30 space-y-4"
                          x-data="{
+                            entries: @js($acceptanceEntries),
                             selectedIds: [],
-                            selectedTotal: 0,
                             showConfirmModal: false,
                             isSubmitting: false,
-                            allSelected: false,
-                            toggleAll(event) {
-                                if (event.target.checked) {
-                                    this.selectedIds = Array.from(this.$el.querySelectorAll('.acceptance-checkbox')).map(el => parseInt(el.value));
-                                    this.allSelected = true;
-                                } else {
-                                    this.selectedIds = [];
-                                    this.allSelected = false;
-                                }
-                                this.updateTotal();
+                            init() {
+                                this.$watch('selectedIds', () => this.syncMasterCheckbox());
+                                this.syncMasterCheckbox();
                             },
-                            updateTotal() {
-                                let total = 0;
-                                const checkboxes = this.$el.querySelectorAll('.acceptance-checkbox');
-                                checkboxes.forEach(cb => {
-                                    if (this.selectedIds.includes(parseInt(cb.value))) {
-                                        total += parseFloat(cb.dataset.amount || 0);
+                            get eligibleCount() {
+                                return this.entries.length;
+                            },
+                            get selectedCount() {
+                                return this.selectedIds.length;
+                            },
+                            get isAllSelected() {
+                                return this.eligibleCount > 0 && this.selectedCount === this.eligibleCount;
+                            },
+                            get isSomeSelected() {
+                                return this.selectedCount > 0 && this.selectedCount < this.eligibleCount;
+                            },
+                            get selectedTotalPaise() {
+                                const selectedSet = new Set(this.selectedIds.map(Number));
+                                return this.entries.reduce((sum, e) => selectedSet.has(e.id) ? sum + e.amount_paise : sum, 0);
+                            },
+                            get selectedTotalFormatted() {
+                                const rupees = this.selectedTotalPaise / 100;
+                                return '₹' + rupees.toLocaleString('en-IN', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                });
+                            },
+                            toggleAll() {
+                                if (this.isAllSelected) {
+                                    this.selectedIds = [];
+                                } else {
+                                    this.selectedIds = this.entries.map(e => e.id);
+                                }
+                                this.syncMasterCheckbox();
+                            },
+                            syncMasterCheckbox() {
+                                this.$nextTick(() => {
+                                    if (this.$refs.masterAcceptanceCheckbox) {
+                                        this.$refs.masterAcceptanceCheckbox.checked = this.isAllSelected;
+                                        this.$refs.masterAcceptanceCheckbox.indeterminate = this.isSomeSelected;
                                     }
                                 });
-                                this.selectedTotal = total;
-                                this.allSelected = checkboxes.length > 0 && this.selectedIds.length === checkboxes.length;
                             },
                             submitBatch() {
-                                if (this.isSubmitting || this.selectedIds.length === 0) return;
+                                if (this.isSubmitting || this.selectedCount === 0) return;
                                 this.isSubmitting = true;
                                 this.$refs.acceptForm.submit();
                             }
@@ -996,9 +1024,9 @@
                                     <div class="flex items-center gap-2">
                                         <label class="inline-flex items-center gap-2 cursor-pointer select-none">
                                             <input type="checkbox"
-                                                   class="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
-                                                   x-model="allSelected"
-                                                   @change="toggleAll($event)">
+                                                   x-ref="masterAcceptanceCheckbox"
+                                                   @click="toggleAll"
+                                                   class="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
                                             <span class="text-xs font-black uppercase tracking-wider text-amber-950">
                                                 Review Collections ({{ $needsAcceptance->count() }})
                                             </span>
@@ -1010,12 +1038,12 @@
                                 </div>
 
                                 <div class="flex items-center gap-3">
-                                    <div class="text-xs font-mono font-bold text-amber-900" x-show="selectedIds.length > 0">
-                                        Selected: <span x-text="selectedIds.length"></span> (<span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>)
+                                    <div class="text-xs font-mono font-bold text-amber-900" x-show="selectedCount > 0">
+                                        Selected: <span x-text="selectedCount"></span> (<span x-text="selectedTotalFormatted"></span>)
                                     </div>
                                     <button type="button"
                                             @click="showConfirmModal = true"
-                                            :disabled="selectedIds.length === 0"
+                                            :disabled="selectedCount === 0 || isSubmitting"
                                             class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer">
                                         <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
                                         <span>Approve for receipt tracking</span>
@@ -1029,10 +1057,8 @@
                                         <div class="flex items-center gap-3">
                                             <input type="checkbox"
                                                    name="transaction_ids[]"
-                                                   value="{{ $col['id'] }}"
-                                                   data-amount="{{ $col['amount'] }}"
-                                                   x-model="selectedIds"
-                                                   @change="updateTotal"
+                                                   :value="{{ (int) $col['id'] }}"
+                                                   x-model.number="selectedIds"
                                                    class="acceptance-checkbox w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
                                             <div>
                                                 <div class="font-extrabold text-sm text-slate-900">
@@ -1085,7 +1111,7 @@
 
                                 <div class="p-4 rounded-2xl bg-amber-50/50 border border-amber-100 text-xs text-slate-700 space-y-2">
                                     <p class="font-extrabold text-amber-950">
-                                        Approve <span x-text="selectedIds.length"></span> <span x-text="selectedIds.length === 1 ? 'collection' : 'collections'"></span> totalling <span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>?
+                                        Approve <span x-text="selectedCount"></span> <span x-text="selectedCount === 1 ? 'collection' : 'collections'"></span> totalling <span x-text="selectedTotalFormatted"></span>?
                                     </p>
                                     <ul class="text-[11px] text-slate-600 list-disc list-inside space-y-1 pt-1">
                                         <li>Confirms the reported collection is recorded correctly in the shop cashbook.</li>
@@ -1103,7 +1129,7 @@
                                     </button>
                                     <button type="button"
                                             @click="submitBatch"
-                                            :disabled="isSubmitting"
+                                            :disabled="isSubmitting || selectedCount === 0"
                                             class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
                                         <span x-text="isSubmitting ? 'Approving...' : 'Approve for receipt tracking'"></span>
                                     </button>
@@ -1115,36 +1141,64 @@
 
                 <!-- ── 6. CONFIRM COMPANY RECEIPT (VERIFICATION WORKFLOW) ──── -->
                 @if($needsVerification->isNotEmpty())
+                    @php
+                        $verificationEntries = $needsVerification->filter(fn($c) => !empty($c['can_verify']))->map(fn($c) => [
+                            'id' => (int) $c['id'],
+                            'amount_paise' => (int) round(((float) $c['amount']) * 100),
+                            'amount' => (float) $c['amount'],
+                        ])->values();
+                    @endphp
                     <div class="p-5 rounded-3xl border border-sky-200 bg-sky-50/30 space-y-4"
                          x-data="{
+                            entries: @js($verificationEntries),
                             selectedIds: [],
-                            selectedTotal: 0,
                             showConfirmModal: false,
                             isSubmitting: false,
-                            allSelected: false,
-                            toggleAll(event) {
-                                if (event.target.checked) {
-                                    this.selectedIds = Array.from(this.$el.querySelectorAll('.verification-checkbox:not(:disabled)')).map(el => parseInt(el.value));
-                                    this.allSelected = this.selectedIds.length > 0;
-                                } else {
-                                    this.selectedIds = [];
-                                    this.allSelected = false;
-                                }
-                                this.updateTotal();
+                            init() {
+                                this.$watch('selectedIds', () => this.syncMasterCheckbox());
+                                this.syncMasterCheckbox();
                             },
-                            updateTotal() {
-                                let total = 0;
-                                const enabledCheckboxes = this.$el.querySelectorAll('.verification-checkbox:not(:disabled)');
-                                enabledCheckboxes.forEach(cb => {
-                                    if (this.selectedIds.includes(parseInt(cb.value))) {
-                                        total += parseFloat(cb.dataset.amount || 0);
+                            get eligibleCount() {
+                                return this.entries.length;
+                            },
+                            get selectedCount() {
+                                return this.selectedIds.length;
+                            },
+                            get isAllSelected() {
+                                return this.eligibleCount > 0 && this.selectedCount === this.eligibleCount;
+                            },
+                            get isSomeSelected() {
+                                return this.selectedCount > 0 && this.selectedCount < this.eligibleCount;
+                            },
+                            get selectedTotalPaise() {
+                                const selectedSet = new Set(this.selectedIds.map(Number));
+                                return this.entries.reduce((sum, e) => selectedSet.has(e.id) ? sum + e.amount_paise : sum, 0);
+                            },
+                            get selectedTotalFormatted() {
+                                const rupees = this.selectedTotalPaise / 100;
+                                return '₹' + rupees.toLocaleString('en-IN', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                });
+                            },
+                            toggleAll() {
+                                if (this.isAllSelected) {
+                                    this.selectedIds = [];
+                                } else {
+                                    this.selectedIds = this.entries.map(e => e.id);
+                                }
+                                this.syncMasterCheckbox();
+                            },
+                            syncMasterCheckbox() {
+                                this.$nextTick(() => {
+                                    if (this.$refs.masterVerificationCheckbox) {
+                                        this.$refs.masterVerificationCheckbox.checked = this.isAllSelected;
+                                        this.$refs.masterVerificationCheckbox.indeterminate = this.isSomeSelected;
                                     }
                                 });
-                                this.selectedTotal = total;
-                                this.allSelected = enabledCheckboxes.length > 0 && this.selectedIds.length === enabledCheckboxes.length;
                             },
                             submitBatch() {
-                                if (this.isSubmitting || this.selectedIds.length === 0) return;
+                                if (this.isSubmitting || this.selectedCount === 0) return;
                                 this.isSubmitting = true;
                                 this.$refs.verifyForm.submit();
                             }
@@ -1159,9 +1213,9 @@
                                     <div class="flex items-center gap-2">
                                         <label class="inline-flex items-center gap-2 cursor-pointer select-none">
                                             <input type="checkbox"
-                                                   class="w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
-                                                   x-model="allSelected"
-                                                   @change="toggleAll($event)">
+                                                   x-ref="masterVerificationCheckbox"
+                                                   @click="toggleAll"
+                                                   class="w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer">
                                             <span class="text-xs font-black uppercase tracking-wider text-sky-950">
                                                 Confirm Company Receipt ({{ $needsVerification->count() }})
                                             </span>
@@ -1173,12 +1227,12 @@
                                 </div>
 
                                 <div class="flex items-center gap-3">
-                                    <div class="text-xs font-mono font-bold text-sky-900" x-show="selectedIds.length > 0">
-                                        Selected: <span x-text="selectedIds.length"></span> (<span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>)
+                                    <div class="text-xs font-mono font-bold text-sky-900" x-show="selectedCount > 0">
+                                        Selected: <span x-text="selectedCount"></span> (<span x-text="selectedTotalFormatted"></span>)
                                     </div>
                                     <button type="button"
                                             @click="showConfirmModal = true"
-                                            :disabled="selectedIds.length === 0"
+                                            :disabled="selectedCount === 0 || isSubmitting"
                                             class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer">
                                         <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
                                         <span>Confirm received</span>
@@ -1197,10 +1251,8 @@
                                                 @if($canVerifyRow)
                                                     <input type="checkbox"
                                                            name="transaction_ids[]"
-                                                           value="{{ $col['id'] }}"
-                                                           data-amount="{{ $col['amount'] }}"
-                                                           x-model="selectedIds"
-                                                           @change="updateTotal"
+                                                           :value="{{ (int) $col['id'] }}"
+                                                           x-model.number="selectedIds"
                                                            class="verification-checkbox w-4 h-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer">
                                                 @else
                                                     <input type="checkbox"
@@ -1253,58 +1305,58 @@
                                                 </div>
                                                 <a href="{{ route('admin.cashbook.transaction.show', $col['id']) }}"
                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white text-xs font-bold transition">
-                                                    <span>View</span>
-                                                </a>
-                                            </div>
+                                                <span>View</span>
+                                            </a>
                                         </div>
                                     </div>
-                                @endforeach
+                                </div>
+                            @endforeach
+                        </div>
+                    </form>
+
+                    <!-- Verification Confirmation Modal -->
+                    <div x-show="showConfirmModal"
+                         style="display: none;"
+                         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
+                        <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
+                             @click.away="if(!isSubmitting) showConfirmModal = false">
+                            <div class="flex items-center gap-3">
+                                <div class="p-3 rounded-2xl bg-sky-50 text-sky-700 border border-sky-200">
+                                    <i data-lucide="shield-check" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <h3 class="text-base font-black text-slate-900">Confirm Company Receipt</h3>
+                                    <p class="text-xs text-slate-500 font-medium">Verify funds deposited into company accounts</p>
+                                </div>
                             </div>
-                        </form>
 
-                        <!-- Verification Confirmation Modal -->
-                        <div x-show="showConfirmModal"
-                             style="display: none;"
-                             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs">
-                            <div class="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4"
-                                 @click.away="if(!isSubmitting) showConfirmModal = false">
-                                <div class="flex items-center gap-3">
-                                    <div class="p-3 rounded-2xl bg-sky-50 text-sky-700 border border-sky-200">
-                                        <i data-lucide="shield-check" class="w-6 h-6"></i>
-                                    </div>
-                                    <div>
-                                        <h3 class="text-base font-black text-slate-900">Confirm Company Receipt</h3>
-                                        <p class="text-xs text-slate-500 font-medium">Verify funds deposited into company accounts</p>
-                                    </div>
-                                </div>
+                            <div class="p-4 rounded-2xl bg-sky-50/50 border border-sky-100 text-xs text-slate-700 space-y-2">
+                                <p class="font-extrabold text-sky-950">
+                                    Confirm company received <span x-text="selectedCount"></span> <span x-text="selectedCount === 1 ? 'payment' : 'payments'"></span> totalling <span x-text="selectedTotalFormatted"></span>?
+                                </p>
+                                <p class="text-slate-500 text-[11px] leading-relaxed">
+                                    This will update company bank and cash account balances and reduce Shop Outstanding.
+                                </p>
+                            </div>
 
-                                <div class="p-4 rounded-2xl bg-sky-50/50 border border-sky-100 text-xs text-slate-700 space-y-2">
-                                    <p class="font-extrabold text-sky-950">
-                                        Confirm company received <span x-text="selectedIds.length"></span> <span x-text="selectedIds.length === 1 ? 'payment' : 'payments'"></span> totalling <span x-text="'₹' + Number(selectedTotal).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>?
-                                    </p>
-                                    <p class="text-slate-500 text-[11px] leading-relaxed">
-                                        This will update company bank and cash account balances and reduce Shop Outstanding.
-                                    </p>
-                                </div>
-
-                                <div class="flex items-center justify-end gap-2 pt-2">
-                                    <button type="button"
-                                            @click="showConfirmModal = false"
-                                            :disabled="isSubmitting"
-                                            class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
-                                        Cancel
-                                    </button>
-                                    <button type="button"
-                                            @click="submitBatch"
-                                            :disabled="isSubmitting"
-                                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
-                                        <span x-text="isSubmitting ? 'Confirming...' : 'Confirm received'"></span>
-                                    </button>
-                                </div>
+                            <div class="flex items-center justify-end gap-2 pt-2">
+                                <button type="button"
+                                        @click="showConfirmModal = false"
+                                        :disabled="isSubmitting"
+                                        class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer">
+                                    Cancel
+                                </button>
+                                <button type="button"
+                                        @click="submitBatch"
+                                        :disabled="isSubmitting || selectedCount === 0"
+                                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50">
+                                    <span x-text="isSubmitting ? 'Confirming...' : 'Confirm received'"></span>
+                                </button>
                             </div>
                         </div>
                     </div>
-                @endif
+                </div>
+            @endif
 
                 <!-- ── RECEIVED COLLECTIONS (READ-ONLY) ────────────────────── -->
                 @if($receivedCollections->isNotEmpty())
