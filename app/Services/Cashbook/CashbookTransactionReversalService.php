@@ -6,6 +6,7 @@ namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Services\Finance\JournalService;
 use Illuminate\Support\Facades\DB;
@@ -104,6 +105,24 @@ class CashbookTransactionReversalService
                     'matched_amount' => 0,
                     'notes' => trim(($statement->notes ?? '')." [Reversed: {$reason}]"),
                 ]);
+
+                // 4b. Cancel any linked ShopInvoicePaymentRequest & CompanyPaymentReconciliation
+                $reconciliations = CompanyPaymentReconciliation::query()
+                    ->where('statement_entry_id', $statement->id)
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($reconciliations as $recon) {
+                    $recon->update(['status' => 'cancelled', 'is_finalized' => false]);
+                    if ($recon->paymentRequest) {
+                        $recon->paymentRequest->update([
+                            'status' => 'cancelled',
+                            'reconciliation_status' => 'cancelled',
+                            'reconciled_amount' => 0.00,
+                            'admin_note' => trim(($recon->paymentRequest->admin_note ?? '')." [Reversed: {$reason}]"),
+                        ]);
+                    }
+                }
             }
 
             // 5. Update original transaction state to REVERSED with audit trail

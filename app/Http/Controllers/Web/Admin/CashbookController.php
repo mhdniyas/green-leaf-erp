@@ -521,6 +521,7 @@ final class CashbookController extends Controller
             ->whereNotIn('status', ['rejected', 'cancelled'])
             ->where(function (Builder $query) use ($monthStart, $monthEnd): void {
                 $query->whereBetween('payment_date', [$monthStart, $monthEnd])
+                    ->orWhereBetween('payment_date', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59'])
                     ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
                         $q2->whereNull('payment_date')
                             ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
@@ -532,54 +533,8 @@ final class CashbookController extends Controller
             ->paginate(20, ['*'], 'payments_page')
             ->withQueryString();
 
-        $allShopPayments->through(function (ShopInvoicePaymentRequest $payment) use ($shopId): ShopInvoicePaymentRequest {
-            $allocatedAmount = round((float) $payment->ledgerAllocations->sum('amount'), 2);
-            $payment->allocated_amount_calc = $allocatedAmount;
-            $payment->unallocated_amount_calc = round(max(0, (float) $payment->requested_amount - $allocatedAmount), 2);
-            $payment->allocation_status = match (true) {
-                $payment->cheque_status === 'pending' => 'pending_cheque',
-                $allocatedAmount <= 0 => 'unallocated',
-                $allocatedAmount >= (float) $payment->requested_amount => 'fully_allocated',
-                default => 'partially_allocated',
-            };
-            $payment->reconciliation_status = $payment->reconciliation_status ?? ($payment->cheque_status === 'pending' ? 'floating' : 'unreconciled');
-            $payment->is_reconciled = $payment->reconciliation_status === 'reconciled';
-            $payment->can_reconcile = in_array($payment->reconciliation_status, ['unreconciled', 'pending', 'floating', 'partially_reconciled']);
-
-            $reconciliation = $payment->reconciliations->first();
-            $statementEntry = $reconciliation?->statementEntry;
-
-            $isCheque = $payment->payment_method === 'cheque' || $payment->cheque_status !== null;
-            $hasStatement = $statementEntry !== null;
-            $isBankImportOrigin = $payment->request_type === 'bank_import' || ($hasStatement && ($statementEntry->import_fingerprint !== null || $statementEntry->statement_batch !== null || $payment->payment_reference === $statementEntry->reference));
-
-            $payment->payment_source = match (true) {
-                $isCheque => 'CHEQUE',
-                $isBankImportOrigin && $payment->reconciliation_status === 'reconciled' => 'BANK IMPORT',
-                $hasStatement && $payment->reconciliation_status === 'reconciled' => 'MANUAL → BANK RECONCILED',
-                $payment->reconciliation_status === 'reconciled' => 'MANUAL (RECONCILED)',
-                default => 'MANUAL',
-            };
-
-            $payment->ledgerAllocations->each(function (ShopPaymentLedgerAllocation $alloc) use ($shopId): void {
-                $txDate = $alloc->ledgerTransaction?->business_date?->format('Y-m-d');
-                if ($txDate) {
-                    $daySummary = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $txDate);
-                    $expectedPayable = round((float) ($daySummary['settlement_summary']['expected_payable'] ?? 0.0), 2);
-                    $totalAllocForDate = round((float) ShopPaymentLedgerAllocation::query()
-                        ->where('shop_id', $shopId)
-                        ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $txDate))
-                        ->sum('amount'), 2);
-                    $remainingAfter = round(max(0, $expectedPayable - $totalAllocForDate), 2);
-
-                    $alloc->canonical_company_payable = $expectedPayable;
-                    $alloc->remaining_after = $remainingAfter;
-                    $alloc->settlement_status = $remainingAfter <= 0.0 ? 'SETTLED' : 'PARTIALLY SETTLED';
-                }
-            });
-
-            return $payment;
-        });
+        $allShopPayments->through(fn (ShopInvoicePaymentRequest $payment): ShopInvoicePaymentRequest => $this->enrichShopPaymentModel($payment, $shopId));
+        $allShopPaymentsFormattedList = $allShopPayments->map(fn (ShopInvoicePaymentRequest $p): array => $this->formatShopPaymentPayload($p, $shopId))->values()->all();
 
         $unmatchedStatementEntries = CompanyAccountStatementEntry::query()
             ->where('direction', 'in')
@@ -638,6 +593,94 @@ final class CashbookController extends Controller
         $prevMonth = Carbon::createFromFormat('Y-m', $month)->subMonth()->format('Y-m');
         $nextMonth = Carbon::createFromFormat('Y-m', $month)->addMonth()->format('Y-m');
 
+        // Connected Bank Accounts & Monthly Banking Table
+        $connectedBankAccounts = CompanyAccount::query()
+            ->whereIn('id', function ($query) use ($shopId) {
+                $query->select('company_account_id')
+                    ->from('shop_ledger_entry_settings')
+                    ->where('shop_id', $shopId)
+                    ->where('enabled', true)
+                    ->whereNotNull('company_account_id');
+            })
+            ->where('enabled', true)
+            ->orderBy('name')
+            ->get();
+
+        $selectedBankId = $request->filled('bank_account_id')
+            ? (int) $request->input('bank_account_id')
+            : ($connectedBankAccounts->first()?->id ?? null);
+
+        $selectedBankAccount = $connectedBankAccounts->firstWhere('id', $selectedBankId);
+        $bankingStatusFilter = (string) $request->input('banking_status', 'pending');
+
+        $bankingTotals = [
+            'total_count' => 0,
+            'total_amount' => 0.0,
+            'pending_count' => 0,
+            'pending_amount' => 0.0,
+            'verified_count' => 0,
+            'verified_amount' => 0.0,
+        ];
+        $bankingPagination = null;
+
+        if ($selectedBankId && ! $isDayDetail) {
+            $bankingTotals = $this->getMonthlyBankingTotals($shopId, $selectedBankId, $month);
+
+            $mappedEntryTypeIds = ShopLedgerEntrySetting::query()
+                ->where('shop_id', $shopId)
+                ->where('enabled', true)
+                ->where('company_account_id', $selectedBankId)
+                ->pluck('entry_type_id')
+                ->all();
+
+            $baseMonthlyPaymentsQuery = ShopLedgerTransaction::query()
+                ->with(['entryType', 'shop', 'enteredBy', 'approvedBy', 'statementEntries.reconciledBy', 'statementEntries.companyAccount'])
+                ->where('shop_id', $shopId)
+                ->whereBetween('business_date', [$monthStart, $monthEnd])
+                ->whereNotIn('status', ['void', 'voided', 'reversed'])
+                ->where(function (Builder $q): void {
+                    $q->where('direction', 'income')
+                        ->orWhere('affects_income', true)
+                        ->orWhere('affects_sales', true);
+                })
+                ->where(function (Builder $q) use ($mappedEntryTypeIds, $selectedBankId) {
+                    $q->where('company_account_id', $selectedBankId);
+                    if (! empty($mappedEntryTypeIds)) {
+                        $q->orWhereIn('entry_type_id', $mappedEntryTypeIds);
+                    }
+                });
+
+            $allMonthlyBankTxs = (clone $baseMonthlyPaymentsQuery)->orderBy('business_date', 'asc')->orderBy('id', 'asc')->get();
+
+            $filteredBankTxs = $allMonthlyBankTxs->filter(function (ShopLedgerTransaction $tx) use ($bankingStatusFilter) {
+                $stmt = $tx->statementEntries->first();
+                $isReconciled = (bool) ($stmt && $stmt->is_finalized && $stmt->status === 'reconciled');
+                $isApproved = in_array($tx->status, [TransactionStatus::Approved->value, 'approved'], true);
+
+                return match ($bankingStatusFilter) {
+                    'verified' => $isReconciled,
+                    'pending' => $isApproved && ! $isReconciled,
+                    default => true,
+                };
+            })->values();
+
+            $perPage = 15;
+            $currentPage = (int) $request->input('banking_page', 1);
+            $currentPageItems = $filteredBankTxs->slice(($currentPage - 1) * $perPage, $perPage)->values();
+
+            $bankingPagination = new LengthAwarePaginator(
+                $currentPageItems,
+                $filteredBankTxs->count(),
+                $perPage,
+                $currentPage,
+                [
+                    'path' => $request->url(),
+                    'query' => $request->query(),
+                    'pageName' => 'banking_page',
+                ]
+            );
+        }
+
         return view('admin.cashbook.shops.show', compact(
             'shops',
             'company',
@@ -679,7 +722,243 @@ final class CashbookController extends Controller
             'unallocatedPayments',
             'netPositionDirection',
             'netPositionAmount',
+            'connectedBankAccounts',
+            'selectedBankId',
+            'selectedBankAccount',
+            'bankingStatusFilter',
+            'bankingTotals',
+            'bankingPagination',
+            'allShopPaymentsFormattedList',
         ));
+    }
+
+    /**
+     * Compute monthly banking payment totals for a shop and bank account.
+     *
+     * @return array{total_count: int, total_amount: float, pending_count: int, pending_amount: float, verified_count: int, verified_amount: float}
+     */
+    private function getMonthlyBankingTotals(int $shopId, int $bankAccountId, string $month): array
+    {
+        $start = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+        $end = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+
+        $mappedEntryTypeIds = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->where('company_account_id', $bankAccountId)
+            ->pluck('entry_type_id')
+            ->all();
+
+        $baseMonthlyPaymentsQuery = ShopLedgerTransaction::query()
+            ->with(['entryType', 'statementEntries'])
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$start, $end])
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->where(function (Builder $q): void {
+                $q->where('direction', 'income')
+                    ->orWhere('affects_income', true)
+                    ->orWhere('affects_sales', true);
+            })
+            ->where(function (Builder $q) use ($mappedEntryTypeIds, $bankAccountId) {
+                $q->where('company_account_id', $bankAccountId);
+                if (! empty($mappedEntryTypeIds)) {
+                    $q->orWhereIn('entry_type_id', $mappedEntryTypeIds);
+                }
+            });
+
+        $allMonthlyBankTxs = $baseMonthlyPaymentsQuery->get();
+
+        $totals = [
+            'total_count' => 0,
+            'total_amount' => 0.0,
+            'pending_count' => 0,
+            'pending_amount' => 0.0,
+            'verified_count' => 0,
+            'verified_amount' => 0.0,
+        ];
+
+        foreach ($allMonthlyBankTxs as $tx) {
+            $stmt = $tx->statementEntries->first();
+            $isReconciled = (bool) ($stmt && $stmt->is_finalized && $stmt->status === 'reconciled');
+            $isApproved = in_array($tx->status, [TransactionStatus::Approved->value, 'approved'], true);
+            $amount = (float) $tx->amount;
+
+            $totals['total_count']++;
+            $totals['total_amount'] += $amount;
+
+            if ($isReconciled) {
+                $totals['verified_count']++;
+                $totals['verified_amount'] += $amount;
+            } elseif ($isApproved) {
+                $totals['pending_count']++;
+                $totals['pending_amount'] += $amount;
+            }
+        }
+
+        return $totals;
+    }
+
+    /**
+     * Enrich a shop invoice payment request model with calculated attributes.
+     */
+    private function enrichShopPaymentModel(ShopInvoicePaymentRequest $payment, int $shopId): ShopInvoicePaymentRequest
+    {
+        $allocatedAmount = round((float) $payment->ledgerAllocations->sum('amount'), 2);
+        $payment->allocated_amount_calc = $allocatedAmount;
+        $payment->unallocated_amount_calc = round(max(0, (float) $payment->requested_amount - $allocatedAmount), 2);
+        $payment->allocation_status = match (true) {
+            $payment->cheque_status === 'pending' => 'pending_cheque',
+            $allocatedAmount <= 0 => 'unallocated',
+            $allocatedAmount >= (float) $payment->requested_amount => 'fully_allocated',
+            default => 'partially_allocated',
+        };
+        $payment->reconciliation_status = $payment->reconciliation_status ?? ($payment->cheque_status === 'pending' ? 'floating' : 'unreconciled');
+        $payment->is_reconciled = $payment->reconciliation_status === 'reconciled';
+        $payment->can_reconcile = in_array($payment->reconciliation_status, ['unreconciled', 'pending', 'floating', 'partially_reconciled'], true);
+
+        $reconciliation = $payment->reconciliations->first();
+        $statementEntry = $reconciliation?->statementEntry;
+
+        $isCheque = $payment->payment_method === 'cheque' || $payment->cheque_status !== null;
+        $hasStatement = $statementEntry !== null;
+        $isBankImportOrigin = $payment->request_type === 'bank_import' || ($hasStatement && ($statementEntry->import_fingerprint !== null || $statementEntry->statement_batch !== null || $payment->payment_reference === $statementEntry->reference));
+
+        $payment->payment_source = match (true) {
+            $isCheque => 'CHEQUE',
+            $isBankImportOrigin && $payment->reconciliation_status === 'reconciled' => 'BANK IMPORT',
+            $hasStatement && $payment->reconciliation_status === 'reconciled' => 'MANUAL → BANK RECONCILED',
+            $payment->reconciliation_status === 'reconciled' => 'MANUAL (RECONCILED)',
+            default => 'MANUAL',
+        };
+
+        $payment->ledgerAllocations->each(function (ShopPaymentLedgerAllocation $alloc) use ($shopId): void {
+            $txDate = $alloc->ledgerTransaction?->business_date?->format('Y-m-d');
+            if ($txDate) {
+                $daySummary = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $txDate);
+                $expectedPayable = round((float) ($daySummary['settlement_summary']['expected_payable'] ?? 0.0), 2);
+                $totalAllocForDate = round((float) ShopPaymentLedgerAllocation::query()
+                    ->where('shop_id', $shopId)
+                    ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $txDate))
+                    ->sum('amount'), 2);
+                $remainingAfter = round(max(0, $expectedPayable - $totalAllocForDate), 2);
+
+                $alloc->canonical_company_payable = $expectedPayable;
+                $alloc->remaining_after = $remainingAfter;
+                $alloc->settlement_status = $remainingAfter <= 0.0 ? 'SETTLED' : 'PARTIALLY SETTLED';
+            }
+        });
+
+        return $payment;
+    }
+
+    /**
+     * Format a shop invoice payment request for view payloads and asynchronous updates.
+     *
+     * @return array<string, mixed>
+     */
+    private function formatShopPaymentPayload(ShopInvoicePaymentRequest $payment, int $shopId): array
+    {
+        $allocatedAmount = round((float) $payment->ledgerAllocations->sum('amount'), 2);
+        $unallocatedAmount = round(max(0, (float) $payment->requested_amount - $allocatedAmount), 2);
+
+        $allocationStatus = match (true) {
+            $payment->cheque_status === 'pending' => 'pending_cheque',
+            $allocatedAmount <= 0 => 'unallocated',
+            $allocatedAmount >= (float) $payment->requested_amount => 'fully_allocated',
+            default => 'partially_allocated',
+        };
+        $statusLabel = match ($allocationStatus) {
+            'unallocated' => 'Unallocated',
+            'partially_allocated' => 'Partially Allocated',
+            'fully_allocated' => 'Fully Allocated',
+            'pending_cheque' => 'Pending Cheque',
+            default => 'Recorded',
+        };
+        $statusBadge = match ($allocationStatus) {
+            'unallocated' => 'bg-amber-50 text-amber-800 border-amber-200',
+            'partially_allocated' => 'bg-sky-50 text-sky-800 border-sky-200',
+            'fully_allocated' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+            'pending_cheque' => 'bg-violet-50 text-violet-800 border-violet-200',
+            default => 'bg-slate-100 text-slate-700 border-slate-200',
+        };
+
+        $reconciliation = $payment->reconciliations->first();
+        $destinationAccount = $reconciliation?->companyAccount;
+        $statementEntry = $reconciliation?->statementEntry;
+
+        $isCheque = $payment->payment_method === 'cheque' || $payment->cheque_status !== null;
+        $hasStatement = $statementEntry !== null;
+        $isBankImportOrigin = $payment->request_type === 'bank_import' || ($hasStatement && ($statementEntry->import_fingerprint !== null || $statementEntry->statement_batch !== null || $payment->payment_reference === $statementEntry->reference));
+
+        $paymentSource = match (true) {
+            $isCheque => 'CHEQUE',
+            $isBankImportOrigin && $payment->reconciliation_status === 'reconciled' => 'BANK IMPORT',
+            $hasStatement && $payment->reconciliation_status === 'reconciled' => 'MANUAL → BANK RECONCILED',
+            $payment->reconciliation_status === 'reconciled' => 'MANUAL (RECONCILED)',
+            default => 'MANUAL',
+        };
+        $sourceBadge = match ($paymentSource) {
+            'BANK IMPORT' => 'bg-blue-50 text-blue-800 border-blue-200',
+            'MANUAL → BANK RECONCILED' => 'bg-teal-50 text-teal-800 border-teal-200',
+            'CHEQUE' => 'bg-violet-50 text-violet-800 border-violet-200',
+            default => 'bg-slate-100 text-slate-700 border-slate-200',
+        };
+
+        $allocationsData = $payment->ledgerAllocations->map(function ($alloc) use ($shopId): array {
+            $txDate = $alloc->ledgerTransaction?->business_date?->format('Y-m-d');
+            $expectedPayable = (float) $alloc->amount;
+            $remainingAfter = 0.0;
+            $settlementStatus = 'SETTLED';
+
+            if ($txDate) {
+                $daySummary = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $txDate);
+                $expectedPayable = round((float) ($daySummary['settlement_summary']['expected_payable'] ?? 0.0), 2);
+                $totalAllocForDate = round((float) ShopPaymentLedgerAllocation::query()
+                    ->where('shop_id', $shopId)
+                    ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $txDate))
+                    ->sum('amount'), 2);
+                $remainingAfter = round(max(0, $expectedPayable - $totalAllocForDate), 2);
+                $settlementStatus = $remainingAfter <= 0.0 ? 'SETTLED' : 'PARTIALLY SETTLED';
+            }
+
+            return [
+                'id' => $alloc->id,
+                'date' => $alloc->ledgerTransaction?->business_date?->format('d M Y') ?? 'N/A',
+                'name' => $alloc->ledgerTransaction?->entryType?->name ?? 'Daily Settlement',
+                'company_payable' => $expectedPayable,
+                'applied_amount' => (float) $alloc->amount,
+                'remaining_after' => $remainingAfter,
+                'settlement_status' => $settlementStatus,
+            ];
+        })->values()->all();
+
+        return [
+            'id' => $payment->id,
+            'date' => $payment->payment_date?->format('d M Y') ?? 'N/A',
+            'reference' => $payment->payment_reference,
+            'source' => $paymentSource,
+            'source_badge' => $sourceBadge,
+            'method' => str_replace('_', ' ', (string) $payment->payment_method),
+            'company_account_id' => $destinationAccount?->id ?? $payment->company_account_id,
+            'account' => $destinationAccount?->name ?? 'Company Account',
+            'amount' => (float) $payment->requested_amount,
+            'allocated' => $allocatedAmount,
+            'unallocated' => $unallocatedAmount,
+            'allocated_amount_calc' => $allocatedAmount,
+            'unallocated_amount_calc' => $unallocatedAmount,
+            'allocation_status' => $allocationStatus,
+            'allocation_status_label' => $statusLabel,
+            'status_badge' => $statusBadge,
+            'reconciliation_status' => $payment->reconciliation_status,
+            'is_reconciled' => $payment->reconciliation_status === 'reconciled',
+            'can_reconcile' => in_array($payment->reconciliation_status, ['unreconciled', 'pending', 'floating', 'partially_reconciled'], true),
+            'statement_ref' => $statementEntry?->reference ?: $statementEntry?->narration,
+            'reconciled_at' => $reconciliation?->reconciled_at?->format('d M Y H:i'),
+            'reconciled_by' => $reconciliation?->reconciledBy?->name ?? 'System',
+            'notes' => $payment->shop_note ?: $payment->admin_note,
+            'created_by' => $payment->requestedBy?->name ?? 'Admin',
+            'allocations' => $allocationsData,
+        ];
     }
 
     /**
@@ -757,7 +1036,7 @@ final class CashbookController extends Controller
     /**
      * Confirm received (verify and reconcile) selected approved collection entries for a shop day.
      */
-    public function verifySelectedDayEntries(Request $request, int|string $shop): RedirectResponse
+    public function verifySelectedDayEntries(Request $request, int|string $shop): RedirectResponse|JsonResponse
     {
         $this->ensureMainAdmin($request);
         $user = $request->user();
@@ -802,6 +1081,7 @@ final class CashbookController extends Controller
                     ->get()
                     ->keyBy('entry_type_id');
 
+                $count = 0;
                 foreach ($transactions as $tx) {
                     if ((int) $tx->shop_id !== $shopId) {
                         throw new \InvalidArgumentException("Transaction #{$tx->id} does not belong to the selected shop.");
@@ -811,7 +1091,7 @@ final class CashbookController extends Controller
                         throw new \InvalidArgumentException("Transaction #{$tx->id} does not belong to business date {$businessDate}.");
                     }
 
-                    if ($tx->status !== 'approved') {
+                    if ($tx->status !== 'approved' && $tx->status !== TransactionStatus::Approved->value) {
                         throw new \InvalidArgumentException("Transaction #{$tx->id} must be accepted/approved before it can be verified.");
                     }
 
@@ -822,13 +1102,50 @@ final class CashbookController extends Controller
                         throw new \InvalidArgumentException("Configure a destination company account for {$paymentMethod} before confirming receipt.");
                     }
 
+                    // Ensure transaction has company_account_id populated
+                    if (! $tx->company_account_id || (int) $tx->company_account_id !== (int) $setting->company_account_id) {
+                        $tx->update(['company_account_id' => $setting->company_account_id]);
+                    }
+
                     $stmt = $statements->get($tx->id);
                     if (! $stmt) {
-                        throw new \InvalidArgumentException("No company statement entry found for transaction #{$tx->id}.");
+                        $direction = $tx->direction === 'income' ? 'in' : 'out';
+                        $narration = ($tx->entryType?->name ?? 'Shop transaction').' from '.($tx->shop?->name ?? 'Shop #'.$tx->shop_id);
+                        $resolvedExpected = $this->expectedAmountService->resolve(
+                            (int) $tx->shop_id,
+                            $tx->business_date->toDateString(),
+                            (int) $tx->entry_type_id,
+                            (float) $tx->amount
+                        );
+                        $statementAmount = (float) $resolvedExpected['expected_amount'];
+
+                        $stmt = CompanyAccountStatementEntry::query()->create([
+                            'company_account_id' => $setting->company_account_id,
+                            'transaction_date' => $tx->business_date->toDateString(),
+                            'value_date' => $tx->business_date->toDateString(),
+                            'direction' => $direction,
+                            'amount' => $statementAmount,
+                            'reference' => $tx->reference_id ?: 'SHOP-TX-'.$tx->id,
+                            'narration' => $narration,
+                            'status' => 'unmatched',
+                            'is_finalized' => false,
+                            'source_type' => ShopLedgerTransaction::class,
+                            'source_id' => $tx->id,
+                            'metadata' => [
+                                'base_collection_amount' => (float) $tx->amount,
+                                'expected_bank_amount' => $statementAmount,
+                                'shop_id' => (int) $tx->shop_id,
+                                'business_date' => $tx->business_date->toDateString(),
+                                'entry_type_code' => $tx->entryType?->code,
+                            ],
+                        ]);
+                        $statements->put($tx->id, $stmt);
                     }
 
                     if ($stmt->is_finalized && $stmt->status === 'reconciled') {
-                        throw new \InvalidArgumentException("Transaction #{$tx->id} has already been verified and reconciled.");
+                        $count++;
+
+                        continue;
                     }
 
                     if ((int) $stmt->company_account_id !== (int) $setting->company_account_id) {
@@ -842,20 +1159,158 @@ final class CashbookController extends Controller
                     }
 
                     $this->companyPaymentReconciliationService->verifyPendingShopCollection($stmt, $userId);
+                    $count++;
                 }
 
-                return $transactions->count();
+                return $count;
             });
 
-            return redirect()->route('admin.cashbook.shop.show', [
-                'shop' => $currentShop->slug ?: $currentShop->shop_id,
-                'date' => $businessDate,
-            ])->with('success', "Successfully confirmed receipt of {$verifiedCount} ".Str::plural('payment', $verifiedCount).'. Company accounts updated and shop outstanding reduced.');
+            if ($request->expectsJson()) {
+                $totals = null;
+                $month = $request->input('month', Carbon::parse($businessDate)->format('Y-m'));
+                $bankAccountId = (int) $request->input('bank_account_id', 0);
+
+                if ($bankAccountId > 0 && $month) {
+                    $totals = $this->getMonthlyBankingTotals($shopId, $bankAccountId, $month);
+                }
+
+                $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+                $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+                $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+
+                $totalPaymentsReceived = (float) ShopInvoicePaymentRequest::query()
+                    ->where('shop_id', $shopId)
+                    ->whereNotIn('status', ['rejected', 'cancelled'])
+                    ->where('reconciliation_status', 'reconciled')
+                    ->sum('requested_amount');
+
+                $totalPaymentsAllocated = (float) ShopPaymentLedgerAllocation::query()
+                    ->where('shop_id', $shopId)
+                    ->sum('amount');
+
+                $unallocatedPayments = round(max(0, $totalPaymentsReceived - $totalPaymentsAllocated), 2);
+
+                $totalSettlementDueCumulative = (float) ShopLedgerTransaction::query()
+                    ->where('shop_id', $shopId)
+                    ->whereNotIn('status', ['void', 'voided', 'reversed'])
+                    ->where('settlement_delta', '>', 0)
+                    ->sum('settlement_delta');
+
+                $totalSettlementDeductionsCumulative = abs((float) ShopLedgerTransaction::query()
+                    ->where('shop_id', $shopId)
+                    ->whereNotIn('status', ['void', 'voided', 'reversed'])
+                    ->where('settlement_delta', '<', 0)
+                    ->sum('settlement_delta'));
+
+                $netSettlementDue = round(max(0, $totalSettlementDueCumulative - $totalSettlementDeductionsCumulative), 2);
+                $settlementOutstanding = round(max(0, $netSettlementDue - $totalPaymentsAllocated), 2);
+                $netDifference = round($settlementOutstanding - $unallocatedPayments, 2);
+
+                $netPositionDirection = match (true) {
+                    $netDifference > 0 => 'shop_owes_company',
+                    $netDifference < 0 => 'company_owes_shop',
+                    default => 'settled',
+                };
+                $netPositionAmount = abs($netDifference);
+
+                $allShopPaymentsQuery = ShopInvoicePaymentRequest::query()
+                    ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'ledgerAllocations.ledgerTransaction.entryType', 'requestedBy'])
+                    ->where('shop_id', $shopId)
+                    ->whereNotIn('status', ['rejected', 'cancelled'])
+                    ->where(function (Builder $query) use ($monthStart, $monthEnd): void {
+                        $query->whereBetween('payment_date', [$monthStart, $monthEnd])
+                            ->orWhereBetween('payment_date', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59'])
+                            ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
+                                $q2->whereNull('payment_date')
+                                    ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+                            });
+                    })
+                    ->latest('payment_date')
+                    ->latest('created_at')
+                    ->latest('id');
+
+                $allShopPaymentsTotal = $allShopPaymentsQuery->count();
+                $shopPaymentsList = $allShopPaymentsQuery->limit(20)->get()->map(
+                    fn (ShopInvoicePaymentRequest $p): array => $this->formatShopPaymentPayload($p, $shopId)
+                )->values()->all();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => "Successfully confirmed receipt of {$verifiedCount} ".Str::plural('payment', $verifiedCount).'. Company accounts updated and shop outstanding reduced.',
+                    'verified_count' => $verifiedCount,
+                    'transaction_ids' => $transactionIds,
+                    'banking_totals' => $totals,
+                    'company_money_received' => [
+                        'received' => $totalPaymentsReceived,
+                        'allocated' => $totalPaymentsAllocated,
+                        'unallocated' => $unallocatedPayments,
+                    ],
+                    'settlement_summary' => [
+                        'due' => $netSettlementDue,
+                        'allocated' => $totalPaymentsAllocated,
+                        'outstanding' => $settlementOutstanding,
+                    ],
+                    'net_position' => [
+                        'direction' => $netPositionDirection,
+                        'amount' => $netPositionAmount,
+                        'label' => match ($netPositionDirection) {
+                            'shop_owes_company' => 'Shop Owes Company',
+                            'company_owes_shop' => 'Company Owes Shop (Advance/Credit)',
+                            default => 'Fully Balanced & Settled',
+                        },
+                    ],
+                    'shop_payments' => [
+                        'total' => $allShopPaymentsTotal,
+                        'items' => $shopPaymentsList,
+                    ],
+                ]);
+            }
+
+            $redirectParams = ['shop' => $currentShop->slug ?: $currentShop->shop_id];
+            if ($request->input('return_to') === 'monthly' || (! $request->filled('date') && $request->filled('month'))) {
+                $redirectParams['month'] = $request->input('month', Carbon::parse($businessDate)->format('Y-m'));
+                if ($request->filled('bank_account_id')) {
+                    $redirectParams['bank_account_id'] = $request->input('bank_account_id');
+                }
+                if ($request->filled('banking_status')) {
+                    $redirectParams['banking_status'] = $request->input('banking_status');
+                }
+                if ($request->filled('banking_page')) {
+                    $redirectParams['banking_page'] = $request->input('banking_page');
+                }
+            } else {
+                $redirectParams['date'] = $businessDate;
+            }
+
+            return redirect()->route('admin.cashbook.shop.show', $redirectParams)
+                ->with('success', "Successfully confirmed receipt of {$verifiedCount} ".Str::plural('payment', $verifiedCount).'. Company accounts updated and shop outstanding reduced.');
         } catch (Throwable $e) {
-            return redirect()->route('admin.cashbook.shop.show', [
-                'shop' => $currentShop->slug ?: $currentShop->shop_id,
-                'date' => $businessDate,
-            ])->with('error', 'Verification failed: '.$e->getMessage());
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Verification failed: '.$e->getMessage(),
+                    'error' => $e->getMessage(),
+                ], 422);
+            }
+
+            $redirectParams = ['shop' => $currentShop->slug ?: $currentShop->shop_id];
+            if ($request->input('return_to') === 'monthly' || (! $request->filled('date') && $request->filled('month'))) {
+                $redirectParams['month'] = $request->input('month', Carbon::parse($businessDate)->format('Y-m'));
+                if ($request->filled('bank_account_id')) {
+                    $redirectParams['bank_account_id'] = $request->input('bank_account_id');
+                }
+                if ($request->filled('banking_status')) {
+                    $redirectParams['banking_status'] = $request->input('banking_status');
+                }
+                if ($request->filled('banking_page')) {
+                    $redirectParams['banking_page'] = $request->input('banking_page');
+                }
+            } else {
+                $redirectParams['date'] = $businessDate;
+            }
+
+            return redirect()->route('admin.cashbook.shop.show', $redirectParams)
+                ->with('error', 'Verification failed: '.$e->getMessage());
         }
     }
 

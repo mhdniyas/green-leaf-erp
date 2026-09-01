@@ -76,6 +76,47 @@
         reverseReason: '',
         isSubmitting: false,
         openSettlementsList: @js($openSettlementTransactions->values()),
+        paymentsReceived: {{ (float) $totalPaymentsReceived }},
+        paymentsAllocated: {{ (float) $totalPaymentsAllocated }},
+        paymentsUnallocated: {{ (float) $unallocatedPayments }},
+        settlementDue: {{ (float) $netSettlementDue }},
+        settlementAllocated: {{ (float) $totalSettlementAllocated }},
+        settlementOutstanding: {{ (float) $settlementOutstanding }},
+        netPositionDirection: '{{ $netPositionDirection }}',
+        netPositionAmount: {{ (float) $netPositionAmount }},
+        allPaymentsCount: {{ (int) $allShopPayments->total() }},
+        paymentsList: @js($allShopPaymentsFormattedList ?? []),
+        formatCurrency(num) {
+            return Number(num || 0).toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        },
+        onShopCashbookUpdated(data) {
+            if (data.company_money_received) {
+                this.paymentsReceived = Number(data.company_money_received.received || 0);
+                this.paymentsAllocated = Number(data.company_money_received.allocated || 0);
+                this.paymentsUnallocated = Number(data.company_money_received.unallocated || 0);
+            }
+            if (data.settlement_summary) {
+                this.settlementDue = Number(data.settlement_summary.due || 0);
+                this.settlementAllocated = Number(data.settlement_summary.allocated || 0);
+                this.settlementOutstanding = Number(data.settlement_summary.outstanding || 0);
+            }
+            if (data.net_position) {
+                this.netPositionDirection = data.net_position.direction || 'settled';
+                this.netPositionAmount = Number(data.net_position.amount || 0);
+            }
+            if (data.shop_payments) {
+                this.allPaymentsCount = Number(data.shop_payments.total || 0);
+                if (Array.isArray(data.shop_payments.items)) {
+                    this.paymentsList = data.shop_payments.items;
+                }
+            }
+            if (window.lucide) {
+                setTimeout(() => window.lucide.createIcons(), 50);
+            }
+        },
         openReverse(id, name, amount) {
             this.targetAdjustmentId = id;
             this.targetAdjustmentName = name;
@@ -149,7 +190,8 @@
             let unalloc = parseFloat(this.selectedPaymentForAlloc.unallocated_amount_calc || 0);
             return Math.round((unalloc - this.totalAllocatedSum()) * 100) / 100;
         }
-     }">
+     }"
+     @shop-cashbook-updated.window="onShopCashbookUpdated($event.detail)">
 
     @if(!$isDayDetail)
         <!-- ══════════════════════════════════════════════════════════════════ -->
@@ -232,15 +274,15 @@
                 <div class="grid grid-cols-3 gap-2 pt-1 font-mono">
                     <div>
                         <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Total Due</span>
-                        <span class="text-sm font-black text-slate-900">₹{{ number_format($netSettlementDue, 2) }}</span>
+                        <span class="text-sm font-black text-slate-900">₹<span x-text="formatCurrency(settlementDue)">{{ number_format($netSettlementDue, 2) }}</span></span>
                     </div>
                     <div>
                         <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Allocated</span>
-                        <span class="text-sm font-black text-emerald-700">₹{{ number_format($totalSettlementAllocated, 2) }}</span>
+                        <span class="text-sm font-black text-emerald-700">₹<span x-text="formatCurrency(settlementAllocated)">{{ number_format($totalSettlementAllocated, 2) }}</span></span>
                     </div>
                     <div>
                         <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Outstanding</span>
-                        <span class="text-sm font-black {{ $settlementOutstanding > 0 ? 'text-amber-700' : 'text-slate-500' }}">₹{{ number_format($settlementOutstanding, 2) }}</span>
+                        <span class="text-sm font-black" :class="settlementOutstanding > 0 ? 'text-amber-700' : 'text-slate-500'">₹<span x-text="formatCurrency(settlementOutstanding)">{{ number_format($settlementOutstanding, 2) }}</span></span>
                     </div>
                 </div>
             </div>
@@ -257,29 +299,33 @@
                 <div class="grid grid-cols-3 gap-2 pt-1 font-mono">
                     <div>
                         <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Received</span>
-                        <span class="text-sm font-black text-slate-900">₹{{ number_format($totalPaymentsReceived, 2) }}</span>
+                        <span class="text-sm font-black text-slate-900">₹<span x-text="formatCurrency(paymentsReceived)">{{ number_format($totalPaymentsReceived, 2) }}</span></span>
                     </div>
                     <div>
                         <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Allocated</span>
-                        <span class="text-sm font-black text-emerald-700">₹{{ number_format($totalPaymentsAllocated, 2) }}</span>
+                        <span class="text-sm font-black text-emerald-700">₹<span x-text="formatCurrency(paymentsAllocated)">{{ number_format($totalPaymentsAllocated, 2) }}</span></span>
                     </div>
                     <div>
                         <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Unallocated</span>
-                        <span class="text-sm font-black {{ $unallocatedPayments > 0 ? 'text-sky-700' : 'text-slate-500' }}">₹{{ number_format($unallocatedPayments, 2) }}</span>
+                        <span class="text-sm font-black" :class="paymentsUnallocated > 0 ? 'text-sky-700' : 'text-slate-500'">₹<span x-text="formatCurrency(paymentsUnallocated)">{{ number_format($unallocatedPayments, 2) }}</span></span>
                     </div>
                 </div>
             </div>
 
             <!-- Net Position Directional Card -->
-            <div class="p-5 rounded-3xl border shadow-sm flex flex-col justify-between {{ $netPositionDirection === 'shop_owes_company' ? 'bg-amber-950 text-white border-amber-900' : ($netPositionDirection === 'company_owes_shop' ? 'bg-sky-950 text-white border-sky-900' : 'bg-slate-900 text-white border-slate-800') }}">
+            <div class="p-5 rounded-3xl border shadow-sm flex flex-col justify-between"
+                 :class="netPositionDirection === 'shop_owes_company' ? 'bg-amber-950 text-white border-amber-900' : (netPositionDirection === 'company_owes_shop' ? 'bg-sky-950 text-white border-sky-900' : 'bg-slate-900 text-white border-slate-800')">
                 <div class="flex items-center justify-between">
                     <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">Net Position Direction</span>
-                    <span class="text-[9px] font-black px-2 py-0.5 rounded-full {{ $netPositionDirection === 'shop_owes_company' ? 'bg-amber-500/20 text-amber-300' : ($netPositionDirection === 'company_owes_shop' ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300') }}">
+                    <span class="text-[9px] font-black px-2 py-0.5 rounded-full"
+                          :class="netPositionDirection === 'shop_owes_company' ? 'bg-amber-500/20 text-amber-300' : (netPositionDirection === 'company_owes_shop' ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300')"
+                          x-text="netPositionDirection.replace(/_/g, ' ').toUpperCase()">
                         {{ strtoupper(str_replace('_', ' ', $netPositionDirection)) }}
                     </span>
                 </div>
                 <div class="mt-2">
-                    <p class="text-xs font-bold text-slate-300 uppercase">
+                    <p class="text-xs font-bold text-slate-300 uppercase"
+                       x-text="netPositionDirection === 'shop_owes_company' ? 'Shop Owes Company' : (netPositionDirection === 'company_owes_shop' ? 'Company Owes Shop (Advance/Credit)' : 'Fully Balanced & Settled')">
                         @if($netPositionDirection === 'shop_owes_company')
                             Shop Owes Company
                         @elseif($netPositionDirection === 'company_owes_shop')
@@ -288,8 +334,9 @@
                             Fully Balanced &amp; Settled
                         @endif
                     </p>
-                    <p class="text-2xl font-black font-mono mt-0.5 {{ $netPositionDirection === 'shop_owes_company' ? 'text-amber-400' : ($netPositionDirection === 'company_owes_shop' ? 'text-sky-400' : 'text-emerald-400') }}">
-                        ₹{{ number_format($netPositionAmount, 2) }}
+                    <p class="text-2xl font-black font-mono mt-0.5"
+                       :class="netPositionDirection === 'shop_owes_company' ? 'text-amber-400' : (netPositionDirection === 'company_owes_shop' ? 'text-sky-400' : 'text-emerald-400')">
+                        ₹<span x-text="formatCurrency(netPositionAmount)">{{ number_format($netPositionAmount, 2) }}</span>
                     </p>
                 </div>
             </div>
@@ -306,208 +353,134 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <span class="text-xs text-slate-400 font-mono font-bold">
-                        {{ $allShopPayments->total() }} {{ Str::plural('Payment', $allShopPayments->total()) }} Recorded
+                        <span x-text="allPaymentsCount">{{ $allShopPayments->total() }}</span> <span x-text="allPaymentsCount === 1 ? 'Payment' : 'Payments'">{{ Str::plural('Payment', $allShopPayments->total()) }}</span> Recorded
                     </span>
                 </div>
             </div>
 
-            @if($allShopPayments->isEmpty())
-                <div class="p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl">
-                    <i data-lucide="wallet" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
-                    <p class="text-xs font-bold">No payments recorded from {{ $currentShop->name }} yet.</p>
-                    <button type="button"
-                            @click="openReceivePayment()"
-                            class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 cursor-pointer">
-                        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-                        <span>Receive First Payment</span>
-                    </button>
-                </div>
-            @else
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead>
-                            <tr class="border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 bg-slate-50/50">
-                                <th class="py-3 px-4 rounded-l-xl">Date &amp; Ref</th>
-                                <th class="py-3 px-4">Source</th>
-                                <th class="py-3 px-4">Method &amp; Account</th>
-                                <th class="py-3 px-4 text-right">Received</th>
-                                <th class="py-3 px-4 text-right">Allocated</th>
-                                <th class="py-3 px-4 text-right">Unallocated</th>
-                                <th class="py-3 px-4 text-center">Allocation</th>
-                                <th class="py-3 px-4 text-center">Reconciliation</th>
-                                <th class="py-3 px-4 text-right rounded-r-xl">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100 font-mono">
-                            @foreach($allShopPayments as $payment)
-                                @php
-                                    $reconciliation = $payment->reconciliations->first();
-                                    $destinationAccount = $reconciliation?->companyAccount;
-                                    $statementEntry = $reconciliation?->statementEntry;
+            <div x-show="paymentsList.length === 0" class="p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl" style="{{ $allShopPayments->isEmpty() ? '' : 'display: none;' }}">
+                <i data-lucide="wallet" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                <p class="text-xs font-bold">No payments recorded from {{ $currentShop->name }} yet.</p>
+                <button type="button"
+                        @click="openReceivePayment()"
+                        class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 cursor-pointer">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                    <span>Receive First Payment</span>
+                </button>
+            </div>
 
-                                    $statusBadge = match($payment->allocation_status) {
-                                        'unallocated' => 'bg-amber-50 text-amber-800 border-amber-200',
-                                        'partially_allocated' => 'bg-sky-50 text-sky-800 border-sky-200',
-                                        'fully_allocated' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
-                                        'pending_cheque' => 'bg-violet-50 text-violet-800 border-violet-200',
-                                        default => 'bg-slate-100 text-slate-700 border-slate-200',
-                                    };
-                                    $statusLabel = match($payment->allocation_status) {
-                                        'unallocated' => 'Unallocated',
-                                        'partially_allocated' => 'Partially Allocated',
-                                        'fully_allocated' => 'Fully Allocated',
-                                        'pending_cheque' => 'Pending Cheque',
-                                        default => 'Recorded',
-                                    };
-
-                                    $sourceBadge = match($payment->payment_source) {
-                                        'BANK IMPORT' => 'bg-blue-50 text-blue-800 border-blue-200',
-                                        'MANUAL → BANK RECONCILED' => 'bg-teal-50 text-teal-800 border-teal-200',
-                                        'CHEQUE' => 'bg-violet-50 text-violet-800 border-violet-200',
-                                        default => 'bg-slate-100 text-slate-700 border-slate-200',
-                                    };
-
-                                    $allocationsData = $payment->ledgerAllocations->map(fn ($alloc) => [
-                                        'id' => $alloc->id,
-                                        'date' => $alloc->ledgerTransaction?->business_date?->format('d M Y') ?? 'N/A',
-                                        'name' => $alloc->ledgerTransaction?->entryType?->name ?? 'Daily Settlement',
-                                        'company_payable' => (float) ($alloc->canonical_company_payable ?? $alloc->amount),
-                                        'applied_amount' => (float) $alloc->amount,
-                                        'remaining_after' => (float) ($alloc->remaining_after ?? 0.0),
-                                        'settlement_status' => (string) ($alloc->settlement_status ?? 'SETTLED'),
-                                    ])->values()->all();
-
-                                    $paymentPayload = [
-                                        'id' => $payment->id,
-                                        'date' => $payment->payment_date?->format('d M Y') ?? 'N/A',
-                                        'reference' => $payment->payment_reference,
-                                        'source' => $payment->payment_source,
-                                        'method' => str_replace('_', ' ', $payment->payment_method),
-                                        'company_account_id' => $destinationAccount?->id ?? $payment->company_account_id,
-                                        'account' => $destinationAccount?->name ?? 'Company Account',
-                                        'amount' => (float) $payment->requested_amount,
-                                        'allocated' => (float) $payment->allocated_amount_calc,
-                                        'unallocated' => (float) $payment->unallocated_amount_calc,
-                                        'allocated_amount_calc' => (float) $payment->allocated_amount_calc,
-                                        'unallocated_amount_calc' => (float) $payment->unallocated_amount_calc,
-                                        'allocation_status' => $payment->allocation_status,
-                                        'allocation_status_label' => $statusLabel,
-                                        'reconciliation_status' => $payment->reconciliation_status,
-                                        'is_reconciled' => (bool) $payment->is_reconciled,
-                                        'can_reconcile' => (bool) $payment->can_reconcile,
-                                        'statement_ref' => $statementEntry?->reference ?: $statementEntry?->narration,
-                                        'reconciled_at' => $reconciliation?->reconciled_at?->format('d M Y H:i'),
-                                        'reconciled_by' => $reconciliation?->reconciledBy?->name ?? 'System',
-                                        'notes' => $payment->shop_note ?: $payment->admin_note,
-                                        'created_by' => $payment->requestedBy?->name ?? 'Admin',
-                                        'allocations' => $allocationsData,
-                                    ];
-                                @endphp
-                                <tr class="hover:bg-slate-50/80 transition-colors">
-                                    <td class="py-3 px-4 font-sans">
-                                        <span class="font-extrabold text-slate-900 text-sm block">
-                                            {{ $payment->payment_date?->format('d M Y') ?? 'N/A' }}
+            <div x-show="paymentsList.length > 0" class="overflow-x-auto" style="{{ $allShopPayments->isNotEmpty() ? '' : 'display: none;' }}">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 bg-slate-50/50">
+                            <th class="py-3 px-4 rounded-l-xl">Date &amp; Ref</th>
+                            <th class="py-3 px-4">Source</th>
+                            <th class="py-3 px-4">Method &amp; Account</th>
+                            <th class="py-3 px-4 text-right">Received</th>
+                            <th class="py-3 px-4 text-right">Allocated</th>
+                            <th class="py-3 px-4 text-right">Unallocated</th>
+                            <th class="py-3 px-4 text-center">Allocation</th>
+                            <th class="py-3 px-4 text-center">Reconciliation</th>
+                            <th class="py-3 px-4 text-right rounded-r-xl">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 font-mono">
+                        <template x-for="payment in paymentsList" :key="payment.id">
+                            <tr class="hover:bg-slate-50/80 transition-colors">
+                                <td class="py-3 px-4 font-sans">
+                                    <span class="font-extrabold text-slate-900 text-sm block" x-text="payment.date"></span>
+                                    <span class="text-[10px] text-slate-400 font-mono" x-text="payment.reference || 'No reference'"></span>
+                                </td>
+                                <td class="py-3 px-4 font-sans">
+                                    <span class="inline-flex items-center text-[10px] font-extrabold px-2 py-0.5 rounded-lg border" :class="payment.source_badge" x-text="payment.source"></span>
+                                </td>
+                                <td class="py-3 px-4 font-sans">
+                                    <span class="font-bold text-slate-800 uppercase text-[11px] block" x-text="payment.method"></span>
+                                    <span class="text-[10px] text-slate-500 font-mono" x-text="payment.account"></span>
+                                </td>
+                                <td class="py-3 px-4 text-right font-bold text-slate-900">
+                                    ₹<span x-text="formatCurrency(payment.amount)"></span>
+                                </td>
+                                <td class="py-3 px-4 text-right font-bold">
+                                    <button type="button"
+                                            @click="openAllocationBreakdownModal(payment)"
+                                            class="text-emerald-700 hover:text-emerald-900 font-bold underline underline-offset-2 decoration-emerald-300 hover:decoration-emerald-700 transition cursor-pointer"
+                                            title="Click to view allocation breakdown">
+                                        ₹<span x-text="formatCurrency(payment.allocated)"></span>
+                                    </button>
+                                </td>
+                                <td class="py-3 px-4 text-right font-black" :class="Number(payment.unallocated) > 0 ? 'text-amber-700' : 'text-slate-400'">
+                                    ₹<span x-text="formatCurrency(payment.unallocated)"></span>
+                                </td>
+                                <td class="py-3 px-4 text-center font-sans">
+                                    <span class="inline-flex items-center text-[10px] font-extrabold px-2.5 py-0.5 rounded-lg border" :class="payment.status_badge" x-text="payment.allocation_status_label"></span>
+                                </td>
+                                <td class="py-3 px-4 text-center font-sans">
+                                    <template x-if="payment.reconciliation_status === 'reconciled'">
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-emerald-50 text-emerald-800 border-emerald-200">
+                                            <i data-lucide="check" class="w-3 h-3 text-emerald-600"></i>
+                                            <span>Reconciled</span>
                                         </span>
-                                        <span class="text-[10px] text-slate-400 font-mono">
-                                            {{ $payment->payment_reference ?: 'No reference' }}
+                                    </template>
+                                    <template x-if="payment.reconciliation_status === 'floating'">
+                                        <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-violet-50 text-violet-800 border-violet-200">
+                                            Pending Cheque
                                         </span>
-                                    </td>
-                                    <td class="py-3 px-4 font-sans">
-                                        <span class="inline-flex items-center text-[10px] font-extrabold px-2 py-0.5 rounded-lg border {{ $sourceBadge }}">
-                                            {{ $payment->payment_source }}
+                                    </template>
+                                    <template x-if="payment.reconciliation_status === 'partially_reconciled'">
+                                        <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-sky-50 text-sky-800 border-sky-200">
+                                            Partially Reconciled
                                         </span>
-                                    </td>
-                                    <td class="py-3 px-4 font-sans">
-                                        <span class="font-bold text-slate-800 uppercase text-[11px] block">
-                                            {{ str_replace('_', ' ', $payment->payment_method) }}
+                                    </template>
+                                    <template x-if="payment.reconciliation_status !== 'reconciled' && payment.reconciliation_status !== 'floating' && payment.reconciliation_status !== 'partially_reconciled'">
+                                        <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-amber-50 text-amber-800 border-amber-200">
+                                            Unreconciled
                                         </span>
-                                        <span class="text-[10px] text-slate-500 font-mono">
-                                            {{ $destinationAccount?->name ?: 'Company Account' }}
-                                        </span>
-                                    </td>
-                                    <td class="py-3 px-4 text-right font-bold text-slate-900">
-                                        ₹{{ number_format((float) $payment->requested_amount, 2) }}
-                                    </td>
-                                    <td class="py-3 px-4 text-right font-bold">
+                                    </template>
+                                </td>
+                                <td class="py-3 px-4 text-right font-sans">
+                                    <div class="flex items-center justify-end gap-1.5">
                                         <button type="button"
-                                                @click="openAllocationBreakdownModal({{ json_encode($paymentPayload) }})"
-                                                class="text-emerald-700 hover:text-emerald-900 font-bold underline underline-offset-2 decoration-emerald-300 hover:decoration-emerald-700 transition cursor-pointer"
-                                                title="Click to view allocation breakdown">
-                                            ₹{{ number_format((float) $payment->allocated_amount_calc, 2) }}
+                                                @click="openDetailsModal(payment)"
+                                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
+                                            <i data-lucide="eye" class="w-3 h-3"></i>
+                                            <span>Details</span>
                                         </button>
-                                    </td>
-                                    <td class="py-3 px-4 text-right font-black {{ (float) $payment->unallocated_amount_calc > 0 ? 'text-amber-700' : 'text-slate-400' }}">
-                                        ₹{{ number_format((float) $payment->unallocated_amount_calc, 2) }}
-                                    </td>
-                                    <td class="py-3 px-4 text-center font-sans">
-                                        <span class="inline-flex items-center text-[10px] font-extrabold px-2.5 py-0.5 rounded-lg border {{ $statusBadge }}">
-                                            {{ $statusLabel }}
-                                        </span>
-                                    </td>
-                                    <td class="py-3 px-4 text-center font-sans">
-                                        @if($payment->reconciliation_status === 'reconciled')
-                                            <span class="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-emerald-50 text-emerald-800 border-emerald-200">
-                                                <i data-lucide="check" class="w-3 h-3 text-emerald-600"></i>
-                                                <span>Reconciled</span>
-                                            </span>
-                                        @elseif($payment->reconciliation_status === 'floating')
-                                            <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-violet-50 text-violet-800 border-violet-200">
-                                                Pending Cheque
-                                            </span>
-                                        @elseif($payment->reconciliation_status === 'partially_reconciled')
-                                            <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-sky-50 text-sky-800 border-sky-200">
-                                                Partially Reconciled
-                                            </span>
-                                        @else
-                                            <span class="inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-lg border bg-amber-50 text-amber-800 border-amber-200">
-                                                Unreconciled
-                                            </span>
-                                        @endif
-                                    </td>
-                                    <td class="py-3 px-4 text-right font-sans">
-                                        <div class="flex items-center justify-end gap-1.5">
+
+                                        <template x-if="Number(payment.unallocated) > 0 && payment.cheque_status !== 'pending'">
                                             <button type="button"
-                                                    @click="openDetailsModal({{ json_encode($paymentPayload) }})"
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
-                                                <i data-lucide="eye" class="w-3 h-3"></i>
-                                                <span>Details</span>
+                                                    @click="openAllocateModal(payment)"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer">
+                                                <i data-lucide="check-square" class="w-3 h-3"></i>
+                                                <span>Allocate</span>
                                             </button>
+                                        </template>
 
-                                            @if((float) $payment->unallocated_amount_calc > 0 && $payment->cheque_status !== 'pending')
-                                                <button type="button"
-                                                        @click="openAllocateModal({{ json_encode($paymentPayload) }})"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer">
-                                                    <i data-lucide="check-square" class="w-3 h-3"></i>
-                                                    <span>Allocate</span>
-                                                </button>
-                                            @endif
+                                        <template x-if="payment.can_reconcile">
+                                            <button type="button"
+                                                    @click="openReconcileModal(payment)"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold transition cursor-pointer">
+                                                <i data-lucide="link-2" class="w-3 h-3 text-indigo-600"></i>
+                                                <span>Reconcile</span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
 
-                                            @if($payment->can_reconcile)
-                                                <button type="button"
-                                                        @click="openReconcileModal({{ json_encode($paymentPayload) }})"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold transition cursor-pointer">
-                                                    <i data-lucide="link-2" class="w-3 h-3 text-indigo-600"></i>
-                                                    <span>Reconcile</span>
-                                                </button>
-                                            @endif
-                                        </div>
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-
-                @if($allShopPayments->hasPages())
-                    <div class="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 font-sans">
-                        <div class="text-xs text-slate-500 font-medium">
-                            Showing <span class="font-bold text-slate-800">{{ $allShopPayments->firstItem() }}</span> to <span class="font-bold text-slate-800">{{ $allShopPayments->lastItem() }}</span> of <span class="font-bold text-slate-800">{{ $allShopPayments->total() }}</span> payments
-                        </div>
-                        <div>
-                            {{ $allShopPayments->appends(request()->query())->links() }}
-                        </div>
+            @if($allShopPayments->hasPages())
+                <div class="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 font-sans">
+                    <div class="text-xs text-slate-500 font-medium">
+                        Showing <span class="font-bold text-slate-800">{{ $allShopPayments->firstItem() }}</span> to <span class="font-bold text-slate-800">{{ $allShopPayments->lastItem() }}</span> of <span class="font-bold text-slate-800">{{ $allShopPayments->total() }}</span> payments
                     </div>
-                @endif
+                    <div>
+                        {{ $allShopPayments->appends(request()->query())->links() }}
+                    </div>
+                </div>
             @endif
         </div>
 
@@ -708,6 +681,245 @@
                         </div>
                     @endforeach
                 </div>
+            @endif
+        </div>
+
+        <!-- ── BANKING / PAYMENT VERIFICATION SECTION (MONTHLY VIEW) ── -->
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6"
+             x-data="monthlyBankingManager({
+                 statusFilter: '{{ $bankingStatusFilter }}',
+                 pendingCount: {{ (int) $bankingTotals['pending_count'] }},
+                 pendingAmount: {{ (float) $bankingTotals['pending_amount'] }},
+                 verifiedCount: {{ (int) $bankingTotals['verified_count'] }},
+                 verifiedAmount: {{ (float) $bankingTotals['verified_amount'] }},
+                 totalCount: {{ (int) $bankingTotals['total_count'] }},
+                 totalAmount: {{ (float) $bankingTotals['total_amount'] }},
+                 initialPageCount: {{ $bankingPagination ? (int) $bankingPagination->count() : 0 }}
+             })">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="landmark" class="w-5 h-5 text-indigo-600"></i>
+                        <h2 class="text-base font-black text-slate-900 uppercase tracking-wide">
+                            Banking &middot; Payment Verification
+                        </h2>
+                    </div>
+                    <p class="text-xs text-slate-500 font-medium mt-0.5">
+                        Verify shop-reported digital and card collections deposited directly into company bank accounts.
+                    </p>
+                </div>
+
+                <!-- Bank Account Selector Filter -->
+                @if($connectedBankAccounts->isNotEmpty())
+                    <form method="GET" action="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id]) }}" class="flex items-center gap-2 flex-wrap">
+                        <input type="hidden" name="month" value="{{ $month }}">
+                        <input type="hidden" name="banking_status" value="{{ $bankingStatusFilter }}">
+                        <label for="bank_account_id" class="text-xs font-bold text-slate-600">Connected Bank:</label>
+                        <select name="bank_account_id"
+                                id="bank_account_id"
+                                onchange="this.form.submit()"
+                                class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 shadow-xs focus:border-indigo-500 focus:ring-indigo-500 cursor-pointer">
+                            @foreach($connectedBankAccounts as $bank)
+                                <option value="{{ $bank->id }}" {{ (int) $selectedBankId === (int) $bank->id ? 'selected' : '' }}>
+                                    {{ $bank->name }} ({{ $bank->bank_name ?: 'Bank' }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </form>
+                @endif
+            </div>
+
+            @if($connectedBankAccounts->isEmpty())
+                <div class="p-8 text-center bg-amber-50/50 rounded-2xl border border-amber-200 text-amber-900 space-y-2">
+                    <i data-lucide="alert-circle" class="w-8 h-8 mx-auto text-amber-600"></i>
+                    <p class="text-sm font-extrabold">No Connected Bank Accounts Found</p>
+                    <p class="text-xs text-amber-800 max-w-md mx-auto">
+                        No company bank accounts are configured for collection entries at {{ $currentShop->name }}. Configure account destinations in Shop Settings to enable payment verification.
+                    </p>
+                </div>
+            @else
+                <!-- 3 Metric Cards for Selected Bank -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="p-4 rounded-2xl bg-amber-50/60 border border-amber-200">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-amber-800">Awaiting Verification</div>
+                        <div class="text-lg font-black font-mono text-amber-950 mt-1">
+                            ₹<span x-text="formatCurrency(pendingAmount)">{{ number_format($bankingTotals['pending_amount'], 2) }}</span>
+                        </div>
+                        <div class="text-[10px] font-bold text-amber-700 mt-0.5">
+                            <span x-text="pendingCount">{{ $bankingTotals['pending_count'] }}</span> <span x-text="pendingCount === 1 ? 'payment' : 'payments'">{{ Str::plural('payment', $bankingTotals['pending_count']) }}</span> pending receipt
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Verified Received</div>
+                        <div class="text-lg font-black font-mono text-emerald-950 mt-1">
+                            ₹<span x-text="formatCurrency(verifiedAmount)">{{ number_format($bankingTotals['verified_amount'], 2) }}</span>
+                        </div>
+                        <div class="text-[10px] font-bold text-emerald-700 mt-0.5">
+                            <span x-text="verifiedCount">{{ $bankingTotals['verified_count'] }}</span> <span x-text="verifiedCount === 1 ? 'payment' : 'payments'">{{ Str::plural('payment', $bankingTotals['verified_count']) }}</span> confirmed in bank
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-slate-600">Total Filtered Payments</div>
+                        <div class="text-lg font-black font-mono text-slate-900 mt-1">
+                            ₹<span x-text="formatCurrency(totalAmount)">{{ number_format($bankingTotals['total_amount'], 2) }}</span>
+                        </div>
+                        <div class="text-[10px] font-bold text-slate-500 mt-0.5">
+                            <span x-text="totalCount">{{ $bankingTotals['total_count'] }}</span> <span x-text="totalCount === 1 ? 'payment' : 'payments'">{{ Str::plural('payment', $bankingTotals['total_count']) }}</span> in {{ $monthlyData['month_title'] }}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Tabs Filter -->
+                <div class="flex items-center gap-2 border-b border-slate-100 pb-3 flex-wrap">
+                    @php
+                        $baseParams = [
+                            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                            'month' => $month,
+                            'bank_account_id' => $selectedBankId,
+                        ];
+                    @endphp
+                    <a href="{{ route('admin.cashbook.shop.show', array_merge($baseParams, ['banking_status' => 'pending'])) }}"
+                       class="px-3 py-1.5 rounded-xl text-xs font-extrabold transition {{ $bankingStatusFilter === 'pending' ? 'bg-amber-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        Awaiting Verification (<span x-text="pendingCount">{{ $bankingTotals['pending_count'] }}</span>)
+                    </a>
+                    <a href="{{ route('admin.cashbook.shop.show', array_merge($baseParams, ['banking_status' => 'verified'])) }}"
+                       class="px-3 py-1.5 rounded-xl text-xs font-extrabold transition {{ $bankingStatusFilter === 'verified' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        Verified (<span x-text="verifiedCount">{{ $bankingTotals['verified_count'] }}</span>)
+                    </a>
+                    <a href="{{ route('admin.cashbook.shop.show', array_merge($baseParams, ['banking_status' => 'all'])) }}"
+                       class="px-3 py-1.5 rounded-xl text-xs font-extrabold transition {{ $bankingStatusFilter === 'all' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        All Payments (<span x-text="totalCount">{{ $bankingTotals['total_count'] }}</span>)
+                    </a>
+                </div>
+
+                <!-- Empty State (shown initially or when all pending items on page are verified) -->
+                <div x-show="hasNoVisibleRows()" class="p-12 text-center text-slate-400">
+                    <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                    <p class="text-xs font-bold">No payments found matching this filter for {{ $selectedBankAccount?->name ?? 'selected bank' }}.</p>
+                </div>
+
+                <!-- Table -->
+                @if($bankingPagination && $bankingPagination->isNotEmpty())
+                    <div x-show="!hasNoVisibleRows()" class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 bg-slate-50/50">
+                                    <th class="py-3 px-4 rounded-l-xl">Date</th>
+                                    <th class="py-3 px-4">Payment Type</th>
+                                    <th class="py-3 px-4">Reference</th>
+                                    <th class="py-3 px-4 text-right">Amount</th>
+                                    <th class="py-3 px-4">Bank Account</th>
+                                    <th class="py-3 px-4 text-center">Verification Status</th>
+                                    <th class="py-3 px-4 text-right rounded-r-xl">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 font-mono">
+                                @foreach($bankingPagination as $tx)
+                                    @php
+                                        $stmt = $tx->statementEntries->first();
+                                        $isReconciled = (bool) ($stmt && $stmt->is_finalized && $stmt->status === 'reconciled');
+                                        $isApproved = in_array($tx->status, [\App\Enums\Cashbook\TransactionStatus::Approved->value, 'approved'], true);
+                                        $dateFormatted = $tx->business_date ? \Illuminate\Support\Carbon::parse($tx->business_date)->format('d M Y') : '—';
+                                        $paymentType = $tx->entryType?->name ?: $tx->entry_type_code;
+                                        $accountName = $selectedBankAccount?->name ?? ($tx->companyAccount?->name ?: 'Connected Bank');
+                                    @endphp
+                                    <tr class="hover:bg-slate-50/80 transition-colors"
+                                        x-show="isRowVisible({{ $tx->id }}, {{ $isReconciled ? 'true' : 'false' }})"
+                                        id="banking-row-{{ $tx->id }}"
+                                        data-tx-id="{{ $tx->id }}">
+                                        <td class="py-3.5 px-4 font-sans font-extrabold text-slate-900">
+                                            {{ $dateFormatted }}
+                                        </td>
+                                        <td class="py-3.5 px-4 font-sans font-bold text-slate-800">
+                                            {{ $paymentType }}
+                                        </td>
+                                        <td class="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
+                                            {{ $tx->reference_id ?: '#'.$tx->id }}
+                                        </td>
+                                        <td class="py-3.5 px-4 text-right font-black text-slate-900 font-mono text-sm">
+                                            ₹{{ number_format($tx->amount, 2) }}
+                                        </td>
+                                        <td class="py-3.5 px-4 font-sans font-bold text-indigo-900">
+                                            <span class="inline-flex items-center gap-1">
+                                                <i data-lucide="landmark" class="w-3.5 h-3.5 text-indigo-600"></i>
+                                                <span>{{ $accountName }}</span>
+                                            </span>
+                                        </td>
+                                        <td class="py-3.5 px-4 text-center font-sans">
+                                            <template x-if="isRowVerified({{ $tx->id }}, {{ $isReconciled ? 'true' : 'false' }})">
+                                                <span class="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
+                                                    <i data-lucide="check-check" class="w-3 h-3 text-emerald-600"></i>
+                                                    <span>Verified</span>
+                                                </span>
+                                            </template>
+                                            <template x-if="!isRowVerified({{ $tx->id }}, {{ $isReconciled ? 'true' : 'false' }})">
+                                                @if($isApproved)
+                                                    <span class="inline-flex items-center text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md">
+                                                        Awaiting Verification
+                                                    </span>
+                                                @else
+                                                    <span class="inline-flex items-center text-[10px] font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                                                        {{ strtoupper($tx->status) }}
+                                                    </span>
+                                                @endif
+                                            </template>
+                                        </td>
+                                        <td class="py-3.5 px-4 text-right font-sans">
+                                            <template x-if="isRowVerified({{ $tx->id }}, {{ $isReconciled ? 'true' : 'false' }})">
+                                                <span class="text-xs text-slate-400 font-bold flex items-center justify-end gap-1">
+                                                    <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                                    <span>Confirmed</span>
+                                                </span>
+                                            </template>
+                                            <template x-if="!isRowVerified({{ $tx->id }}, {{ $isReconciled ? 'true' : 'false' }})">
+                                                @if($isApproved)
+                                                    <form method="POST"
+                                                          action="{{ route('admin.cashbook.shop.day.verify-selected', [$currentShop->slug ?: $currentShop->shop_id]) }}"
+                                                          @submit.prevent="verifyRow({{ $tx->id }}, '{{ $tx->business_date?->toDateString() }}', $el)">
+                                                        @csrf
+                                                        <input type="hidden" name="business_date" value="{{ $tx->business_date?->toDateString() }}">
+                                                        <input type="hidden" name="transaction_ids[]" value="{{ $tx->id }}">
+                                                        <input type="hidden" name="return_to" value="monthly">
+                                                        <input type="hidden" name="month" value="{{ $month }}">
+                                                        <input type="hidden" name="bank_account_id" value="{{ $selectedBankId }}">
+                                                        <input type="hidden" name="banking_status" value="{{ $bankingStatusFilter }}">
+                                                        <input type="hidden" name="banking_page" value="{{ $bankingPagination->currentPage() }}">
+
+                                                        <button type="submit"
+                                                                :disabled="isRowSubmitting({{ $tx->id }})"
+                                                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-700 hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer">
+                                                            <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                                                            <span x-text="isRowSubmitting({{ $tx->id }}) ? 'Verifying...' : 'Verify received'">Verify received</span>
+                                                        </button>
+                                                    </form>
+                                                @else
+                                                    <a href="{{ route('admin.cashbook.shop.show', ['shop' => $currentShop->slug ?: $currentShop->shop_id, 'date' => $tx->business_date?->toDateString()]) }}"
+                                                       class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+                                                        <span>Review in Day</span>
+                                                    </a>
+                                                @endif
+                                            </template>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination Links -->
+                    @if($bankingPagination->hasPages())
+                        <div x-show="!hasNoVisibleRows()" class="pt-4 border-t border-slate-100 flex items-center justify-between">
+                            <div class="text-xs text-slate-500 font-bold">
+                                Showing {{ $bankingPagination->firstItem() }} to {{ $bankingPagination->lastItem() }} of {{ $bankingPagination->total() }} payments
+                            </div>
+                            <div>
+                                {{ $bankingPagination->links() }}
+                            </div>
+                        </div>
+                    @endif
+                @endif
             @endif
         </div>
 
@@ -2551,3 +2763,127 @@
 
 </div>
 @endsection
+
+@push('scripts')
+<script>
+    function monthlyBankingManager(config) {
+        return {
+            statusFilter: config.statusFilter || 'pending',
+            pendingCount: Number(config.pendingCount || 0),
+            pendingAmount: Number(config.pendingAmount || 0),
+            verifiedCount: Number(config.verifiedCount || 0),
+            verifiedAmount: Number(config.verifiedAmount || 0),
+            totalCount: Number(config.totalCount || 0),
+            totalAmount: Number(config.totalAmount || 0),
+            initialPageCount: Number(config.initialPageCount || 0),
+            submittingIds: [],
+            verifiedIds: [],
+
+            formatCurrency(num) {
+                return Number(num || 0).toLocaleString('en-IN', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            },
+
+            isRowSubmitting(txId) {
+                return this.submittingIds.includes(Number(txId));
+            },
+
+            isRowVerified(txId, originallyReconciled) {
+                return Boolean(originallyReconciled) || this.verifiedIds.includes(Number(txId));
+            },
+
+            isRowVisible(txId, originallyReconciled) {
+                const isVerified = this.isRowVerified(txId, originallyReconciled);
+                if (this.statusFilter === 'pending') {
+                    return !isVerified;
+                }
+                if (this.statusFilter === 'verified') {
+                    return isVerified;
+                }
+                return true;
+            },
+
+            hasNoVisibleRows() {
+                if (this.initialPageCount === 0) {
+                    return true;
+                }
+                if (this.statusFilter === 'pending') {
+                    return this.pendingCount <= 0 || (this.initialPageCount - this.verifiedIds.length) <= 0;
+                }
+                return false;
+            },
+
+            async verifyRow(txId, businessDate, formEl) {
+                const numericId = Number(txId);
+                if (this.submittingIds.includes(numericId) || this.verifiedIds.includes(numericId)) {
+                    return;
+                }
+                this.submittingIds.push(numericId);
+
+                const formData = new FormData(formEl);
+                const actionUrl = formEl.action;
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+                try {
+                    const response = await fetch(actionUrl, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': csrfToken || ''
+                        }
+                    });
+
+                    const contentType = response.headers.get('content-type') || '';
+                    if (response.status === 401 || response.redirected || !contentType.includes('application/json')) {
+                        if (response.status === 401 || (response.url && response.url.includes('login'))) {
+                            showToast('Your session has expired. Please refresh the page to log in.', 'error');
+                        } else {
+                            showToast('Unexpected server response. Please refresh the page.', 'error');
+                        }
+                        this.submittingIds = this.submittingIds.filter(id => id !== numericId);
+                        return;
+                    }
+
+                    const data = await response.json();
+
+                    if (!response.ok || !data.success) {
+                        const errorMsg = data.message || data.error || 'Verification failed. Please try again.';
+                        showToast(errorMsg, 'error');
+                        this.submittingIds = this.submittingIds.filter(id => id !== numericId);
+                        return;
+                    }
+
+                    // Success
+                    this.verifiedIds.push(numericId);
+                    this.submittingIds = this.submittingIds.filter(id => id !== numericId);
+
+                    if (data.banking_totals) {
+                        this.pendingCount = Number(data.banking_totals.pending_count);
+                        this.pendingAmount = Number(data.banking_totals.pending_amount);
+                        this.verifiedCount = Number(data.banking_totals.verified_count);
+                        this.verifiedAmount = Number(data.banking_totals.verified_amount);
+                        this.totalCount = Number(data.banking_totals.total_count);
+                        this.totalAmount = Number(data.banking_totals.total_amount);
+                    }
+
+                    window.dispatchEvent(new CustomEvent('shop-cashbook-updated', { detail: data }));
+
+                    showToast(data.message || 'Payment successfully verified!', 'success');
+
+                    if (window.lucide) {
+                        setTimeout(() => window.lucide.createIcons(), 50);
+                    }
+                } catch (err) {
+                    console.error('Verification error:', err);
+                    showToast(err.message || 'Network error occurred while verifying payment.', 'error');
+                    this.submittingIds = this.submittingIds.filter(id => id !== numericId);
+                }
+            }
+        };
+    }
+</script>
+@endpush

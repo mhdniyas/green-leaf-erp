@@ -9,7 +9,6 @@ use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
-use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\Cashbook\DailyLedgerService;

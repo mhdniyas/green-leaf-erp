@@ -269,6 +269,24 @@
                 setTimeout(() => toast.remove(), 300);
             }, 4000);
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            @if(session('success'))
+                showToast(@json(session('success')), 'success');
+            @endif
+            @if(session('error'))
+                showToast(@json(session('error')), 'error');
+            @endif
+            @if(session('info'))
+                showToast(@json(session('info')), 'info');
+            @endif
+            @if(session('warning'))
+                showToast(@json(session('warning')), 'error');
+            @endif
+            @if($errors->any())
+                showToast(@json($errors->first()), 'error');
+            @endif
+        });
     </script>
     @stack('scripts')
 

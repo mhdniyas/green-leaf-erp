@@ -26,6 +26,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class CompanyPaymentReconciliationService
@@ -186,12 +187,66 @@ class CompanyPaymentReconciliationService
 
             // Check if already verified and finalized (Idempotency)
             if ($statementEntry->is_finalized && $statementEntry->status === 'reconciled') {
+                $existingRecon = CompanyPaymentReconciliation::query()
+                    ->where('statement_entry_id', $statementEntry->id)
+                    ->first();
+
+                if (! $existingRecon || ! $existingRecon->paymentRequest) {
+                    $companyAccount = $statementEntry->companyAccount;
+                    $journalId = $statementEntry->journal_entry_id;
+
+                    $paymentRequest = ShopInvoicePaymentRequest::query()->create([
+                        'shop_id' => $transaction->shop_id,
+                        'requested_by' => $userId,
+                        'submission_uuid' => (string) Str::uuid(),
+                        'request_type' => 'shop_collection',
+                        'payment_method' => $transaction->entryType?->code ?: 'bank_transfer',
+                        'payment_reference' => $transaction->reference_id ?: ($statementEntry->reference ?: '#COL-'.$transaction->id),
+                        'payment_date' => $statementEntry->transaction_date?->toDateString() ?: $transaction->business_date->toDateString(),
+                        'requested_amount' => (float) $statementEntry->amount,
+                        'approved_amount' => (float) $statementEntry->amount,
+                        'reconciled_amount' => (float) $statementEntry->amount,
+                        'floating_amount' => 0.00,
+                        'status' => 'approved',
+                        'reconciliation_status' => 'reconciled',
+                        'shop_note' => $transaction->notes,
+                        'admin_note' => 'Verified shop collection for '.($transaction->entryType?->name ?? 'Collection').' #'.$transaction->id,
+                        'reviewed_by' => $userId,
+                        'reviewed_at' => now(),
+                        'last_reconciled_at' => now(),
+                    ]);
+
+                    CompanyPaymentReconciliation::query()->create([
+                        'payment_request_id' => $paymentRequest->id,
+                        'shop_id' => $transaction->shop_id,
+                        'company_account_id' => $companyAccount?->id ?: $statementEntry->company_account_id,
+                        'statement_entry_id' => $statementEntry->id,
+                        'journal_entry_id' => $journalId,
+                        'statement_amount' => (float) $statementEntry->amount,
+                        'cleared_amount' => (float) $statementEntry->amount,
+                        'difference_amount' => 0.00,
+                        'difference_action' => 'none',
+                        'status' => 'approved',
+                        'is_finalized' => true,
+                        'finalized_at' => now(),
+                        'admin_note' => 'Verified shop collection for '.($transaction->entryType?->name ?? 'Collection').' #'.$transaction->id,
+                        'reconciled_by' => $userId,
+                        'reconciled_at' => now(),
+                    ]);
+                }
+
                 return $statementEntry->fresh(['companyAccount', 'journalEntry.transactions.account', 'sourceRecord.entryType']);
             }
 
             if ($statementEntry->status === 'superseded') {
                 throw ValidationException::withMessages([
                     'statement' => 'Superseded statement entries cannot be verified.',
+                ]);
+            }
+
+            if ($statementEntry->status === 'void') {
+                throw ValidationException::withMessages([
+                    'statement' => 'Voided statement entries cannot be verified.',
                 ]);
             }
 
@@ -207,10 +262,14 @@ class CompanyPaymentReconciliationService
                 ]);
             }
 
-            if ((int) $statementEntry->company_account_id !== (int) $transaction->company_account_id) {
+            if ($transaction->company_account_id && (int) $statementEntry->company_account_id !== (int) $transaction->company_account_id) {
                 throw ValidationException::withMessages([
                     'statement' => 'Statement company account does not match the transaction destination account.',
                 ]);
+            }
+
+            if (! $transaction->company_account_id && $statementEntry->company_account_id) {
+                $transaction->update(['company_account_id' => $statementEntry->company_account_id]);
             }
 
             $expectedDirection = $transaction->direction === 'income' ? 'in' : 'out';
@@ -290,6 +349,77 @@ class CompanyPaymentReconciliationService
                     'reference_id' => $statementEntry->id,
                     'notes' => 'Verified company receipt for '.($transaction->entryType?->name ?? 'Collection').' #'.$transaction->id,
                     'entered_by' => $userId,
+                ]);
+            }
+
+            // 5. Canonical Company Receipt (ShopInvoicePaymentRequest & CompanyPaymentReconciliation)
+            $existingRecon = CompanyPaymentReconciliation::query()
+                ->where('statement_entry_id', $statementEntry->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingRecon && $existingRecon->paymentRequest) {
+                $paymentRequest = $existingRecon->paymentRequest;
+                if ($paymentRequest->reconciliation_status !== 'reconciled' || $paymentRequest->status !== 'approved') {
+                    $paymentRequest->update([
+                        'status' => 'approved',
+                        'reconciliation_status' => 'reconciled',
+                        'approved_amount' => $statementAmount,
+                        'reconciled_amount' => $statementAmount,
+                        'floating_amount' => 0.00,
+                        'reviewed_by' => $userId,
+                        'reviewed_at' => now(),
+                        'last_reconciled_at' => now(),
+                    ]);
+                }
+                if (! $existingRecon->is_finalized || $existingRecon->status !== 'approved') {
+                    $existingRecon->update([
+                        'status' => 'approved',
+                        'is_finalized' => true,
+                        'finalized_at' => now(),
+                        'journal_entry_id' => $journal->id,
+                        'reconciled_by' => $userId,
+                        'reconciled_at' => now(),
+                    ]);
+                }
+            } else {
+                $paymentRequest = ShopInvoicePaymentRequest::query()->create([
+                    'shop_id' => $transaction->shop_id,
+                    'requested_by' => $userId,
+                    'submission_uuid' => (string) Str::uuid(),
+                    'request_type' => 'shop_collection',
+                    'payment_method' => $transaction->entryType?->code ?: 'bank_transfer',
+                    'payment_reference' => $transaction->reference_id ?: ($statementEntry->reference ?: '#COL-'.$transaction->id),
+                    'payment_date' => $statementEntry->transaction_date?->toDateString() ?: $transaction->business_date->toDateString(),
+                    'requested_amount' => $statementAmount,
+                    'approved_amount' => $statementAmount,
+                    'reconciled_amount' => $statementAmount,
+                    'floating_amount' => 0.00,
+                    'status' => 'approved',
+                    'reconciliation_status' => 'reconciled',
+                    'shop_note' => $transaction->notes,
+                    'admin_note' => 'Verified shop collection for '.($transaction->entryType?->name ?? 'Collection').' #'.$transaction->id,
+                    'reviewed_by' => $userId,
+                    'reviewed_at' => now(),
+                    'last_reconciled_at' => now(),
+                ]);
+
+                CompanyPaymentReconciliation::query()->create([
+                    'payment_request_id' => $paymentRequest->id,
+                    'shop_id' => $transaction->shop_id,
+                    'company_account_id' => $companyAccount->id,
+                    'statement_entry_id' => $statementEntry->id,
+                    'journal_entry_id' => $journal->id,
+                    'statement_amount' => $statementAmount,
+                    'cleared_amount' => $statementAmount,
+                    'difference_amount' => 0.00,
+                    'difference_action' => 'none',
+                    'status' => 'approved',
+                    'is_finalized' => true,
+                    'finalized_at' => now(),
+                    'admin_note' => 'Verified shop collection for '.($transaction->entryType?->name ?? 'Collection').' #'.$transaction->id,
+                    'reconciled_by' => $userId,
+                    'reconciled_at' => now(),
                 ]);
             }
 
