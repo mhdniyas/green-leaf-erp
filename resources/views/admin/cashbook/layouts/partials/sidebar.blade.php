@@ -198,16 +198,26 @@
     </div>
 
     <!-- Sidebar Footer -->
-    <div class="p-4 border-t border-slate-100 bg-slate-50/80 space-y-2">
-        <div class="flex items-center justify-between text-xs text-slate-500">
-            <span data-cashbook-sidebar-label class="flex items-center gap-1.5 font-bold text-slate-700">
-                <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Engine Active
-            </span>
-            <span data-cashbook-sidebar-label class="font-mono text-[10px] text-slate-400">v1.0.0</span>
-        </div>
-        <div data-cashbook-sidebar-label class="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
-            <i data-lucide="leaf" class="w-3 h-3 text-emerald-500"></i>
-            {{ config('greenleaf.name', 'Green Leaf') }} · Cashbook
+    <div class="p-4 border-t border-slate-100 bg-slate-50/80 space-y-3">
+        <form method="POST" action="{{ route('logout') }}" class="w-full">
+            @csrf
+            <button type="submit" class="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-rose-600 shadow-xs transition hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700" title="Sign Out">
+                <i data-lucide="log-out" class="w-4 h-4 flex-shrink-0"></i>
+                <span data-cashbook-sidebar-label>Sign Out</span>
+            </button>
+        </form>
+
+        <div class="space-y-1.5 pt-1 border-t border-slate-200/60">
+            <div class="flex items-center justify-between text-xs text-slate-500">
+                <span data-cashbook-sidebar-label class="flex items-center gap-1.5 font-bold text-slate-700">
+                    <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Engine Active
+                </span>
+                <span data-cashbook-sidebar-label class="font-mono text-[10px] text-slate-400">v1.0.0</span>
+            </div>
+            <div data-cashbook-sidebar-label class="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
+                <i data-lucide="leaf" class="w-3 h-3 text-emerald-500"></i>
+                {{ config('greenleaf.name', 'Green Leaf') }} · Cashbook
+            </div>
         </div>
     </div>
 </aside>
