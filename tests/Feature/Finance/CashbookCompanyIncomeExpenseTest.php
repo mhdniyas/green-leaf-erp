@@ -50,7 +50,7 @@ class CashbookCompanyIncomeExpenseTest extends TestCase
         $this->assertSame(2, CompanyAccountingEntry::query()->count());
         $this->assertSame(2, JournalEntry::query()->count());
         $this->assertSame(2, CompanyAccountStatementEntry::query()->count());
-        $this->actingAs($this->admin)->get(route('admin.cashbook.finance.journal'))->assertOk()->assertDontSee('Test Other Income')->assertDontSee('Test Vehicle');
+        $this->actingAs($this->admin)->get(route('admin.cashbook.finance.journal', ['status' => 'finalized']))->assertOk()->assertDontSee('Test Other Income')->assertDontSee('Test Vehicle');
 
         $incomeMovement = CompanyAccountStatementEntry::query()->where('source_id', $income->id)->firstOrFail();
         $expenseMovement = CompanyAccountStatementEntry::query()->where('source_id', $expense->id)->firstOrFail();

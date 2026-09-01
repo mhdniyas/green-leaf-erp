@@ -831,7 +831,9 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.cashbook.finance.purchase.purchasers.show', [
                 'purchaser' => $this->purchaser->public_uuid,
-                'period' => 'month',
+                'period' => 'custom',
+                'start_date' => '2026-08-01',
+                'end_date' => '2026-08-31',
                 'tab' => 'funding',
             ]))
             ->assertOk()
@@ -972,7 +974,9 @@ class PurchaserFundingReconciliationTraceTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.cashbook.finance.purchase.purchasers.show', [
                 'purchaser' => $this->purchaser->public_uuid,
-                'period' => 'month',
+                'period' => 'custom',
+                'start_date' => '2026-08-01',
+                'end_date' => '2026-08-31',
                 'tab' => 'funding',
             ]))
             ->assertOk()

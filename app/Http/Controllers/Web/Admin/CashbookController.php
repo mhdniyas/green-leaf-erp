@@ -2788,12 +2788,7 @@ final class CashbookController extends Controller
                 'reconciliations.statementEntry.companyAccount',
                 'reconciliations.paymentRequest.shop',
                 'statementEntries.companyAccount',
-            ])
-            ->whereHas('transactions.account', fn ($q) => $q->whereIn('code', ['1010', '1020']))
-            ->where(function ($q): void {
-                $q->whereHas('statementEntries', fn ($sq) => $sq->where('is_finalized', true))
-                    ->orWhereHas('reconciliations', fn ($rq) => $rq->where('is_finalized', true));
-            });
+            ]);
 
         // Date filter
         if ($startDate !== '') {
@@ -2809,11 +2804,9 @@ final class CashbookController extends Controller
             if ($selectedAccount) {
                 $query->where(function (Builder $accountQuery) use ($selectedAccount): void {
                     $accountQuery->whereHas('statementEntries', function (Builder $statementQuery) use ($selectedAccount): void {
-                        $statementQuery->where('company_account_id', $selectedAccount->id)
-                            ->where('is_finalized', true);
+                        $statementQuery->where('company_account_id', $selectedAccount->id);
                     })->orWhereHas('reconciliations', function (Builder $reconciliationQuery) use ($selectedAccount): void {
-                        $reconciliationQuery->where('company_account_id', $selectedAccount->id)
-                            ->where('is_finalized', true);
+                        $reconciliationQuery->where('company_account_id', $selectedAccount->id);
                     });
                 });
             }
@@ -2896,6 +2889,7 @@ final class CashbookController extends Controller
         ];
 
         $journalEntries = $query->latest('entry_date')->latest('id')->paginate(30)->withQueryString();
+        $purchasers = rescue(fn () => User::role('purchaser')->orderBy('name')->get(), fn () => collect());
 
         return view('admin.cashbook.finance.journal', compact(
             'shops',
@@ -2910,6 +2904,7 @@ final class CashbookController extends Controller
             'endDate',
             'search',
             'accountId',
+            'purchasers',
         ));
     }
 
@@ -2919,6 +2914,7 @@ final class CashbookController extends Controller
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
+        $purchasers = rescue(fn () => User::role('purchaser')->orderBy('name')->get(), fn () => collect());
         $company = config('greenleaf');
         $currentShop = $shops->first();
 
@@ -2938,7 +2934,53 @@ final class CashbookController extends Controller
             'company',
             'currentShop',
             'journalEntry',
+            'purchasers',
         ));
+    }
+
+    public function companyFinanceJournalEntryUpdate(Request $request, JournalEntry $journalEntry, JournalService $journalService): JsonResponse|RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        abort_unless($request->user()->isMainAdmin() || $request->user()->hasRole('admin'), 403);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0'],
+            'entry_date' => ['required', 'date_format:Y-m-d'],
+            'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'payment_source' => ['nullable', 'string', 'in:Bank,Cash'],
+            'reference' => ['nullable', 'string', 'max:160'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'confirm_shortfall' => ['nullable', 'boolean'],
+        ]);
+
+        $result = $journalService->correctJournalEntry($journalEntry, array_merge($validated, [
+            'ip' => $request->ip(),
+        ]), $request->user());
+
+        $hasReplacement = $result['replacement'] instanceof JournalEntry;
+        $action = (float) $validated['amount'] > 0.0001 ? 'corrected' : 'cancelled';
+        $message = $hasReplacement
+            ? "Journal Entry #{$journalEntry->id} ({$journalEntry->formatted_reference}) corrected successfully. Replaced by #{$result['replacement']->id} ({$result['replacement']->formatted_reference})."
+            : "Journal Entry #{$journalEntry->id} ({$journalEntry->formatted_reference}) cancelled and reversed successfully.";
+
+        $redirectUrl = $hasReplacement
+            ? route('admin.cashbook.finance.journal.entry-show', $result['replacement']->id)
+            : route('admin.cashbook.finance.journal.entry-show', $journalEntry->id);
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'redirect_url' => $redirectUrl,
+                'original_id' => $journalEntry->id,
+                'reversal_id' => $result['reversal']->id,
+                'replacement_id' => $result['replacement']?->id,
+            ]);
+        }
+
+        return redirect()->to($redirectUrl)->with('success', $message);
     }
 
     public function companyFinancePurchasers(Request $request): RedirectResponse

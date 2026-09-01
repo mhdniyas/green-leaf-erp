@@ -7,6 +7,8 @@ namespace App\Services\Finance;
 use App\DTOs\Finance\JournalEntryData;
 use App\Models\Account;
 use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\CompanyAccountingEntry;
 use App\Models\CompanyPayableSettlement;
@@ -24,8 +26,11 @@ use App\Models\User;
 use App\Models\VendorSettlement;
 use App\Models\WastageEntry;
 use App\Repositories\Finance\JournalEntryRepository;
+use App\Services\Cashbook\CompanyPaymentReconciliationService;
 use App\Support\ChartOfAccounts;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class JournalService
@@ -33,6 +38,422 @@ class JournalService
     public function __construct(
         private readonly JournalEntryRepository $repository,
     ) {}
+
+    /**
+     * Admin correction or cancellation of a journal entry preserving complete accounting immutability.
+     *
+     * In accordance with canonical double-entry accounting:
+     * 1. The original JournalEntry and its transactions are locked and left immutable.
+     * 2. A balanced reversal JournalEntry is created to cleanly invert the debit and credit lines.
+     * 3. Dependent purchaser credits, statement matches, and reconciliation allocations are reversed.
+     * 4. If amount > 0, a corrected replacement entry and counterpart are created.
+     * 5. If amount == 0, the entry is cancelled through reversal without creating a replacement.
+     *
+     * @param  array{
+     *     amount?: float|numeric-string,
+     *     entry_date?: string,
+     *     purchaser_id?: int|numeric-string|null,
+     *     company_account_id?: int|numeric-string|null,
+     *     payment_source?: string|null,
+     *     reference?: string|null,
+     *     description?: string|null,
+     *     reason?: string|null,
+     *     ip?: string|null
+     * }  $data
+     * @return array{original: JournalEntry, reversal: JournalEntry, replacement: ?JournalEntry}
+     */
+    public function correctJournalEntry(JournalEntry $journalEntry, array $data, User $actor): array
+    {
+        $reason = trim((string) ($data['reason'] ?? ''));
+        if (mb_strlen($reason) < 3) {
+            throw ValidationException::withMessages([
+                'reason' => 'A valid correction reason (at least 3 characters) is required.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($journalEntry, $data, $actor, $reason): array {
+            /** @var JournalEntry $journalEntry */
+            $journalEntry = JournalEntry::query()
+                ->with(['transactions.account', 'statementEntries', 'reconciliations.paymentRequest'])
+                ->whereKey($journalEntry->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // 1. Validate that the entry has not already been reversed
+            $alreadyReversed = str_starts_with((string) $journalEntry->source_event, 'reversal:')
+                || $journalEntry->source_event === 'reversal'
+                || str_contains((string) $journalEntry->description, '[REVERSED]')
+                || JournalEntry::query()->where('source_event', "reversal:{$journalEntry->id}")->exists();
+
+            if ($alreadyReversed) {
+                throw ValidationException::withMessages([
+                    'journal_entry' => 'This journal entry has already been reversed and cannot be edited again.',
+                ]);
+            }
+
+            $oldValues = [
+                'id' => $journalEntry->id,
+                'entry_date' => $journalEntry->entry_date?->toDateString(),
+                'reference' => $journalEntry->reference,
+                'description' => $journalEntry->description,
+                'primary_amount' => $journalEntry->primary_amount,
+                'source_type' => $journalEntry->source_type,
+                'source_id' => $journalEntry->source_id,
+                'source_event' => $journalEntry->source_event,
+                'is_finalized' => $journalEntry->is_finalized,
+                'reconciliation_status' => $journalEntry->reconciliation_status,
+            ];
+
+            $newAmount = round((float) ($data['amount'] ?? $journalEntry->primary_amount), 2);
+            $entryDate = ! empty($data['entry_date']) ? (string) $data['entry_date'] : $journalEntry->entry_date->toDateString();
+            $description = filled($data['description'] ?? null) ? trim((string) $data['description']) : (string) $journalEntry->description;
+            $reference = filled($data['reference'] ?? null) ? trim((string) $data['reference']) : (string) $journalEntry->reference;
+            $ipAddress = $data['ip'] ?? request()->ip();
+
+            // 2. Purchaser Credit Safety & Atomic Final Position Evaluation (if source is PurchaserCredit)
+            $originalCredit = null;
+            $confirmShortfall = filter_var($data['confirm_shortfall'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if ($journalEntry->source_type === PurchaserCredit::class && $journalEntry->source_id) {
+                $originalCredit = PurchaserCredit::query()->whereKey($journalEntry->source_id)->lockForUpdate()->first();
+                if ($originalCredit instanceof PurchaserCredit) {
+                    $originalCredit->loadMissing('purchaser');
+                    $targetPurchaserId = ! empty($data['purchaser_id']) ? (int) $data['purchaser_id'] : (int) $originalCredit->purchaser_id;
+                    $targetPurchaser = User::query()->whereKey($targetPurchaserId)->first();
+
+                    if (! $targetPurchaser || ! $targetPurchaser->hasRole('purchaser')) {
+                        throw ValidationException::withMessages([
+                            'purchaser_id' => 'Selected user is not a valid purchaser.',
+                        ]);
+                    }
+
+                    if ($originalCredit->type === 'in') {
+                        $currentAdvance = (float) PurchaserCredit::query()
+                            ->where('purchaser_id', $originalCredit->purchaser_id)
+                            ->lockForUpdate()
+                            ->sum(DB::raw("CASE WHEN type = 'in' THEN amount ELSE -amount END"));
+
+                        $utilizedAmount = (float) PurchaserCredit::query()
+                            ->where('purchaser_id', $originalCredit->purchaser_id)
+                            ->where('type', 'out')
+                            ->whereNotNull('purchase_invoice_id')
+                            ->sum('amount');
+
+                        if ($targetPurchaserId === (int) $originalCredit->purchaser_id) {
+                            // Same purchaser: evaluate atomic final position = current - original + replacement
+                            $finalPosition = round($currentAdvance - (float) $originalCredit->amount + $newAmount, 2);
+
+                            if ($finalPosition < -0.009 && ! $confirmShortfall) {
+                                $shortfall = abs($finalPosition);
+                                throw ValidationException::withMessages([
+                                    'amount' => 'Reducing funding from ₹'.number_format((float) $originalCredit->amount, 2).' to ₹'.number_format($newAmount, 2).' creates a purchaser advance deficit of ₹'.number_format($shortfall, 2).' (utilized spend on bills is ₹'.number_format($utilizedAmount, 2).'). Please review the impact and confirm to proceed.',
+                                ]);
+                            }
+                        } else {
+                            // Purchaser reassigned: Purchaser A loses original funding; Purchaser B gets replacement funding
+                            $originalPurchaserFinal = round($currentAdvance - (float) $originalCredit->amount, 2);
+                            if ($originalPurchaserFinal < -0.009 && ! $confirmShortfall) {
+                                $shortfall = abs($originalPurchaserFinal);
+                                throw ValidationException::withMessages([
+                                    'purchaser_id' => "Reassigning funding to {$targetPurchaser->name} removes ₹".number_format((float) $originalCredit->amount, 2)." from {$originalCredit->purchaser?->name}, creating an advance deficit of ₹".number_format($shortfall, 2)." on {$originalCredit->purchaser?->name} (purchase bills will remain with {$originalCredit->purchaser?->name}). Please review and confirm to proceed.",
+                                ]);
+                            }
+                        }
+                    } elseif ($originalCredit->type === 'out') {
+                        $currentAdvance = (float) PurchaserCredit::query()
+                            ->where('purchaser_id', $originalCredit->purchaser_id)
+                            ->lockForUpdate()
+                            ->sum(DB::raw("CASE WHEN type = 'in' THEN amount ELSE -amount END"));
+
+                        if ($targetPurchaserId === (int) $originalCredit->purchaser_id) {
+                            $finalPosition = round($currentAdvance + (float) $originalCredit->amount - $newAmount, 2);
+
+                            if ($finalPosition < -0.009 && ! $confirmShortfall) {
+                                $shortfall = abs($finalPosition);
+                                throw ValidationException::withMessages([
+                                    'amount' => 'Correcting return amount creates an advance deficit of ₹'.number_format($shortfall, 2).'. Please review and confirm to proceed.',
+                                ]);
+                            }
+                        } else {
+                            $targetPurchaserBal = (float) PurchaserCredit::query()
+                                ->where('purchaser_id', $targetPurchaserId)
+                                ->lockForUpdate()
+                                ->sum(DB::raw("CASE WHEN type = 'in' THEN amount ELSE -amount END"));
+
+                            if ($targetPurchaserBal - $newAmount < -0.009 && ! $confirmShortfall) {
+                                $shortfall = abs($targetPurchaserBal - $newAmount);
+                                throw ValidationException::withMessages([
+                                    'amount' => 'Return amount of ₹'.number_format($newAmount, 2)." exceeds {$targetPurchaser->name}'s available advance by ₹".number_format($shortfall, 2).'. Please review and confirm to proceed.',
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Create Balanced Double-Entry Reversal
+            $reversalLines = [];
+            foreach ($journalEntry->transactions as $line) {
+                $reversalLines[] = [
+                    'account_id' => $line->account_id,
+                    'type' => $line->type === 'debit' ? 'credit' : 'debit',
+                    'amount' => (float) $line->amount,
+                ];
+            }
+
+            $reversalData = new JournalEntryData(
+                entryDate: now()->toDateString(),
+                reference: "REV-JE-{$journalEntry->id}",
+                description: "Reversal of JE #{$journalEntry->id} ({$journalEntry->formatted_reference}): {$reason}",
+                lines: $reversalLines,
+                sourceType: $journalEntry->source_type,
+                sourceId: $journalEntry->source_id,
+                sourceEvent: "reversal:{$journalEntry->id}",
+            );
+            $reversalEntry = $this->createEntry($reversalData, $actor->id);
+
+            // 4. Reverse Linked Purchaser Credit
+            if ($originalCredit instanceof PurchaserCredit) {
+                $offsetCreditType = $originalCredit->type === 'in' ? 'out' : 'in';
+                PurchaserCredit::query()->create([
+                    'purchaser_id' => $originalCredit->purchaser_id,
+                    'type' => $offsetCreditType,
+                    'amount' => (float) $originalCredit->amount,
+                    'business_date' => now()->toDateString(),
+                    'description' => "Reversal offset for movement #{$originalCredit->id}: {$reason}",
+                    'payment_source' => $originalCredit->payment_source,
+                    'company_account_id' => $originalCredit->company_account_id,
+                    'reference' => "REV-PURCH-{$originalCredit->id}",
+                    'purchase_invoice_id' => null,
+                    'created_by' => $actor->id,
+                ]);
+
+                $cleanOriginalCreditDesc = preg_replace('/\s*\[REVERSED[^\]]*\]/i', '', (string) $originalCredit->description);
+                $originalCredit->update([
+                    'description' => trim(($cleanOriginalCreditDesc ?: 'Purchaser movement')." [REVERSED: {$reason}]"),
+                ]);
+            }
+
+            // 5. Reverse Linked Statement Matches & Reconciliations
+            $linkedStatements = CompanyAccountStatementEntry::query()
+                ->where(function ($q) use ($journalEntry): void {
+                    $q->where('journal_entry_id', $journalEntry->id);
+                    if ($journalEntry->source_type && $journalEntry->source_id) {
+                        $q->orWhere(fn ($sq) => $sq->where('source_type', $journalEntry->source_type)->where('source_id', $journalEntry->source_id));
+                    }
+                })
+                ->lockForUpdate()
+                ->get();
+
+            $hadManualCounterpart = false;
+            $oldCounterpartAccountId = null;
+
+            foreach ($linkedStatements as $stmt) {
+                $isImported = $stmt->source === 'imported'
+                    || ! empty($stmt->import_file_name)
+                    || ! empty($stmt->import_fingerprint);
+
+                if ($isImported) {
+                    $stmt->update([
+                        'status' => 'unmatched',
+                        'matched_amount' => 0,
+                        'journal_entry_id' => null,
+                        'source_type' => null,
+                        'source_id' => null,
+                        'is_finalized' => false,
+                        'finalized_at' => null,
+                        'reconciled_by' => null,
+                        'reconciled_at' => null,
+                        'notes' => trim(($stmt->notes ?? '')." [Unmatched: Journal #{$journalEntry->id} reversed by {$actor->name}]"),
+                    ]);
+                } else {
+                    $hadManualCounterpart = true;
+                    $oldCounterpartAccountId = $stmt->company_account_id;
+
+                    if ($stmt->company_account_id) {
+                        $oldAccount = CompanyAccount::query()->whereKey($stmt->company_account_id)->lockForUpdate()->first();
+                        if ($oldAccount instanceof CompanyAccount) {
+                            if (in_array($stmt->direction, ['out', 'debit'], true)) {
+                                $oldAccount->increment('current_balance', (float) $stmt->amount);
+                            } elseif (in_array($stmt->direction, ['in', 'credit'], true)) {
+                                $oldAccount->decrement('current_balance', (float) $stmt->amount);
+                            }
+                        }
+                    }
+
+                    $stmt->update([
+                        'status' => 'reversed',
+                        'is_finalized' => false,
+                        'finalized_at' => null,
+                        'matched_amount' => 0,
+                        'journal_entry_id' => null,
+                        'source_type' => null,
+                        'source_id' => null,
+                        'notes' => trim(($stmt->notes ?? '')." [Reversed: Journal #{$journalEntry->id} reversed by {$actor->name}]"),
+                    ]);
+                }
+            }
+
+            // Reverse linked reconciliations
+            $linkedReconciliations = CompanyPaymentReconciliation::query()->where('journal_entry_id', $journalEntry->id)->lockForUpdate()->get();
+            $paymentsToRefresh = $linkedReconciliations->pluck('paymentRequest')->filter();
+            $linkedReconciliations->each->delete();
+            foreach ($paymentsToRefresh as $payment) {
+                app(CompanyPaymentReconciliationService::class)->refreshPaymentReconciliationTotals($payment);
+            }
+
+            // Mark original journal entry description with reversal info
+            $cleanJournalDesc = preg_replace('/\s*\[REVERSED[^\]]*\]/i', '', (string) $journalEntry->description);
+            $journalEntry->update([
+                'description' => trim(($cleanJournalDesc ?: 'Journal Entry')." [REVERSED by JE #{$reversalEntry->id}: {$reason}]"),
+            ]);
+
+            // 6. Create Replacement Entry if $newAmount > 0
+            $replacementJournal = null;
+            if ($newAmount > 0.0001) {
+                if ($journalEntry->source_type === PurchaserCredit::class && $originalCredit instanceof PurchaserCredit) {
+                    $targetPurchaserId = ! empty($data['purchaser_id']) ? (int) $data['purchaser_id'] : (int) $originalCredit->purchaser_id;
+                    $targetPurchaser = User::query()->whereKey($targetPurchaserId)->first();
+
+                    if (! $targetPurchaser || ! $targetPurchaser->hasRole('purchaser')) {
+                        throw ValidationException::withMessages([
+                            'purchaser_id' => 'Selected user is not a valid purchaser.',
+                        ]);
+                    }
+
+                    if ($originalCredit->type === 'out') {
+                        $targetPurchaserBal = (float) PurchaserCredit::query()
+                            ->where('purchaser_id', $targetPurchaserId)
+                            ->sum(DB::raw("CASE WHEN type = 'in' THEN amount ELSE -amount END"));
+
+                        if ($targetPurchaserBal - $newAmount < -0.009 && ! $confirmShortfall) {
+                            throw ValidationException::withMessages([
+                                'amount' => 'Return amount exceeds purchaser available advance.',
+                            ]);
+                        }
+                    }
+
+                    $targetAccountId = ! empty($data['company_account_id'])
+                        ? (int) $data['company_account_id']
+                        : ($originalCredit->company_account_id ?: $oldCounterpartAccountId);
+
+                    $targetAccount = CompanyAccount::query()->whereKey($targetAccountId)->where('enabled', true)->first();
+                    $paymentSource = $data['payment_source'] ?? ($targetAccount?->account_type === 'cash' ? 'Cash' : 'Bank');
+
+                    $replacementCredit = PurchaserCredit::query()->create([
+                        'purchaser_id' => $targetPurchaserId,
+                        'type' => $originalCredit->type,
+                        'amount' => $newAmount,
+                        'business_date' => $entryDate,
+                        'payment_source' => $paymentSource,
+                        'company_account_id' => $targetAccount?->id,
+                        'reference' => $reference ?: "PURCH-FUND-REPL-{$originalCredit->id}",
+                        'description' => $description ?: "Replacement funding for #{$originalCredit->id}",
+                        'purchase_invoice_id' => null,
+                        'created_by' => $actor->id,
+                    ]);
+
+                    $replacementJournal = $this->recordPurchaserCredit($replacementCredit);
+                    $replacementJournal->update([
+                        'entry_date' => $entryDate,
+                        'reference' => $reference ?: "PURCH-FUND-REPL-{$originalCredit->id}",
+                        'description' => ($description ?: "Replacement funding for #{$originalCredit->id}")." [Replacement for JE #{$journalEntry->id}]",
+                    ]);
+
+                    // If manual counterpart originally existed or account is provided, create and reconcile new counterpart
+                    if ($hadManualCounterpart && $targetAccount instanceof CompanyAccount) {
+                        $replacementStatement = app(CompanyPaymentReconciliationService::class)->createStatementEntry([
+                            'company_account_id' => $targetAccount->id,
+                            'transaction_date' => $entryDate,
+                            'direction' => $originalCredit->type === 'in' ? 'out' : 'in',
+                            'amount' => $newAmount,
+                            'reference' => $reference ?: "CASH-{$replacementCredit->id}",
+                            'narration' => $description ?: 'Cash funding replacement for purchaser '.$targetPurchaser->name,
+                            'source' => 'manual',
+                            'source_type' => PurchaserCredit::class,
+                            'source_id' => $replacementCredit->id,
+                            'notes' => "Replacement counterpart for corrected funding #{$originalCredit->id}. Reason: {$reason}",
+                        ], $actor->id);
+
+                        app(CompanyPaymentReconciliationService::class)->reconcileStatementJournal(
+                            $replacementStatement,
+                            $replacementJournal,
+                            $newAmount,
+                            $actor->id,
+                        );
+                    }
+                } else {
+                    $replacementLines = [];
+                    $oldPrimary = (float) ($oldValues['primary_amount'] ?: 1);
+                    $ratio = $oldPrimary > 0 ? ($newAmount / $oldPrimary) : 1.0;
+                    foreach ($journalEntry->transactions as $line) {
+                        $replacementLines[] = [
+                            'account_id' => $line->account_id,
+                            'type' => $line->type,
+                            'amount' => round((float) $line->amount * $ratio, 2),
+                        ];
+                    }
+
+                    $replacementData = new JournalEntryData(
+                        entryDate: $entryDate,
+                        reference: $reference ?: "REPL-JE-{$journalEntry->id}",
+                        description: ($description ?: (string) $journalEntry->description)." [Replacement for JE #{$journalEntry->id}]",
+                        lines: $replacementLines,
+                        sourceType: $journalEntry->source_type,
+                        sourceId: $journalEntry->source_id,
+                        sourceEvent: $journalEntry->source_event ? "replacement:{$journalEntry->source_event}" : "replacement:{$journalEntry->id}",
+                    );
+                    $replacementJournal = $this->createEntry($replacementData, $actor->id);
+                }
+            }
+
+            $newValues = [
+                'amount' => $newAmount,
+                'entry_date' => $entryDate,
+                'reference' => $reference,
+                'description' => $description,
+                'purchaser_id' => $data['purchaser_id'] ?? null,
+                'company_account_id' => $data['company_account_id'] ?? null,
+                'reversal_journal_id' => $reversalEntry->id,
+                'replacement_journal_id' => $replacementJournal?->id,
+                'reason' => $reason,
+                'ip' => $ipAddress,
+            ];
+
+            Log::info('Journal entry corrected by admin', [
+                'original_journal_entry_id' => $journalEntry->id,
+                'reversal_journal_entry_id' => $reversalEntry->id,
+                'replacement_journal_entry_id' => $replacementJournal?->id,
+                'actor_id' => $actor->id,
+                'ip' => $ipAddress,
+                'old_values' => $oldValues,
+                'new_values' => $newValues,
+            ]);
+
+            if (function_exists('activity')) {
+                activity('finance_journal')
+                    ->causedBy($actor)
+                    ->performedOn($journalEntry)
+                    ->withProperties([
+                        'action' => $newAmount > 0 ? 'correct_journal_entry' : 'cancel_journal_entry',
+                        'original_journal_id' => $journalEntry->id,
+                        'reversal_journal_id' => $reversalEntry->id,
+                        'replacement_journal_id' => $replacementJournal?->id,
+                        'old_values' => $oldValues,
+                        'new_values' => $newValues,
+                        'reason' => $reason,
+                        'ip' => $ipAddress,
+                    ])
+                    ->log("Journal Entry #{$journalEntry->id} ({$journalEntry->formatted_reference}) ".($newAmount > 0 ? 'corrected' : 'cancelled')." by {$actor->name}. Reason: {$reason}");
+            }
+
+            return [
+                'original' => $journalEntry->fresh(['transactions.account', 'statementEntries']),
+                'reversal' => $reversalEntry->fresh(['transactions.account']),
+                'replacement' => $replacementJournal?->fresh(['transactions.account', 'statementEntries']),
+            ];
+        });
+    }
 
     /**
      * Create a balanced journal entry.

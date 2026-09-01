@@ -63,6 +63,59 @@ class JournalEntry extends Model
         return $this->hasMany(CompanyAccountStatementEntry::class, 'journal_entry_id');
     }
 
+    public function purchaserCredit(): BelongsTo
+    {
+        return $this->belongsTo(PurchaserCredit::class, 'source_id');
+    }
+
+    public function getIsReversedAttribute(): bool
+    {
+        return str_starts_with((string) $this->source_event, 'reversal:')
+            || $this->source_event === 'reversal'
+            || str_contains((string) $this->description, '[REVERSED]')
+            || static::query()->where('source_event', "reversal:{$this->id}")->exists();
+    }
+
+    public function getIsReversalAttribute(): bool
+    {
+        return str_starts_with((string) $this->source_event, 'reversal:')
+            || $this->source_event === 'reversal'
+            || str_starts_with((string) $this->reference, 'REV-JE-');
+    }
+
+    public function getIsReplacementAttribute(): bool
+    {
+        return str_contains((string) $this->description, '[Replacement for JE #');
+    }
+
+    public function getReversalEntryAttribute(): ?self
+    {
+        return static::query()->where('source_event', "reversal:{$this->id}")->first();
+    }
+
+    public function getReplacementEntryAttribute(): ?self
+    {
+        return static::query()->where('description', 'like', "%[Replacement for JE #{$this->id}]%")->first();
+    }
+
+    public function getOriginalReversedEntryAttribute(): ?self
+    {
+        if ($this->is_reversal) {
+            $idStr = str_replace('reversal:', '', (string) $this->source_event);
+            if (is_numeric($idStr)) {
+                return static::query()->find((int) $idStr);
+            }
+        }
+
+        if ($this->is_replacement) {
+            if (preg_match('/\[Replacement for JE #(\d+)\]/', (string) $this->description, $matches)) {
+                return static::query()->find((int) $matches[1]);
+            }
+        }
+
+        return null;
+    }
+
     // Accessors & Helpers
     public function getTotalDebitAttribute(): float
     {
