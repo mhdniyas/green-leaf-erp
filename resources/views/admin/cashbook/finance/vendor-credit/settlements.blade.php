@@ -7,7 +7,8 @@
 @endsection
 @section('content')
 <div class="mx-auto max-w-[96rem] space-y-5">
-    <form class="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-5" method="GET">
+    <form class="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-6" method="GET">
+        <x-cashbook.previous-month-button mode="month" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
         <input name="month" type="month" value="{{ $month }}" class="rounded-lg border px-3 py-2 text-xs">
         <select name="supplier_id" class="rounded-lg border px-3 py-2 text-xs"><option value="">All vendors</option>@foreach($suppliers as $supplier)<option value="{{ $supplier->id }}" @selected($supplierId === $supplier->id)>{{ $supplier->name }}</option>@endforeach</select>
         <select name="company_account_id" class="rounded-lg border px-3 py-2 text-xs"><option value="">All accounts</option>@foreach($companyAccounts as $account)<option value="{{ $account->id }}" @selected($accountId === $account->id)>{{ $account->name }}</option>@endforeach</select>

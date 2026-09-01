@@ -14,7 +14,15 @@
     @foreach($periodLinks as $period => $label)
         <a href="{{ route($periodRoute, $periodBaseQuery + ['period' => $period]) }}" class="min-w-max rounded-lg border px-3 py-2 text-xs font-black {{ $filters['period'] === $period ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300' }}">{{ $label }}</a>
     @endforeach
-    <a href="{{ route($periodRoute, $periodBaseQuery + ['period' => 'custom', 'start_date' => $filters['start_date'], 'end_date' => $filters['end_date']]) }}" class="min-w-max rounded-lg border px-3 py-2 text-xs font-black {{ $isCustomPeriod ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300' }}">Custom</a>
+    @php
+        $prevDate = now()->startOfMonth()->subDay();
+        $prevMonthStart = $prevDate->copy()->startOfMonth()->toDateString();
+        $prevMonthEnd = $prevDate->copy()->endOfMonth()->toDateString();
+        $prevMonthName = $prevDate->format('M');
+        $isPrevMonthSelected = $isCustomPeriod && ($filters['start_date'] ?? null) === $prevMonthStart && ($filters['end_date'] ?? null) === $prevMonthEnd;
+    @endphp
+    <a href="{{ route($periodRoute, $periodBaseQuery + ['period' => 'custom', 'start_date' => $prevMonthStart, 'end_date' => $prevMonthEnd]) }}" class="min-w-max rounded-lg border px-3 py-2 text-xs font-black {{ $isPrevMonthSelected ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300' }}">{{ $prevMonthName }}</a>
+    <a href="{{ route($periodRoute, $periodBaseQuery + ['period' => 'custom', 'start_date' => $filters['start_date'], 'end_date' => $filters['end_date']]) }}" class="min-w-max rounded-lg border px-3 py-2 text-xs font-black {{ ($isCustomPeriod && ! $isPrevMonthSelected) ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300' }}">Custom</a>
 </div>
 
 @if($isCustomPeriod)

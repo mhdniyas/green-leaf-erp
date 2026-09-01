@@ -23,9 +23,12 @@
                 <input type="date" name="end_date" id="filter-end-date" value="{{ $endDate }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800">
             </label>
         </div>
-        <button type="submit" class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-xs font-black uppercase tracking-[0.14em] text-white hover:bg-slate-800">
-            Apply
-        </button>
+        <div class="flex items-center gap-2">
+            <x-cashbook.previous-month-button mode="range" size="md" timeframe="custom" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
+            <button type="submit" class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-xs font-black uppercase tracking-[0.14em] text-white hover:bg-slate-800">
+                Apply
+            </button>
+        </div>
     </form>
 </section>
 

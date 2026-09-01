@@ -83,6 +83,7 @@
                         @if($resolutionFilter) <input type="hidden" name="resolution" value="{{ $resolutionFilter }}"> @endif
                         @if($search) <input type="hidden" name="search" value="{{ $search }}"> @endif
 
+                        <x-cashbook.previous-month-button mode="as_of" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                         <div class="relative flex items-center">
                             <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none"></i>
                             <input type="date"

@@ -59,7 +59,8 @@
                 <span class="font-mono text-xs font-bold text-slate-400">{{ $splits->total() }} rows</span>
             </div>
 
-            <form method="GET" action="{{ route('admin.cashbook.finance.purchasers.details', $purchaser->public_uuid) }}" class="mb-4 grid gap-3 md:grid-cols-4">
+            <form method="GET" action="{{ route('admin.cashbook.finance.purchasers.details', $purchaser->public_uuid) }}" class="mb-4 grid gap-3 md:grid-cols-[auto_1fr_1fr_1.5fr_auto]">
+                <x-cashbook.previous-month-button mode="range" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                 <input type="date" name="start_date" value="{{ $startDate }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                 <input type="date" name="end_date" value="{{ $endDate }}" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                 <input type="search" name="search" value="{{ $search }}" placeholder="Search supplier or bill" class="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">

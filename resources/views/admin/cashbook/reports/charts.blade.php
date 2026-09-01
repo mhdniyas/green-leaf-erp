@@ -110,6 +110,14 @@
                 <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'today', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Today</a>
                 <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'weekly', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'weekly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Week</a>
                 <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'monthly', 'shop_id' => $selectedShopId]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'monthly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Month</a>
+                @php
+                    $prevDate = now()->startOfMonth()->subDay();
+                    $prevStart = $prevDate->copy()->startOfMonth()->toDateString();
+                    $prevEnd = $prevDate->copy()->endOfMonth()->toDateString();
+                    $prevName = $prevDate->format('M');
+                    $isPrevSelected = $timeframe === 'custom' && $startDate === $prevStart && $endDate === $prevEnd;
+                @endphp
+                <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => 'custom', 'shop_id' => $selectedShopId, 'start_date' => $prevStart, 'end_date' => $prevEnd]) }}" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $isPrevSelected ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">{{ $prevName }}</a>
                 <!-- Jump to Date Calendar Picker -->
                 <label class="relative flex items-center justify-center cursor-pointer rounded-xl px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all" title="Jump to Specific Date">
                     <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
@@ -125,6 +133,7 @@
             <form method="GET" action="{{ route('admin.cashbook.reports.charts') }}" class="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
                 <input type="hidden" name="timeframe" value="custom">
                 <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
+                <x-cashbook.previous-month-button mode="range" size="xs" timeframe="custom" label="{{ $prevName }}" />
                 <input type="date" name="start_date" value="{{ $startDate }}" class="h-8 flex-1 min-w-[115px] rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">
                 <span class="text-xs font-bold text-slate-400">to</span>
                 <input type="date" name="end_date" value="{{ $endDate }}" class="h-8 flex-1 min-w-[115px] rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">

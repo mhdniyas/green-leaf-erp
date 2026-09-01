@@ -18,7 +18,8 @@
                     <h2 class="text-lg font-extrabold text-slate-950">{{ \Carbon\Carbon::parse($startDate)->format('F Y') }}</h2>
                     <p class="mt-1 text-xs font-semibold text-slate-500">Showing monthly payment position only. No daily or weekly switching on this page.</p>
                 </div>
-                <form method="GET" action="{{ route('admin.cashbook.accept-payment') }}" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                <form method="GET" action="{{ route('admin.cashbook.accept-payment') }}" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                    <x-cashbook.previous-month-button mode="month" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                     <input type="month" name="month" value="{{ $month }}" class="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                     <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">
                         <i data-lucide="search" class="h-4 w-4"></i> Load

@@ -45,6 +45,7 @@
                                 {{ $label }}
                             </button>
                         @endforeach
+                        <x-cashbook.previous-month-button mode="range" size="sm" class="min-h-9" timeframe="custom" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                     </div>
                 </div>
 

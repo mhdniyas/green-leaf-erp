@@ -105,6 +105,7 @@
             <!-- Month Filter -->
             <form method="GET" action="{{ route('admin.cashbook.bank-accounts.statement', $account) }}" class="flex items-center gap-2">
                 <input type="hidden" name="tab" value="{{ $currentTab }}">
+                <x-cashbook.previous-month-button mode="month" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                 <input type="month" name="month" value="{{ $statementMonth }}" class="min-h-9 rounded-xl border border-slate-300 bg-white px-3 py-1 text-xs font-bold text-slate-800">
                 <button type="submit" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white hover:bg-slate-800 transition">
                     <i data-lucide="calendar" class="w-3.5 h-3.5"></i>

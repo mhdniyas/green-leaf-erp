@@ -398,9 +398,20 @@
                     :class="timeframe === 'monthly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                     Month
                 </button>
+                @php
+                    $prevDate = now()->startOfMonth()->subDay();
+                    $prevMonthStart = $prevDate->copy()->startOfMonth()->toDateString();
+                    $prevMonthEnd = $prevDate->copy()->endOfMonth()->toDateString();
+                    $prevMonthName = $prevDate->format('M');
+                @endphp
+                <button type="button" @click="timeframe = 'custom'; startDate = '{{ $prevMonthStart }}'; endDate = '{{ $prevMonthEnd }}'; syncUrl(); loadData();"
+                    class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all"
+                    :class="timeframe === 'custom' && startDate === '{{ $prevMonthStart }}' && endDate === '{{ $prevMonthEnd }}' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
+                    {{ $prevMonthName }}
+                </button>
                 <button type="button" @click="setPreset('custom')"
                     class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all"
-                    :class="timeframe === 'custom' && endDate !== '{{ today()->subDay()->toDateString() }}' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
+                    :class="timeframe === 'custom' && endDate !== '{{ today()->subDay()->toDateString() }}' && !(startDate === '{{ $prevMonthStart }}' && endDate === '{{ $prevMonthEnd }}') ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                     Custom
                 </button>
                 <!-- Jump to Date Calendar Picker Button -->

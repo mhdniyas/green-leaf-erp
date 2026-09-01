@@ -148,6 +148,14 @@
                 <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'today', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Today</a>
                 <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'weekly', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'weekly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Week</a>
                 <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'monthly', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'monthly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Month</a>
+                @php
+                    $prevDate = now()->startOfMonth()->subDay();
+                    $prevStart = $prevDate->copy()->startOfMonth()->toDateString();
+                    $prevEnd = $prevDate->copy()->endOfMonth()->toDateString();
+                    $prevName = $prevDate->format('M');
+                    $isPrevSelected = $timeframe === 'custom' && $startDate === $prevStart && $endDate === $prevEnd;
+                @endphp
+                <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'custom', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $prevStart, 'end_date' => $prevEnd]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $isPrevSelected ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">{{ $prevName }}</a>
                 <!-- Jump to Date Calendar Picker -->
                 <label class="relative flex items-center justify-center cursor-pointer rounded-xl px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all" title="Jump to Specific Date">
                     <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
@@ -164,6 +172,7 @@
                 <input type="hidden" name="timeframe" value="custom">
                 <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
                 <input type="hidden" name="product_filter" value="{{ $selectedProductFilterUuid }}">
+                <x-cashbook.previous-month-button mode="range" size="xs" timeframe="custom" label="{{ $prevName }}" />
                 <input type="date" name="start_date" value="{{ $startDate }}" class="h-8 flex-1 min-w-[115px] rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">
                 <span class="text-xs font-bold text-slate-400">to</span>
                 <input type="date" name="end_date" value="{{ $endDate }}" class="h-8 flex-1 min-w-[115px] rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 shadow-xs">

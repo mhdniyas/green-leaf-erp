@@ -68,7 +68,10 @@
             </div>
 
             <div>
-                <label class="block font-extrabold uppercase tracking-wider text-slate-500 text-[10px] mb-1">From Date</label>
+                <div class="mb-1 flex items-center justify-between">
+                    <label class="block font-extrabold uppercase tracking-wider text-slate-500 text-[10px]">From Date</label>
+                    <x-cashbook.previous-month-button mode="range" startField="from_date" endField="to_date" size="xs" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
+                </div>
                 <input type="date" name="from_date" value="{{ $fromDate }}" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500">
             </div>
 

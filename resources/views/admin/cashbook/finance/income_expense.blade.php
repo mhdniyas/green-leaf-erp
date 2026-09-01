@@ -26,7 +26,15 @@
         <button class="rounded-xl {{ $activeType === 'income' ? 'bg-emerald-600' : 'bg-rose-600' }} px-4 py-2 font-bold text-white">Record Other {{ ucfirst($activeType) }}</button>
     </form>
 
-    <form method="GET" class="grid gap-3 rounded-2xl bg-white p-4 shadow-sm md:grid-cols-5"><input type="hidden" name="type" value="{{ $activeType }}"><input name="start_date" type="date" value="{{ request('start_date') }}" class="rounded-xl border-slate-300"><input name="end_date" type="date" value="{{ request('end_date') }}" class="rounded-xl border-slate-300"><select name="status" class="rounded-xl border-slate-300"><option value="">All status</option><option value="pending">Pending</option><option value="finalized">Finalized</option></select><input name="search" value="{{ request('search') }}" placeholder="Search" class="rounded-xl border-slate-300"><button class="rounded-xl bg-slate-900 px-4 py-2 font-bold text-white">Filter</button></form>
+    <form method="GET" class="grid gap-3 rounded-2xl bg-white p-4 shadow-sm md:grid-cols-6">
+        <input type="hidden" name="type" value="{{ $activeType }}">
+        <x-cashbook.previous-month-button mode="range" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
+        <input name="start_date" type="date" value="{{ request('start_date') }}" class="rounded-xl border-slate-300">
+        <input name="end_date" type="date" value="{{ request('end_date') }}" class="rounded-xl border-slate-300">
+        <select name="status" class="rounded-xl border-slate-300"><option value="">All status</option><option value="pending">Pending</option><option value="finalized">Finalized</option></select>
+        <input name="search" value="{{ request('search') }}" placeholder="Search" class="rounded-xl border-slate-300">
+        <button class="rounded-xl bg-slate-900 px-4 py-2 font-bold text-white">Filter</button>
+    </form>
 
     <div class="overflow-x-auto rounded-2xl bg-white shadow-sm"><table class="w-full text-sm"><thead class="bg-slate-50 text-left text-slate-500"><tr><th class="p-3">Date</th><th>Category</th><th>Amount</th><th>Company Account</th><th>Reference</th><th>Reconciliation</th><th></th></tr></thead><tbody>@forelse($entries as $entry)<tr class="border-t"><td class="p-3">{{ $entry->business_date->format('d M Y') }}</td><td>{{ $entry->category?->name }}</td><td class="font-bold">₹{{ number_format($entry->amount, 2) }}</td><td>{{ $entry->companyAccount?->name }}</td><td>{{ $entry->reference }}</td><td>{{ $entry->cashbookMovement?->is_finalized ? 'FINALIZED' : 'PENDING' }}</td><td><a class="font-bold text-emerald-700" href="{{ route('admin.cashbook.finance.income-expense.show', $entry) }}">View Details</a></td></tr>@empty<tr><td colspan="7" class="p-6 text-center text-slate-500">No entries.</td></tr>@endforelse</tbody></table></div>
     {{ $entries->links() }}

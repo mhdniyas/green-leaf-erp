@@ -122,7 +122,10 @@
     </div>
 
     <div class="rounded-2xl bg-white p-5 shadow-sm">
-        <form method="GET" action="{{ route('admin.cashbook.finance.direct-sales') }}" class="grid gap-3 md:grid-cols-[200px_1fr_auto] md:items-end">
+        <form method="GET" action="{{ route('admin.cashbook.finance.direct-sales') }}" class="grid gap-3 md:grid-cols-[auto_200px_1fr_auto] md:items-end">
+            <div class="flex items-end">
+                <x-cashbook.previous-month-button mode="month" size="sm" class="h-11" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
+            </div>
             <label class="block text-xs font-black uppercase tracking-wide text-slate-500">
                 Month
                 <input class="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900" type="month" name="month" value="{{ $month }}">

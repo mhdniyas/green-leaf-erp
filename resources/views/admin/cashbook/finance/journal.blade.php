@@ -96,7 +96,10 @@
                 </div>
 
                 <div>
-                    <label class="mb-1 block text-xs font-bold text-slate-600">From Date</label>
+                    <div class="mb-1 flex items-center justify-between">
+                        <label class="text-xs font-bold text-slate-600">From Date</label>
+                        <x-cashbook.previous-month-button mode="range" size="xs" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
+                    </div>
                     <input type="date" name="start_date" value="{{ $startDate }}" class="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                 </div>
 

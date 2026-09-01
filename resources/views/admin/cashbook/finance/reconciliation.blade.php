@@ -199,8 +199,9 @@
 
         @if($workspaceTab === 'transactions')
             <section x-data="{ selected: [] }" class="white-card rounded-3xl border border-slate-200 p-4 shadow-xl sm:p-5">
-                <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="grid grid-cols-1 gap-2 lg:grid-cols-[auto_auto_auto_1fr_auto]">
+                <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="grid grid-cols-1 gap-2 lg:grid-cols-[auto_auto_auto_auto_1fr_auto]">
                     <input type="hidden" name="workspace" value="transactions">
+                    <x-cashbook.previous-month-button mode="month" size="md" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                     <input type="month" name="month" value="{{ $month }}" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                     <select name="company_account_id" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                         <option value="" @selected(! request()->filled('company_account_id'))>All Company Accounts</option>
@@ -473,7 +474,7 @@
         </section>
 
         <section class="white-card rounded-3xl border border-slate-200 p-4 shadow-sm">
-            <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto_auto_1fr_auto]">
+            <form method="GET" action="{{ route('admin.cashbook.finance.reconciliation') }}" class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto_auto_auto_1fr_auto]">
                 <select name="company_account_uuid" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                     @foreach($companyAccounts as $account)
                         <option value="{{ $account->public_uuid }}" @selected($selectedAccountUuid === $account->public_uuid)>
@@ -481,6 +482,7 @@
                         </option>
                     @endforeach
                 </select>
+                <x-cashbook.previous-month-button mode="month" size="md" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                 <input type="month" name="month" value="{{ $month }}" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                 <select name="direction" class="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
                     <option value="all" @selected($direction === 'all')>All Directions</option>

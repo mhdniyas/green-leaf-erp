@@ -65,6 +65,7 @@
 
                     <!-- Date Picker & Reset -->
                     <div class="flex items-center gap-2">
+                        <x-cashbook.previous-month-button mode="as_of" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
                         <div class="relative flex-1">
                             <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
                             <input type="date"
