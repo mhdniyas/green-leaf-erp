@@ -2889,7 +2889,7 @@ final class CashbookController extends Controller
         ];
 
         $journalEntries = $query->latest('entry_date')->latest('id')->paginate(30)->withQueryString();
-        $purchasers = rescue(fn () => User::role('purchaser')->orderBy('name')->get(), fn () => collect());
+        $purchasers = rescue(fn () => User::role('purchaser')->orderBy('name')->get(), fn () => collect(), false);
 
         return view('admin.cashbook.finance.journal', compact(
             'shops',
@@ -2914,7 +2914,7 @@ final class CashbookController extends Controller
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
-        $purchasers = rescue(fn () => User::role('purchaser')->orderBy('name')->get(), fn () => collect());
+        $purchasers = rescue(fn () => User::role('purchaser')->orderBy('name')->get(), fn () => collect(), false);
         $company = config('greenleaf');
         $currentShop = $shops->first();
 
