@@ -515,18 +515,8 @@ final class CashbookController extends Controller
             ->orderBy('name')
             ->get();
 
-        $allShopPayments = ShopInvoicePaymentRequest::query()
+        $allShopPayments = $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd, false)
             ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'ledgerAllocations.ledgerTransaction.entryType', 'requestedBy'])
-            ->where('shop_id', $shopId)
-            ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->where(function (Builder $query) use ($monthStart, $monthEnd): void {
-                $query->whereBetween('payment_date', [$monthStart, $monthEnd])
-                    ->orWhereBetween('payment_date', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59'])
-                    ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
-                        $q2->whereNull('payment_date')
-                            ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
-                    });
-            })
             ->latest('payment_date')
             ->latest('created_at')
             ->latest('id')
@@ -534,7 +524,16 @@ final class CashbookController extends Controller
             ->withQueryString();
 
         $allShopPayments->through(fn (ShopInvoicePaymentRequest $payment): ShopInvoicePaymentRequest => $this->enrichShopPaymentModel($payment, $shopId));
-        $allShopPaymentsFormattedList = $allShopPayments->map(fn (ShopInvoicePaymentRequest $p): array => $this->formatShopPaymentPayload($p, $shopId))->values()->all();
+        $allShopPaymentsFormattedList = $allShopPayments
+            ->map(fn (ShopInvoicePaymentRequest $p): array => $this->formatShopPaymentPayload($p, $shopId))
+            ->merge($this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd)
+                ->with(['companyAccount', 'sourceRecord.entryType'])
+                ->oldest('transaction_date')
+                ->oldest('id')
+                ->get()
+                ->map(fn (CompanyAccountStatementEntry $entry): array => $this->formatDirectShopReceiptPayload($entry)))
+            ->values()
+            ->all();
 
         $unmatchedStatementEntries = CompanyAccountStatementEntry::query()
             ->where('direction', 'in')
@@ -545,6 +544,8 @@ final class CashbookController extends Controller
             ->get(['id', 'company_account_id', 'transaction_date', 'amount', 'reference', 'narration']);
 
         $openSettlementTransactions = $this->shopPaymentLedgerReconciliationService->getOpenDailySettlements($shopId);
+        $shopPaymentSummary = $this->shopPaymentSummary($shopId, $monthStart, $monthEnd);
+        $bulkEligiblePayments = $this->bulkEligibleShopPayments($shopId, $monthStart, $monthEnd);
 
         // Cumulative Carry-Forward Metrics
         $totalSettlementDueCumulative = (float) ShopLedgerTransaction::query()
@@ -567,17 +568,9 @@ final class CashbookController extends Controller
 
         $settlementOutstanding = round(max(0, $netSettlementDue - $totalSettlementAllocated), 2);
 
-        $totalPaymentsReceived = (float) ShopInvoicePaymentRequest::query()
-            ->where('shop_id', $shopId)
-            ->whereNotIn('status', ['rejected', 'cancelled'])
-            ->where('reconciliation_status', 'reconciled')
-            ->sum('requested_amount');
-
-        $totalPaymentsAllocated = (float) ShopPaymentLedgerAllocation::query()
-            ->where('shop_id', $shopId)
-            ->sum('amount');
-
-        $unallocatedPayments = round(max(0, $totalPaymentsReceived - $totalPaymentsAllocated), 2);
+        $totalPaymentsReceived = $shopPaymentSummary['received'];
+        $totalPaymentsAllocated = $shopPaymentSummary['allocated'];
+        $unallocatedPayments = $shopPaymentSummary['unallocated'];
 
         $netDifference = round($settlementOutstanding - $unallocatedPayments, 2);
         $netPositionDirection = match (true) {
@@ -713,6 +706,8 @@ final class CashbookController extends Controller
             'companyAccounts',
             'unmatchedStatementEntries',
             'allShopPayments',
+            'shopPaymentSummary',
+            'bulkEligiblePayments',
             'openSettlementTransactions',
             'netSettlementDue',
             'totalSettlementAllocated',
@@ -934,6 +929,7 @@ final class CashbookController extends Controller
 
         return [
             'id' => $payment->id,
+            'key' => 'payment-'.$payment->id,
             'date' => $payment->payment_date?->format('d M Y') ?? 'N/A',
             'reference' => $payment->payment_reference,
             'source' => $paymentSource,
@@ -952,6 +948,7 @@ final class CashbookController extends Controller
             'reconciliation_status' => $payment->reconciliation_status,
             'is_reconciled' => $payment->reconciliation_status === 'reconciled',
             'can_reconcile' => in_array($payment->reconciliation_status, ['unreconciled', 'pending', 'floating', 'partially_reconciled'], true),
+            'can_allocate' => true,
             'statement_ref' => $statementEntry?->reference ?: $statementEntry?->narration,
             'reconciled_at' => $reconciliation?->reconciled_at?->format('d M Y H:i'),
             'reconciled_by' => $reconciliation?->reconciledBy?->name ?? 'System',
@@ -959,6 +956,147 @@ final class CashbookController extends Controller
             'created_by' => $payment->requestedBy?->name ?? 'Admin',
             'allocations' => $allocationsData,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatDirectShopReceiptPayload(CompanyAccountStatementEntry $entry): array
+    {
+        return [
+            'id' => 0,
+            'key' => 'direct-'.$entry->id,
+            'date' => $entry->transaction_date?->format('d M Y') ?? 'N/A',
+            'reference' => $entry->reference,
+            'source' => 'BANK IMPORT',
+            'source_badge' => 'bg-blue-50 text-blue-800 border-blue-200',
+            'method' => str_replace('_', ' ', (string) ($entry->sourceRecord?->entryType?->code ?: 'bank_transfer')),
+            'company_account_id' => $entry->company_account_id,
+            'account' => $entry->companyAccount?->name ?? 'Company Account',
+            'amount' => (float) $entry->amount,
+            'allocated' => 0.0,
+            'unallocated' => (float) $entry->amount,
+            'allocated_amount_calc' => 0.0,
+            'unallocated_amount_calc' => (float) $entry->amount,
+            'allocation_status' => 'unallocated',
+            'allocation_status_label' => 'Unallocated',
+            'status_badge' => 'bg-amber-50 text-amber-800 border-amber-200',
+            'reconciliation_status' => 'reconciled',
+            'is_reconciled' => true,
+            'can_reconcile' => false,
+            'can_allocate' => false,
+            'statement_ref' => $entry->reference ?: $entry->narration,
+            'reconciled_at' => $entry->reconciled_at?->format('d M Y H:i') ?? $entry->updated_at?->format('d M Y H:i'),
+            'reconciled_by' => $entry->reconciledBy?->name ?? 'System',
+            'notes' => $entry->notes ?: $entry->narration,
+            'created_by' => 'Bank import',
+            'allocations' => [],
+        ];
+    }
+
+    private function shopPaymentRequestReceiptQuery(int $shopId, string $monthStart, string $monthEnd, bool $reconciledOnly = true): Builder
+    {
+        return ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['rejected', 'cancelled'])
+            ->when($reconciledOnly, fn (Builder $query): Builder => $query->where('reconciliation_status', 'reconciled'))
+            ->where(function (Builder $query) use ($monthStart, $monthEnd): void {
+                $query->whereBetween('payment_date', [$monthStart, $monthEnd])
+                    ->orWhereBetween('payment_date', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59'])
+                    ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
+                        $q2->whereNull('payment_date')
+                            ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+                    });
+            });
+    }
+
+    private function directShopReceiptStatementQuery(int $shopId, string $monthStart, string $monthEnd): Builder
+    {
+        return CompanyAccountStatementEntry::query()
+            ->where('direction', 'in')
+            ->where('status', 'reconciled')
+            ->where('is_finalized', true)
+            ->where('source_type', ShopLedgerTransaction::class)
+            ->whereBetween('transaction_date', [$monthStart, $monthEnd])
+            ->whereIn('source_id', static function ($query) use ($shopId): void {
+                $query->select('id')
+                    ->from('shop_ledger_transactions')
+                    ->where('shop_id', $shopId)
+                    ->whereNotIn('status', ['void', 'voided', 'reversed']);
+            })
+            ->whereDoesntHave('reconciliations', function (Builder $query): void {
+                $query->whereNotNull('payment_request_id');
+            });
+    }
+
+    /**
+     * @return array{payment_count: int, direct_receipt_count: int, received: float, allocated: float, unallocated: float}
+     */
+    private function shopPaymentSummary(int $shopId, string $monthStart, string $monthEnd): array
+    {
+        $paymentIds = (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))->pluck('id');
+        $paymentReceived = (float) (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))->sum('requested_amount');
+        $directReceived = (float) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->sum('amount');
+        $allocated = $paymentIds->isEmpty()
+            ? 0.0
+            : (float) ShopPaymentLedgerAllocation::query()
+                ->where('shop_id', $shopId)
+                ->whereIn('payment_request_id', $paymentIds->all())
+                ->sum('amount');
+        $received = round($paymentReceived + $directReceived, 2);
+
+        return [
+            'payment_count' => (int) $paymentIds->count() + (int) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->count(),
+            'direct_receipt_count' => (int) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->count(),
+            'received' => $received,
+            'allocated' => round($allocated, 2),
+            'unallocated' => round(max(0, $received - $allocated), 2),
+        ];
+    }
+
+    /**
+     * @return array<int, array{id: int, amount: float, allocated: float, unallocated: float, date: string, direct_statement_id: ?int}>
+     */
+    private function bulkEligibleShopPayments(int $shopId, string $monthStart, string $monthEnd): array
+    {
+        $payments = (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))
+            ->withSum('ledgerAllocations as allocated_amount', 'amount')
+            ->oldest('payment_date')
+            ->oldest('id')
+            ->get()
+            ->map(function (ShopInvoicePaymentRequest $payment): array {
+                $amount = round((float) $payment->requested_amount, 2);
+                $allocated = round((float) ($payment->allocated_amount ?? 0), 2);
+
+                return [
+                    'id' => (int) $payment->id,
+                    'amount' => $amount,
+                    'allocated' => $allocated,
+                    'unallocated' => round(max(0, $amount - $allocated), 2),
+                    'date' => $payment->payment_date?->toDateString() ?? $payment->created_at?->toDateString() ?? today()->toDateString(),
+                    'direct_statement_id' => null,
+                ];
+            });
+
+        $directReceipts = (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))
+            ->oldest('transaction_date')
+            ->oldest('id')
+            ->get()
+            ->map(fn (CompanyAccountStatementEntry $entry): array => [
+                'id' => 0,
+                'amount' => round((float) $entry->amount, 2),
+                'allocated' => 0.0,
+                'unallocated' => round((float) $entry->amount, 2),
+                'date' => $entry->transaction_date?->toDateString() ?? today()->toDateString(),
+                'direct_statement_id' => (int) $entry->id,
+            ]);
+
+        return $payments
+            ->merge($directReceipts)
+            ->filter(fn (array $payment): bool => $payment['unallocated'] > 0)
+            ->sortBy([['date', 'asc'], ['id', 'asc']])
+            ->values()
+            ->all();
     }
 
     /**
@@ -1178,17 +1316,10 @@ final class CashbookController extends Controller
                 $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
                 $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
 
-                $totalPaymentsReceived = (float) ShopInvoicePaymentRequest::query()
-                    ->where('shop_id', $shopId)
-                    ->whereNotIn('status', ['rejected', 'cancelled'])
-                    ->where('reconciliation_status', 'reconciled')
-                    ->sum('requested_amount');
-
-                $totalPaymentsAllocated = (float) ShopPaymentLedgerAllocation::query()
-                    ->where('shop_id', $shopId)
-                    ->sum('amount');
-
-                $unallocatedPayments = round(max(0, $totalPaymentsReceived - $totalPaymentsAllocated), 2);
+                $shopPaymentSummary = $this->shopPaymentSummary($shopId, $monthStart, $monthEnd);
+                $totalPaymentsReceived = $shopPaymentSummary['received'];
+                $totalPaymentsAllocated = $shopPaymentSummary['allocated'];
+                $unallocatedPayments = $shopPaymentSummary['unallocated'];
 
                 $totalSettlementDueCumulative = (float) ShopLedgerTransaction::query()
                     ->where('shop_id', $shopId)
@@ -1213,23 +1344,13 @@ final class CashbookController extends Controller
                 };
                 $netPositionAmount = abs($netDifference);
 
-                $allShopPaymentsQuery = ShopInvoicePaymentRequest::query()
+                $allShopPaymentsQuery = $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd, false)
                     ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'ledgerAllocations.ledgerTransaction.entryType', 'requestedBy'])
-                    ->where('shop_id', $shopId)
-                    ->whereNotIn('status', ['rejected', 'cancelled'])
-                    ->where(function (Builder $query) use ($monthStart, $monthEnd): void {
-                        $query->whereBetween('payment_date', [$monthStart, $monthEnd])
-                            ->orWhereBetween('payment_date', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59'])
-                            ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
-                                $q2->whereNull('payment_date')
-                                    ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
-                            });
-                    })
                     ->latest('payment_date')
                     ->latest('created_at')
                     ->latest('id');
 
-                $allShopPaymentsTotal = $allShopPaymentsQuery->count();
+                $allShopPaymentsTotal = $shopPaymentSummary['payment_count'];
                 $shopPaymentsList = $allShopPaymentsQuery->limit(20)->get()->map(
                     fn (ShopInvoicePaymentRequest $p): array => $this->formatShopPaymentPayload($p, $shopId)
                 )->values()->all();
@@ -2148,6 +2269,111 @@ final class CashbookController extends Controller
             'shop' => $currentShop->slug ?: $currentShop->shop_id,
             'month' => $month,
         ])->with('success', 'Payment allocated to selected daily settlements successfully.');
+    }
+
+    public function allocateAllShopPayments(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'month' => ['required', 'date_format:Y-m'],
+            'expected_total' => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $month = (string) $validated['month'];
+        $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+        $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+
+        $result = DB::transaction(function () use ($shopId, $monthStart, $monthEnd, $request, $validated): array {
+            $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd)
+                ->lockForUpdate()
+                ->get()
+                ->each(function (CompanyAccountStatementEntry $statement) use ($request): void {
+                    $this->companyPaymentReconciliationService->verifyPendingShopCollection($statement, (int) $request->user()->id);
+                });
+
+            $eligiblePayments = collect($this->bulkEligibleShopPayments($shopId, $monthStart, $monthEnd));
+            $openSettlements = $this->shopPaymentLedgerReconciliationService
+                ->getOpenDailySettlements($shopId)
+                ->filter(fn (array $settlement): bool => (float) $settlement['remaining_due'] > 0)
+                ->sortBy([['business_date', 'asc'], ['id', 'asc']])
+                ->values()
+                ->all();
+
+            $eligibleAmount = round((float) $eligiblePayments->sum('unallocated'), 2);
+            $settlementOutstanding = round((float) collect($openSettlements)->sum('remaining_due'), 2);
+            $selectedTotal = round(min($eligibleAmount, $settlementOutstanding), 2);
+            $expectedTotal = round((float) $validated['expected_total'], 2);
+
+            if ($selectedTotal !== $expectedTotal) {
+                throw ValidationException::withMessages([
+                    'expected_total' => 'Available payment or settlement amounts changed. Reopen Allocate All and confirm the refreshed proposal.',
+                ]);
+            }
+
+            $createdCount = 0;
+            $allocatedTotal = 0.0;
+            $settlementIndex = 0;
+
+            foreach ($eligiblePayments as $eligiblePayment) {
+                if ($selectedTotal <= 0.0) {
+                    break;
+                }
+
+                $payment = ShopInvoicePaymentRequest::query()
+                    ->whereKey((int) $eligiblePayment['id'])
+                    ->where('shop_id', $shopId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $paymentRemaining = round(min((float) $eligiblePayment['unallocated'], $selectedTotal), 2);
+                $allocations = [];
+
+                while ($paymentRemaining > 0.0 && $settlementIndex < count($openSettlements)) {
+                    $settlement = $openSettlements[$settlementIndex];
+                    $settlementRemaining = round((float) $settlement['remaining_due'], 2);
+
+                    if ($settlementRemaining <= 0.0) {
+                        $settlementIndex++;
+
+                        continue;
+                    }
+
+                    $amount = round(min($paymentRemaining, $settlementRemaining), 2);
+                    $allocations[] = [
+                        'ledger_transaction_id' => (int) $settlement['id'],
+                        'amount' => $amount,
+                    ];
+
+                    $paymentRemaining = round($paymentRemaining - $amount, 2);
+                    $selectedTotal = round($selectedTotal - $amount, 2);
+                    $allocatedTotal = round($allocatedTotal + $amount, 2);
+                    $openSettlements[$settlementIndex]['remaining_due'] = round($settlementRemaining - $amount, 2);
+
+                    if ((float) $openSettlements[$settlementIndex]['remaining_due'] <= 0.0) {
+                        $settlementIndex++;
+                    }
+                }
+
+                if (! empty($allocations)) {
+                    $createdCount += $this->shopPaymentLedgerReconciliationService
+                        ->allocatePayment($payment, $allocations, (int) $request->user()->id)
+                        ->count();
+                }
+            }
+
+            return [
+                'created_count' => $createdCount,
+                'allocated_total' => $allocatedTotal,
+            ];
+        }, attempts: 3);
+
+        return redirect()->route('admin.cashbook.shop.show', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Allocated ₹'.number_format($result['allocated_total'], 2).' across '.$result['created_count'].' settlement '.Str::plural('record', $result['created_count']).'.');
     }
 
     public function removeShopAllocation(Request $request, int|string $shop, ShopPaymentLedgerAllocation $allocation): RedirectResponse

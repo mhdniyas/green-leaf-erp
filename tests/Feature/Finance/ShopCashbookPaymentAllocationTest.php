@@ -10,6 +10,7 @@ use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerProfile;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\JournalEntry;
 use App\Models\Shop;
@@ -1224,6 +1225,102 @@ class ShopCashbookPaymentAllocationTest extends TestCase
 
         // Check paginator items count: exactly 3 rows, no duplicate 75k rows
         $this->assertCount(3, $paymentsCollection);
+    }
+
+    public function test_summary_and_bulk_allocation_include_direct_bank_backed_receipts_once(): void
+    {
+        $settlementOne = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 70000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $settlementTwo = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-02',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 70000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 62497.00,
+                'payment_date' => '2026-08-03',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-REQUEST-62497',
+            ])
+            ->assertRedirect();
+
+        foreach ([11963.00, 7346.00, 6436.00, 5411.00] as $amount) {
+            $receiptTransaction = $this->ledgerService->recordEntry([
+                'shop_id' => $this->shop->id,
+                'business_date' => '2026-08-04',
+                'entry_type_code' => 'cash_sales',
+                'amount' => $amount,
+                'funding_source' => 'none',
+                'entered_by' => $this->admin->id,
+            ])['transaction'];
+
+            CompanyAccountStatementEntry::query()->create([
+                'company_account_id' => $this->companyAccount->id,
+                'transaction_date' => '2026-08-04',
+                'value_date' => '2026-08-04',
+                'direction' => 'in',
+                'amount' => $amount,
+                'reference' => 'SHOP-TX-'.$receiptTransaction->id,
+                'source_type' => ShopLedgerTransaction::class,
+                'source_id' => $receiptTransaction->id,
+                'status' => 'reconciled',
+                'is_finalized' => true,
+            ]);
+        }
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk()
+            ->assertSee('Payment Count')
+            ->assertSee('Total Received')
+            ->assertSee('Total Allocated')
+            ->assertSee('Total Unallocated')
+            ->assertSee('Allocate All');
+
+        $summary = $response->viewData('shopPaymentSummary');
+        $this->assertSame(5, $summary['payment_count']);
+        $this->assertSame(4, $summary['direct_receipt_count']);
+        $this->assertSame(93653.00, $summary['received']);
+        $this->assertSame(93653.00, $summary['unallocated']);
+
+        $this->assertDatabaseCount('shop_invoice_payment_requests', 1);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 93653.00,
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(5, ShopInvoicePaymentRequest::query()->count());
+        $this->assertSame(5, CompanyPaymentReconciliation::query()->where('is_finalized', true)->count());
+        $this->assertSame(93653.00, (float) ShopPaymentLedgerAllocation::query()->sum('amount'));
+        $this->assertSame(93653.00, (float) ShopPaymentLedgerAllocation::query()
+            ->whereIn('shop_ledger_transaction_id', [$settlementOne->id, $settlementTwo->id])
+            ->sum('amount'));
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 93653.00,
+            ])
+            ->assertSessionHasErrors('expected_total');
+
+        $this->assertSame(93653.00, (float) ShopPaymentLedgerAllocation::query()->sum('amount'));
     }
 
     public function test_server_side_pagination_and_month_query_preservation(): void
