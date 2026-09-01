@@ -55,14 +55,30 @@ class AdminCashbookReportsController extends Controller
         $timeframe = (string) $request->input('timeframe', 'today');
         $dateRange = $this->resolveDateRange($timeframe, $request);
 
+        $scope = strtolower((string) $request->input('scope', 'owned'));
+        if (! in_array($scope, ['owned', 'own', 'direct', 'all'], true)) {
+            $scope = 'owned';
+        }
+        $normalizedScope = match ($scope) {
+            'direct' => 'direct',
+            'all' => 'all',
+            default => 'owned',
+        };
+
         $shopMetrics = $this->calculateMultiShopMetrics($shops, $dateRange['start'], $dateRange['end']);
 
+        $filteredMetrics = match ($normalizedScope) {
+            'owned' => $shopMetrics->filter(fn ($s) => $s['is_client_owned'])->values(),
+            'direct' => $shopMetrics->filter(fn ($s) => ! $s['is_client_owned'])->values(),
+            default => $shopMetrics->values(),
+        };
+
         $totals = [
-            'sales' => round((float) $shopMetrics->sum('sales'), 2),
-            'expense' => round((float) $shopMetrics->sum('expense'), 2),
-            'net' => round((float) $shopMetrics->sum('net'), 2),
-            'gl_bills' => round((float) $shopMetrics->sum('gl_bills'), 2),
-            'gl_bills_count' => (int) $shopMetrics->sum('gl_bills_count'),
+            'sales' => round((float) $filteredMetrics->sum('sales'), 2),
+            'expense' => round((float) $filteredMetrics->sum('expense'), 2),
+            'net' => round((float) $filteredMetrics->sum('net'), 2),
+            'gl_bills' => round((float) $filteredMetrics->sum('gl_bills'), 2),
+            'gl_bills_count' => (int) $filteredMetrics->sum('gl_bills_count'),
         ];
 
         return view('admin.cashbook.reports.hub', [
@@ -72,6 +88,7 @@ class AdminCashbookReportsController extends Controller
             'timeframe' => $timeframe,
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
+            'scope' => $normalizedScope,
             'activeTab' => 'hub',
         ]);
     }
@@ -241,6 +258,8 @@ class AdminCashbookReportsController extends Controller
     /**
      * @return array{
      *     shops: Collection<int, mixed>,
+     *     scopedShops: Collection<int, mixed>,
+     *     scope: string,
      *     selectedShop: mixed,
      *     selectedShopId: int|null,
      *     exportScopeLabel: string,
@@ -259,13 +278,34 @@ class AdminCashbookReportsController extends Controller
     {
         $this->ensureAuthorized($request);
 
-        $shops = Shop::query()->orderBy('name')->get();
+        $scope = strtolower((string) $request->input('scope', 'all'));
+        if (! in_array($scope, ['all', 'owned', 'own', 'direct'], true)) {
+            $scope = 'all';
+        }
+        $normalizedScope = match ($scope) {
+            'owned', 'own' => 'owned',
+            'direct' => 'direct',
+            default => 'all',
+        };
+
+        $allShops = Shop::query()->orderBy('name')->get();
+        $scopedShops = match ($normalizedScope) {
+            'owned' => $allShops->filter(fn ($s) => $s->client_id !== null)->values(),
+            'direct' => $allShops->filter(fn ($s) => $s->client_id === null)->values(),
+            default => $allShops,
+        };
 
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
-        $selectedShop = $selectedShopId ? ($shops->firstWhere('id', $selectedShopId) ?? $shops->firstWhere('shop_id', $selectedShopId)) : null;
+        $selectedShop = $selectedShopId ? ($scopedShops->firstWhere('id', $selectedShopId) ?? $scopedShops->firstWhere('shop_id', $selectedShopId)) : null;
+
+        // If selected outlet is not in the active scope, reset it
+        if ($selectedShopId && ! $selectedShop) {
+            $selectedShopId = null;
+        }
+
         $shopIds = $selectedShopId
             ? ($selectedShop ? [(int) ($selectedShop->shop_id ?? $selectedShop->id)] : [$selectedShopId])
-            : [];
+            : ($normalizedScope !== 'all' ? $scopedShops->pluck('id')->all() : []);
 
         $timeframe = (string) $request->input('timeframe', 'monthly');
         $dateRange = $this->resolveDateRange($timeframe, $request);
@@ -292,11 +332,19 @@ class AdminCashbookReportsController extends Controller
             : $query->get();
         $this->annotateGlBillsInvoices($paginate ? $invoices->getCollection() : $invoices, $filterProductIds);
 
+        $exportScopeLabel = $selectedShop?->name ?: match ($normalizedScope) {
+            'owned' => 'Own Outlets',
+            'direct' => 'Direct Outlets',
+            default => 'All Outlets',
+        };
+
         return [
-            'shops' => $shops,
+            'shops' => $scopedShops,
+            'scopedShops' => $scopedShops,
+            'scope' => $normalizedScope,
             'selectedShop' => $selectedShop,
             'selectedShopId' => $selectedShopId,
-            'exportScopeLabel' => $selectedShop?->name ?: 'All Shops',
+            'exportScopeLabel' => $exportScopeLabel,
             'productFilters' => $productFilters,
             'selectedProductFilter' => $selectedProductFilter,
             'selectedProductFilterUuid' => $selectedProductFilterUuid,
@@ -691,15 +739,32 @@ class AdminCashbookReportsController extends Controller
         $timeframe = (string) $request->input('timeframe', 'today');
         $dateRange = $this->resolveDateRange($timeframe, $request);
 
+        $scope = strtolower((string) $request->input('scope', 'all'));
+        if (! in_array($scope, ['owned', 'own', 'direct', 'all'], true)) {
+            $scope = 'all';
+        }
+        $normalizedScope = match ($scope) {
+            'owned', 'own' => 'owned',
+            'direct' => 'direct',
+            default => 'all',
+        };
+
         $shopMetrics = $this->calculateMultiShopMetrics($shops, $dateRange['start'], $dateRange['end']);
 
+        $filteredMetrics = match ($normalizedScope) {
+            'owned' => $shopMetrics->filter(fn ($s) => $s['is_client_owned'])->values(),
+            'direct' => $shopMetrics->filter(fn ($s) => ! $s['is_client_owned'])->values(),
+            default => $shopMetrics->values(),
+        };
+
         $totals = [
-            'sales' => round($shopMetrics->sum('sales'), 2),
-            'expense' => round($shopMetrics->sum('expense'), 2),
-            'net' => round($shopMetrics->sum('net'), 2),
-            'gl_bills' => round($shopMetrics->sum('gl_bills'), 2),
-            'shops_count' => $shopMetrics->count(),
-            'profitable_count' => $shopMetrics->where('net', '>', 0)->count(),
+            'sales' => round((float) $filteredMetrics->sum('sales'), 2),
+            'expense' => round((float) $filteredMetrics->sum('expense'), 2),
+            'net' => round((float) $filteredMetrics->sum('net'), 2),
+            'gl_bills' => round((float) $filteredMetrics->sum('gl_bills'), 2),
+            'gl_bills_count' => (int) $filteredMetrics->sum('gl_bills_count'),
+            'shops_count' => $filteredMetrics->count(),
+            'profitable_count' => $filteredMetrics->where('net', '>', 0)->count(),
         ];
 
         return response()->json([
@@ -709,6 +774,7 @@ class AdminCashbookReportsController extends Controller
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
             'timeframe' => $timeframe,
+            'scope' => $normalizedScope,
         ]);
     }
 
@@ -811,33 +877,50 @@ class AdminCashbookReportsController extends Controller
             ->with('entryType')
             ->get();
 
-        return $shops->map(function (ShopLedgerProfile $shop) use ($transactions) {
-            $shopTx = $transactions->where('shop_id', $shop->shop_id);
+        $invoicesByShop = ShopInvoice::query()
+            ->whereIn('shop_id', $shopIds)
+            ->where('status', '!=', 'cancelled')
+            ->where('final_total', '>', 0)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->selectRaw('shop_id, COUNT(*) as bill_count, SUM(final_total) as total_gl')
+            ->groupBy('shop_id')
+            ->get()
+            ->keyBy('shop_id');
 
-            // Identify GL-bill-only dates for this shop (pending daily shop owner entry)
-            $txByDate = $shopTx->groupBy(
-                fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
-            );
+        return $shops->map(function (ShopLedgerProfile $shop) use ($transactions, $invoicesByShop) {
+            $isClientOwned = $shop->client_id !== null;
+            $shopTx = $transactions->where('shop_id', $shop->shop_id);
 
             $pendingGlOnlyDates = [];
             $activeTx = collect();
             $pendingGlBillTotal = 0.0;
 
-            foreach ($txByDate as $dateStr => $dayTxs) {
-                $hasNonGlBill = $dayTxs->contains(function ($t) {
-                    $code = $t->entryType?->code ?: $t->entry_type_code;
+            if ($isClientOwned) {
+                // For client-owned shops, identify GL-bill-only dates (pending daily shop owner entry)
+                $txByDate = $shopTx->groupBy(
+                    fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
+                );
 
-                    return $t->reference_type !== 'App\Models\ShopInvoice'
-                        && $t->reference_type !== ShopInvoice::class
-                        && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
-                });
+                foreach ($txByDate as $dateStr => $dayTxs) {
+                    $hasNonGlBill = $dayTxs->contains(function ($t) {
+                        $code = $t->entryType?->code ?: $t->entry_type_code;
 
-                if (! $hasNonGlBill) {
-                    $pendingGlOnlyDates[] = $dateStr;
-                    $pendingGlBillTotal += (float) $dayTxs->sum('amount');
-                } else {
-                    $activeTx = $activeTx->concat($dayTxs);
+                        return $t->reference_type !== 'App\Models\ShopInvoice'
+                            && $t->reference_type !== ShopInvoice::class
+                            && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
+                    });
+
+                    if (! $hasNonGlBill) {
+                        $pendingGlOnlyDates[] = $dateStr;
+                        $pendingGlBillTotal += (float) $dayTxs->sum('amount');
+                    } else {
+                        $activeTx = $activeTx->concat($dayTxs);
+                    }
                 }
+            } else {
+                // Direct buyer shops do not have retail cashbook entries; their transactions are direct
+                $activeTx = $shopTx;
             }
 
             $sales = (float) $activeTx
@@ -850,22 +933,14 @@ class AdminCashbookReportsController extends Controller
 
             $net = round($sales - $expense, 2);
 
-            $glBillTxs = $activeTx
-                ->filter(function ($t) {
-                    $code = $t->entryType?->code ?: $t->entry_type_code;
-
-                    return in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
-                        || str_contains(strtolower((string) $t->notes), 'invoice')
-                        || $t->reference_type === 'App\Models\ShopInvoice'
-                        || $t->reference_type === ShopInvoice::class;
-                });
-
-            $glBills = (float) $glBillTxs->sum('amount');
-            $glBillsCount = (int) $glBillTxs->count();
+            // GL bills from ShopInvoice canonical source
+            $invData = $invoicesByShop->get($shop->shop_id);
+            $glBills = $invData ? (float) $invData->total_gl : 0.0;
+            $glBillsCount = $invData ? (int) $invData->bill_count : 0;
 
             $marginPct = $sales > 0 ? round(($net / $sales) * 100, 1) : 0;
 
-            $status = $activeTx->isEmpty() && count($pendingGlOnlyDates) > 0
+            $status = ($isClientOwned && $activeTx->isEmpty() && count($pendingGlOnlyDates) > 0)
                 ? 'pending'
                 : ($net >= 0 ? 'profit' : 'loss');
 
@@ -875,7 +950,7 @@ class AdminCashbookReportsController extends Controller
                 'shop_code' => $shop->code ?: ('SHP-'.$shop->shop_id),
                 'shop_slug' => $shop->slug ?: (string) $shop->shop_id,
                 'client_id' => $shop->client_id,
-                'is_client_owned' => $shop->client_id !== null,
+                'is_client_owned' => $isClientOwned,
                 'sales' => round($sales, 2),
                 'expense' => round($expense, 2),
                 'net' => $net,
@@ -896,6 +971,9 @@ class AdminCashbookReportsController extends Controller
      */
     private function calculateSingleShopDetail(int $shopId, string $startDate, string $endDate, bool $skipGlOnlyDays = false): array
     {
+        $shopProfile = ShopLedgerProfile::where('shop_id', $shopId)->first();
+        $isClientOwned = $shopProfile?->client_id !== null;
+
         $allTransactions = ShopLedgerTransaction::query()
             ->where('shop_id', $shopId)
             ->whereBetween('business_date', [$startDate, $endDate])
@@ -905,27 +983,31 @@ class AdminCashbookReportsController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        $txByDate = $allTransactions->groupBy(
-            fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
-        );
-
         $pendingGlOnlyDates = [];
         $activeTransactions = collect();
 
-        foreach ($txByDate as $dateStr => $dayTxs) {
-            $hasNonGlBill = $dayTxs->contains(function ($t) {
-                $code = $t->entryType?->code ?: $t->entry_type_code;
+        if ($isClientOwned) {
+            $txByDate = $allTransactions->groupBy(
+                fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
+            );
 
-                return $t->reference_type !== 'App\Models\ShopInvoice'
-                    && $t->reference_type !== ShopInvoice::class
-                    && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
-            });
+            foreach ($txByDate as $dateStr => $dayTxs) {
+                $hasNonGlBill = $dayTxs->contains(function ($t) {
+                    $code = $t->entryType?->code ?: $t->entry_type_code;
 
-            if (! $hasNonGlBill) {
-                $pendingGlOnlyDates[] = $dateStr;
-            } else {
-                $activeTransactions = $activeTransactions->concat($dayTxs);
+                    return $t->reference_type !== 'App\Models\ShopInvoice'
+                        && $t->reference_type !== ShopInvoice::class
+                        && ! in_array($code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true);
+                });
+
+                if (! $hasNonGlBill) {
+                    $pendingGlOnlyDates[] = $dateStr;
+                } else {
+                    $activeTransactions = $activeTransactions->concat($dayTxs);
+                }
             }
+        } else {
+            $activeTransactions = $allTransactions;
         }
 
         $transactions = $skipGlOnlyDays ? $activeTransactions : $allTransactions;
@@ -940,12 +1022,15 @@ class AdminCashbookReportsController extends Controller
 
         $net = round($sales - $expense, 2);
 
-        // Total GL bills for the period (including invoices on days pending sales submission)
-        $glBillTxs = $transactions
-            ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice' || $t->reference_type === ShopInvoice::class);
-
-        $glBills = (float) $glBillTxs->sum('amount');
-        $glBillsCount = (int) $glBillTxs->count();
+        // Total GL bills from canonical ShopInvoice source
+        $invQuery = ShopInvoice::query()
+            ->where('shop_id', $shopId)
+            ->where('status', '!=', 'cancelled')
+            ->where('final_total', '>', 0)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate);
+        $glBills = (float) (clone $invQuery)->sum('final_total');
+        $glBillsCount = (int) (clone $invQuery)->count();
 
         $petty = (float) $activeTransactions
             ->filter(fn ($t) => $t->funding_source === 'petty')

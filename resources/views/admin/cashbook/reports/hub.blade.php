@@ -18,7 +18,7 @@
                 startDate: '{{ $startDate }}',
                 endDate: '{{ $endDate }}',
                 searchQuery: '',
-                typeFilter: 'owned', // 'owned', 'direct', 'all' (default: 'owned')
+                typeFilter: @json($scope ?? 'owned'), // 'owned', 'direct', 'all'
                 loading: false,
                 totals: @json($totals),
                 shopMetrics: @json($shopMetrics->values()),
@@ -32,6 +32,11 @@
                 },
 
                 init() {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const scopeParam = urlParams.get('scope');
+                    if (scopeParam && ['owned', 'direct', 'all'].includes(scopeParam.toLowerCase())) {
+                        this.typeFilter = scopeParam.toLowerCase();
+                    }
                     this.syncUrl();
                     if (window.lucide) {
                         window.lucide.createIcons();
@@ -167,6 +172,7 @@
                             timeframe: this.timeframe,
                             start_date: this.startDate,
                             end_date: this.endDate,
+                            scope: this.typeFilter,
                         });
 
                         const response = await fetch(`{{ route('admin.cashbook.reports.api.hub') }}?${params.toString()}`);
@@ -560,7 +566,7 @@
                         <div class="text-sm sm:text-base font-black text-slate-900 truncate" x-text="currency(activeTotals().expense)">{{ number_format($totals['expense'], 2) }}</div>
                     </div>
                 </div>
-                <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?scope=' + typeFilter + '&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
                     class="text-amber-800 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200/90 shrink-0 font-extrabold hover:bg-amber-100 transition inline-flex items-center gap-1 text-[9px] sm:text-[10px] whitespace-nowrap"
                     title="View Synced GL Invoices & Bills">
                     <span>GL:</span>
@@ -593,11 +599,11 @@
                                             x-text="item.shop_code"></span>
                                         <template x-if="item.is_client_owned">
                                             <span
-                                                class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase text-amber-700 border border-amber-100">Client</span>
+                                                class="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-700 border border-emerald-100">Own</span>
                                         </template>
                                         <template x-if="!item.is_client_owned">
                                             <span
-                                                class="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-700 border border-emerald-100">Own</span>
+                                                class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase text-amber-700 border border-amber-100">Direct</span>
                                         </template>
                                     </div>
                                     <div class="mt-1 flex items-center gap-1.5 flex-wrap min-w-0">
@@ -640,7 +646,7 @@
                                     <span class="text-[11px] font-black text-rose-600 truncate block"
                                         x-text="currency(item.expense)"></span>
                                 </div>
-                                <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?shop_id=' + item.shop_id + '&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
+                                <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?scope=' + (item.is_client_owned ? 'owned' : 'direct') + '&shop_id=' + item.shop_id + '&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate"
                                     @click.stop
                                     class="bg-slate-50/80 hover:bg-amber-50 rounded-lg px-2 py-1 border border-slate-100 block transition cursor-pointer">
                                     <div class="flex items-center justify-between">

@@ -13,15 +13,37 @@
 @section('content')
     <div x-data="{ activeInvoiceId: null, loading: false }" class="mx-auto max-w-4xl space-y-4">
         <!-- Top Fintech Header -->
-        <div class="flex items-center justify-between pt-1">
-            <div>
-                <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">GL Bills</h1>
-                <p class="text-xs font-bold text-slate-500 mt-0.5">Daily Shop Invoices <span class="text-slate-400 font-medium">&amp; Delivery Records</span></p>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 border-b border-slate-100 pb-3">
+            <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+                <div class="shrink-0">
+                    <h1 class="text-xl sm:text-3xl font-black tracking-tight text-slate-900">GL Bills</h1>
+                    <p class="text-xs font-bold text-slate-500 mt-0.5">Daily Shop Invoices <span class="text-slate-400 font-medium">&amp; Delivery Records</span></p>
+                </div>
+
+                <!-- 3-Option Scope Switcher (Own, Direct, All) -->
+                <div class="inline-flex items-center gap-0.5 rounded-2xl bg-slate-200/70 p-0.5 sm:p-1 shrink-0">
+                    <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => 'owned', 'timeframe' => $timeframe, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $startDate, 'end_date' => $endDate, 'shop_id' => ($selectedShop && $selectedShop->client_id !== null ? $selectedShopId : null)]) }}"
+                        @click="loading = true"
+                        class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all {{ $scope === 'owned' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                        Own
+                    </a>
+                    <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => 'direct', 'timeframe' => $timeframe, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $startDate, 'end_date' => $endDate, 'shop_id' => ($selectedShop && $selectedShop->client_id === null ? $selectedShopId : null)]) }}"
+                        @click="loading = true"
+                        class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all {{ $scope === 'direct' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                        Direct
+                    </a>
+                    <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => 'all', 'timeframe' => $timeframe, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $startDate, 'end_date' => $endDate, 'shop_id' => $selectedShopId]) }}"
+                        @click="loading = true"
+                        class="rounded-xl px-2 sm:px-3.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-extrabold transition-all {{ $scope === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                        All
+                    </a>
+                </div>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
                 @php
                     $exportQuery = [
+                        'scope' => $scope,
                         'timeframe' => $timeframe,
                         'shop_id' => $selectedShopId,
                         'product_filter' => $selectedProductFilterUuid,
@@ -61,7 +83,7 @@
                          class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-black/5 z-50 divide-y divide-slate-100 max-h-72 overflow-y-auto custom-scrollbar">
 
                         <!-- Default option: All Products -->
-                        <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => $timeframe, 'shop_id' => $selectedShopId, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                        <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => $timeframe, 'shop_id' => $selectedShopId, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
                            @click="loading = true"
                            class="group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all {{ !$selectedProductFilter ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100' }}">
                             <span>All Products</span>
@@ -72,7 +94,7 @@
                         @if($productFilters->isNotEmpty())
                             <div class="py-1 space-y-0.5">
                                 @foreach ($productFilters as $pf)
-                                    <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => $timeframe, 'shop_id' => $selectedShopId, 'product_filter' => $pf->uuid, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                                    <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => $timeframe, 'shop_id' => $selectedShopId, 'product_filter' => $pf->uuid, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
                                        @click="loading = true"
                                        class="group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all {{ $selectedProductFilterUuid === $pf->uuid ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100' }}">
                                         <span class="truncate">{{ $pf->name }}</span>
@@ -97,7 +119,7 @@
                     <button @click="open = !open" type="button" class="inline-flex items-center justify-between gap-2 h-10 px-3.5 rounded-2xl bg-white border border-slate-200/90 text-xs font-black text-slate-800 shadow-xs hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer">
                         <div class="flex items-center gap-2">
                             <i data-lucide="store" class="w-4 h-4 text-emerald-600"></i>
-                            <span class="max-w-[130px] truncate">{{ $selectedShop ? ($selectedShop->name ?: 'Shop #'.($selectedShop->shop_id ?? $selectedShop->id)) : 'All Outlets' }}</span>
+                            <span class="max-w-[130px] truncate">{{ $selectedShop ? ($selectedShop->name ?: 'Shop #'.($selectedShop->shop_id ?? $selectedShop->id)) : match($scope) { 'owned' => 'All Own Outlets', 'direct' => 'All Direct Outlets', default => 'All Outlets' } }}</span>
                         </div>
                         <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': open }"></i>
                     </button>
@@ -113,11 +135,11 @@
                          x-transition:leave-end="transform opacity-0 scale-95"
                          class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-black/5 z-50 divide-y divide-slate-100 max-h-72 overflow-y-auto custom-scrollbar">
 
-                        <!-- Default option: Clear selection / All Outlets -->
-                        <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => $timeframe, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                        <!-- Default option: Clear selection / All Outlets in Scope -->
+                        <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => $timeframe, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
                            @click="loading = true"
                            class="group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all {{ !$selectedShopId ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100' }}">
-                            <span>All Outlets</span>
+                            <span>{{ match($scope) { 'owned' => 'All Own Outlets', 'direct' => 'All Direct Outlets', default => 'All Outlets' } }}</span>
                             <span class="text-[9px] opacity-70">Clear</span>
                         </a>
 
@@ -127,7 +149,7 @@
                                 @php
                                     $sId = (int) ($s->shop_id ?? $s->id);
                                 @endphp
-                                <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => $timeframe, 'shop_id' => $sId, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                                <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => $timeframe, 'shop_id' => $sId, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
                                    @click="loading = true"
                                    class="group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all {{ $selectedShopId === $sId ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100' }}">
                                     <span class="truncate">{{ $s->name ?: ('Shop #' . $sId) }}</span>
@@ -145,9 +167,9 @@
         <!-- Segmented iOS Timeframe Bar (Today, Week, Month + Calendar Jump) -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div class="inline-flex items-center max-w-full overflow-x-auto rounded-2xl bg-slate-200/70 p-1 shrink-0 gap-0.5">
-                <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'today', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Today</a>
-                <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'weekly', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'weekly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Week</a>
-                <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'monthly', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'monthly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Month</a>
+                <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => 'today', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Today</a>
+                <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => 'weekly', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'weekly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Week</a>
+                <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => 'monthly', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $timeframe === 'monthly' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">Month</a>
                 @php
                     $prevDate = now()->startOfMonth()->subDay();
                     $prevStart = $prevDate->copy()->startOfMonth()->toDateString();
@@ -155,20 +177,21 @@
                     $prevName = $prevDate->format('M');
                     $isPrevSelected = $timeframe === 'custom' && $startDate === $prevStart && $endDate === $prevEnd;
                 @endphp
-                <a href="{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'custom', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $prevStart, 'end_date' => $prevEnd]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $isPrevSelected ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">{{ $prevName }}</a>
+                <a href="{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => 'custom', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid, 'start_date' => $prevStart, 'end_date' => $prevEnd]) }}" @click="loading = true" class="rounded-xl px-3 py-1 text-xs font-extrabold transition-all {{ $isPrevSelected ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">{{ $prevName }}</a>
                 <!-- Jump to Date Calendar Picker -->
                 <label class="relative flex items-center justify-center cursor-pointer rounded-xl px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all" title="Jump to Specific Date">
                     <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
                     <input
                         type="date"
                         class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        onchange="window.location.href='{{ route('admin.cashbook.reports.gl-bills', ['timeframe' => 'custom', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}&start_date=' + this.value + '&end_date=' + this.value"
+                        onchange="window.location.href='{{ route('admin.cashbook.reports.gl-bills', ['scope' => $scope, 'timeframe' => 'custom', 'shop_id' => $selectedShopId, 'product_filter' => $selectedProductFilterUuid]) }}&start_date=' + this.value + '&end_date=' + this.value"
                     >
                 </label>
             </div>
 
             <!-- Custom Filter Form -->
             <form method="GET" action="{{ route('admin.cashbook.reports.gl-bills') }}" @submit="loading = true" class="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
+                <input type="hidden" name="scope" value="{{ $scope }}">
                 <input type="hidden" name="timeframe" value="custom">
                 <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
                 <input type="hidden" name="product_filter" value="{{ $selectedProductFilterUuid }}">

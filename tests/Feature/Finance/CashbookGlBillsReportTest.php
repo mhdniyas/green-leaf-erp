@@ -393,7 +393,7 @@ class CashbookGlBillsReportTest extends TestCase
         $response->assertOk()
             ->assertHeader('Content-Disposition', 'attachment; filename=gl-bills-all-shops-2026-08-24-to-2026-08-25.csv');
 
-        $this->assertStringContainsString('All Shops', $content);
+        $this->assertStringContainsString('All Outlets', $content);
         $this->assertStringContainsString('INV-DT-ALL', $content);
         $this->assertStringContainsString('INV-UT-ALL', $content);
         $this->assertStringContainsString('750', $content);
@@ -509,6 +509,130 @@ class CashbookGlBillsReportTest extends TestCase
             ->assertSee('Downtown Fresh')
             ->assertSee('Suburban Market')
             ->assertSee('800.00'); // 350 + 450 total billed
+    }
+
+    public function test_gl_bills_scope_filter_own_direct_all(): void
+    {
+        $product = $this->createProduct('Cucumber', 'CUC-01');
+
+        $directShop = Shop::factory()->create([
+            'name' => 'Direct Quick Mart',
+            'code' => 'DIR-QM',
+            'client_id' => null,
+            'status' => 'active',
+            'accounting_enabled' => false,
+        ]);
+
+        $this->createInvoiceWithItem('INV-OWN-01', '2026-08-20', $product, 500.00, 500.00, $this->shop);
+        $this->createInvoiceWithItem('INV-DIR-01', '2026-08-21', $product, 1200.00, 1200.00, $directShop);
+
+        // Scope: All
+        $resAll = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills', [
+            'scope' => 'all',
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-08-31',
+        ]));
+        $resAll->assertOk()
+            ->assertSee('INV-OWN-01')
+            ->assertSee('INV-DIR-01');
+        $totalsAll = $resAll->viewData('totals');
+        $this->assertEquals(1700.00, $totalsAll['total_billed']);
+        $this->assertEquals(2, $totalsAll['count']);
+
+        // Scope: Owned (Own)
+        $resOwn = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills', [
+            'scope' => 'owned',
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-08-31',
+        ]));
+        $resOwn->assertOk()
+            ->assertSee('INV-OWN-01')
+            ->assertDontSee('INV-DIR-01');
+        $totalsOwn = $resOwn->viewData('totals');
+        $this->assertEquals(500.00, $totalsOwn['total_billed']);
+        $this->assertEquals(1, $totalsOwn['count']);
+
+        // Scope: Direct
+        $resDir = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills', [
+            'scope' => 'direct',
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-08-31',
+        ]));
+        $resDir->assertOk()
+            ->assertSee('INV-DIR-01')
+            ->assertDontSee('INV-OWN-01');
+        $totalsDir = $resDir->viewData('totals');
+        $this->assertEquals(1200.00, $totalsDir['total_billed']);
+        $this->assertEquals(1, $totalsDir['count']);
+    }
+
+    public function test_gl_bills_scope_narrows_shop_dropdown_and_resets_incompatible_selection(): void
+    {
+        $directShop = Shop::factory()->create([
+            'name' => 'Direct Quick Mart',
+            'code' => 'DIR-QM',
+            'client_id' => null,
+            'status' => 'active',
+            'accounting_enabled' => false,
+        ]);
+
+        // When scope=direct, $shops in view should only contain direct shops
+        $resDir = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills', [
+            'scope' => 'direct',
+        ]));
+        $resDir->assertOk();
+        $scopedShops = $resDir->viewData('shops');
+        $this->assertTrue($scopedShops->contains('id', $directShop->id));
+        $this->assertFalse($scopedShops->contains('id', $this->shop->id));
+
+        // When scope=direct but an owned shop_id is passed, it must reset selectedShopId visibly
+        $resIncompatible = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills', [
+            'scope' => 'direct',
+            'shop_id' => $this->shop->id,
+        ]));
+        $resIncompatible->assertOk();
+        $this->assertNull($resIncompatible->viewData('selectedShopId'));
+        $this->assertNull($resIncompatible->viewData('selectedShop'));
+    }
+
+    public function test_gl_bills_exports_honor_scope_filter(): void
+    {
+        $product = $this->createProduct('Capsicum', 'CAP-01');
+
+        $directShop = Shop::factory()->create([
+            'name' => 'Direct Quick Mart',
+            'code' => 'DIR-QM',
+            'client_id' => null,
+            'status' => 'active',
+            'accounting_enabled' => false,
+        ]);
+
+        $this->createInvoiceWithItem('INV-EXP-OWN', '2026-08-10', $product, 750.00, 750.00, $this->shop);
+        $this->createInvoiceWithItem('INV-EXP-DIR', '2026-08-11', $product, 1500.00, 1500.00, $directShop);
+
+        // CSV Export with Direct scope
+        $csvResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills.export.csv', [
+            'scope' => 'direct',
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-08-31',
+        ]));
+        $csvResponse->assertOk();
+        $csvContent = $csvResponse->streamedContent();
+        $this->assertStringContainsString('INV-EXP-DIR', $csvContent);
+        $this->assertStringNotContainsString('INV-EXP-OWN', $csvContent);
+
+        // PDF Export with Direct scope
+        $pdfResponse = $this->actingAs($this->admin)->get(route('admin.cashbook.reports.gl-bills.export.pdf', [
+            'scope' => 'direct',
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-01',
+            'end_date' => '2026-08-31',
+        ]));
+        $pdfResponse->assertOk();
     }
 
     private function createProduct(string $name, string $sku): Product
