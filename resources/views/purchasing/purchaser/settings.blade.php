@@ -61,6 +61,32 @@
                 @endforeach
             </div>
 
+            {{-- Vendor / Supplier Visibility Section --}}
+            <div class="mt-8 border-t border-slate-100 pt-6">
+                <div class="mb-4">
+                    <h2 class="text-base font-black text-slate-900">Vendor / Supplier Visibility</h2>
+                    <p class="text-xs font-semibold text-slate-500">Controls which suppliers this purchaser can view and select throughout purchaser workflows.</p>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label class="group relative flex cursor-pointer items-start gap-3.5 rounded-xl border border-slate-200 p-4 transition-all hover:border-teal-500 hover:bg-teal-50/20 has-checked:border-teal-600 has-checked:bg-teal-50/50">
+                        <input type="radio" name="vendor_visibility" value="all" {{ ($vendorVisibility ?? 'all') === 'all' ? 'checked' : '' }} class="mt-0.5 h-4 w-4 border-slate-300 text-teal-600 focus:ring-teal-500">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-sm font-black text-slate-900 group-hover:text-teal-900">Show all vendors</p>
+                            <p class="mt-0.5 text-[11px] font-semibold text-slate-500">Purchaser can see every active vendor/supplier in the system.</p>
+                        </div>
+                    </label>
+
+                    <label class="group relative flex cursor-pointer items-start gap-3.5 rounded-xl border border-slate-200 p-4 transition-all hover:border-teal-500 hover:bg-teal-50/20 has-checked:border-teal-600 has-checked:bg-teal-50/50">
+                        <input type="radio" name="vendor_visibility" value="related" {{ ($vendorVisibility ?? 'all') === 'related' ? 'checked' : '' }} class="mt-0.5 h-4 w-4 border-slate-300 text-teal-600 focus:ring-teal-500">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-sm font-black text-slate-900 group-hover:text-teal-900">Show only related suppliers</p>
+                            <p class="mt-0.5 text-[11px] font-semibold text-slate-500">Restrict view to suppliers assigned via category products or purchase history.</p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
             <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
                 <a href="{{ route('purchaser.daily', ['date' => $date]) }}" class="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 px-5 text-xs font-black text-slate-700 hover:bg-slate-50">
                     Cancel

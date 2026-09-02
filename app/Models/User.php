@@ -6,6 +6,7 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -21,7 +22,7 @@ use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Permission\Traits\HasPermissions;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['public_uuid', 'name', 'email', 'password', 'shop_id', 'registration_status', 'approved_at', 'approved_by', 'own_purchase_purchaser_id', 'assigned_category_ids'])]
+#[Fillable(['public_uuid', 'name', 'email', 'password', 'shop_id', 'registration_status', 'approved_at', 'approved_by', 'own_purchase_purchaser_id', 'assigned_category_ids', 'vendor_visibility'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements AuditableContract
 {
@@ -156,5 +157,58 @@ class User extends Authenticatable implements AuditableContract
     public function hasAssignedCategoryFilter(): bool
     {
         return count($this->assignedCategoryIds()) > 0;
+    }
+
+    public function vendorVisibility(): string
+    {
+        return strtolower((string) ($this->vendor_visibility ?? 'all'));
+    }
+
+    public function showsAllVendors(): bool
+    {
+        return $this->vendorVisibility() === 'all';
+    }
+
+    public function showsRelatedVendorsOnly(): bool
+    {
+        return $this->vendorVisibility() === 'related';
+    }
+
+    /**
+     * @return Builder<Supplier>
+     */
+    public function scopedSuppliersQuery(): Builder
+    {
+        $query = Supplier::query();
+
+        if (! $this->hasRole('purchaser') || $this->showsAllVendors()) {
+            return $query;
+        }
+
+        $assignedCategoryIds = $this->assignedCategoryIds();
+        $totalActiveCategories = Category::query()->where('is_active', true)->count();
+        $isNarrowedCategoryFilter = count($assignedCategoryIds) > 0 && count($assignedCategoryIds) < $totalActiveCategories;
+        $userId = (int) $this->id;
+
+        return $query->where(function (Builder $q) use ($assignedCategoryIds, $isNarrowedCategoryFilter, $userId): void {
+            $hasSubClause = false;
+
+            if ($isNarrowedCategoryFilter) {
+                $q->whereHas('products', fn (Builder $pq) => $pq->whereIn('category_id', $assignedCategoryIds));
+                $hasSubClause = true;
+            }
+
+            if ($hasSubClause) {
+                $q->orWhereHas('purchaserCarts', fn (Builder $cq) => $cq->where('user_id', $userId))
+                    ->orWhereHas('purchaseOrders', fn (Builder $poq) => $poq->where('created_by', $userId))
+                    ->orWhereHas('purchaseInvoices', fn (Builder $piq) => $piq->where('purchaser_submitted_by', $userId)->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('user_id', $userId)));
+            } else {
+                $q->where(function (Builder $directQ) use ($userId): void {
+                    $directQ->whereHas('purchaserCarts', fn (Builder $cq) => $cq->where('user_id', $userId))
+                        ->orWhereHas('purchaseOrders', fn (Builder $poq) => $poq->where('created_by', $userId))
+                        ->orWhereHas('purchaseInvoices', fn (Builder $piq) => $piq->where('purchaser_submitted_by', $userId)->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('user_id', $userId)));
+                });
+            }
+        });
     }
 }

@@ -188,7 +188,11 @@
                     @empty
                         <tr>
                             <td colspan="8" class="py-8 text-center text-xs font-bold text-slate-500">
-                                No vendors found for this tab yet.
+                                @if (auth()->user()?->showsRelatedVendorsOnly())
+                                    No suppliers are assigned to this purchaser.
+                                @else
+                                    No vendors found for this tab yet.
+                                @endif
                             </td>
                         </tr>
                     @endforelse
@@ -259,7 +263,11 @@
                 </article>
             @empty
                 <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-xs font-bold text-slate-500">
-                    No vendors found for this tab yet.
+                    @if (auth()->user()?->showsRelatedVendorsOnly())
+                        No suppliers are assigned to this purchaser.
+                    @else
+                        No vendors found for this tab yet.
+                    @endif
                 </div>
             @endforelse
     </div>

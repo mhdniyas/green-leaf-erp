@@ -111,6 +111,7 @@ class PurchaserDashboardController extends Controller
             'user' => $user,
             'categories' => $categories,
             'assignedCategoryIds' => $user->assignedCategoryIds(),
+            'vendorVisibility' => $user->vendorVisibility(),
             'date' => $date->format('Y-m-d'),
         ]);
     }
@@ -122,17 +123,22 @@ class PurchaserDashboardController extends Controller
         $validated = $request->validate([
             'category_ids' => ['nullable', 'array'],
             'category_ids.*' => ['integer', 'exists:categories,id'],
+            'vendor_visibility' => ['nullable', 'string', 'in:all,related'],
         ]);
 
         $categoryIds = array_values(array_map('intval', $validated['category_ids'] ?? []));
+        $vendorVisibility = in_array($validated['vendor_visibility'] ?? 'all', ['all', 'related'], true)
+            ? $validated['vendor_visibility']
+            : 'all';
 
         $request->user()->update([
             'assigned_category_ids' => count($categoryIds) > 0 ? $categoryIds : null,
+            'vendor_visibility' => $vendorVisibility,
         ]);
 
         return redirect()
             ->route('purchaser.settings')
-            ->with('status', 'Order category preferences saved successfully.');
+            ->with('status', 'Purchaser preferences saved successfully.');
     }
 
     public function products(Request $request): View
@@ -1194,7 +1200,7 @@ class PurchaserDashboardController extends Controller
             $selectedTab = 'pending';
         }
         $userId = (int) $request->user()->id;
-        $suppliers = Supplier::query()
+        $suppliers = $request->user()->scopedSuppliersQuery()
             ->when($search !== '', function ($query) use ($search, $normalizedSearch): void {
                 $query->where(function ($innerQuery) use ($search, $normalizedSearch): void {
                     $innerQuery
@@ -1325,7 +1331,7 @@ class PurchaserDashboardController extends Controller
         }
 
         $userId = (int) $request->user()->id;
-        $supplier = Supplier::query()
+        $supplier = $request->user()->scopedSuppliersQuery()
             ->whereKey($supplier->id)
             ->with([
                 'purchaseInvoices' => fn ($query) => $query
@@ -5185,6 +5191,11 @@ class PurchaserDashboardController extends Controller
 
     private function scopedSuppliersForUser(?User $user = null): Collection
     {
-        return Supplier::query()->orderBy('name')->get();
+        $user ??= auth()->user();
+        if (! $user) {
+            return Supplier::query()->orderBy('name')->get();
+        }
+
+        return $user->scopedSuppliersQuery()->orderBy('name')->get();
     }
 }

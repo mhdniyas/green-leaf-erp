@@ -6,6 +6,7 @@ namespace App\Services\Purchasing;
 
 use App\DTOs\Purchasing\SupplierData;
 use App\Models\Supplier;
+use App\Models\User;
 use App\Repositories\Purchasing\SupplierRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
@@ -17,14 +18,14 @@ class SupplierService
         private readonly SupplierRepository $repository,
     ) {}
 
-    public function paginate(int $perPage = 15): LengthAwarePaginator
+    public function paginate(int $perPage = 15, ?User $user = null): LengthAwarePaginator
     {
-        return $this->repository->paginate($perPage);
+        return $this->repository->paginate($perPage, $user);
     }
 
-    public function all(): Collection
+    public function all(?User $user = null): Collection
     {
-        return $this->repository->all();
+        return $this->repository->all($user);
     }
 
     public function create(SupplierData $data): Supplier
