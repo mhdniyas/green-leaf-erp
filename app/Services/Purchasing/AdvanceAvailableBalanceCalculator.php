@@ -84,29 +84,24 @@ class AdvanceAvailableBalanceCalculator
             return null;
         }
 
-        $normalizedUnit = strtolower(trim((string) ($unit ?: $product->unit)));
-        $normalizedBase = strtolower(trim((string) $product->unit));
+        $normalizedUnit = ProductUnit::normalizeUnit($unit ?: $product->unit);
+        $normalizedBase = ProductUnit::normalizeUnit($product->unit);
 
         if ($normalizedUnit === $normalizedBase || $normalizedUnit === '') {
             return 1.0;
         }
 
-        $alias = ProductUnit::UNIT_ALIASES[$normalizedUnit] ?? null;
-        if ($alias && $alias === $normalizedBase) {
-            return 1.0;
-        }
-
         $units = $product->relationLoaded('orderUnits') ? $product->orderUnits : $product->orderUnits()->get();
-        $matched = $units->first(function (ProductUnit $pu) use ($normalizedUnit, $alias): bool {
-            $puUnit = strtolower(trim((string) $pu->unit));
+        $matched = $units->first(function (ProductUnit $pu) use ($normalizedUnit): bool {
+            $puUnit = ProductUnit::normalizeUnit($pu->unit);
 
-            return $puUnit === $normalizedUnit || ($alias && $puUnit === $alias);
+            return $puUnit === $normalizedUnit;
         });
 
-        if (! $matched || $matched->conversion_to_base === null || (float) $matched->conversion_to_base <= 0.0) {
-            return null;
+        if ($matched && $matched->conversion_to_base !== null && (float) $matched->conversion_to_base > 0.0) {
+            return (float) $matched->conversion_to_base;
         }
 
-        return (float) $matched->conversion_to_base;
+        return null;
     }
 }

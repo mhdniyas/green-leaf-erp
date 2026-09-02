@@ -2842,7 +2842,30 @@
                         </div>
                     </div>
 
-                    <div class="flex justify-end pt-2 border-t border-slate-100">
+                    <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+                        <div>
+                            @if(auth()->user()?->hasRole('admin') || auth()->user()?->isMainAdmin())
+                                <template x-if="selectedPaymentForDetails && selectedPaymentForDetails.id > 0">
+                                    <form method="POST"
+                                          action="{{ route('admin.cashbook.shop.payments.destroy', [$currentShop->slug ?: $currentShop->shop_id]) }}"
+                                          @submit.prevent="if (window.confirm('Are you sure you want to delete this payment? Any linked allocation or reconciliation will be reversed where required.')) $el.submit()">
+                                        @csrf
+                                        @method('DELETE')
+                                        <input type="hidden" name="payment_request_id" :value="selectedPaymentForDetails.id">
+                                        @foreach(request()->query() as $queryKey => $queryVal)
+                                            @if(!in_array($queryKey, ['_token', '_method', 'payment_request_id'], true) && is_scalar($queryVal))
+                                                <input type="hidden" name="{{ $queryKey }}" value="{{ $queryVal }}">
+                                            @endif
+                                        @endforeach
+                                        <button type="submit"
+                                                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs hover:shadow transition cursor-pointer">
+                                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                            <span>Delete Payment</span>
+                                        </button>
+                                    </form>
+                                </template>
+                            @endif
+                        </div>
                         <button type="button" @click="showPaymentDetailsModal = false" class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition cursor-pointer">
                             Close
                         </button>

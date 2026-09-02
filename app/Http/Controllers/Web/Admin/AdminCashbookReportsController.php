@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
-use App\Enums\Inventory\StockMovementType;
+use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Http\Controllers\Controller;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
@@ -13,15 +13,22 @@ use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
 use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\PurchaseProductFilter;
 use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
-use App\Models\StockMovement;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Purchasing\AdvanceInventoryService;
+use App\Services\Purchasing\AdvanceReceiveReconciliationService;
+use App\Services\Purchasing\AutoAdvanceClearExecutionService;
+use App\Services\Purchasing\AutoAdvanceClearPlanningService;
 use App\Services\Purchasing\GoodsReceivedService;
+use App\Services\Purchasing\WarehouseReceiptReadScope;
+use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Services\Reports\ShopProfitIntelligenceService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
@@ -32,9 +39,13 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class AdminCashbookReportsController extends Controller
 {
@@ -1432,274 +1443,327 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
-     * Cashbook Inventory Section:
-     * A. Bill Pending (Goods received into warehouse, bill not linked yet)
-     * B. Loadout Not Billed (Dispatched items without bill coverage)
-     * C. Invoice Adjustments (Admin qty/price/discount edits sourced from activity log)
-     * D. Bill Notes & Changes (Day-wise cross-invoice admin action audit)
+     * Cashbook Operational Inventory Reconciliation Screen:
+     * 1. Daily Inventory (Billed vs Physical/Advance carry forward as-of date)
+     * 2. Pending Bills (Authoritative source-of-truth from AdvanceReceiveReconciliationService)
+     * 3. Advance Bills (Individual advance GRNs with 3-day operational retention for cleared)
+     * 4. Invoice Adjustments (Secondary audit tab for delivery review and admin edits)
      */
     public function inventory(Request $request): View
     {
         $this->ensureAuthorized($request);
 
-        $selectedDate = $request->input('date');
-        $timeframe = (string) $request->input('timeframe', $selectedDate ? 'custom' : 'today');
+        // 1. Warehouse Authorization Scoping
+        $requestedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        if ($requestedWarehouseId !== null && ! Warehouse::query()->where('id', $requestedWarehouseId)->exists()) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $requestedWarehouseId
+        );
 
-        if ($timeframe === 'yesterday') {
-            $selectedDate = today()->subDay()->toDateString();
-        } elseif ($timeframe === 'today' || ! $selectedDate) {
-            $selectedDate = today()->toDateString();
-            $timeframe = 'today';
+        if ($requestedWarehouseId !== null && $authorizedWarehouseIds !== null && ! in_array($requestedWarehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
         }
 
-        $section = (string) $request->input('section', 'invoice_adjustments');
-        if (! in_array($section, ['invoice_adjustments', 'bill_notes', 'bill_pending', 'loadout_not_billed', 'history'], true)) {
-            $section = 'invoice_adjustments';
+        $availableWarehouses = Warehouse::query()
+            ->active()
+            ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('id', $authorizedWarehouseIds))
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
+        $selectedWarehouseId = $requestedWarehouseId;
+
+        // 2. Date Controls
+        $selectedDate = $request->input('date', today()->toDateString());
+        $date = Carbon::parse($selectedDate)->toDateString();
+        $prevDate = Carbon::parse($date)->subDay()->toDateString();
+        $nextDate = Carbon::parse($date)->addDay()->toDateString();
+        $isToday = ($date === today()->toDateString());
+
+        // 3. Tab Routing (Default: daily_inventory)
+        $tab = (string) ($request->input('tab') ?: $request->input('section', 'daily_inventory'));
+        if ($tab === 'bill_pending') {
+            $tab = 'pending_bills';
+        }
+        if (! in_array($tab, ['daily_inventory', 'pending_bills', 'advance_bills', 'unit_differences', 'invoice_adjustments', 'bill_notes', 'loadout_not_billed', 'history'], true)) {
+            $tab = 'daily_inventory';
         }
 
+        $search = trim((string) $request->input('search', ''));
         $shopId = $request->input('shop_id');
         $reasonFilter = $request->input('reason');
         $resolutionFilter = $request->input('resolution');
-        $search = trim((string) $request->input('search', ''));
+        $timeframe = (string) $request->input('timeframe', $isToday ? 'today' : 'custom');
 
-        // Query activities for the selected date (Summary calculation)
-        $baseQuery = Activity::query()
-            ->with(['causer', 'subject.shop'])
-            ->where('subject_type', ShopInvoice::class)
-            ->whereIn(
-                'properties->source',
-                ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount']
-            )
-            ->whereDate('created_at', $selectedDate);
+        // 4. Bounded Summary Metrics (Exact same accounting logic)
+        $dailySummary = app(AdvanceInventoryService::class)->getDailySummary([
+            'date' => $date,
+            'warehouse_id' => $selectedWarehouseId,
+            'authorized_warehouse_ids' => $authorizedWarehouseIds,
+        ]);
 
-        if ($shopId) {
-            $baseQuery->whereHasMorph('subject', [ShopInvoice::class], fn ($q) => $q->where('shop_id', $shopId));
-        }
-
-        if ($search !== '') {
-            $baseQuery->where(function ($q) use ($search): void {
-                $q->whereHas('causer', fn ($u) => $u->where('name', 'like', "%{$search}%"))
-                    ->orWhereHasMorph('subject', [ShopInvoice::class], function ($s) use ($search): void {
-                        $s->where('invoice_number', 'like', "%{$search}%")
-                            ->orWhereHas('shop', fn ($sh) => $sh->where('name', 'like', "%{$search}%"));
-                    })
-                    ->orWhere('properties', 'like', "%{$search}%");
+        $pendingBillsCountQuery = PurchaseOrder::query()
+            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->where(function (Builder $pending): void {
+                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                    ->orWhere(function ($withoutReceipt): void {
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                    });
             });
-        }
+        app(WarehouseReceiptReadScope::class)->orders(
+            $pendingBillsCountQuery,
+            $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
+        );
+        $pendingBillsCount = $pendingBillsCountQuery->count();
 
-        $allDayActivities = (clone $baseQuery)->get();
+        $openAdvancesCount = GoodsReceived::query()
+            ->openWarehouseAdvance($selectedWarehouseId !== null ? $selectedWarehouseId : $authorizedWarehouseIds)
+            ->count();
+
+        $unitDifferencesCount = app(AdvanceReceiveReconciliationService::class)->countUnitDifferences([
+            'warehouse_id' => $selectedWarehouseId,
+            'authorized_warehouse_ids' => $authorizedWarehouseIds,
+        ]);
+
         $summary = [
-            'total_adjustments' => 0,
-            'returned_to_warehouse_count' => 0,
-            'returned_to_warehouse_qty' => 0.0,
-            'wastage_count' => 0,
-            'wastage_qty' => 0.0,
-            'extra_stock_count' => 0,
-            'extra_stock_qty' => 0.0,
-            'already_accounted_count' => 0,
-            'already_accounted_qty' => 0.0,
+            'excess_count' => $dailySummary['excess_count'],
+            'short_count' => $dailySummary['short_count'],
+            'balanced_count' => $dailySummary['balanced_count'],
+            'pending_bills_count' => $pendingBillsCount,
+            'open_advances_count' => $openAdvancesCount,
+            'unit_differences_count' => $unitDifferencesCount,
+            'total_products' => $dailySummary['total_products'],
+            'total_physical_base' => $dailySummary['total_physical_base'],
+            'total_billed_base' => $dailySummary['total_billed_base'],
+            'total_difference_base' => $dailySummary['total_difference_base'],
         ];
 
-        foreach ($allDayActivities as $act) {
-            $resolutions = data_get($act->properties, 'inventory_resolutions', []);
-            if (is_array($resolutions) && count($resolutions) > 0) {
-                foreach ($resolutions as $res) {
-                    $summary['total_adjustments']++;
-                    $resType = (string) ($res['resolution'] ?? '');
-                    $resQty = (float) ($res['resolution_qty'] ?? 0);
-                    if (in_array($resType, ['return_to_warehouse', 'add_back'], true)) {
-                        $summary['returned_to_warehouse_count']++;
-                        $summary['returned_to_warehouse_qty'] += $resQty;
-                    } elseif ($resType === 'wastage') {
-                        $summary['wastage_count']++;
-                        $summary['wastage_qty'] += $resQty;
-                    } elseif ($resType === 'deduct_extra') {
-                        $summary['extra_stock_count']++;
-                        $summary['extra_stock_qty'] += $resQty;
-                    } elseif ($resType === 'already_accounted') {
-                        $summary['already_accounted_count']++;
-                        $summary['already_accounted_qty'] += $resQty;
-                    }
-                }
-            } else {
-                $summary['total_adjustments']++;
-            }
-        }
-
-        $activities = null;
+        // 5. Query Active Tab Data
+        $dailyInventory = null;
+        $pendingBills = null;
+        $advanceBills = null;
+        $unitDifferences = null;
         $adjustedInvoices = null;
+        $activities = null;
         $activitiesByInvoice = collect();
         $billPendingReceipts = null;
         $loadoutNotBilled = null;
         $historyRecords = null;
+        $summaryAdjustments = null;
 
-        if (in_array($section, ['invoice_adjustments', 'bill_notes'], true)) {
-            $filteredQuery = clone $baseQuery;
-            if ($reasonFilter) {
-                $filteredQuery->where(function ($q) use ($reasonFilter): void {
-                    $q->where('properties->reason', $reasonFilter)
-                        ->orWhere('properties->inventory_resolutions', 'like', "%\"reason\":\"{$reasonFilter}\"%");
-                });
-            }
-            if ($resolutionFilter) {
-                $filteredQuery->where(function ($q) use ($resolutionFilter): void {
-                    $q->where('properties->inventory_resolutions', 'like', "%\"resolution\":\"{$resolutionFilter}\"%");
-                });
-            }
-
-            // Find unique invoice IDs for one-entry-per-day/invoice
-            $invoiceIds = (clone $filteredQuery)->pluck('subject_id')->unique()->all();
-
-            $adjustedInvoices = ShopInvoice::query()
-                ->with(['shop', 'finalizedBy', 'items.product', 'order.items.product'])
-                ->whereIn('id', $invoiceIds)
-                ->orderByDesc('business_date')
-                ->orderByDesc('updated_at')
-                ->orderByDesc('id')
-                ->paginate(25, ['*'], 'page')
-                ->withQueryString();
-
-            $pageInvoiceIds = $adjustedInvoices->pluck('id')->all();
-            $activitiesByInvoice = Activity::query()
-                ->with('causer')
-                ->where('subject_type', ShopInvoice::class)
-                ->whereIn('subject_id', $pageInvoiceIds)
-                ->whereIn('properties->source', ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount'])
-                ->whereDate('created_at', $selectedDate)
-                ->orderByDesc('created_at')
-                ->get()
-                ->groupBy('subject_id');
-
-            $activities = $filteredQuery
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->paginate(25, ['*'], 'page')
-                ->withQueryString();
-        } elseif ($section === 'bill_pending') {
-            $bpQuery = GoodsReceived::query()
-                ->with(['purchaseOrder.supplier', 'destinationShop', 'warehouse', 'items.product', 'receivedBy', 'purchaseInvoices'])
-                ->where(function ($q): void {
-                    $q->where(function ($typeQ): void {
-                        $typeQ->where('receipt_type', 'normal_purchase')
-                            ->orWhere(function ($leg): void {
-                                $leg->whereNull('receipt_type')->whereNotNull('purchase_order_id');
-                            });
-                    })->where(function ($billQ): void {
-                        $billQ->where('bill_status', 'bill_pending')
-                            ->orWhereDoesntHave('purchaseInvoices');
-                    });
-                });
-
-            if ($request->filled('date')) {
-                $bpQuery->whereDate('received_at', $selectedDate);
-            }
-
-            if ($search !== '') {
-                $bpQuery->where(function ($q) use ($search): void {
-                    $q->where('grn_number', 'like', "%{$search}%")
-                        ->orWhere('bill_number', 'like', "%{$search}%")
-                        ->orWhere('notes', 'like', "%{$search}%")
-                        ->orWhereHas('purchaseOrder.supplier', fn ($sq) => $sq->where('name', 'like', "%{$search}%"))
-                        ->orWhereHas('items.product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"));
-                });
-            }
-
-            $billPendingReceipts = $bpQuery
-                ->orderByDesc('received_at')
-                ->orderByDesc('id')
-                ->paginate(25, ['*'], 'page')
-                ->withQueryString();
-        } elseif ($section === 'loadout_not_billed') {
-            $loadoutQuery = StockMovement::query()
-                ->where('type', StockMovementType::Out)
-                ->whereNotNull('shop_order_item_id')
-                ->where(function ($q): void {
-                    $q->whereNull('batch_id')
-                        ->orWhereDoesntHave('batch.goodsReceived')
-                        ->orWhereHas('batch.goodsReceived', function ($gq): void {
-                            $gq->where(function ($typeQ): void {
-                                $typeQ->where('receipt_type', 'normal_purchase')
-                                    ->orWhere(function ($leg): void {
-                                        $leg->whereNull('receipt_type')->whereNotNull('purchase_order_id');
-                                    });
-                            })->where(function ($billQ): void {
-                                $billQ->where('bill_status', 'bill_pending')
-                                    ->orWhereDoesntHave('purchaseInvoices');
-                            });
+        if ($tab === 'daily_inventory') {
+            $dailyInventory = app(AdvanceInventoryService::class)->paginateDailyInventory([
+                'date' => $date,
+                'search' => $search,
+                'warehouse_id' => $selectedWarehouseId,
+                'authorized_warehouse_ids' => $authorizedWarehouseIds,
+            ], 20)->withQueryString();
+        } elseif ($tab === 'pending_bills') {
+            $pendingBills = app(AdvanceReceiveReconciliationService::class)->paginateMatchCandidates([
+                'search' => $search,
+                'warehouse_id' => $selectedWarehouseId,
+                'authorized_warehouse_ids' => $authorizedWarehouseIds,
+            ], 20)->withQueryString();
+        } elseif ($tab === 'unit_differences') {
+            $unitDifferences = app(AdvanceReceiveReconciliationService::class)->paginateUnitDifferences([
+                'search' => $search,
+                'warehouse_id' => $selectedWarehouseId,
+                'authorized_warehouse_ids' => $authorizedWarehouseIds,
+            ], 20)->withQueryString();
+        } elseif ($tab === 'advance_bills') {
+            $advQuery = GoodsReceived::query()
+                ->where(function (Builder $typeQ): void {
+                    $typeQ->where('receipt_type', 'warehouse_advance')
+                        ->orWhere(function ($leg): void {
+                            $leg->whereNull('receipt_type')->whereNull('purchase_order_id');
                         });
                 })
+                ->where('status', '!=', 'cancelled')
+                ->when($selectedWarehouseId !== null, function ($q) use ($selectedWarehouseId): void {
+                    $q->where(function ($whQ) use ($selectedWarehouseId): void {
+                        $whQ->where('warehouse_id', $selectedWarehouseId)
+                            ->orWhere('destination_shop_id', $selectedWarehouseId);
+                    });
+                }, function ($q) use ($authorizedWarehouseIds): void {
+                    if (! empty($authorizedWarehouseIds)) {
+                        $q->where(function ($whQ) use ($authorizedWarehouseIds): void {
+                            $whQ->whereIn('warehouse_id', $authorizedWarehouseIds)
+                                ->orWhereIn('destination_shop_id', $authorizedWarehouseIds);
+                        });
+                    }
+                })
                 ->with([
-                    'product',
-                    'warehouse',
-                    'batch.goodsReceived.purchaseOrder.supplier',
-                    'batch.goodsReceived.purchaseOrder.purchaser',
-                    'shopOrderItem.order.shop',
+                    'items.product',
+                    'warehouse:id,name,code',
+                    'destinationShop:id,name,code',
+                    'receivedBy:id,name',
+                    'advanceMatchesAsAdvance',
                 ]);
 
-            if ($request->filled('date')) {
-                $loadoutQuery->whereDate('created_at', $selectedDate);
-            }
-
-            if ($search !== '') {
-                $loadoutQuery->where(function ($q) use ($search): void {
-                    $q->whereHas('product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"))
-                        ->orWhereHas('shopOrderItem.order.shop', fn ($sq) => $sq->where('name', 'like', "%{$search}%"))
-                        ->orWhere('notes', 'like', "%{$search}%");
-                });
-            }
-
-            $loadoutNotBilled = $loadoutQuery
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->paginate(25, ['*'], 'page')
-                ->withQueryString();
-        } elseif ($section === 'history') {
-            $histQuery = Activity::query()
-                ->with(['causer', 'subject'])
-                ->where(function ($q): void {
-                    $q->where(function ($sq): void {
-                        $sq->where('subject_type', ShopInvoice::class)
-                            ->whereIn('properties->source', ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount']);
-                    })->orWhere(function ($gq): void {
-                        $gq->where('subject_type', GoodsReceived::class)
-                            ->where(function ($eq): void {
-                                $eq->where('event', 'goods_received.bill_matched')
-                                    ->orWhere('description', 'goods_received.bill_matched')
-                                    ->orWhere('properties->source', 'goods_received_matched');
+            // Operational Retention: Pending/partial always visible; Cleared visible only for 3 days from authoritative clear event
+            $cutoffDate = now()->subDays(3)->startOfDay();
+            $advQuery->where(function (Builder $q) use ($cutoffDate): void {
+                $q->where('bill_status', 'bill_pending')
+                    ->orWhere(function (Builder $clearedQ) use ($cutoffDate): void {
+                        $clearedQ->where('bill_status', 'bill_available')
+                            ->where(function (Builder $dateQ) use ($cutoffDate): void {
+                                $dateQ->whereExists(function ($armQ) use ($cutoffDate): void {
+                                    $armQ->selectRaw('1')
+                                        ->from('advance_receive_matches as arm')
+                                        ->whereColumn('arm.advance_goods_received_id', 'goods_received.id')
+                                        ->where('arm.confirmed_at', '>=', $cutoffDate);
+                                })
+                                    ->orWhere('goods_received.matched_at', '>=', $cutoffDate)
+                                    ->orWhere('goods_received.updated_at', '>=', $cutoffDate);
                             });
                     });
-                });
+            });
 
-            if ($request->filled('date')) {
-                $histQuery->whereDate('created_at', $selectedDate);
+            if ($search !== '') {
+                $advQuery->where(function (Builder $q) use ($search): void {
+                    $q->where('grn_number', 'like', "%{$search}%")
+                        ->orWhere('notes', 'like', "%{$search}%")
+                        ->orWhereHas('items.product', function (Builder $pq) use ($search): void {
+                            $pq->where('name', 'like', "%{$search}%")
+                                ->orWhere('sku', 'like', "%{$search}%");
+                        });
+                });
+            }
+
+            $advanceBills = $advQuery->orderByDesc('received_at')->orderByDesc('id')->paginate(20)->withQueryString();
+        } else {
+            // Secondary / Legacy tabs (invoice adjustments, history, etc.)
+            $baseQuery = Activity::query()
+                ->with(['causer', 'subject.shop'])
+                ->where('subject_type', ShopInvoice::class)
+                ->whereIn(
+                    'properties->source',
+                    ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount']
+                )
+                ->whereDate('created_at', $date);
+
+            if ($shopId) {
+                $baseQuery->whereHasMorph('subject', [ShopInvoice::class], fn ($q) => $q->where('shop_id', $shopId));
             }
 
             if ($search !== '') {
-                $histQuery->where(function ($q) use ($search): void {
+                $baseQuery->where(function ($q) use ($search): void {
                     $q->whereHas('causer', fn ($u) => $u->where('name', 'like', "%{$search}%"))
-                        ->orWhere('properties', 'like', "%{$search}%")
-                        ->orWhere('description', 'like', "%{$search}%");
+                        ->orWhereHasMorph('subject', [ShopInvoice::class], function ($s) use ($search): void {
+                            $s->where('invoice_number', 'like', "%{$search}%")
+                                ->orWhereHas('shop', fn ($sh) => $sh->where('name', 'like', "%{$search}%"));
+                        })
+                        ->orWhere('properties', 'like', "%{$search}%");
                 });
             }
 
-            $historyRecords = $histQuery
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->paginate(25, ['*'], 'page')
-                ->withQueryString();
+            $allDayActivities = (clone $baseQuery)->get();
+            $summaryAdjustments = [
+                'total_adjustments' => 0,
+                'returned_to_warehouse_count' => 0,
+                'returned_to_warehouse_qty' => 0.0,
+                'wastage_count' => 0,
+                'wastage_qty' => 0.0,
+                'extra_stock_count' => 0,
+                'extra_stock_qty' => 0.0,
+                'already_accounted_count' => 0,
+                'already_accounted_qty' => 0.0,
+            ];
+
+            foreach ($allDayActivities as $act) {
+                $resolutions = data_get($act->properties, 'inventory_resolutions', []);
+                if (is_array($resolutions) && count($resolutions) > 0) {
+                    foreach ($resolutions as $res) {
+                        $summaryAdjustments['total_adjustments']++;
+                        $resType = (string) ($res['resolution'] ?? '');
+                        $resQty = (float) ($res['resolution_qty'] ?? 0);
+                        if (in_array($resType, ['return_to_warehouse', 'add_back'], true)) {
+                            $summaryAdjustments['returned_to_warehouse_count']++;
+                            $summaryAdjustments['returned_to_warehouse_qty'] += $resQty;
+                        } elseif ($resType === 'wastage') {
+                            $summaryAdjustments['wastage_count']++;
+                            $summaryAdjustments['wastage_qty'] += $resQty;
+                        } elseif ($resType === 'deduct_extra') {
+                            $summaryAdjustments['extra_stock_count']++;
+                            $summaryAdjustments['extra_stock_qty'] += $resQty;
+                        } elseif ($resType === 'already_accounted') {
+                            $summaryAdjustments['already_accounted_count']++;
+                            $summaryAdjustments['already_accounted_qty'] += $resQty;
+                        }
+                    }
+                } else {
+                    $summaryAdjustments['total_adjustments']++;
+                }
+            }
+
+            if (in_array($tab, ['invoice_adjustments', 'bill_notes'], true)) {
+                $filteredQuery = clone $baseQuery;
+                if ($reasonFilter) {
+                    $filteredQuery->where(function ($q) use ($reasonFilter): void {
+                        $q->where('properties->reason', $reasonFilter)
+                            ->orWhere('properties->inventory_resolutions', 'like', "%\"reason\":\"{$reasonFilter}\"%");
+                    });
+                }
+                if ($resolutionFilter) {
+                    $filteredQuery->where(function ($q) use ($resolutionFilter): void {
+                        $q->where('properties->inventory_resolutions', 'like', "%\"resolution\":\"{$resolutionFilter}\"%");
+                    });
+                }
+
+                $invoiceIds = (clone $filteredQuery)->pluck('subject_id')->unique()->all();
+
+                $adjustedInvoices = ShopInvoice::query()
+                    ->with(['shop', 'finalizedBy', 'items.product', 'order.items.product'])
+                    ->whereIn('id', $invoiceIds)
+                    ->orderByDesc('business_date')
+                    ->orderByDesc('updated_at')
+                    ->orderByDesc('id')
+                    ->paginate(25, ['*'], 'page')
+                    ->withQueryString();
+
+                $pageInvoiceIds = $adjustedInvoices->pluck('id')->all();
+                $activitiesByInvoice = Activity::query()
+                    ->with('causer')
+                    ->where('subject_type', ShopInvoice::class)
+                    ->whereIn('subject_id', $pageInvoiceIds)
+                    ->whereIn('properties->source', ['admin_delivery_review_finalized', 'admin_item_adjustment', 'admin_discount'])
+                    ->whereDate('created_at', $date)
+                    ->orderByDesc('created_at')
+                    ->get()
+                    ->groupBy('subject_id');
+
+                $activities = $filteredQuery
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->paginate(25, ['*'], 'page')
+                    ->withQueryString();
+            }
         }
 
         $availableShops = Shop::query()->orderBy('name')->get(['id', 'name', 'code']);
 
         return view('admin.cashbook.reports.inventory', [
-            'section' => $section,
+            'tab' => $tab,
+            'section' => $tab,
             'timeframe' => $timeframe,
-            'selectedDate' => $selectedDate,
+            'selectedDate' => $date,
+            'prevDate' => $prevDate,
+            'nextDate' => $nextDate,
+            'isToday' => $isToday,
             'search' => $search,
             'shopId' => $shopId,
+            'selectedWarehouseId' => $selectedWarehouseId,
+            'availableWarehouses' => $availableWarehouses,
             'reasonFilter' => $reasonFilter,
             'resolutionFilter' => $resolutionFilter,
             'summary' => $summary,
+            'summaryAdjustments' => $summaryAdjustments,
+            'dailyInventory' => $dailyInventory,
+            'pendingBills' => $pendingBills,
+            'advanceBills' => $advanceBills,
+            'unitDifferences' => $unitDifferences,
             'activities' => $activities,
             'adjustedInvoices' => $adjustedInvoices,
             'activitiesByInvoice' => $activitiesByInvoice,
@@ -1709,6 +1773,286 @@ class AdminCashbookReportsController extends Controller
             'availableShops' => $availableShops,
             'activeTab' => 'inventory',
         ]);
+    }
+
+    /**
+     * Get deterministic read-only auto-clear plan preview for web UI.
+     */
+    public function autoClearPlan(Request $request): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $warehouseId = (int) $validated['warehouse_id'];
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan(
+            $warehouseId,
+            (int) $request->user()->id
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $plan,
+        ]);
+    }
+
+    /**
+     * Execute auto-match clear plan idempotently from web UI.
+     */
+    public function autoClearExecute(Request $request): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'plan_hash' => ['required', 'string', 'size:64', 'regex:/^[a-f0-9]{64}$/i'],
+            'client_submission_id' => ['required', 'string', 'uuid'],
+        ]);
+
+        $warehouseId = (int) $validated['warehouse_id'];
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        try {
+            $result = app(AutoAdvanceClearExecutionService::class)->execute(
+                $warehouseId,
+                (string) $validated['plan_hash'],
+                (string) $validated['client_submission_id'],
+                (int) $request->user()->id
+            );
+
+            if (isset($result['status_code']) && $result['status_code'] === 409) {
+                return response()->json([
+                    'status' => 'conflict',
+                    'message' => 'The auto-clear plan is stale or conflicted with concurrent receipts. Please review the updated preview.',
+                    'error' => $result['error'] ?? null,
+                ], 409);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Automatic advance reconciliation completed successfully.',
+                'data' => $result,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'status' => 'validation_error',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            Log::error('AutoAdvanceClear web execution failed', [
+                'warehouse_id' => $warehouseId,
+                'plan_hash' => $validated['plan_hash'],
+                'client_submission_id' => $validated['client_submission_id'],
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Reconciliation execution could not complete: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get candidate advance matches for a specific Purchase Order.
+     */
+    public function manualMatchSuggestions(Request $request, PurchaseOrder $order): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $requestedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $requestedWarehouseId);
+
+        $targetWarehouseId = $requestedWarehouseId ?? (int) ($order->warehouse_id ?? $order->destination_shop_id ?? 1);
+
+        if ($authorizedWarehouseIds !== null && ! in_array($targetWarehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $suggestions = app(AdvanceReceiveReconciliationService::class)->getSuggestionsForOrder($order, $targetWarehouseId);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $suggestions,
+        ]);
+    }
+
+    /**
+     * Execute manual match for a specific Purchase Order against open Advance GRNs.
+     */
+    public function manualMatchExecute(Request $request, PurchaseOrder $order): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.goods_received_item_id' => ['nullable', 'integer'],
+            'items.*.purchase_order_item_id' => ['nullable', 'integer'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.received_qty' => ['required', 'numeric', 'min:0'],
+            'items.*.unit' => ['nullable', 'string', 'max:20'],
+            'advance_matches' => ['required', 'array', 'min:1'],
+            'advance_matches.*.advance_goods_received_id' => ['required', 'integer', 'exists:goods_received,id'],
+            'advance_matches.*.advance_goods_received_item_id' => ['nullable', 'integer'],
+            'advance_matches.*.purchase_order_item_id' => ['nullable', 'integer'],
+            'advance_matches.*.goods_received_item_id' => ['nullable', 'integer'],
+            'advance_matches.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'advance_matches.*.matched_qty' => ['required', 'numeric', 'min:0.001'],
+            'advance_matches.*.unit' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $warehouseId = (int) $validated['warehouse_id'];
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $userId = (int) $request->user()->id;
+
+        $pendingGrn = $order->goodsReceiveds()
+            ->where(function (Builder $q): void {
+                $q->where('receipt_type', 'normal_purchase')
+                    ->orWhereNull('receipt_type');
+            })
+            ->where('status', '!=', 'approved')
+            ->first();
+
+        try {
+            if ($pendingGrn) {
+                $result = app(AdvanceReceiveReconciliationService::class)->reconcileExistingGrn(
+                    $pendingGrn,
+                    $validated['items'],
+                    $validated['advance_matches'],
+                    $warehouseId,
+                    $userId
+                );
+            } else {
+                $dtoItems = [];
+                foreach ($validated['items'] as $it) {
+                    $dtoItems[] = [
+                        'product_id' => (int) $it['product_id'],
+                        'purchase_order_item_id' => isset($it['purchase_order_item_id']) ? (int) $it['purchase_order_item_id'] : null,
+                        'received_qty' => (float) $it['received_qty'],
+                        'received_unit' => $it['unit'] ?? 'kg',
+                    ];
+                }
+
+                $grnData = new GoodsReceivedData(
+                    purchaseOrderId: $order->id,
+                    receivedAt: now()->toDateTimeString(),
+                    transportCost: 0.0,
+                    labourCost: 0.0,
+                    notes: "Manual match for PO #{$order->po_number}",
+                    items: $dtoItems,
+                    billStatus: 'bill_available',
+                    billNumber: null,
+                    destinationShopId: $order->destination_shop_id,
+                    warehouseId: $warehouseId,
+                    clientSubmissionId: (string) Str::uuid(),
+                    advanceMatches: $validated['advance_matches'],
+                    receiptType: 'normal_purchase',
+                );
+
+                $result = app(AdvanceReceiveReconciliationService::class)->reconcileAndExecute(
+                    $grnData,
+                    $userId
+                );
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Purchase bill manually matched with advance successfully.',
+                'grn_id' => $result->id,
+                'grn_number' => $result->grn_number,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'status' => 'validation_error',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            Log::error('Manual match execution failed', [
+                'purchase_order_id' => $order->id,
+                'warehouse_id' => $warehouseId,
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Manual match failed: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Resolve unit difference line on a purchase order.
+     */
+    public function resolveUnitDifference(Request $request): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'purchase_order_id' => ['required', 'integer', 'exists:purchase_orders,id'],
+            'purchase_order_item_id' => ['required', 'integer', 'exists:purchase_order_items,id'],
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'advance_goods_received_id' => ['required', 'integer', 'exists:goods_received,id'],
+            'advance_goods_received_item_id' => ['nullable', 'integer', 'exists:goods_received_items,id'],
+            'matched_qty' => ['required', 'numeric', 'min:0.001'],
+            'conversion_factor' => ['required', 'numeric', 'min:0.0001'],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'client_submission_id' => ['nullable', 'string', 'uuid'],
+        ]);
+
+        $warehouseId = (int) $validated['warehouse_id'];
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $userId = (int) $request->user()->id;
+
+        try {
+            $result = app(AdvanceReceiveReconciliationService::class)->resolveUnitDifference($validated, $userId);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Unit difference resolved successfully.',
+                'data' => $result,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'status' => 'validation_error',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            Log::error('Resolve unit difference execution failed', [
+                'purchase_order_id' => $validated['purchase_order_id'],
+                'purchase_order_item_id' => $validated['purchase_order_item_id'],
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Resolution could not be saved: '.$e->getMessage(),
+            ], 500);
+        }
     }
 
     public function matchBill(Request $request, GoodsReceived $goodsReceived): RedirectResponse

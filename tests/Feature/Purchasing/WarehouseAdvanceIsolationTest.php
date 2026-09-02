@@ -273,6 +273,13 @@ class WarehouseAdvanceIsolationTest extends TestCase
             'order_date' => now()->toDateString(),
             'created_by' => $this->purchaserUser->id,
         ]);
+        $po->items()->create([
+            'product_id' => $this->tomatoProduct->id,
+            'quantity' => 10.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 200.0,
+        ]);
 
         $normalPendingGrn = GoodsReceived::create([
             'public_uuid' => (string) Str::uuid(),
@@ -284,6 +291,12 @@ class WarehouseAdvanceIsolationTest extends TestCase
             'warehouse_id' => $this->warehouse->id,
             'received_by' => $this->warehouseUser->id,
             'received_at' => now()->toDateString(),
+        ]);
+        $normalPendingGrn->items()->create([
+            'product_id' => $this->tomatoProduct->id,
+            'received_qty' => 10.0,
+            'received_unit' => 'kg',
+            'variance' => 0,
         ]);
 
         // 2. Create a warehouse advance GRN

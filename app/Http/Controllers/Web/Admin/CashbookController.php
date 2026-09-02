@@ -2371,6 +2371,34 @@ final class CashbookController extends Controller
         ])->with('success', 'Cleared '.$clearedCount.' allocation '.Str::plural('record', $clearedCount).' for the selected payment.');
     }
 
+    public function destroyShopPayment(Request $request, int|string $shop): RedirectResponse
+    {
+        $user = $request->user();
+        if (! $user instanceof User || (! $user->hasRole('admin') && ! $user->isMainAdmin())) {
+            abort(403, 'Unauthorized. Only administrators can delete shop payments.');
+        }
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+        ]);
+
+        $payment = ShopInvoicePaymentRequest::query()
+            ->whereKey((int) $validated['payment_request_id'])
+            ->where('shop_id', $shopId)
+            ->firstOrFail();
+
+        $this->shopPaymentLedgerReconciliationService->deletePayment($payment, (int) $user->id);
+
+        $redirectParams = $request->except(['_token', '_method', 'payment_request_id']);
+        $redirectParams['shop'] = $currentShop->slug ?: $currentShop->shop_id;
+
+        return redirect()->route('admin.cashbook.shop.show', $redirectParams)
+            ->with('success', 'Payment deleted successfully. All linked allocations and reconciliations were safely reversed.');
+    }
+
     public function clearAllShopPaymentAllocationsWeb(Request $request, int|string $shop): RedirectResponse
     {
         $this->ensureMainAdmin($request);

@@ -668,6 +668,11 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
             Route::get('inventory', [AdminCashbookReportsController::class, 'inventory'])->name('inventory');
             Route::post('inventory/match-bill/{goodsReceived}', [AdminCashbookReportsController::class, 'matchBill'])->name('inventory.match-bill');
+            Route::get('inventory/auto-clear-plan', [AdminCashbookReportsController::class, 'autoClearPlan'])->name('inventory.auto-clear-plan');
+            Route::post('inventory/auto-clear-execute', [AdminCashbookReportsController::class, 'autoClearExecute'])->name('inventory.auto-clear-execute');
+            Route::get('inventory/manual-match-suggestions/{order}', [AdminCashbookReportsController::class, 'manualMatchSuggestions'])->name('inventory.manual-match-suggestions');
+            Route::post('inventory/manual-match/{order}', [AdminCashbookReportsController::class, 'manualMatchExecute'])->name('inventory.manual-match');
+            Route::post('inventory/resolve-unit-difference', [AdminCashbookReportsController::class, 'resolveUnitDifference'])->name('inventory.resolve-unit-difference');
             Route::get('bill-changes', [AdminCashbookReportsController::class, 'billChanges'])->name('bill-changes');
             Route::get('bill-changes/api/shop-day', [AdminCashbookReportsController::class, 'billChangesShopDay'])->name('bill-changes.shop-day');
             Route::get('reports/products', [AdminCashbookReportsController::class, 'products'])->name('reports.products');
@@ -805,6 +810,7 @@ Route::middleware('auth')->group(function () {
             Route::post('shops/{shop}/receive-payment', [CashbookController::class, 'receiveShopPayment'])->name('shop.receive-payment');
             Route::post('shops/{shop}/allocate-payment', [CashbookController::class, 'allocateShopPayment'])->name('shop.allocate-payment');
             Route::post('shops/{shop}/allocate-payment/clear', [CashbookController::class, 'clearShopPaymentAllocations'])->name('shop.allocate-payment.clear');
+            Route::delete('shops/{shop}/payments', [CashbookController::class, 'destroyShopPayment'])->name('shop.payments.destroy');
             Route::post('shops/{shop}/allocate-payment/clear-reallocate', [CashbookController::class, 'clearAndReallocateShopPayment'])->name('shop.allocate-payment.clear-reallocate');
             Route::post('shops/{shop}/allocate-payments/bulk', [CashbookController::class, 'allocateAllShopPayments'])->name('shop.allocate-payments.bulk');
             Route::post('shops/{shop}/allocate-payments/clear-all', [CashbookController::class, 'clearAllShopPaymentAllocationsWeb'])->name('shop.allocate-payments.clear-all');

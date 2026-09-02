@@ -1,466 +1,705 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', 'Cashbook Inventory Operational Controls — Green Leaf')
+@section('title', 'Cashbook Inventory Operational Reconciliation — Green Leaf')
 
 @section('header_title')
     <i data-lucide="boxes" class="w-5 h-5 text-emerald-600"></i> Cashbook Inventory
 @endsection
 
 @section('header_subtitle')
-    Authoritative invoice adjustments, warehouse loadouts, bill pending matching, and movement audit.
+    Daily billed vs physical position, bill pending orders, open advances, and Loadout Without Bill reconciliation.
 @endsection
 
 @section('content')
-    <div class="mx-auto max-w-6xl space-y-6"
-         x-data="{
-             matchModalOpen: false,
-             selectedGrnId: null,
-             selectedGrnNumber: '',
-             selectedGrnSupplier: '',
-             detailModalOpen: false,
-             selectedInvoice: null
-         }">
+    <div class="mx-auto max-w-7xl space-y-6"
+         x-data="inventoryReconciliation({
+             csrfToken: '{{ csrf_token() }}',
+             currentTab: '{{ $tab }}',
+             currentDate: '{{ $selectedDate }}',
+             currentWarehouseId: '{{ $selectedWarehouseId ?? ($availableWarehouses->first()?->id ?? '') }}',
+             currentSearch: '{{ addslashes($search) }}',
+             autoPlanUrl: '{{ route('admin.cashbook.inventory.auto-clear-plan') }}',
+             autoExecuteUrl: '{{ route('admin.cashbook.inventory.auto-clear-execute') }}',
+             manualMatchUrlPrefix: '/admin/cashbook/inventory/manual-match-suggestions/',
+             manualExecuteUrlPrefix: '/admin/cashbook/inventory/manual-match/',
+             resolveUnitDiffUrl: '{{ route('admin.cashbook.inventory.resolve-unit-difference') }}'
+         })">
 
-        <!-- Page Header & Section Navigation -->
+        <!-- Top Header & Actions Bar -->
         <div class="flex flex-col gap-4">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
-                    <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">Cashbook Inventory</h1>
-                    <p class="text-xs font-bold text-slate-500 mt-0.5">Authoritative invoice adjustments &amp; inventory operational controls</p>
+                    <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl flex items-center gap-2">
+                        <span>Cashbook Inventory</span>
+                    </h1>
+                    <p class="text-xs font-bold text-slate-500 mt-0.5">Authoritative billed vs physical inventory carry-forward, bill pending orders &amp; advance clearing</p>
                 </div>
 
-                <!-- Navigation Tabs: 5 Sections -->
-                <div class="flex flex-wrap gap-1 rounded-2xl bg-slate-100 p-1 shadow-inner self-start sm:self-auto">
-                    <a href="{{ route('admin.cashbook.inventory', array_filter(['section' => 'invoice_adjustments', 'timeframe' => $timeframe, 'date' => $selectedDate, 'shop_id' => $shopId, 'search' => $search])) }}"
-                       class="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition-all {{ $section === 'invoice_adjustments' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                        <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 {{ $section === 'invoice_adjustments' ? 'text-emerald-600' : 'text-slate-400' }}"></i>
-                        Invoice Adjustments
-                    </a>
-                    <a href="{{ route('admin.cashbook.inventory', array_filter(['section' => 'bill_notes', 'timeframe' => $timeframe, 'date' => $selectedDate, 'shop_id' => $shopId, 'search' => $search])) }}"
-                       class="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition-all {{ $section === 'bill_notes' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                        <i data-lucide="notebook-pen" class="w-3.5 h-3.5 {{ $section === 'bill_notes' ? 'text-emerald-600' : 'text-slate-400' }}"></i>
-                        Bill Notes
-                    </a>
-                    <a href="{{ route('admin.cashbook.inventory', array_filter(['section' => 'bill_pending', 'timeframe' => $timeframe, 'date' => $selectedDate, 'search' => $search])) }}"
-                       class="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition-all {{ $section === 'bill_pending' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                        <i data-lucide="clock" class="w-3.5 h-3.5 {{ $section === 'bill_pending' ? 'text-amber-600' : 'text-slate-400' }}"></i>
-                        Bill Pending
-                    </a>
-                    <a href="{{ route('admin.cashbook.inventory', array_filter(['section' => 'loadout_not_billed', 'timeframe' => $timeframe, 'date' => $selectedDate, 'search' => $search])) }}"
-                       class="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition-all {{ $section === 'loadout_not_billed' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                        <i data-lucide="truck" class="w-3.5 h-3.5 {{ $section === 'loadout_not_billed' ? 'text-blue-600' : 'text-slate-400' }}"></i>
-                        Loadout Without Bill
-                    </a>
-                    <a href="{{ route('admin.cashbook.inventory', array_filter(['section' => 'history', 'timeframe' => $timeframe, 'date' => $selectedDate, 'search' => $search])) }}"
-                       class="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition-all {{ $section === 'history' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                        <i data-lucide="history" class="w-3.5 h-3.5 {{ $section === 'history' ? 'text-purple-600' : 'text-slate-400' }}"></i>
-                        History
-                    </a>
+                <!-- Top Right Main Action -->
+                <div class="flex items-center gap-2 self-start sm:self-auto">
+                    <button type="button"
+                            @click="openAutoClear()"
+                            class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-700 text-white text-xs font-black hover:bg-emerald-800 transition-all shadow-md hover:shadow-lg cursor-pointer">
+                        <i data-lucide="sparkles" class="w-4 h-4 text-emerald-200"></i>
+                        <span>Match &amp; Clear Bills</span>
+                    </button>
                 </div>
             </div>
 
-            <!-- Day-First Filters & Search Bar -->
+            <!-- Date, Warehouse & Search Controls -->
             <div class="rounded-3xl border border-slate-200/90 bg-white p-4 shadow-xs space-y-3">
                 <div class="flex flex-wrap items-center justify-between gap-3">
-                    <!-- Quick Date Switchers -->
-                    <div class="inline-flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
-                        <a href="{{ route('admin.cashbook.inventory', array_filter(['section' => $section, 'timeframe' => 'today', 'shop_id' => $shopId, 'reason' => $reasonFilter, 'resolution' => $resolutionFilter, 'search' => $search])) }}"
-                           class="rounded-xl px-3 py-1.5 text-xs font-black transition-all {{ $timeframe === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
-                            Today
-                        </a>
-                        <a href="{{ route('admin.cashbook.inventory', array_filter(['section' => $section, 'timeframe' => 'yesterday', 'shop_id' => $shopId, 'reason' => $reasonFilter, 'resolution' => $resolutionFilter, 'search' => $search])) }}"
-                           class="rounded-xl px-3 py-1.5 text-xs font-black transition-all {{ $timeframe === 'yesterday' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
-                            Yesterday
-                        </a>
+                    <!-- Left: Warehouse Switcher & Date Controls -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        @if($availableWarehouses->count() > 1)
+                            <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="inline-flex">
+                                <input type="hidden" name="tab" value="{{ $tab }}">
+                                <input type="hidden" name="date" value="{{ $selectedDate }}">
+                                @if($search) <input type="hidden" name="search" value="{{ $search }}"> @endif
+                                <select name="warehouse_id"
+                                        onchange="this.form.submit()"
+                                        class="px-3 py-1.5 text-xs font-black rounded-xl bg-slate-100 border border-slate-200 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
+                                    <option value="">All Warehouses</option>
+                                    @foreach($availableWarehouses as $wh)
+                                        <option value="{{ $wh->id }}" {{ (string) $selectedWarehouseId === (string) $wh->id ? 'selected' : '' }}>
+                                            {{ $wh->name }} ({{ $wh->code }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </form>
+                        @elseif($availableWarehouses->isNotEmpty())
+                            <div class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-black border border-slate-200/80">
+                                <i data-lucide="warehouse" class="w-3.5 h-3.5 text-slate-500"></i>
+                                <span>{{ $availableWarehouses->first()->name }}</span>
+                            </div>
+                        @endif
+
+                        <!-- Day Navigation: Previous / Today / Date / Next -->
+                        <div class="inline-flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
+                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => $tab, 'date' => $prevDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+                               title="Previous Day ({{ $prevDate }})"
+                               class="inline-flex items-center justify-center w-7 h-7 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-white transition">
+                                <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                            </a>
+
+                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => $tab, 'date' => today()->toDateString(), 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+                               class="rounded-xl px-2.5 py-1 text-xs font-black transition-all {{ $isToday ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                                Today
+                            </a>
+
+                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => $tab, 'date' => $nextDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+                               title="Next Day ({{ $nextDate }})"
+                               class="inline-flex items-center justify-center w-7 h-7 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-white transition">
+                                <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                            </a>
+                        </div>
+
+                        <!-- Datepicker Input -->
+                        <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="inline-flex items-center">
+                            <input type="hidden" name="tab" value="{{ $tab }}">
+                            @if($selectedWarehouseId) <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}"> @endif
+                            @if($search) <input type="hidden" name="search" value="{{ $search }}"> @endif
+
+                            <div class="relative flex items-center">
+                                <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none"></i>
+                                <input type="date"
+                                       name="date"
+                                       value="{{ $selectedDate }}"
+                                       onchange="this.form.submit()"
+                                       class="pl-8 pr-3 py-1.5 text-xs font-bold rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
+                            </div>
+                        </form>
                     </div>
 
-                    <!-- Date Picker Form -->
-                    <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="flex flex-wrap items-center gap-2">
-                        <input type="hidden" name="section" value="{{ $section }}">
-                        <input type="hidden" name="timeframe" value="custom">
-                        @if($shopId) <input type="hidden" name="shop_id" value="{{ $shopId }}"> @endif
-                        @if($reasonFilter) <input type="hidden" name="reason" value="{{ $reasonFilter }}"> @endif
-                        @if($resolutionFilter) <input type="hidden" name="resolution" value="{{ $resolutionFilter }}"> @endif
-                        @if($search) <input type="hidden" name="search" value="{{ $search }}"> @endif
+                    <!-- Right: Search Bar -->
+                    <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="flex items-center gap-1.5 w-full sm:w-auto">
+                        <input type="hidden" name="tab" value="{{ $tab }}">
+                        <input type="hidden" name="date" value="{{ $selectedDate }}">
+                        @if($selectedWarehouseId) <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}"> @endif
 
-                        <x-cashbook.previous-month-button mode="as_of" size="sm" label="{{ now()->startOfMonth()->subDay()->format('M') }}" />
-                        <div class="relative flex items-center">
-                            <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none"></i>
-                            <input type="date"
-                                   name="date"
-                                   value="{{ $selectedDate }}"
-                                   onchange="this.form.submit()"
-                                   class="pl-8 pr-3 py-1.5 text-xs font-bold rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
+                        <div class="relative flex-1 sm:w-64">
+                            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                            <input type="text"
+                                   name="search"
+                                   value="{{ $search }}"
+                                   placeholder="Search product, SKU, PO, GRN..."
+                                   class="w-full pl-8 pr-3 py-1.5 text-xs font-medium rounded-xl bg-slate-50 border border-slate-200 shadow-2xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
                         </div>
+
+                        <button type="submit" class="px-3.5 py-1.5 text-xs font-black rounded-xl bg-slate-900 text-white shadow-xs hover:bg-slate-800 transition-all cursor-pointer">
+                            Filter
+                        </button>
+
+                        @if($search)
+                            <a href="{{ route('admin.cashbook.inventory', ['tab' => $tab, 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId]) }}"
+                               title="Clear search"
+                               class="p-1.5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
+                                <i data-lucide="x" class="w-4 h-4"></i>
+                            </a>
+                        @endif
                     </form>
                 </div>
-
-                <!-- Secondary Compact Filters -->
-                <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
-                    <input type="hidden" name="section" value="{{ $section }}">
-                    <input type="hidden" name="timeframe" value="{{ $timeframe }}">
-                    <input type="hidden" name="date" value="{{ $selectedDate }}">
-
-                    <!-- Search -->
-                    <div class="relative">
-                        <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                        <input type="text"
-                               name="search"
-                               value="{{ $search }}"
-                               placeholder="Search receipt, invoice, shop, product..."
-                               class="w-full pl-8 pr-3 py-1.5 text-xs font-medium rounded-xl bg-slate-50 border border-slate-200 shadow-2xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                    </div>
-
-                    @if(in_array($section, ['invoice_adjustments', 'bill_notes'], true))
-                        <!-- Shop Dropdown -->
-                        <div>
-                            <select name="shop_id" onchange="this.form.submit()" class="w-full px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
-                                <option value="">All Shops</option>
-                                @foreach($availableShops as $shop)
-                                    <option value="{{ $shop->id }}" {{ (string) $shopId === (string) $shop->id ? 'selected' : '' }}>
-                                        {{ $shop->name }} ({{ $shop->code }})
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
-
-                        <!-- Reason Dropdown -->
-                        <div>
-                            <select name="reason" onchange="this.form.submit()" class="w-full px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
-                                <option value="">All Reasons</option>
-                                <option value="loadout_mistake" {{ $reasonFilter === 'loadout_mistake' ? 'selected' : '' }}>Loadout Mistake</option>
-                                <option value="wastage_damage" {{ $reasonFilter === 'wastage_damage' ? 'selected' : '' }}>Wastage / Damage</option>
-                                <option value="shop_delivery_mistake" {{ $reasonFilter === 'shop_delivery_mistake' ? 'selected' : '' }}>Shop / Delivery Mistake</option>
-                                <option value="other" {{ $reasonFilter === 'other' ? 'selected' : '' }}>Other</option>
-                            </select>
-                        </div>
-
-                        <!-- Resolution Dropdown & Submit -->
-                        <div class="flex items-center gap-1.5">
-                            <select name="resolution" onchange="this.form.submit()" class="w-full px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
-                                <option value="">All Resolutions</option>
-                                <option value="return_to_warehouse" {{ $resolutionFilter === 'return_to_warehouse' ? 'selected' : '' }}>Returned to Warehouse</option>
-                                <option value="wastage" {{ $resolutionFilter === 'wastage' ? 'selected' : '' }}>Recorded as Wastage</option>
-                                <option value="deduct_extra" {{ $resolutionFilter === 'deduct_extra' ? 'selected' : '' }}>Extra Stock Deducted</option>
-                                <option value="already_accounted" {{ $resolutionFilter === 'already_accounted' ? 'selected' : '' }}>Already Accounted (No Stock Move)</option>
-                            </select>
-
-                            @if($search || $shopId || $reasonFilter || $resolutionFilter || $timeframe !== 'today')
-                                <a href="{{ route('admin.cashbook.inventory', ['section' => $section]) }}"
-                                   title="Reset filters"
-                                   class="flex-none p-1.5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
-                                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
-                                </a>
-                            @endif
-                        </div>
-                    @else
-                        <div></div><div></div>
-                        <div class="flex justify-end">
-                            <button type="submit" class="px-4 py-1.5 text-xs font-black rounded-xl bg-slate-900 text-white shadow-xs hover:bg-slate-800 transition-all">
-                                Search
-                            </button>
-                        </div>
-                    @endif
-                </form>
             </div>
         </div>
 
-        @if(in_array($section, ['invoice_adjustments', 'bill_notes'], true))
-            <!-- Summary Cards for Selected Day -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div class="rounded-3xl border border-slate-200/90 bg-white p-4 shadow-xs flex items-center justify-between">
-                    <div>
-                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Total Adjustments</span>
-                        <h3 class="text-2xl font-black text-slate-900 mt-0.5">{{ $summary['total_adjustments'] }}</h3>
-                        <p class="text-[11px] font-semibold text-slate-500 mt-0.5">Recorded on {{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</p>
-                    </div>
-                    <div class="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center flex-shrink-0">
-                        <i data-lucide="file-sliders" class="w-5 h-5"></i>
-                    </div>
+        <!-- 6 Summary Cards Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <!-- Products With Excess -->
+            <div class="rounded-3xl border border-emerald-200 bg-emerald-50/50 p-4 shadow-xs flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Products Excess</span>
+                    <h3 class="text-2xl font-black text-emerald-950 mt-0.5">{{ $summary['excess_count'] }}</h3>
+                    <p class="text-[11px] font-bold text-emerald-700 mt-0.5">Unbilled physical stock</p>
                 </div>
-
-                <div class="rounded-3xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-xs flex items-center justify-between">
-                    <div>
-                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800">Returned to Warehouse</span>
-                        <h3 class="text-2xl font-black text-emerald-900 mt-0.5">
-                            {{ rtrim(rtrim(number_format($summary['returned_to_warehouse_qty'], 2), '0'), '.') }} <span class="text-xs font-bold text-emerald-700">Units</span>
-                        </h3>
-                        <p class="text-[11px] font-semibold text-emerald-700/90 mt-0.5">{{ $summary['returned_to_warehouse_count'] }} item(s) restored via SaleReversal</p>
-                    </div>
-                    <div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0">
-                        <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
-                    </div>
-                </div>
-
-                <div class="rounded-3xl border border-rose-100 bg-rose-50/40 p-4 shadow-xs flex items-center justify-between">
-                    <div>
-                        <span class="text-[10px] font-extrabold uppercase tracking-wider text-rose-800">Recorded as Wastage</span>
-                        <h3 class="text-2xl font-black text-rose-900 mt-0.5">
-                            {{ rtrim(rtrim(number_format($summary['wastage_qty'], 2), '0'), '.') }} <span class="text-xs font-bold text-rose-700">Units</span>
-                        </h3>
-                        <p class="text-[11px] font-semibold text-rose-700/90 mt-0.5">{{ $summary['wastage_count'] }} item(s) booked to Wastage Entry</p>
-                    </div>
-                    <div class="w-10 h-10 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center flex-shrink-0">
-                        <i data-lucide="trash-2" class="w-5 h-5"></i>
-                    </div>
+                <div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="trending-up" class="w-5 h-5"></i>
                 </div>
             </div>
-        @endif
 
-        @if(in_array($section, ['invoice_adjustments', 'bill_notes'], true))
-            <!-- INVOICE ADJUSTMENTS & BILL NOTES (ONE ROW PER INVOICE TABLE) -->
-            <div class="space-y-4">
-                <div class="flex items-center justify-between px-1">
-                    <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="{{ $section === 'bill_notes' ? 'notebook-pen' : 'sliders-horizontal' }}" class="w-4 h-4 text-emerald-600"></i>
-                        {{ $section === 'bill_notes' ? 'Bill Notes & Changes' : 'Invoice Adjustments Audit' }}
-                    </h2>
-                    <span class="text-xs font-bold text-slate-500">
-                        Showing {{ $adjustedInvoices ? $adjustedInvoices->total() : 0 }} bill(s) • 1 entry per bill with all details in popup
-                    </span>
+            <!-- Products Short -->
+            <div class="rounded-3xl border border-rose-200 bg-rose-50/50 p-4 shadow-xs flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-rose-800">Products Short</span>
+                    <h3 class="text-2xl font-black text-rose-950 mt-0.5">{{ $summary['short_count'] }}</h3>
+                    <p class="text-[11px] font-bold text-rose-700 mt-0.5">Billed &gt; physical stock</p>
                 </div>
+                <div class="w-10 h-10 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="trending-down" class="w-5 h-5"></i>
+                </div>
+            </div>
 
-                @if(!$adjustedInvoices || $adjustedInvoices->isEmpty())
-                    <div class="p-12 text-center bg-white rounded-3xl border border-slate-200/90 shadow-xs">
-                        <div class="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Changes Recorded</h3>
-                        <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                            No bills on {{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }} have adjustment records matching your filter.
+            <!-- Balanced -->
+            <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-xs flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Balanced</span>
+                    <h3 class="text-2xl font-black text-slate-900 mt-0.5">{{ $summary['balanced_count'] }}</h3>
+                    <p class="text-[11px] font-bold text-slate-500 mt-0.5">Billed = physical intake</p>
+                </div>
+                <div class="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                </div>
+            </div>
+
+            <!-- Pending Bills -->
+            <div class="rounded-3xl border border-amber-200 bg-amber-50/50 p-4 shadow-xs flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-amber-800">Pending Bills</span>
+                    <h3 class="text-2xl font-black text-amber-950 mt-0.5">{{ $summary['pending_bills_count'] }}</h3>
+                    <p class="text-[11px] font-bold text-amber-700 mt-0.5">Awaiting match/receive</p>
+                </div>
+                <div class="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="file-clock" class="w-5 h-5"></i>
+                </div>
+            </div>
+
+            <!-- Open Advances -->
+            <div class="rounded-3xl border border-purple-200 bg-purple-50/50 p-4 shadow-xs flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-purple-800">Open Advances</span>
+                    <h3 class="text-2xl font-black text-purple-950 mt-0.5">{{ $summary['open_advances_count'] }}</h3>
+                    <p class="text-[11px] font-bold text-purple-700 mt-0.5">Available for auto-clear</p>
+                </div>
+                <div class="w-10 h-10 rounded-2xl bg-purple-100 text-purple-800 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="layers" class="w-5 h-5"></i>
+                </div>
+            </div>
+
+            <!-- Unit Differences -->
+            <div class="rounded-3xl border border-sky-200 bg-sky-50/50 p-4 shadow-xs flex items-center justify-between">
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-sky-800">Unit Differences</span>
+                    <h3 class="text-2xl font-black text-sky-950 mt-0.5">{{ $summary['unit_differences_count'] ?? 0 }}</h3>
+                    <p class="text-[11px] font-bold text-sky-700 mt-0.5">Requires manual review</p>
+                </div>
+                <div class="w-10 h-10 rounded-2xl bg-sky-100 text-sky-800 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="scale" class="w-5 h-5"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Navigation Tabs -->
+        <div class="flex flex-wrap gap-1 rounded-2xl bg-slate-100 p-1 shadow-inner self-start">
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'daily_inventory', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'daily_inventory' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="table" class="w-3.5 h-3.5 {{ $tab === 'daily_inventory' ? 'text-emerald-600' : 'text-slate-400' }}"></i>
+                <span>Daily Inventory</span>
+                <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold {{ $tab === 'daily_inventory' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600' }}">
+                    {{ $summary['total_products'] }}
+                </span>
+            </a>
+
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'pending_bills', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['pending_bills', 'bill_pending'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="file-text" class="w-3.5 h-3.5 {{ in_array($tab, ['pending_bills', 'bill_pending'], true) ? 'text-amber-600' : 'text-slate-400' }}"></i>
+                <span>Pending Bills (Bill Pending)</span>
+                @if($summary['pending_bills_count'] > 0)
+                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-amber-100 text-amber-800">
+                        {{ $summary['pending_bills_count'] }}
+                    </span>
+                @endif
+            </a>
+
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'advance_bills', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'advance_bills' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="receipt" class="w-3.5 h-3.5 {{ $tab === 'advance_bills' ? 'text-purple-600' : 'text-slate-400' }}"></i>
+                <span>Advance Bills</span>
+                @if($summary['open_advances_count'] > 0)
+                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-purple-100 text-purple-800">
+                        {{ $summary['open_advances_count'] }}
+                    </span>
+                @endif
+            </a>
+
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'unit_differences', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'unit_differences' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="scale" class="w-3.5 h-3.5 {{ $tab === 'unit_differences' ? 'text-sky-600' : 'text-slate-400' }}"></i>
+                <span>Unit Differences</span>
+                @if(($summary['unit_differences_count'] ?? 0) > 0)
+                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-sky-100 text-sky-800">
+                        {{ $summary['unit_differences_count'] }}
+                    </span>
+                @endif
+            </a>
+
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'invoice_adjustments', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search])) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['invoice_adjustments', 'bill_notes'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 {{ in_array($tab, ['invoice_adjustments', 'bill_notes'], true) ? 'text-blue-600' : 'text-slate-400' }}"></i>
+                <span>Invoice Adjustments</span>
+            </a>
+        </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 1: DAILY INVENTORY POSITION TABLE                              -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @if($tab === 'daily_inventory')
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="scale" class="w-4 h-4 text-emerald-600"></i>
+                            <span>Daily Billed vs Physical Position</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
+                            As of <strong class="text-slate-800">{{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</strong> (includes historical carry-forward)
                         </p>
                     </div>
+                    @if($dailyInventory)
+                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
+                            Showing {{ $dailyInventory->firstItem() ?? 0 }}–{{ $dailyInventory->lastItem() ?? 0 }} of {{ $dailyInventory->total() }} products
+                        </span>
+                    @endif
+                </div>
+
+                @if(!$dailyInventory || $dailyInventory->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="inbox" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">No Product Records Found</h3>
+                        <p class="text-xs text-slate-500 mt-1">There are no stock intakes or billed reconciliations recorded on or prior to this date.</p>
+                    </div>
                 @else
-                    <div class="overflow-x-auto rounded-3xl border border-slate-200/90 bg-white shadow-xs">
-                        <table class="w-full text-left text-xs min-w-[58rem]">
-                            <thead class="bg-slate-50 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-100">
-                                <tr>
-                                    <th class="p-3.5">Date &amp; Time</th>
-                                    <th class="p-3.5">Shop</th>
-                                    <th class="p-3.5">Invoice #</th>
-                                    <th class="p-3.5">Changes &amp; Discrepancy Summary</th>
-                                    <th class="p-3.5">Reason &amp; Resolution</th>
-                                    <th class="p-3.5 text-right">Final Bill</th>
-                                    <th class="p-3.5">Finalized By</th>
-                                    <th class="p-3.5 text-center">Action</th>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5">Product</th>
+                                    <th class="p-3.5">SKU</th>
+                                    <th class="p-3.5 text-right">Billed (Base)</th>
+                                    <th class="p-3.5 text-right">Physical Intake</th>
+                                    <th class="p-3.5 text-right">Advance / Difference</th>
+                                    <th class="p-3.5 text-center pr-5">Reconciliation Position</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                @foreach($adjustedInvoices as $inv)
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($dailyInventory as $row)
                                     @php
-                                        $invActivities = $activitiesByInvoice->get($inv->id, collect());
-                                        $latestAct = $invActivities->first();
-                                        $latestProps = $latestAct?->properties ?? [];
-
-                                        // Collect all resolutions, product changes, discounts, notes from all activities for this invoice
-                                        $allResolutions = [];
-                                        $allItemChanges = [];
-                                        $overallNotes = [];
-                                        $isAdminOnBehalf = false;
-
-                                        foreach ($invActivities as $actItem) {
-                                            $actProps = $actItem->properties ?? [];
-                                            $actRes = data_get($actProps, 'inventory_resolutions', []);
-                                            if (is_array($actRes)) {
-                                                foreach ($actRes as $r) { $allResolutions[] = $r; }
-                                            }
-                                            $source = data_get($actProps, 'source');
-                                            if ($source === 'admin_item_adjustment') {
-                                                $prodName = data_get($actProps, 'after.product_name') ?: data_get($actProps, 'before.product_name') ?: 'Item';
-                                                $allItemChanges[] = [
-                                                    'type' => 'item_adj',
-                                                    'product_name' => $prodName,
-                                                    'before_qty' => data_get($actProps, 'before.qty'),
-                                                    'after_qty' => data_get($actProps, 'after.qty'),
-                                                    'before_price' => data_get($actProps, 'before.price'),
-                                                    'after_price' => data_get($actProps, 'after.price'),
-                                                    'reason' => data_get($actProps, 'reason'),
-                                                ];
-                                            } elseif ($source === 'admin_discount') {
-                                                $allItemChanges[] = [
-                                                    'type' => 'discount',
-                                                    'before' => data_get($actProps, 'before.discount_total', 0),
-                                                    'after' => data_get($actProps, 'after.discount_total', 0),
-                                                    'reason' => data_get($actProps, 'reason'),
-                                                ];
-                                            }
-                                            if (data_get($actProps, 'is_admin_on_behalf')) {
-                                                $isAdminOnBehalf = true;
-                                            }
-                                            $note = data_get($actProps, 'overall_note');
-                                            if ($note && !in_array($note, $overallNotes, true)) {
-                                                $overallNotes[] = $note;
-                                            }
-                                        }
-
-                                        if ($inv->delivery_note && !in_array($inv->delivery_note, $overallNotes, true)) {
-                                            $overallNotes[] = $inv->delivery_note;
-                                        }
-
-                                        $actorName = $inv->finalizedBy?->name ?? data_get($latestProps, 'actor.name') ?? $latestAct?->causer?->name ?? 'Admin';
-                                        $autoSummary = data_get($latestProps, 'auto_change_summary');
-
-                                        // Prepare JSON payload for Alpine popup
-                                        $invoiceModalPayload = [
-                                            'id' => $inv->id,
-                                            'invoice_number' => $inv->invoice_number,
-                                            'shop_name' => $inv->shop?->name ?? 'Shop',
-                                            'shop_code' => $inv->shop?->code ?? '',
-                                            'final_total' => (float) $inv->final_total,
-                                            'subtotal' => (float) $inv->subtotal,
-                                            'discount_total' => (float) $inv->discount_total,
-                                            'status' => $inv->isFinalized() ? 'FINALIZED' : strtoupper(str_replace('_', ' ', $inv->status)),
-                                            'finalized_by' => $actorName,
-                                            'finalized_at' => $inv->finalized_at?->format('d M Y • H:i') ?? $inv->updated_at?->format('d M Y • H:i'),
-                                            'is_admin_on_behalf' => $isAdminOnBehalf,
-                                            'overall_notes' => $overallNotes,
-                                            'auto_change_summary' => $autoSummary,
-                                            'resolutions' => $allResolutions,
-                                            'item_changes' => $allItemChanges,
-                                            'activities_count' => $invActivities->count(),
-                                        ];
+                                        $diffType = $row['difference_type'] ?? 'balanced';
+                                        $diffQty = (float) ($row['difference_base_qty'] ?? 0.0);
+                                        $unit = $row['base_unit'] ?? 'KG';
+                                        $diffFormatted = match($diffType) {
+                                            'excess' => '+' . number_format($diffQty, 2) . ' ' . $unit,
+                                            'short' => number_format($diffQty, 2) . ' ' . $unit,
+                                            default => '0.00 ' . $unit,
+                                        };
+                                        $diffBadgeClass = match($diffType) {
+                                            'excess' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                                            'short' => 'bg-rose-50 text-rose-800 border-rose-200',
+                                            default => 'bg-slate-50 text-slate-700 border-slate-200',
+                                        };
+                                        $diffLabel = match($diffType) {
+                                            'excess' => 'EXCESS / UNBILLED',
+                                            'short' => 'SHORTAGE',
+                                            default => 'BALANCED',
+                                        };
                                     @endphp
-                                    <tr class="hover:bg-slate-50/70 transition-colors">
-                                        <!-- Date & Time (Bill Date + Updated Small Info) -->
-                                        <td class="p-3.5 whitespace-nowrap align-top">
-                                            <div class="font-bold text-slate-900">{{ $inv->business_date?->format('d M Y') ?? $inv->created_at?->format('d M Y') }}</div>
-                                            <div class="text-[10px] font-bold text-slate-400 mt-0.5">
-                                                Updated: <span class="font-mono text-slate-500">{{ ($inv->finalized_at ?? $inv->updated_at)?->format('d M • H:i') }}</span>
-                                                <span class="text-slate-400">({{ ($inv->finalized_at ?? $inv->updated_at)?->diffForHumans() }})</span>
-                                            </div>
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="p-3.5 pl-5 font-black text-slate-900">
+                                            {{ $row['product_name'] }}
                                         </td>
+                                        <td class="p-3.5 font-mono font-bold text-slate-500 text-[11px]">
+                                            {{ $row['product_sku'] ?: '—' }}
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-700">
+                                            {{ number_format((float) $row['billed_base_qty'], 2) }} <span class="text-[10px] text-slate-400">{{ $unit }}</span>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-900">
+                                            {{ number_format((float) $row['physical_base_qty'], 2) }} <span class="text-[10px] text-slate-400">{{ $unit }}</span>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-black text-sm {{ $diffType === 'excess' ? 'text-emerald-700' : ($diffType === 'short' ? 'text-rose-700' : 'text-slate-500') }}">
+                                            {{ $diffFormatted }}
+                                        </td>
+                                        <td class="p-3.5 text-center pr-5">
+                                            <span class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-black uppercase border {{ $diffBadgeClass }}">
+                                                @if($diffType === 'excess')
+                                                    <i data-lucide="plus-circle" class="w-3 h-3 text-emerald-600"></i>
+                                                @elseif($diffType === 'short')
+                                                    <i data-lucide="minus-circle" class="w-3 h-3 text-rose-600"></i>
+                                                @else
+                                                    <i data-lucide="check" class="w-3 h-3 text-slate-500"></i>
+                                                @endif
+                                                <span>{{ $diffLabel }}</span>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
 
-                                        <!-- Shop -->
-                                        <td class="p-3.5 align-top">
-                                            <div class="font-black text-slate-900">{{ $inv->shop?->name }}</div>
-                                            @if($inv->shop?->code)
-                                                <span class="font-mono text-[10px] font-bold text-slate-400">{{ $inv->shop?->code }}</span>
+                    <div class="p-4 border-t border-slate-100">
+                        {{ $dailyInventory->links() }}
+                    </div>
+                @endif
+            </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 2: PENDING BILLS TABLE                                         -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @elseif($tab === 'pending_bills')
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="file-clock" class="w-4 h-4 text-amber-600"></i>
+                            <span>Pending Purchase Bills</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">Authoritative purchasing orders awaiting advance reconciliation or warehouse receiving</p>
+                    </div>
+                    @if($pendingBills)
+                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
+                            Showing {{ $pendingBills->firstItem() ?? 0 }}–{{ $pendingBills->lastItem() ?? 0 }} of {{ $pendingBills->total() }} pending bills
+                        </span>
+                    @endif
+                </div>
+
+                @if(!$pendingBills || $pendingBills->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">All Purchase Bills Reconciled</h3>
+                        <p class="text-xs text-slate-500 mt-1">There are no pending purchase orders requiring match or warehouse receiving.</p>
+                    </div>
+                @else
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5">PO Number</th>
+                                    <th class="p-3.5">Date</th>
+                                    <th class="p-3.5">Supplier</th>
+                                    <th class="p-3.5">Products / Items</th>
+                                    <th class="p-3.5 text-right">Bill Qty (Base)</th>
+                                    <th class="p-3.5 text-right">Remaining Qty</th>
+                                    <th class="p-3.5 text-center">Match Status</th>
+                                    <th class="p-3.5 text-center pr-5">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($pendingBills as $row)
+                                    @php
+                                        $poId = $row['id'] ?? $row['purchase_order_id'];
+                                        $billBase = (float) ($row['total_bill_base_qty'] ?? 0.0);
+                                        $matchedBase = (float) ($row['total_matched_base_qty'] ?? 0.0);
+                                        $remainingBase = max(0.0, round($billBase - $matchedBase, 2));
+                                        $statusBadge = match($row['reconciliation_status'] ?? 'unmatched') {
+                                            'exact' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                                            'partial' => 'bg-amber-50 text-amber-800 border-amber-200',
+                                            default => 'bg-slate-100 text-slate-700 border-slate-200',
+                                        };
+                                        $statusLabel = match($row['reconciliation_status'] ?? 'unmatched') {
+                                            'exact' => 'EXACT MATCH READY',
+                                            'partial' => 'PARTIAL ADVANCE',
+                                            default => 'UNMATCHED',
+                                        };
+                                    @endphp
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="p-3.5 pl-5 font-mono font-black text-slate-900">
+                                            <div>{{ $row['po_number'] }}</div>
+                                            @if(!empty($row['goods_received_numbers']))
+                                                @foreach($row['goods_received_numbers'] as $grnNum)
+                                                    <span class="text-[10px] text-slate-500 font-semibold block font-mono">{{ $grnNum }}</span>
+                                                @endforeach
                                             @endif
                                         </td>
-
-                                        <!-- Invoice # (Opens Popup Modal Only) -->
-                                        <td class="p-3.5 whitespace-nowrap align-top">
-                                            <button type="button"
-                                                    @click="selectedInvoice = {{ json_encode($invoiceModalPayload) }}; detailModalOpen = true;"
-                                                    class="font-mono text-xs font-black text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 hover:bg-emerald-100 transition inline-block text-left cursor-pointer">
-                                                {{ $inv->invoice_number }}
-                                            </button>
-                                            <div class="mt-1 flex flex-wrap gap-1">
-                                                <span class="inline-flex items-center rounded px-1.5 py-0.2 text-[9px] font-black uppercase {{ $inv->isFinalized() ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700' }}">
-                                                    {{ $inv->isFinalized() ? 'FINALIZED' : 'PENDING' }}
-                                                </span>
-                                                @if($isAdminOnBehalf)
-                                                    <span class="text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200">
-                                                        On Behalf
-                                                    </span>
+                                        <td class="p-3.5 font-bold text-slate-600 whitespace-nowrap">
+                                            {{ $row['order_date'] ? \Carbon\Carbon::parse($row['order_date'])->format('d M Y') : '—' }}
+                                        </td>
+                                        <td class="p-3.5 font-bold text-slate-800">
+                                            {{ $row['supplier_name'] }}
+                                        </td>
+                                        <td class="p-3.5">
+                                            <div class="flex flex-wrap gap-1 max-w-xs">
+                                                @if(!empty($row['match_summary_items']))
+                                                    @foreach(array_slice($row['match_summary_items'], 0, 3) as $mItem)
+                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-700">
+                                                            {{ $mItem['product_name'] }} ({{ $mItem['ordered_qty'] }} {{ $mItem['unit'] }})
+                                                        </span>
+                                                    @endforeach
+                                                    @if(count($row['match_summary_items']) > 3)
+                                                        <span class="text-[10px] font-bold text-slate-400 self-center">
+                                                            +{{ count($row['match_summary_items']) - 3 }} more
+                                                        </span>
+                                                    @endif
+                                                @else
+                                                    <span class="text-slate-400 font-bold">{{ $row['item_count'] ?? 1 }} item(s)</span>
                                                 @endif
                                             </div>
                                         </td>
-
-                                        <!-- Discrepancy & Changes Summary -->
-                                        <td class="p-3.5 align-top space-y-1">
-                                            @if(count($allResolutions) > 0)
-                                                <div class="space-y-0.5">
-                                                    @foreach($allResolutions as $r)
-                                                        @php
-                                                            $pName = $r['product_name'] ?? 'Product';
-                                                            $lQty = isset($r['loaded_qty']) ? (float) $r['loaded_qty'] : null;
-                                                            $fQty = isset($r['final_qty']) ? (float) $r['final_qty'] : null;
-                                                            $dQty = ($lQty !== null && $fQty !== null) ? round($fQty - $lQty, 2) : 0;
-                                                            $u = $r['unit'] ?? 'KG';
-                                                        @endphp
-                                                        <div class="text-xs">
-                                                            <span class="font-black text-slate-900">{{ $pName }}:</span>
-                                                            <span class="text-slate-500 font-mono">{{ $lQty !== null ? $lQty : '—' }}</span> →
-                                                            <span class="font-bold text-slate-800 font-mono">{{ $fQty !== null ? $fQty : '—' }}</span>
-                                                            <span class="font-mono font-black {{ $dQty < 0 ? 'text-rose-700' : ($dQty > 0 ? 'text-emerald-700' : 'text-slate-600') }}">
-                                                                ({{ $dQty > 0 ? '+'.$dQty : $dQty }} {{ $u }})
-                                                            </span>
-                                                        </div>
-                                                    @endforeach
-                                                </div>
-                                            @elseif(count($allItemChanges) > 0)
-                                                <div class="space-y-0.5">
-                                                    @foreach($allItemChanges as $ch)
-                                                        @if($ch['type'] === 'item_adj')
-                                                            <div class="text-xs font-semibold text-slate-700">
-                                                                {{ $ch['product_name'] }} adjusted
-                                                                @if(isset($ch['before_qty'], $ch['after_qty']) && $ch['before_qty'] != $ch['after_qty'])
-                                                                    <span class="font-mono font-bold">({{ $ch['before_qty'] }} → {{ $ch['after_qty'] }})</span>
-                                                                @endif
-                                                            </div>
-                                                        @elseif($ch['type'] === 'discount')
-                                                            <div class="text-xs font-semibold text-amber-800">
-                                                                Discount: ₹{{ $ch['before'] }} → ₹{{ $ch['after'] }}
-                                                                @if(!empty($ch['reason']))
-                                                                    <span class="text-[10px] text-slate-500 italic">"{{ $ch['reason'] }}"</span>
-                                                                @endif
-                                                            </div>
-                                                        @endif
-                                                    @endforeach
-                                                </div>
-                                            @elseif($autoSummary)
-                                                <div class="text-xs font-mono text-slate-600 truncate max-w-xs" title="{{ $autoSummary }}">
-                                                    {{ $autoSummary }}
-                                                </div>
-                                            @else
-                                                <span class="text-xs text-slate-400">Bill finalized</span>
-                                            @endif
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-700">
+                                            {{ number_format($billBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
                                         </td>
-
-                                        <!-- Reason & Resolution Badges -->
-                                        <td class="p-3.5 align-top space-y-1">
-                                            @if(count($allResolutions) > 0)
-                                                @foreach($allResolutions as $res)
-                                                    @php
-                                                        $rType = (string) ($res['resolution'] ?? '');
-                                                        $bClass = match($rType) {
-                                                            'return_to_warehouse', 'add_back' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
-                                                            'wastage' => 'bg-rose-50 text-rose-800 border-rose-200',
-                                                            'deduct_extra' => 'bg-blue-50 text-blue-800 border-blue-200',
-                                                            default => 'bg-amber-50 text-amber-800 border-amber-200',
-                                                        };
-                                                        $rLabel = match($rType) {
-                                                            'return_to_warehouse', 'add_back' => 'Returned to Warehouse',
-                                                            'wastage' => 'Recorded as Wastage',
-                                                            'deduct_extra' => 'Extra Stock Deducted from Warehouse',
-                                                            'already_accounted' => 'Already Accounted',
-                                                            default => ucfirst(str_replace('_', ' ', $rType)),
-                                                        };
-                                                    @endphp
-                                                    <div>
-                                                        <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase border {{ $bClass }}">
-                                                            {{ $rLabel }}
-                                                        </span>
-                                                    </div>
-                                                @endforeach
-                                            @else
-                                                <span class="text-xs text-slate-400">—</span>
-                                            @endif
+                                        <td class="p-3.5 text-right font-mono font-black text-slate-900">
+                                            {{ number_format($remainingBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
                                         </td>
-
-                                        <!-- Final Bill Amount -->
-                                        <td class="p-3.5 text-right whitespace-nowrap align-top">
-                                            <div class="text-xs font-black text-slate-900 font-mono">₹{{ number_format((float) $inv->final_total, 2) }}</div>
+                                        <td class="p-3.5 text-center">
+                                            <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[10px] font-black uppercase border {{ $statusBadge }}">
+                                                {{ $statusLabel }}
+                                            </span>
                                         </td>
-
-                                        <!-- Finalized By -->
-                                        <td class="p-3.5 whitespace-nowrap align-top">
-                                            <div class="text-xs font-bold text-slate-800">{{ $actorName }}</div>
-                                            @if(!empty($overallNotes))
-                                                <div class="text-[10px] text-slate-500 italic max-w-[12rem] truncate" title="{{ implode(' | ', $overallNotes) }}">
-                                                    "{{ $overallNotes[0] }}"
-                                                </div>
-                                            @endif
-                                        </td>
-
-                                        <!-- Action: Popup & View Bill -->
-                                        <td class="p-3.5 text-center whitespace-nowrap align-top space-x-1">
+                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1">
                                             <button type="button"
-                                                    @click="selectedInvoice = {{ json_encode($invoiceModalPayload) }}; detailModalOpen = true;"
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-900 text-white text-[11px] font-black hover:bg-slate-800 transition shadow-2xs">
-                                                <i data-lucide="eye" class="w-3 h-3"></i>
-                                                <span>View</span>
+                                                    @click="openManualMatch({{ $poId }}, '{{ $row['po_number'] }}', '{{ addslashes($row['supplier_name']) }}')"
+                                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-black hover:bg-slate-800 transition shadow-2xs cursor-pointer">
+                                                <i data-lucide="link" class="w-3 h-3 text-emerald-400"></i>
+                                                <span>Match</span>
+                                            </button>
+
+                                            @if(!empty($row['pending_receive_url']))
+                                                <a href="{{ $row['pending_receive_url'] }}"
+                                                   target="_blank"
+                                                   class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-black hover:bg-amber-100 transition">
+                                                    <i data-lucide="truck" class="w-3 h-3"></i>
+                                                    <span>Receive</span>
+                                                </a>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-100">
+                        {{ $pendingBills->links() }}
+                    </div>
+                @endif
+            </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 3: ADVANCE BILLS TABLE                                         -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @elseif($tab === 'advance_bills')
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="receipt" class="w-4 h-4 text-purple-600"></i>
+                            <span>Warehouse Advance Receipts (GRNs)</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
+                            Individual advance physical receipts. Cleared advances are retained operationally for 3 days.
+                        </p>
+                    </div>
+                    @if($advanceBills)
+                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
+                            Showing {{ $advanceBills->firstItem() ?? 0 }}–{{ $advanceBills->lastItem() ?? 0 }} of {{ $advanceBills->total() }} advance GRNs
+                        </span>
+                    @endif
+                </div>
+
+                @if(!$advanceBills || $advanceBills->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="layers" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">No Open Advance GRNs</h3>
+                        <p class="text-xs text-slate-500 mt-1">There are no pending or recently cleared warehouse advance receipts.</p>
+                    </div>
+                @else
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5">GRN Number</th>
+                                    <th class="p-3.5">Received Date</th>
+                                    <th class="p-3.5">Warehouse</th>
+                                    <th class="p-3.5">Products Received</th>
+                                    <th class="p-3.5 text-right">Received (Base)</th>
+                                    <th class="p-3.5 text-right">Matched (Base)</th>
+                                    <th class="p-3.5 text-right">Pending (Base)</th>
+                                    <th class="p-3.5 text-center pr-5">Bill Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($advanceBills as $grn)
+                                    @php
+                                        $recBase = $grn->received_base_qty;
+                                        $matchBase = $grn->bill_matched_base_qty;
+                                        $unbilledBase = $grn->unbilled_base_qty;
+                                        $isCleared = ($unbilledBase <= 0.0001) || ($grn->bill_status === 'bill_available');
+                                    @endphp
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="p-3.5 pl-5 font-mono font-black text-slate-900">
+                                            {{ $grn->grn_number }}
+                                        </td>
+                                        <td class="p-3.5 font-bold text-slate-600 whitespace-nowrap">
+                                            {{ $grn->received_at?->format('d M Y') ?? '—' }}
+                                        </td>
+                                        <td class="p-3.5 font-bold text-slate-700">
+                                            {{ $grn->warehouse?->name ?? $grn->destinationShop?->name ?? 'Central Warehouse' }}
+                                        </td>
+                                        <td class="p-3.5">
+                                            <div class="flex flex-wrap gap-1 max-w-xs">
+                                                @foreach($grn->items as $gItem)
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-800">
+                                                        {{ $gItem->product?->name ?? 'Product' }} ({{ (float) $gItem->received_qty }} {{ $gItem->received_unit }})
+                                                    </span>
+                                                @endforeach
+                                            </div>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-900">
+                                            {{ number_format($recBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-bold text-purple-700">
+                                            {{ number_format($matchBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-black text-sm {{ $unbilledBase > 0.0001 ? 'text-amber-700' : 'text-slate-400' }}">
+                                            {{ number_format($unbilledBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
+                                        </td>
+                                        <td class="p-3.5 text-center pr-5">
+                                            @if(!$isCleared)
+                                                <span class="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-800 border border-amber-200">
+                                                    <i data-lucide="clock" class="w-3 h-3 text-amber-600"></i>
+                                                    <span>BILL PENDING</span>
+                                                </span>
+                                            @else
+                                                <span class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-800 border border-emerald-200">
+                                                    <i data-lucide="check-check" class="w-3 h-3 text-emerald-600"></i>
+                                                    <span>CLEARED (3-DAY)</span>
+                                                </span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-100">
+                        {{ $advanceBills->links() }}
+                    </div>
+                @endif
+            </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 4: UNIT DIFFERENCES (MANUAL RESOLUTION)                        -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @elseif($tab === 'unit_differences')
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="scale" class="w-4 h-4 text-sky-600"></i>
+                            <span>Unit Difference Exceptions</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
+                            Pending bill lines where advance stock exists, but units differ and require manual interpretation
+                        </p>
+                    </div>
+                    @if($unitDifferences)
+                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
+                            Showing {{ $unitDifferences->firstItem() ?? 0 }}–{{ $unitDifferences->lastItem() ?? 0 }} of {{ $unitDifferences->total() }} lines
+                        </span>
+                    @endif
+                </div>
+
+                @if(!$unitDifferences || $unitDifferences->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">No Unit Differences</h3>
+                        <p class="text-xs text-slate-500 mt-1">All pending bills have compatible units or have been fully reconciled.</p>
+                    </div>
+                @else
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5">PO</th>
+                                    <th class="p-3.5">Product</th>
+                                    <th class="p-3.5 text-right">Bill Qty</th>
+                                    <th class="p-3.5">Bill Unit</th>
+                                    <th class="p-3.5 text-right">Avail Advance Qty</th>
+                                    <th class="p-3.5">Advance Unit</th>
+                                    <th class="p-3.5 text-right">Already Matched</th>
+                                    <th class="p-3.5 text-right">Remaining</th>
+                                    <th class="p-3.5">Reason</th>
+                                    <th class="p-3.5 text-center pr-5">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($unitDifferences as $row)
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="p-3.5 pl-5">
+                                            <div class="font-mono font-black text-slate-900">{{ $row['po_number'] }}</div>
+                                            <div class="text-[10px] text-slate-400 font-semibold">{{ $row['order_date'] }} · {{ $row['supplier_name'] }}</div>
+                                        </td>
+                                        <td class="p-3.5">
+                                            <div class="font-bold text-slate-900">{{ $row['product_name'] }}</div>
+                                            <div class="text-[10px] text-slate-400 font-mono">SKU: {{ $row['product_sku'] }} · Base: {{ $row['product_base_unit'] }}</div>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-900">
+                                            {{ number_format($row['bill_qty'], 2) }}
+                                        </td>
+                                        <td class="p-3.5 font-bold text-amber-700 uppercase">
+                                            {{ $row['bill_unit'] }}
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-bold text-purple-700">
+                                            {{ number_format($row['available_advance_qty'], 2) }}
+                                        </td>
+                                        <td class="p-3.5 font-bold text-purple-700 uppercase">
+                                            {{ implode(', ', $row['advance_units']) }}
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono text-slate-500">
+                                            {{ number_format($row['already_matched_qty'], 2) }}
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-black text-amber-900">
+                                            {{ number_format($row['remaining_bill_qty'], 2) }}
+                                        </td>
+                                        <td class="p-3.5 max-w-xs">
+                                            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                                {{ $row['reason'] }}
+                                            </span>
+                                        </td>
+                                        <td class="p-3.5 text-center pr-5">
+                                            <button type="button"
+                                                    @click="openResolveUnitDiff(@js($row))"
+                                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-black rounded-xl bg-sky-600 text-white hover:bg-sky-500 shadow-xs transition-all cursor-pointer">
+                                                <i data-lucide="check-square" class="w-3.5 h-3.5"></i>
+                                                <span>Resolve</span>
                                             </button>
                                         </td>
                                     </tr>
@@ -469,454 +708,805 @@
                         </table>
                     </div>
 
-                    <div class="mt-4">
+                    <div class="p-4 border-t border-slate-100">
+                        {{ $unitDifferences->links() }}
+                    </div>
+                @endif
+            </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 5: INVOICE ADJUSTMENTS (AUDIT TAB)                             -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @else
+            @if($summaryAdjustments)
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div class="rounded-3xl border border-slate-200/90 bg-white p-4 shadow-xs flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Total Adjustments</span>
+                            <h3 class="text-2xl font-black text-slate-900 mt-0.5">{{ $summaryAdjustments['total_adjustments'] }}</h3>
+                            <p class="text-[11px] font-semibold text-slate-500 mt-0.5">Recorded on {{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</p>
+                        </div>
+                        <div class="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="file-sliders" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+
+                    <div class="rounded-3xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-xs flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800">Returned to Warehouse</span>
+                            <h3 class="text-2xl font-black text-emerald-900 mt-0.5">
+                                {{ rtrim(rtrim(number_format($summaryAdjustments['returned_to_warehouse_qty'], 2), '0'), '.') }} <span class="text-xs font-bold text-emerald-700">Units</span>
+                            </h3>
+                            <p class="text-[11px] font-semibold text-emerald-700/90 mt-0.5">{{ $summaryAdjustments['returned_to_warehouse_count'] }} item(s) restored via SaleReversal</p>
+                        </div>
+                        <div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+
+                    <div class="rounded-3xl border border-rose-100 bg-rose-50/40 p-4 shadow-xs flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-rose-800">Recorded as Wastage</span>
+                            <h3 class="text-2xl font-black text-rose-900 mt-0.5">
+                                {{ rtrim(rtrim(number_format($summaryAdjustments['wastage_qty'], 2), '0'), '.') }} <span class="text-xs font-bold text-rose-700">Units</span>
+                            </h3>
+                            <p class="text-[11px] font-semibold text-rose-700/90 mt-0.5">{{ $summaryAdjustments['wastage_count'] }} item(s) written off as damaged</p>
+                        </div>
+                        <div class="w-10 h-10 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="trash-2" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-blue-600"></i>
+                            <span>Finalized Delivery Adjustments</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">Audited delivery review outcomes and invoice adjustments</p>
+                    </div>
+                </div>
+
+                @if(!$adjustedInvoices || $adjustedInvoices->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="check-circle" class="w-6 h-6 text-emerald-500"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">No Delivery Adjustments</h3>
+                        <p class="text-xs text-slate-500 mt-1">No admin corrections or delivery discrepancies recorded for this date.</p>
+                    </div>
+                @else
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5">Date</th>
+                                    <th class="p-3.5">Shop</th>
+                                    <th class="p-3.5">Invoice #</th>
+                                    <th class="p-3.5 text-right pr-5">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($adjustedInvoices as $inv)
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="p-3.5 pl-5 font-bold text-slate-600">
+                                            {{ $inv->business_date?->format('d M Y') ?? '—' }}
+                                        </td>
+                                        <td class="p-3.5 font-black text-slate-900">
+                                            {{ $inv->shop?->name ?? 'Shop' }}
+                                        </td>
+                                        <td class="p-3.5 font-mono font-bold text-emerald-700">
+                                            {{ $inv->invoice_number }}
+                                        </td>
+                                        <td class="p-3.5 text-right pr-5 font-mono font-black text-slate-900">
+                                            ₹{{ number_format((float) $inv->final_total, 2) }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-100">
                         {{ $adjustedInvoices->links() }}
                     </div>
                 @endif
             </div>
+        @endif
 
-            <!-- ALL-DETAILS POPUP MODAL (ONE INVOICE PER DAY) -->
-            <div x-show="detailModalOpen"
-                 x-cloak
-                 class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-                <div class="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto"
-                     @click.away="detailModalOpen = false">
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- MODAL 1: AUTO MATCH & CLEAR MODAL (ALPINE.JS)                      -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <div x-show="autoClearModalOpen"
+             x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div class="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+                 @click.away="if(!executingAutoClear) autoClearModalOpen = false">
 
-                    <!-- Modal Header -->
-                    <div class="flex items-start justify-between pb-3 border-b border-slate-100">
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <h3 class="text-base font-black text-slate-900" x-text="selectedInvoice ? selectedInvoice.shop_name : ''"></h3>
-                                <span class="font-mono text-xs font-black text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200"
-                                      x-text="selectedInvoice ? selectedInvoice.invoice_number : ''"></span>
-                                <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800"
-                                      x-text="selectedInvoice ? selectedInvoice.status : ''"></span>
-                            </div>
-                            <div class="text-xs text-slate-500 font-bold mt-1 flex items-center gap-2">
-                                <span x-text="selectedInvoice ? 'Final Amount: ₹' + Number(selectedInvoice.final_total).toFixed(2) : ''"></span>
-                                <span>•</span>
-                                <span x-text="selectedInvoice ? 'Finalized by ' + selectedInvoice.finalized_by + ' on ' + selectedInvoice.finalized_at : ''"></span>
-                            </div>
+                <!-- Header -->
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div class="flex items-center gap-2">
+                        <div class="w-9 h-9 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black">
+                            <i data-lucide="sparkles" class="w-5 h-5"></i>
                         </div>
-                        <button type="button" @click="detailModalOpen = false" class="text-slate-400 hover:text-slate-600 p-1">
-                            <i data-lucide="x" class="w-5 h-5"></i>
-                        </button>
+                        <div>
+                            <h3 class="text-base font-black text-slate-900">Auto Match &amp; Clear Bills</h3>
+                            <p class="text-xs text-slate-500 font-semibold">Deterministic FIFO matching of pending bills against open advances</p>
+                        </div>
+                    </div>
+                    <button type="button"
+                            @click="autoClearModalOpen = false"
+                            :disabled="executingAutoClear"
+                            class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <!-- Step 1: Loading State -->
+                <div x-show="loadingPlan" class="py-12 text-center space-y-3">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-600 border-r-transparent"></div>
+                    <p class="text-xs font-black text-slate-700">Evaluating eligible pending bills and open advances...</p>
+                </div>
+
+                <!-- Step 2: Plan Preview Display -->
+                <div x-show="!loadingPlan && planData && !autoClearCompleted" class="space-y-4">
+                    <!-- Summary Stats Banner -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Ready to Clear</span>
+                            <span class="text-base font-black text-emerald-700" x-text="planData.summary.ready_bills + ' Bills'"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Cannot Clear</span>
+                            <span class="text-base font-black text-slate-500" x-text="planData.summary.skipped_bills + ' Bills'"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Advances Full</span>
+                            <span class="text-base font-black text-purple-700" x-text="planData.summary.advances_fully_cleared + ' GRNs'"></span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Matched Base Qty</span>
+                            <span class="text-base font-black text-slate-900" x-text="Number(planData.summary.matched_base_qty).toFixed(2) + ' KG'"></span>
+                        </div>
                     </div>
 
-                    <!-- On-Behalf Notice -->
-                    <template x-if="selectedInvoice && selectedInvoice.is_admin_on_behalf">
-                        <div class="bg-purple-50 p-2.5 rounded-xl border border-purple-200 text-xs font-black text-purple-900 flex items-center gap-2">
-                            <i data-lucide="shield-alert" class="w-4 h-4 text-purple-700"></i>
-                            <span>FINALIZED BY ADMIN ON BEHALF OF SHOP</span>
-                        </div>
-                    </template>
-
-                    <!-- Discrepancies & Inventory Resolutions Table -->
-                    <template x-if="selectedInvoice && selectedInvoice.resolutions && selectedInvoice.resolutions.length > 0">
-                        <div class="space-y-2">
-                            <h4 class="text-xs font-black uppercase tracking-wider text-slate-600">Product Discrepancies &amp; Inventory Outcomes</h4>
-                            <div class="space-y-2">
-                                <template x-for="res in selectedInvoice.resolutions" :key="res.product_name">
-                                    <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-                                        <div class="flex items-center justify-between">
-                                            <span class="text-xs font-black text-slate-900" x-text="res.product_name"></span>
-                                            <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase border"
-                                                  :class="res.resolution === 'return_to_warehouse' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : (res.resolution === 'wastage' ? 'bg-rose-50 text-rose-800 border-rose-200' : (res.resolution === 'deduct_extra' ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-amber-50 text-amber-800 border-amber-200'))"
-                                                  x-text="res.resolution === 'return_to_warehouse' ? 'RETURNED TO WAREHOUSE ' + res.resolution_qty + ' ' + (res.unit || 'KG') : (res.resolution === 'wastage' ? 'RECORDED AS WASTAGE ' + res.resolution_qty + ' ' + (res.unit || 'KG') : (res.resolution === 'deduct_extra' ? 'EXTRA STOCK DEDUCTED ' + res.resolution_qty + ' ' + (res.unit || 'KG') : 'ALREADY ACCOUNTED ' + res.resolution_qty + ' ' + (res.unit || 'KG')))">
-                                            </span>
-                                        </div>
-
-                                        <div class="grid grid-cols-3 gap-2 bg-white p-2 rounded-xl border border-slate-200 text-center text-xs">
-                                            <div>
-                                                <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Loaded</span>
-                                                <span class="font-mono font-bold text-slate-700" x-text="(res.loaded_qty ?? '—') + ' ' + (res.unit || 'KG')"></span>
-                                            </div>
-                                            <div>
-                                                <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Final Bill</span>
-                                                <span class="font-mono font-black text-slate-900" x-text="(res.final_qty ?? '—') + ' ' + (res.unit || 'KG')"></span>
-                                            </div>
-                                            <div>
-                                                <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Difference</span>
-                                                <span class="font-mono font-black"
-                                                      :class="(res.final_qty - res.loaded_qty) < 0 ? 'text-rose-700' : 'text-emerald-700'"
-                                                      x-text="((res.final_qty - res.loaded_qty) > 0 ? '+' : '') + (res.final_qty - res.loaded_qty) + ' ' + (res.unit || 'KG')"></span>
-                                            </div>
-                                        </div>
-
-                                        <div class="text-xs text-slate-600 flex flex-wrap justify-between gap-1 pt-0.5">
-                                            <div>
-                                                <span class="font-bold text-slate-700">Reason:</span>
-                                                <span x-text="res.reason ? res.reason.replace(/_/g, ' ') : 'Loadout Mistake'"></span>
-                                            </div>
-                                            <template x-if="res.item_note">
-                                                <div class="italic text-slate-500" x-text="'&quot;' + res.item_note + '&quot;'"></div>
-                                            </template>
-                                        </div>
+                    <!-- Ready Bills List -->
+                    <div x-show="planData.ready_bills && planData.ready_bills.length > 0" class="space-y-2">
+                        <h4 class="text-xs font-black uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                            <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-600"></i>
+                            <span>Ready to Auto-Clear (<span x-text="planData.ready_bills.length"></span>)</span>
+                        </h4>
+                        <div class="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                            <template x-for="bill in planData.ready_bills" :key="bill.po_number">
+                                <div class="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/40 text-xs flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-mono font-black text-slate-900" x-text="bill.po_number"></span>
+                                        <span class="text-slate-600" x-text="'• ' + bill.supplier_name"></span>
                                     </div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Item Adjustments & Price Modifications -->
-                    <template x-if="selectedInvoice && selectedInvoice.item_changes && selectedInvoice.item_changes.length > 0">
-                        <div class="space-y-2">
-                            <h4 class="text-xs font-black uppercase tracking-wider text-slate-600">Item Modifications &amp; Discounts</h4>
-                            <div class="space-y-1.5">
-                                <template x-for="(ch, idx) in selectedInvoice.item_changes" :key="idx">
-                                    <div class="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs flex items-center justify-between">
-                                        <div>
-                                            <template x-if="ch.type === 'item_adj'">
-                                                <div>
-                                                    <span class="font-bold text-slate-900" x-text="ch.product_name"></span>
-                                                    <span class="text-slate-600 ml-2" x-text="'Qty: ' + (ch.before_qty ?? '—') + ' → ' + (ch.after_qty ?? '—')"></span>
-                                                </div>
-                                            </template>
-                                            <template x-if="ch.type === 'discount'">
-                                                <div class="font-bold text-amber-900" x-text="'Discount Applied: ₹' + ch.before + ' → ₹' + ch.after"></div>
-                                            </template>
-                                        </div>
-                                        <template x-if="ch.reason">
-                                            <div class="text-slate-500 italic text-[11px]" x-text="'&quot;' + ch.reason + '&quot;'"></div>
-                                        </template>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Auto Change Summary -->
-                    <template x-if="selectedInvoice && selectedInvoice.auto_change_summary">
-                        <div class="space-y-1">
-                            <h4 class="text-xs font-black uppercase tracking-wider text-slate-600">Audit Summary</h4>
-                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-700 whitespace-pre-line leading-relaxed"
-                                 x-text="selectedInvoice.auto_change_summary"></div>
-                        </div>
-                    </template>
-
-                    <!-- Overall Notes -->
-                    <template x-if="selectedInvoice && selectedInvoice.overall_notes && selectedInvoice.overall_notes.length > 0">
-                        <div class="space-y-1">
-                            <h4 class="text-xs font-black uppercase tracking-wider text-slate-600">Overall Notes</h4>
-                            <template x-for="(nt, nidx) in selectedInvoice.overall_notes" :key="nidx">
-                                <div class="text-xs text-slate-700 bg-teal-50/50 p-2.5 rounded-xl border border-teal-100 flex items-start gap-2">
-                                    <i data-lucide="message-square" class="w-4 h-4 text-teal-600 flex-shrink-0 mt-0.5"></i>
-                                    <span x-text="'&quot;' + nt + '&quot;'"></span>
+                                    <div class="font-mono font-black text-emerald-900" x-text="bill.matched_base_qty + ' KG matched'"></div>
                                 </div>
                             </template>
                         </div>
+                    </div>
+
+                    <!-- Skipped / Cannot Clear Bills List -->
+                    <div x-show="planData.skipped_bills && planData.skipped_bills.length > 0" class="space-y-2">
+                        <h4 class="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                            <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-slate-400"></i>
+                            <span>Skipped Bills (<span x-text="planData.skipped_bills.length"></span>)</span>
+                        </h4>
+                        <div class="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                            <template x-for="bill in planData.skipped_bills" :key="bill.po_number">
+                                <div class="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-mono font-bold text-slate-700" x-text="bill.po_number"></span>
+                                        <span class="text-slate-500" x-text="'• ' + (bill.supplier_name || 'Vendor')"></span>
+                                    </div>
+                                    <span class="text-[10px] font-bold text-slate-500 italic" x-text="bill.reason || 'No advance coverage'"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div x-show="planData.summary.ready_bills === 0" class="p-6 text-center bg-slate-50 rounded-2xl border border-slate-200">
+                        <p class="text-xs font-black text-slate-700">No pending bills currently have matching open advance quantities available.</p>
+                    </div>
+
+                    <!-- Error Alert if any -->
+                    <div x-show="errorMessage" class="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800" x-text="errorMessage"></div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                        <button type="button"
+                                @click="autoClearModalOpen = false"
+                                :disabled="executingAutoClear"
+                                class="px-4 py-2 text-xs font-bold rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer">
+                            Cancel
+                        </button>
+                        <button type="button"
+                                @click="executeAutoClear()"
+                                :disabled="executingAutoClear || planData.summary.ready_bills === 0"
+                                class="inline-flex items-center gap-2 px-5 py-2 text-xs font-black rounded-xl bg-emerald-700 text-white hover:bg-emerald-800 transition shadow-xs disabled:opacity-50 cursor-pointer">
+                            <span x-show="!executingAutoClear">Confirm &amp; Clear <span x-text="planData.summary.ready_bills"></span> Bills</span>
+                            <span x-show="executingAutoClear" class="inline-flex items-center gap-2">
+                                <span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-r-transparent rounded-full"></span>
+                                <span>Executing Reconciliation...</span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Execution Result Screen -->
+                <div x-show="autoClearCompleted" class="py-6 text-center space-y-4">
+                    <div class="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                        <i data-lucide="check" class="w-8 h-8"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-base font-black text-slate-900">Reconciliation Executed Successfully</h4>
+                        <p class="text-xs text-slate-500 mt-1" x-text="autoClearResultMsg"></p>
+                    </div>
+
+                    <div class="pt-2">
+                        <button type="button"
+                                @click="window.location.reload()"
+                                class="px-6 py-2.5 text-xs font-black rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-md cursor-pointer">
+                            Refresh Page
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- MODAL 2: MANUAL MATCH MODAL (ALPINE.JS)                            -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <div x-show="manualMatchModalOpen"
+             x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div class="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+                 @click.away="if(!executingManualMatch) manualMatchModalOpen = false">
+
+                <!-- Header -->
+                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div>
+                        <h3 class="text-base font-black text-slate-900">Manual Match Bill</h3>
+                        <p class="text-xs text-slate-500 font-semibold" x-text="'PO: ' + activePoNumber + ' • ' + activeSupplier"></p>
+                    </div>
+                    <button type="button"
+                            @click="manualMatchModalOpen = false"
+                            :disabled="executingManualMatch"
+                            class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <!-- Loading State -->
+                <div x-show="loadingManualSuggestions" class="py-12 text-center space-y-3">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-900 border-r-transparent"></div>
+                    <p class="text-xs font-black text-slate-700">Loading open advance candidates...</p>
+                </div>
+
+                <!-- Suggestions Body -->
+                <div x-show="!loadingManualSuggestions && manualSuggestions" class="space-y-4">
+                    <template x-for="item in (manualSuggestions.items || [])" :key="item.purchase_order_item_id">
+                        <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="text-xs font-black text-slate-900" x-text="item.product_name"></span>
+                                    <span class="text-xs text-slate-500 ml-2" x-text="'Bill Qty: ' + item.ordered_qty + ' ' + item.unit"></span>
+                                </div>
+                                <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase border"
+                                      :class="item.match_status === 'exact' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : (item.match_status === 'partial' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200')"
+                                      x-text="item.match_status">
+                                </span>
+                            </div>
+
+                            <!-- Candidate Advances -->
+                            <div x-show="item.suggested_matches && item.suggested_matches.length > 0" class="space-y-2">
+                                <span class="text-[10px] font-black uppercase text-slate-400">Available Advance Candidates</span>
+                                <template x-for="cand in item.suggested_matches" :key="cand.advance_goods_received_id">
+                                    <div class="p-2 rounded-xl bg-white border border-slate-200 flex items-center justify-between text-xs">
+                                        <div class="space-y-0.5">
+                                            <div class="flex items-center gap-1.5">
+                                                <span class="font-mono font-black text-purple-800" x-text="cand.grn_number"></span>
+                                                <span class="text-[10px] text-slate-400" x-text="'(' + cand.received_at + ')'"></span>
+                                            </div>
+                                            <div class="text-[11px] text-slate-500" x-text="'Available: ' + cand.available_qty + ' ' + cand.unit"></div>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[10px] font-black uppercase text-slate-400">Match:</span>
+                                            <input type="number"
+                                                   step="0.01"
+                                                   x-model.number="cand.proposed_match_qty"
+                                                   :max="cand.available_qty"
+                                                   min="0"
+                                                   class="w-24 px-2.5 py-1 text-xs font-mono font-black rounded-lg bg-slate-50 border border-slate-200 text-right focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                                            <span class="text-[10px] font-bold text-slate-500" x-text="cand.unit"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <div x-show="!item.suggested_matches || item.suggested_matches.length === 0" class="text-xs text-slate-400 italic">
+                                No open advance candidates available for this product.
+                            </div>
+                        </div>
                     </template>
 
-                    <!-- Modal Actions -->
-                    <div class="flex items-center justify-end pt-3 border-t border-slate-100">
-                        <button type="button" @click="detailModalOpen = false" class="px-5 py-2 text-xs font-black rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition shadow-xs cursor-pointer">
-                            Close
+                    <div x-show="manualErrorMessage" class="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800" x-text="manualErrorMessage"></div>
+
+                    <!-- Actions -->
+                    <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                        <button type="button"
+                                @click="manualMatchModalOpen = false"
+                                :disabled="executingManualMatch"
+                                class="px-4 py-2 text-xs font-bold rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer">
+                            Cancel
+                        </button>
+                        <button type="button"
+                                @click="executeManualMatch()"
+                                :disabled="executingManualMatch || !hasAnyManualMatches()"
+                                class="inline-flex items-center gap-2 px-5 py-2 text-xs font-black rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition shadow-xs disabled:opacity-50 cursor-pointer">
+                            <span x-show="!executingManualMatch">Confirm Match</span>
+                            <span x-show="executingManualMatch" class="inline-flex items-center gap-2">
+                                <span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-r-transparent rounded-full"></span>
+                                <span>Reconciling...</span>
+                            </span>
                         </button>
                     </div>
                 </div>
             </div>
-        @endif
+        </div>
 
-        @if($section === 'bill_pending')
-            <!-- SECTION 3: BILL PENDING -->
-            <div class="space-y-4">
-                <div class="flex items-center justify-between px-1">
-                    <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="clock" class="w-4 h-4 text-amber-600"></i>
-                        Goods Received — Bill Pending
-                    </h2>
-                    <span class="text-xs font-bold text-slate-500">
-                        Showing {{ $billPendingReceipts->total() }} pending receipt(s)
-                    </span>
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- MODAL 3: RESOLVE UNIT DIFFERENCE MODAL                             -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <div x-show="unitDiffModalOpen"
+             x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div @click.away="if(!executingUnitDiff) unitDiffModalOpen = false"
+                 class="w-full max-w-xl rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+
+                <!-- Modal Header -->
+                <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/75">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-2xl bg-sky-100 text-sky-700 flex items-center justify-center">
+                            <i data-lucide="scale" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-black text-slate-900">Resolve Unit Difference</h3>
+                            <p class="text-xs text-slate-500 font-semibold" x-text="activeUnitDiff ? activeUnitDiff.po_number + ' · ' + activeUnitDiff.supplier_name : ''"></p>
+                        </div>
+                    </div>
+                    <button type="button"
+                            @click="unitDiffModalOpen = false"
+                            class="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
                 </div>
 
-                @if($billPendingReceipts->isEmpty())
-                    <div class="p-12 text-center bg-white rounded-3xl border border-slate-200/90 shadow-xs">
-                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">All Physical Receipts Billed</h3>
-                        <p class="text-xs text-slate-500 mt-1">There are no pending warehouse goods receipts without a vendor bill.</p>
-                    </div>
-                @else
-                    <div class="grid grid-cols-1 gap-3.5">
-                        @foreach($billPendingReceipts as $grn)
-                            <div class="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs hover:shadow-md transition-all space-y-3">
-                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-3 border-b border-slate-100">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-9 h-9 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center font-black text-xs flex-shrink-0">
-                                            GRN
-                                        </div>
-                                        <div>
-                                            <div class="flex flex-wrap items-center gap-2">
-                                                <h3 class="text-sm font-black text-slate-900">{{ $grn->purchaseOrder?->supplier?->name ?? 'Vendor Unassigned' }}</h3>
-                                                <span class="font-mono text-xs font-black text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
-                                                    {{ $grn->grn_number }}
-                                                </span>
-                                                <span class="inline-flex items-center rounded-lg bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">
-                                                    BILL PENDING
-                                                </span>
-                                            </div>
-                                            <div class="text-[11px] font-bold text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                                <span>{{ $grn->warehouse?->name ?? $grn->destinationShop?->name ?? 'Central Warehouse' }}</span>
-                                                <span>•</span>
-                                                <span>Received by {{ $grn->receivedBy?->name ?? 'Receiver' }}</span>
-                                                <span>•</span>
-                                                <span>{{ $grn->received_at?->format('d M Y') }} ({{ $grn->received_at?->diffForHumans() }})</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
+                <!-- Modal Body -->
+                <div class="p-5 space-y-4 overflow-y-auto flex-1">
+                    <template x-if="activeUnitDiff">
+                        <div class="space-y-4">
+                            <!-- Product & Bill Info Box -->
+                            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
+                                <div class="flex justify-between items-start">
                                     <div>
-                                        <button type="button"
-                                                @click="matchModalOpen = true; selectedGrnId = {{ $grn->id }}; selectedGrnNumber = '{{ $grn->grn_number }}'; selectedGrnSupplier = '{{ addslashes($grn->purchaseOrder?->supplier?->name ?? 'Vendor') }}'"
-                                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 text-white text-xs font-black hover:bg-amber-500 transition shadow-xs">
-                                            <i data-lucide="link" class="w-3.5 h-3.5"></i>
-                                            <span>Match Bill</span>
-                                        </button>
+                                        <div class="text-xs font-black text-slate-900" x-text="activeUnitDiff.product_name"></div>
+                                        <div class="text-[11px] font-mono text-slate-400" x-text="'SKU: ' + activeUnitDiff.product_sku + ' | Stored Base: ' + activeUnitDiff.product_base_unit"></div>
                                     </div>
-                                </div>
-
-                                <div class="flex flex-wrap gap-2">
-                                    @foreach($grn->items as $item)
-                                        <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-bold text-slate-800">
-                                            <span>{{ $item->product?->name ?? 'Item #'.$item->product_id }}</span>
-                                            <span class="text-emerald-700 font-black">{{ (float) $item->received_qty }} {{ $item->product?->unit ?? 'KG' }}</span>
-                                        </div>
-                                    @endforeach
-                                </div>
-
-                                @if($grn->notes)
-                                    <div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                                        <span class="font-bold text-slate-700">Notes:</span> {{ $grn->notes }}
-                                    </div>
-                                @endif
-                            </div>
-                        @endforeach
-                    </div>
-
-                    <div class="mt-4">
-                        {{ $billPendingReceipts->links() }}
-                    </div>
-                @endif
-            </div>
-
-            <!-- Match Bill Modal -->
-            <div x-show="matchModalOpen"
-                 x-cloak
-                 class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-                <div class="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4"
-                     @click.away="matchModalOpen = false">
-                    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-                        <div>
-                            <h3 class="text-base font-black text-slate-900">Match Purchase Bill</h3>
-                            <p class="text-xs text-slate-500 font-semibold" x-text="'GRN: ' + selectedGrnNumber + ' • ' + selectedGrnSupplier"></p>
-                        </div>
-                        <button type="button" @click="matchModalOpen = false" class="text-slate-400 hover:text-slate-600">
-                            <i data-lucide="x" class="w-5 h-5"></i>
-                        </button>
-                    </div>
-
-                    <form :action="'/admin/cashbook/inventory/match-bill/' + selectedGrnId" method="POST" class="space-y-3.5">
-                        @csrf
-                        <div>
-                            <label class="block text-xs font-black text-slate-700 uppercase mb-1">Purchaser Invoice / Bill #</label>
-                            <input type="text"
-                                   name="invoice_number"
-                                   required
-                                   placeholder="e.g. BILL-20260826-001"
-                                   class="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-black text-slate-700 uppercase mb-1">Total Bill Amount (₹)</label>
-                            <input type="number"
-                                   step="0.01"
-                                   name="amount"
-                                   required
-                                   placeholder="0.00"
-                                   class="w-full px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-black text-slate-700 uppercase mb-1">Reconciliation Notes</label>
-                            <textarea name="notes"
-                                      rows="2"
-                                      placeholder="Optional note regarding vendor invoice matching..."
-                                      class="w-full px-3 py-2 text-xs font-medium rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"></textarea>
-                        </div>
-
-                        <div class="bg-amber-50 p-3 rounded-xl border border-amber-200 text-[11px] font-bold text-amber-900">
-                            <i data-lucide="info" class="w-3.5 h-3.5 inline mr-1 text-amber-700"></i>
-                            Stock has already been entered into inventory. Matching will link the financial bill without creating duplicate stock movements.
-                        </div>
-
-                        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                            <button type="button" @click="matchModalOpen = false" class="px-3.5 py-2 text-xs font-bold rounded-xl text-slate-600 hover:bg-slate-100">
-                                Cancel
-                            </button>
-                            <button type="submit" class="px-4 py-2 text-xs font-black rounded-xl bg-amber-600 text-white hover:bg-amber-500 shadow-xs">
-                                Confirm Match
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-        @elseif($section === 'loadout_not_billed')
-            <!-- SECTION 4: LOADOUT WITHOUT BILL -->
-            <div class="space-y-4">
-                <div class="flex items-center justify-between px-1">
-                    <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="truck" class="w-4 h-4 text-blue-600"></i>
-                        Loadout Without Bill
-                    </h2>
-                    <span class="text-xs font-bold text-slate-500">
-                        Showing {{ $loadoutNotBilled->total() }} unbilled loadout movement(s)
-                    </span>
-                </div>
-
-                @if($loadoutNotBilled->isEmpty())
-                    <div class="p-12 text-center bg-white rounded-3xl border border-slate-200/90 shadow-xs">
-                        <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">All Loadouts Covered</h3>
-                        <p class="text-xs text-slate-500 mt-1">There are no dispatched loadouts missing purchaser bill coverage.</p>
-                    </div>
-                @else
-                    <div class="grid grid-cols-1 gap-3.5">
-                        @foreach($loadoutNotBilled as $loadout)
-                            <div class="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs hover:shadow-md transition-all space-y-3">
-                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-3 border-b border-slate-100">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-9 h-9 rounded-2xl bg-blue-50 text-blue-700 flex items-center justify-center font-black text-xs flex-shrink-0">
-                                            <i data-lucide="package" class="w-4 h-4"></i>
-                                        </div>
-                                        <div>
-                                            <div class="flex flex-wrap items-center gap-2">
-                                                <h3 class="text-sm font-black text-slate-900">{{ $loadout->product?->name ?? 'Product' }}</h3>
-                                                <span class="inline-flex items-center rounded-lg bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-800">
-                                                    NOT BILLED
-                                                </span>
-                                            </div>
-                                            <div class="text-[11px] font-bold text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                                <span>{{ $loadout->shopOrderItem?->order?->shop?->name ?? 'Shop Order' }}</span>
-                                                <span>•</span>
-                                                <span>Warehouse: {{ $loadout->warehouse?->name ?? 'Main Warehouse' }}</span>
-                                                <span>•</span>
-                                                <span>{{ $loadout->created_at?->format('d M Y') }} ({{ $loadout->created_at?->diffForHumans() }})</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
                                     <div class="text-right">
-                                        <span class="text-[10px] font-extrabold uppercase text-slate-400 block">Dispatched Qty</span>
-                                        <span class="text-sm font-black text-slate-900 font-mono">{{ (float) $loadout->quantity }} {{ $loadout->product?->unit ?? 'KG' }}</span>
+                                        <div class="text-xs font-black text-amber-900" x-text="activeUnitDiff.remaining_bill_qty + ' ' + activeUnitDiff.bill_unit"></div>
+                                        <div class="text-[10px] text-amber-700 font-semibold">Remaining Bill Qty</div>
                                     </div>
                                 </div>
-
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                                    <div>
-                                        <span class="font-bold text-slate-700">Source Receipt:</span>
-                                        <span class="text-slate-600 font-mono">{{ $loadout->batch?->goodsReceived?->grn_number ?? 'Direct Batch / None' }}</span>
-                                    </div>
-                                    <div>
-                                        <span class="font-bold text-slate-700">Supplier:</span>
-                                        <span class="text-slate-600">{{ $loadout->batch?->goodsReceived?->purchaseOrder?->supplier?->name ?? 'Unassigned' }}</span>
-                                    </div>
-                                </div>
-
-                                @if($loadout->notes)
-                                    <div class="text-xs text-slate-600">
-                                        <span class="font-bold text-slate-700">Note:</span> {{ $loadout->notes }}
-                                    </div>
-                                @endif
+                                <div class="text-[11px] text-amber-800 font-bold bg-amber-50 p-2 rounded-xl border border-amber-200/60" x-text="activeUnitDiff.reason"></div>
                             </div>
-                        @endforeach
-                    </div>
 
-                    <div class="mt-4">
-                        {{ $loadoutNotBilled->links() }}
-                    </div>
-                @endif
-            </div>
+                            <!-- Advance Candidate Selection -->
+                            <div>
+                                <label class="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-2">Select Open Advance GRN</label>
+                                <div class="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                    <template x-for="cand in (activeUnitDiff.candidates || [])" :key="cand.item_id">
+                                        <label class="flex items-center justify-between p-3 rounded-2xl border cursor-pointer transition-all"
+                                               :class="selectedCandidateId == cand.item_id ? 'border-sky-500 bg-sky-50/50 shadow-xs ring-1 ring-sky-500' : 'border-slate-200 bg-white hover:bg-slate-50'">
+                                            <div class="flex items-center gap-3">
+                                                <input type="radio"
+                                                       name="unit_diff_candidate"
+                                                       :value="cand.item_id"
+                                                       x-model="selectedCandidateId"
+                                                       @change="onCandidateChange(cand)"
+                                                       class="text-sky-600 focus:ring-sky-500">
+                                                <div>
+                                                    <div class="text-xs font-black text-slate-900 font-mono" x-text="cand.grn_number"></div>
+                                                    <div class="text-[10px] text-slate-400 font-semibold" x-text="'Received: ' + (cand.received_at || '—')"></div>
+                                                </div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="text-xs font-black text-purple-700 font-mono" x-text="cand.available_qty + ' ' + (cand.unit || 'KG')"></div>
+                                                <div class="text-[10px] text-slate-400 font-semibold">Available</div>
+                                            </div>
+                                        </label>
+                                    </template>
+                                </div>
+                            </div>
 
-        @elseif($section === 'history')
-            <!-- SECTION 5: HISTORY -->
-            <div class="space-y-4">
-                <div class="flex items-center justify-between px-1">
-                    <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <i data-lucide="history" class="w-4 h-4 text-purple-600"></i>
-                        Permanent Resolution History
-                    </h2>
-                    <span class="text-xs font-bold text-slate-500">
-                        Showing {{ $historyRecords->total() }} resolved record(s)
-                    </span>
+                            <!-- Quantity and Conversion Factor Inputs -->
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                <div>
+                                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-1">
+                                        Bill Qty to Match (<span x-text="activeUnitDiff.bill_unit"></span>)
+                                    </label>
+                                    <input type="number"
+                                           step="0.001"
+                                           x-model="matchedQty"
+                                           class="w-full px-3.5 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500">
+                                </div>
+
+                                <div>
+                                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-1">
+                                        Conversion: 1 <span x-text="activeUnitDiff.bill_unit"></span> =
+                                    </label>
+                                    <div class="flex items-center gap-1.5">
+                                        <input type="number"
+                                               step="0.0001"
+                                               x-model="conversionFactor"
+                                               class="w-full px-3.5 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500">
+                                        <span class="text-xs font-black text-slate-500 whitespace-nowrap" x-text="activeUnitDiff.product_base_unit"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Live Calculation Preview -->
+                            <div class="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-200/80 flex items-center justify-between text-xs font-bold text-sky-950">
+                                <span>Advance Stock to Deduct:</span>
+                                <span class="font-mono font-black text-sky-800 text-sm">
+                                    <span x-text="(parseFloat(matchedQty || 0) * parseFloat(conversionFactor || 1)).toFixed(2)"></span>
+                                    <span class="text-xs" x-text="activeUnitDiff.product_base_unit"></span>
+                                </span>
+                            </div>
+
+                            <!-- Notes -->
+                            <div>
+                                <label class="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-1">Resolution Notes / Reason</label>
+                                <input type="text"
+                                       x-model="unitDiffNotes"
+                                       placeholder="e.g. Manual conversion verified with vendor"
+                                       class="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500">
+                            </div>
+
+                            <!-- Error Message -->
+                            <template x-if="unitDiffErrorMessage">
+                                <div class="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold" x-text="unitDiffErrorMessage"></div>
+                            </template>
+                        </div>
+                    </template>
                 </div>
 
-                @if($historyRecords->isEmpty())
-                    <div class="p-12 text-center bg-white rounded-3xl border border-slate-200/90 shadow-xs">
-                        <div class="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No History Records Found</h3>
-                        <p class="text-xs text-slate-500 mt-1">No past resolution history matches your query.</p>
-                    </div>
-                @else
-                    <div class="space-y-3">
-                        @foreach($historyRecords as $hist)
-                            @php
-                                $hProps = $hist->properties ?? [];
-                                $isGRN = $hist->subject_type === \App\Models\GoodsReceived::class || $hist->event === 'goods_received.bill_matched';
-                            @endphp
-                            <div class="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs hover:shadow-md transition-all space-y-2.5">
-                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2.5 border-b border-slate-100">
-                                    <div class="flex items-center gap-2.5">
-                                        <div class="w-8 h-8 rounded-xl {{ $isGRN ? 'bg-amber-50 text-amber-700' : 'bg-purple-50 text-purple-700' }} flex items-center justify-center font-black text-xs">
-                                            <i data-lucide="{{ $isGRN ? 'file-check' : 'shield-check' }}" class="w-4 h-4"></i>
-                                        </div>
-                                        <div>
-                                            <div class="flex items-center gap-2">
-                                                <span class="text-xs font-black text-slate-900">
-                                                    {{ $isGRN ? 'Bill Pending Matched' : 'Invoice Discrepancy Resolved' }}
-                                                </span>
-                                                <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-black uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                                    RESOLVED
-                                                </span>
-                                            </div>
-                                            <div class="text-[11px] font-bold text-slate-400">
-                                                By {{ $hist->causer?->name ?? 'Admin' }} • {{ $hist->created_at?->format('d M Y • H:i') }}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    @if(!$isGRN && $hist->subject)
-                                        <a href="{{ route('purchasing.shop-invoices.show', $hist->subject) }}"
-                                           class="inline-flex items-center gap-1 text-xs font-black text-emerald-700 hover:text-emerald-900">
-                                            <span>View Invoice {{ $hist->subject->invoice_number }}</span>
-                                            <i data-lucide="arrow-up-right" class="w-3 h-3"></i>
-                                        </a>
-                                    @endif
-                                </div>
-
-                                <div class="text-xs text-slate-600 font-mono bg-slate-50 p-2.5 rounded-xl border border-slate-100 whitespace-pre-line">
-@if($isGRN)
-Bill Number: {{ data_get($hProps, 'invoice_number') }} | Amount: ₹{{ number_format((float) data_get($hProps, 'amount', 0), 2) }}
-@else
-{{ data_get($hProps, 'auto_change_summary') ?: 'Invoice audit adjustments finalized.' }}
-@endif
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-
-                    <div class="mt-4">
-                        {{ $historyRecords->links() }}
-                    </div>
-                @endif
+                <!-- Modal Footer -->
+                <div class="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/75">
+                    <button type="button"
+                            @click="unitDiffModalOpen = false"
+                            class="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition">
+                        Cancel
+                    </button>
+                    <button type="button"
+                            @click="executeResolveUnitDiff()"
+                            :disabled="executingUnitDiff || !selectedCandidateId || (parseFloat(matchedQty) || 0) <= 0"
+                            class="inline-flex items-center gap-2 px-5 py-2 text-xs font-black rounded-xl bg-sky-600 text-white hover:bg-sky-500 transition shadow-xs disabled:opacity-50 cursor-pointer">
+                        <span x-show="!executingUnitDiff">Confirm &amp; Match</span>
+                        <span x-show="executingUnitDiff" class="inline-flex items-center gap-2">
+                            <span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-r-transparent rounded-full"></span>
+                            <span>Resolving...</span>
+                        </span>
+                    </button>
+                </div>
             </div>
-        @endif
-
+        </div>
     </div>
+
+    <!-- Alpine.js Component Logic -->
+    <script>
+        function inventoryReconciliation(config) {
+            return {
+                csrfToken: config.csrfToken,
+                currentTab: config.currentTab,
+                currentDate: config.currentDate,
+                currentWarehouseId: config.currentWarehouseId,
+                currentSearch: config.currentSearch,
+
+                // Auto Clear state
+                autoClearModalOpen: false,
+                loadingPlan: false,
+                executingAutoClear: false,
+                autoClearCompleted: false,
+                planData: null,
+                errorMessage: '',
+                autoClearResultMsg: '',
+
+                // Manual Match state
+                manualMatchModalOpen: false,
+                loadingManualSuggestions: false,
+                executingManualMatch: false,
+                activePoId: null,
+                activePoNumber: '',
+                activeSupplier: '',
+                manualSuggestions: null,
+                manualErrorMessage: '',
+
+                // Unit Differences state
+                unitDiffModalOpen: false,
+                executingUnitDiff: false,
+                activeUnitDiff: null,
+                selectedCandidateId: null,
+                selectedCandidateObj: null,
+                matchedQty: 0,
+                conversionFactor: 1.0,
+                unitDiffNotes: '',
+                unitDiffErrorMessage: '',
+
+                // 1. Open Auto Clear Modal
+                async openAutoClear() {
+                    this.autoClearModalOpen = true;
+                    this.loadingPlan = true;
+                    this.autoClearCompleted = false;
+                    this.errorMessage = '';
+                    this.planData = null;
+
+                    try {
+                        const url = `${config.autoPlanUrl}?warehouse_id=${this.currentWarehouseId || 1}`;
+                        const res = await fetch(url, {
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken
+                            }
+                        });
+                        const json = await res.json();
+                        if (json.status === 'success') {
+                            this.planData = json.data;
+                        } else {
+                            this.errorMessage = json.message || 'Could not load auto-clear plan.';
+                        }
+                    } catch (e) {
+                        this.errorMessage = 'Failed to fetch auto-clear preview: ' + e.message;
+                    } finally {
+                        this.loadingPlan = false;
+                    }
+                },
+
+                // 2. Execute Auto Clear
+                async executeAutoClear() {
+                    if (!this.planData || !this.planData.plan_hash) return;
+
+                    this.executingAutoClear = true;
+                    this.errorMessage = '';
+
+                    const clientSubmissionId = ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+                    );
+
+                    try {
+                        const res = await fetch(config.autoExecuteUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken
+                            },
+                            body: JSON.stringify({
+                                warehouse_id: parseInt(this.currentWarehouseId || 1, 10),
+                                plan_hash: this.planData.plan_hash,
+                                client_submission_id: clientSubmissionId
+                            })
+                        });
+
+                        const json = await res.json();
+                        if (res.ok && json.status === 'success') {
+                            this.autoClearCompleted = true;
+                            const d = json.data || {};
+                            this.autoClearResultMsg = `Cleared ${d.bills_cleared ?? 0} bills (${d.matched_base_qty ?? 0} KG) across ${d.advances_fully_cleared ?? 0} full advances.`;
+                        } else {
+                            this.errorMessage = json.message || 'Auto reconciliation failed during execution.';
+                        }
+                    } catch (e) {
+                        this.errorMessage = 'Network error during auto reconciliation: ' + e.message;
+                    } finally {
+                        this.executingAutoClear = false;
+                    }
+                },
+
+                // 3. Open Manual Match Modal
+                async openManualMatch(poId, poNumber, supplierName) {
+                    this.activePoId = poId;
+                    this.activePoNumber = poNumber;
+                    this.activeSupplier = supplierName;
+                    this.manualMatchModalOpen = true;
+                    this.loadingManualSuggestions = true;
+                    this.manualErrorMessage = '';
+                    this.manualSuggestions = null;
+
+                    try {
+                        const url = `${config.manualMatchUrlPrefix}${poId}?warehouse_id=${this.currentWarehouseId || 1}`;
+                        const res = await fetch(url, {
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken
+                            }
+                        });
+                        const json = await res.json();
+                        if (json.status === 'success') {
+                            this.manualSuggestions = json.data;
+                        } else {
+                            this.manualErrorMessage = json.message || 'Failed to load match candidates.';
+                        }
+                    } catch (e) {
+                        this.manualErrorMessage = 'Network error: ' + e.message;
+                    } finally {
+                        this.loadingManualSuggestions = false;
+                    }
+                },
+
+                hasAnyManualMatches() {
+                    if (!this.manualSuggestions || !this.manualSuggestions.items) return false;
+                    return this.manualSuggestions.items.some(item =>
+                        item.suggested_matches && item.suggested_matches.some(c => (parseFloat(c.proposed_match_qty) || 0) > 0)
+                    );
+                },
+
+                // 4. Execute Manual Match
+                async executeManualMatch() {
+                    if (!this.activePoId || !this.manualSuggestions) return;
+
+                    this.executingManualMatch = true;
+                    this.manualErrorMessage = '';
+
+                    const advanceMatches = [];
+                    const items = [];
+
+                    for (const item of (this.manualSuggestions.items || [])) {
+                        items.push({
+                            product_id: item.product_id,
+                            purchase_order_item_id: item.purchase_order_item_id,
+                            received_qty: item.ordered_qty,
+                            unit: item.unit
+                        });
+
+                        if (item.suggested_matches) {
+                            for (const cand of item.suggested_matches) {
+                                const qty = parseFloat(cand.proposed_match_qty) || 0;
+                                if (qty > 0) {
+                                    advanceMatches.push({
+                                        advance_goods_received_id: cand.advance_goods_received_id,
+                                        advance_goods_received_item_id: cand.advance_goods_received_item_id,
+                                        purchase_order_item_id: item.purchase_order_item_id,
+                                        product_id: cand.product_id,
+                                        matched_qty: qty,
+                                        unit: cand.unit
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    if (advanceMatches.length === 0) {
+                        this.manualErrorMessage = 'Please specify at least one candidate match quantity.';
+                        this.executingManualMatch = false;
+                        return;
+                    }
+
+                    try {
+                        const url = `${config.manualExecuteUrlPrefix}${this.activePoId}`;
+                        const res = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken
+                            },
+                            body: JSON.stringify({
+                                warehouse_id: parseInt(this.currentWarehouseId || 1, 10),
+                                items: items,
+                                advance_matches: advanceMatches
+                            })
+                        });
+
+                        const json = await res.json();
+                        if (res.ok && json.status === 'success') {
+                            window.location.reload();
+                        } else {
+                            this.manualErrorMessage = json.message || 'Manual match execution failed.';
+                        }
+                    } catch (e) {
+                        this.manualErrorMessage = 'Network error: ' + e.message;
+                    } finally {
+                        this.executingManualMatch = false;
+                    }
+                },
+
+                // 5. Open & Execute Unit Difference Resolution
+                openResolveUnitDiff(row) {
+                    this.activeUnitDiff = row;
+                    this.unitDiffErrorMessage = '';
+                    this.unitDiffNotes = 'Manual unit difference resolution';
+                    const cands = row.candidates || [];
+                    if (cands.length > 0) {
+                        this.selectedCandidateId = cands[0].item_id;
+                        this.selectedCandidateObj = cands[0];
+                        this.matchedQty = Math.min(row.remaining_bill_qty, cands[0].available_qty);
+                    } else {
+                        this.selectedCandidateId = null;
+                        this.selectedCandidateObj = null;
+                        this.matchedQty = row.remaining_bill_qty;
+                    }
+                    this.conversionFactor = 1.0;
+                    this.unitDiffModalOpen = true;
+                },
+
+                onCandidateChange(cand) {
+                    this.selectedCandidateObj = cand;
+                    if (this.activeUnitDiff) {
+                        this.matchedQty = Math.min(this.activeUnitDiff.remaining_bill_qty, cand.available_qty);
+                    }
+                },
+
+                async executeResolveUnitDiff() {
+                    if (!this.activeUnitDiff || !this.selectedCandidateId) return;
+
+                    const qty = parseFloat(this.matchedQty) || 0;
+                    const factor = parseFloat(this.conversionFactor) || 0;
+
+                    if (qty <= 0) {
+                        this.unitDiffErrorMessage = 'Please enter a valid match quantity.';
+                        return;
+                    }
+
+                    if (factor <= 0) {
+                        this.unitDiffErrorMessage = 'Please enter a valid conversion factor.';
+                        return;
+                    }
+
+                    this.executingUnitDiff = true;
+                    this.unitDiffErrorMessage = '';
+
+                    const cand = (this.activeUnitDiff.candidates || []).find(c => c.item_id == this.selectedCandidateId);
+
+                    try {
+                        const res = await fetch(config.resolveUnitDiffUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken
+                            },
+                            body: JSON.stringify({
+                                purchase_order_id: this.activeUnitDiff.purchase_order_id,
+                                purchase_order_item_id: this.activeUnitDiff.purchase_order_item_id,
+                                warehouse_id: parseInt(this.activeUnitDiff.warehouse_id || this.currentWarehouseId || 1, 10),
+                                advance_goods_received_id: cand ? cand.advance_goods_received_id : this.activeUnitDiff.candidates[0].advance_goods_received_id,
+                                advance_goods_received_item_id: cand ? cand.item_id : null,
+                                matched_qty: qty,
+                                conversion_factor: factor,
+                                notes: this.unitDiffNotes
+                            })
+                        });
+
+                        const json = await res.json();
+                        if (res.ok && json.status === 'success') {
+                            window.location.reload();
+                        } else {
+                            this.unitDiffErrorMessage = json.message || 'Failed to resolve unit difference.';
+                        }
+                    } catch (e) {
+                        this.unitDiffErrorMessage = 'Network error: ' + e.message;
+                    } finally {
+                        this.executingUnitDiff = false;
+                    }
+                }
+            };
+        }
+    </script>
 @endsection

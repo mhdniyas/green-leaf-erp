@@ -6,11 +6,15 @@ namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\CompanyExpenseLedgerAllocation;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
+use App\Models\CompanyPayableSettlement;
+use App\Models\JournalEntry;
 use App\Models\Shop;
+use App\Models\ShopInvoicePaymentAllocation;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
 use App\Services\Finance\JournalService;
@@ -915,5 +919,148 @@ class ShopPaymentLedgerReconciliationService
                 'allocations' => 'Allocation amounts must be greater than zero.',
             ]);
         }
+    }
+
+    /**
+     * Safely delete a received shop payment, reversing all linked settlement allocations,
+     * expense allocations, invoice allocations, reconciliations, statement entries, and journal entries.
+     */
+    public function deletePayment(ShopInvoicePaymentRequest $payment, int $userId): void
+    {
+        DB::transaction(function () use ($payment, $userId): void {
+            $lockedPayment = ShopInvoicePaymentRequest::query()
+                ->whereKey($payment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // 1. Reverse/clear linked ShopPaymentLedgerAllocation records
+            $this->clearPaymentAllocations($lockedPayment, $userId);
+
+            // 2. Reverse/clear linked CompanyExpenseLedgerAllocation records
+            CompanyExpenseLedgerAllocation::query()
+                ->where('payment_request_id', $lockedPayment->id)
+                ->lockForUpdate()
+                ->delete();
+
+            // 3. Reverse/clear linked ShopInvoicePaymentAllocation records and recalculate invoice totals
+            $invoiceAllocations = ShopInvoicePaymentAllocation::query()
+                ->where('payment_request_id', $lockedPayment->id)
+                ->with('invoice')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($invoiceAllocations as $invAlloc) {
+                $invoice = $invAlloc->invoice;
+                $invAlloc->delete();
+                if ($invoice) {
+                    $totalPaid = (float) $invoice->paymentAllocations()->sum('amount');
+                    $totalAmount = (float) $invoice->total_amount;
+                    $newBalance = round(max(0, $totalAmount - $totalPaid), 2);
+                    $newStatus = $newBalance <= 0 ? 'paid' : ($totalPaid > 0 ? 'partially_paid' : 'unpaid');
+                    $invoice->update([
+                        'paid_amount' => $totalPaid,
+                        'balance_amount' => $newBalance,
+                        'status' => $newStatus,
+                    ]);
+                }
+            }
+
+            // 4. Reverse linked company reconciliations and statement entries
+            $reconciliations = CompanyPaymentReconciliation::query()
+                ->where('payment_request_id', $lockedPayment->id)
+                ->with('statementEntry')
+                ->lockForUpdate()
+                ->get();
+
+            $processedStatementIds = [];
+
+            foreach ($reconciliations as $recon) {
+                $statement = $recon->statementEntry;
+                if ($statement instanceof CompanyAccountStatementEntry) {
+                    $processedStatementIds[] = $statement->id;
+                    $isImported = $statement->source === 'imported'
+                        || ! empty($statement->import_file_name)
+                        || ! empty($statement->import_fingerprint);
+
+                    if ($isImported) {
+                        $statement->update([
+                            'status' => 'unmatched',
+                            'matched_amount' => 0,
+                            'journal_entry_id' => null,
+                            'source_type' => null,
+                            'source_id' => null,
+                            'is_finalized' => false,
+                            'finalized_at' => null,
+                            'reconciled_by' => null,
+                            'reconciled_at' => null,
+                            'notes' => trim(($statement->notes ?? '')." [Unmatched: Payment #{$lockedPayment->id} deleted]"),
+                        ]);
+                    } else {
+                        if ($statement->company_account_id) {
+                            $account = CompanyAccount::query()->whereKey($statement->company_account_id)->lockForUpdate()->first();
+                            if ($account instanceof CompanyAccount) {
+                                if (in_array($statement->direction, ['in', 'credit'], true)) {
+                                    $account->decrement('current_balance', (float) $statement->amount);
+                                } elseif (in_array($statement->direction, ['out', 'debit'], true)) {
+                                    $account->increment('current_balance', (float) $statement->amount);
+                                }
+                            }
+                        }
+                        $statement->delete();
+                    }
+                }
+                $recon->delete();
+            }
+
+            // 5. Clean up any direct statement entries created for this payment not caught in reconciliations
+            $directStatements = CompanyAccountStatementEntry::query()
+                ->where('source_type', ShopInvoicePaymentRequest::class)
+                ->where('source_id', $lockedPayment->id)
+                ->whereNotIn('id', $processedStatementIds)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($directStatements as $statement) {
+                if ($statement->company_account_id) {
+                    $account = CompanyAccount::query()->whereKey($statement->company_account_id)->lockForUpdate()->first();
+                    if ($account instanceof CompanyAccount) {
+                        if (in_array($statement->direction, ['in', 'credit'], true)) {
+                            $account->decrement('current_balance', (float) $statement->amount);
+                        } elseif (in_array($statement->direction, ['out', 'debit'], true)) {
+                            $account->increment('current_balance', (float) $statement->amount);
+                        }
+                    }
+                }
+                $statement->delete();
+            }
+
+            // 6. Clean up any linked JournalEntry records
+            $journalEntries = JournalEntry::query()
+                ->where('source_type', ShopInvoicePaymentRequest::class)
+                ->where('source_id', $lockedPayment->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($journalEntries as $je) {
+                $je->transactions()->delete();
+                $je->delete();
+            }
+
+            // 7. Clean up any CompanyPayableSettlement records
+            CompanyPayableSettlement::query()
+                ->where('shop_invoice_payment_request_id', $lockedPayment->id)
+                ->lockForUpdate()
+                ->delete();
+
+            // 8. Delete the payment record
+            $lockedPayment->delete();
+
+            Log::info('Shop payment deleted by admin', [
+                'payment_id' => $lockedPayment->id,
+                'shop_id' => $lockedPayment->shop_id,
+                'amount' => $lockedPayment->requested_amount ?? $lockedPayment->approved_amount,
+                'user_id' => $userId,
+            ]);
+        }, attempts: 3);
     }
 }

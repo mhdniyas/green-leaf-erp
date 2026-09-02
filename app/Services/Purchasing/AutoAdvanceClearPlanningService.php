@@ -373,7 +373,7 @@ class AutoAdvanceClearPlanningService
                         'product_id' => $product->id,
                         'product_name' => $product->name,
                         'unit' => $line['unit'],
-                        'reason' => 'invalid_unit_conversion',
+                        'reason' => 'unit_difference_requires_manual_review',
                         'required_base_qty' => 0.0,
                         'available_base_qty' => 0.0,
                         'shortage_base_qty' => 0.0,
@@ -495,7 +495,7 @@ class AutoAdvanceClearPlanningService
                     'supplier_id' => $target['supplier_id'],
                     'supplier_name' => $target['supplier_name'],
                     'bill_date' => $target['bill_date'],
-                    'reason' => 'invalid_unit_conversion',
+                    'reason' => 'unit_difference_requires_manual_review',
                     'shortages' => $tentativeShortages,
                 ];
             } elseif ($tentativeShortages !== []) {

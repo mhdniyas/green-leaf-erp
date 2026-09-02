@@ -30,12 +30,19 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
     use RefreshDatabase;
 
     private User $adminUser;
+
     private Warehouse $warehouseA;
+
     private Warehouse $warehouseB;
+
     private Category $category;
+
     private Product $tomato;
+
     private Product $onion;
+
     private Product $potato;
+
     private Supplier $supplier;
 
     protected function setUp(): void
@@ -109,7 +116,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
     {
         $wh = $warehouse ?? $this->warehouseA;
         $grn = GoodsReceived::create([
-            'grn_number' => 'GRN-ADV-' . Str::upper(Str::random(8)),
+            'grn_number' => 'GRN-ADV-'.Str::upper(Str::random(8)),
             'warehouse_id' => $wh->id,
             'receipt_type' => 'warehouse_advance',
             'status' => 'approved',
@@ -140,7 +147,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
             'warehouse_receive_pending' => false,
             'received_at' => $date,
             'created_by' => $this->adminUser->id,
-            'reference' => 'BAT-' . Str::upper(Str::random(6)),
+            'reference' => 'BAT-'.Str::upper(Str::random(6)),
         ]);
 
         return [$grn, $item, $batch];
@@ -196,7 +203,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
                 'warehouse_receive_pending' => false,
                 'received_at' => $confirmedDate,
                 'created_by' => $this->adminUser->id,
-                'reference' => 'BAT-' . Str::upper(Str::random(6)),
+                'reference' => 'BAT-'.Str::upper(Str::random(6)),
             ]);
         }
 
@@ -208,7 +215,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createAdvanceReceipt($this->tomato, 100.0, 'kg', '2026-09-03');
         $this->createAdvanceReceipt($this->onion, 50.0, 'kg', '2026-09-03');
 
-        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
 
         $response->assertOk();
         $data = collect($response->json('data'));
@@ -230,7 +237,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createAdvanceReceipt($this->tomato, 100.0, 'kg', '2026-09-03');
         $this->createConfirmedBillReconciliation($this->tomato, 75.0, 75.0, 0.0, '2026-09-03');
 
-        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
 
         $response->assertOk();
         $tomRow = collect($response->json('data'))->firstWhere('product_id', $this->tomato->id);
@@ -253,7 +260,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createConfirmedBillReconciliation($this->onion, 400.0, 355.0, 0.0, '2026-09-02');
 
         // Check 03 Sep
-        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
 
         $response->assertOk();
         $oniRow = collect($response->json('data'))->firstWhere('product_id', $this->onion->id);
@@ -270,7 +277,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createAdvanceReceipt($this->tomato, 100.0, 'kg', '2026-09-03');
         $this->createConfirmedBillReconciliation($this->tomato, 40.0, 40.0, 0.0, '2026-09-03');
 
-        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
 
         $response->assertOk();
         $tomRow = collect($response->json('data'))->firstWhere('product_id', $this->tomato->id);
@@ -286,7 +293,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createAdvanceReceipt($this->potato, 220.0, 'kg', '2026-09-03');
         $this->createConfirmedBillReconciliation($this->potato, 220.0, 220.0, 0.0, '2026-09-03');
 
-        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
 
         $response->assertOk();
         $potRow = collect($response->json('data'))->firstWhere('product_id', $this->potato->id);
@@ -304,7 +311,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         // Bill for 50 KG confirmed
         $this->createConfirmedBillReconciliation($this->tomato, 50.0, 50.0, 0.0, '2026-09-03');
 
-        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
 
         $response->assertOk();
         $tomRow = collect($response->json('data'))->firstWhere('product_id', $this->tomato->id);
@@ -321,13 +328,13 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createAdvanceReceipt($this->tomato, 200.0, 'kg', '2026-09-03', $this->warehouseB);
 
         // Warehouse A query
-        $resA = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $resA = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
         $resA->assertOk();
         $tomA = collect($resA->json('data'))->firstWhere('product_id', $this->tomato->id);
         $this->assertEquals(100.0, (float) $tomA['physical_base_qty']);
 
         // Warehouse B query
-        $resB = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseB->id . '&date=2026-09-03');
+        $resB = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseB->id.'&date=2026-09-03');
         $resB->assertOk();
         $tomB = collect($resB->json('data'))->firstWhere('product_id', $this->tomato->id);
         $this->assertEquals(200.0, (float) $tomB['physical_base_qty']);
@@ -341,7 +348,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         // 2. Bill remains pending through Sep 2 (no confirmed bill reconciliation)
 
         // Query Sep 2 => Billed must remain 0, Advance must be +500
-        $resSep2 = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-02');
+        $resSep2 = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-02');
         $resSep2->assertOk();
         $tomSep2 = collect($resSep2->json('data'))->firstWhere('product_id', $this->tomato->id);
         $this->assertEquals(0.0, (float) $tomSep2['billed_base_qty']);
@@ -352,7 +359,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createConfirmedBillReconciliation($this->tomato, 400.0, 400.0, 0.0, '2026-09-03');
 
         // Query Sep 3 => Billed 400, Physical 500, Advance +100
-        $resSep3 = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $resSep3 = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
         $resSep3->assertOk();
         $tomSep3 = collect($resSep3->json('data'))->firstWhere('product_id', $this->tomato->id);
         $this->assertEquals(400.0, (float) $tomSep3['billed_base_qty']);
@@ -360,7 +367,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->assertEquals(100.0, (float) $tomSep3['difference_base_qty']);
 
         // 4. Query Sep 2 AGAIN => Billed MUST STILL BE 0 (no retroactive alteration)
-        $resSep2Again = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&date=2026-09-02');
+        $resSep2Again = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-02');
         $resSep2Again->assertOk();
         $tomSep2Again = collect($resSep2Again->json('data'))->firstWhere('product_id', $this->tomato->id);
         $this->assertEquals(0.0, (float) $tomSep2Again['billed_base_qty']);
@@ -373,7 +380,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->createAdvanceReceipt($this->tomato, 50.0, 'kg', '2026-09-03');
         $this->createAdvanceReceipt($this->onion, 50.0, 'kg', '2026-09-03');
 
-        $res = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&search=Tomato&date=2026-09-03');
+        $res = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&search=Tomato&date=2026-09-03');
         $res->assertOk();
         $data = collect($res->json('data'));
 
@@ -396,7 +403,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
             $this->createAdvanceReceipt($p, 10.0 * $i, 'kg', '2026-09-03');
         }
 
-        $res = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id=' . $this->warehouseA->id . '&per_page=2&page=1&date=2026-09-03');
+        $res = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&per_page=2&page=1&date=2026-09-03');
         $res->assertOk();
 
         $this->assertEquals(2, count($res->json('data')));
@@ -411,7 +418,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $grn->update(['bill_status' => 'bill_available']);
 
         // Operational list query (date = today 2026-09-03)
-        $res = $this->getJson('/api/v1/purchasing/grns?receipt_type=warehouse_advance&warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $res = $this->getJson('/api/v1/purchasing/grns?receipt_type=warehouse_advance&warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
         $res->assertOk();
 
         $data = collect($res->json('data'));
@@ -423,7 +430,7 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         // Pending GRN from 10 days ago (unbilled balance remains)
         [$grn, $item, $batch] = $this->createAdvanceReceipt($this->tomato, 50.0, 'kg', '2026-08-20');
 
-        $res = $this->getJson('/api/v1/purchasing/grns?receipt_type=warehouse_advance&warehouse_id=' . $this->warehouseA->id . '&date=2026-09-03');
+        $res = $this->getJson('/api/v1/purchasing/grns?receipt_type=warehouse_advance&warehouse_id='.$this->warehouseA->id.'&date=2026-09-03');
         $res->assertOk();
 
         $data = collect($res->json('data'));

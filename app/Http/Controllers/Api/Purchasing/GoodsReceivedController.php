@@ -30,7 +30,6 @@ class GoodsReceivedController extends Controller
         private readonly GoodsReceivedService $service,
     ) {}
 
-    
     public function advanceInventory(Request $request): JsonResponse
     {
         $this->authorizeAdminOrPurchaser($request);
