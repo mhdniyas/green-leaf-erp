@@ -22,6 +22,7 @@ use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Purchasing\AutoAdvanceClearPlanningService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -670,7 +671,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $this->assertEquals(40.0, $matches[1]['base_qty']);
     }
 
-    public function test_advance_60_bill_100_is_skipped_as_insufficient_advance(): void
+    public function test_advance_60_bill_100_is_partial_match(): void
     {
         Sanctum::actingAs($this->warehouseUser);
 
@@ -681,17 +682,19 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $res->assertOk();
 
         $data = $res->json('data');
-        $this->assertEquals(0, $data['summary']['ready_bills']);
-        $this->assertEquals(1, $data['summary']['skipped_bills']);
-        $this->assertEquals(0.0, $data['summary']['matched_base_qty']);
+        // Partial match: bill 100 KG vs advance 60 KG → partial ready bill
+        $this->assertEquals(1, $data['summary']['ready_bills']);
+        $this->assertEquals(0, $data['summary']['skipped_bills']);
+        $this->assertEquals(60.0, $data['summary']['matched_base_qty']);
 
-        $this->assertEquals($bill->id, $data['skipped_bills'][0]['purchase_order_id']);
-        $this->assertEquals('insufficient_advance', $data['skipped_bills'][0]['reason']);
-        $this->assertEquals(100.0, $data['skipped_bills'][0]['shortages'][0]['required_base_qty']);
-        $this->assertEquals(60.0, $data['skipped_bills'][0]['shortages'][0]['available_base_qty']);
-        $this->assertEquals(40.0, $data['skipped_bills'][0]['shortages'][0]['shortage_base_qty']);
+        $readyBill = $data['ready_bills'][0];
+        $this->assertEquals($bill->id, $readyBill['purchase_order_id']);
+        $this->assertEquals('partial_match', $readyBill['match_type']);
+        $this->assertEquals(60.0, $readyBill['matched_base_qty']);
+        $this->assertEquals(40.0, $readyBill['remaining_unmatched_base_qty']);
 
-        $this->assertEquals(60.0, $data['advance_allocations'][0]['remaining_base_qty']);
+        // Advance pool should be fully consumed
+        $this->assertEquals(0.0, $data['advance_allocations'][0]['remaining_base_qty']);
     }
 
     public function test_query_count_remains_bounded(): void
@@ -720,7 +723,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $queries = DB::getQueryLog();
         $queryCount = count($queries);
 
-        $this->assertLessThanOrEqual(15, $queryCount, "Query count {$queryCount} exceeded bounded threshold");
+        $this->assertLessThanOrEqual(18, $queryCount, "Query count {$queryCount} exceeded bounded threshold");
     }
 
     public function test_fully_completed_po_is_skipped_as_no_reconcilable_items(): void
@@ -982,5 +985,423 @@ class AutoAdvanceClearPreviewTest extends TestCase
 
         $this->assertEquals($q5, $q20, "Query count for 20 GRNs ({$q20}) differed from 5 GRNs ({$q5}), indicating N+1 query leak in serialization.");
         $this->assertLessThanOrEqual(15, $q20);
+    }
+
+    public function test_planner_includes_open_advance_when_warehouse_id_is_null_but_resolved_via_stock_batch_or_product_default(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        // 1. Create an advance GRN with warehouse_id = null and destination_shop_id = null
+        //    whose product default warehouse is warehouseA
+        $advance = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => null,
+            'destination_shop_id' => null,
+            'purchase_order_id' => null,
+            'grn_number' => 'ADV-NULL-WH-'.uniqid(),
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'received_by' => $this->warehouseUser->id,
+            'received_at' => '2026-08-01',
+            'approved_at' => '2026-08-01',
+            'approved_by' => $this->warehouseUser->id,
+        ]);
+
+        $advItem = GoodsReceivedItem::create([
+            'goods_received_id' => $advance->id,
+            'product_id' => $this->apple->id, // default_warehouse_id is warehouseA
+            'received_qty' => 50.0,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
+        ]);
+
+        StockBatch::create([
+            'goods_received_id' => $advance->id,
+            'goods_received_item_id' => $advItem->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'product_id' => $this->apple->id,
+            'created_by' => $this->warehouseUser->id,
+            'purchase_grade' => 'A',
+            'grading_mode' => 'sort_required',
+            'reference' => 'BATCH-'.uniqid(),
+            'total_kg' => 50.0,
+            'cost_per_kg' => 50.0,
+            'received_at' => '2026-08-01',
+            'status' => BatchStatus::Pending,
+            'warehouse_receive_pending' => false,
+            'warehouse_confirmed_at' => '2026-08-01',
+            'warehouse_confirmed_by' => $this->warehouseUser->id,
+        ]);
+
+        // 2. Create a pending bill in warehouseA for 50kg of apple
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 50.0],
+        ], '2026-08-02', 'PO-NULL-WH-A');
+
+        // 3. Planner for warehouseA must include the advance and mark the bill ready
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $planA = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $planA['ready_bills']);
+        $this->assertEquals(50.0, $planA['summary']['matched_base_qty']);
+        $this->assertEquals($advance->id, $planA['ready_bills'][0]['lines'][0]['matches'][0]['advance_goods_received_id']);
+
+        // 4. Planner for warehouseB must exclude this advance
+        $planB = $service->buildAutoClearPlan($this->warehouseB->id, $this->warehouseUser->id);
+        $this->assertCount(0, $planB['ready_bills']);
+        $this->assertEquals(0.0, $planB['summary']['matched_base_qty']);
+    }
+
+    public function test_same_bill_item_with_3_advance_grns_results_in_one_ready_line_and_3_allocations(): void
+    {
+        $this->createAdvance($this->warehouseA, $this->apple, 10.0, '2026-08-01');
+        $this->createAdvance($this->warehouseA, $this->apple, 10.0, '2026-08-02');
+        $this->createAdvance($this->warehouseA, $this->apple, 10.0, '2026-08-03');
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 30.0],
+        ], '2026-08-04');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['ready_bills']);
+        $lines = $plan['ready_bills'][0]['lines'];
+        $this->assertCount(1, $lines);
+        $this->assertEquals(30.0, $lines[0]['planned_matched_base_qty']);
+        $this->assertCount(3, $lines[0]['allocations']);
+    }
+
+    public function test_partial_bill_item_has_correct_matched_and_remaining_quantities(): void
+    {
+        $this->createAdvance($this->warehouseA, $this->apple, 20.0, '2026-08-01');
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 50.0],
+        ], '2026-08-02');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['ready_bills']);
+        $line = $plan['ready_bills'][0]['lines'][0];
+        $this->assertEquals('PARTIAL_MATCH', $line['classification']);
+        $this->assertEquals(20.0, $line['planned_matched_base_qty']);
+        $this->assertEquals(30.0, $line['remaining_unmatched_base_qty']);
+    }
+
+    public function test_same_product_on_two_genuine_bill_items_remains_separate(): void
+    {
+        $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-01');
+
+        $bill = $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 10.0],
+            ['product_id' => $this->apple->id, 'quantity' => 20.0],
+        ], '2026-08-02');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['ready_bills']);
+        $lines = $plan['ready_bills'][0]['lines'];
+        $this->assertCount(2, $lines);
+        $this->assertNotEquals($lines[0]['source_item_id'], $lines[1]['source_item_id']);
+    }
+
+    public function test_unit_difference_item_classified_as_unit_difference(): void
+    {
+        $boxProd = Product::factory()->create(['unit' => 'box']);
+        $this->createAdvance($this->warehouseA, $boxProd, 50.0, '2026-08-01');
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $boxProd->id, 'quantity' => 10.0, 'purchase_unit' => 'box'],
+        ], '2026-08-02');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['skipped_bills']);
+        $line = $plan['skipped_bills'][0]['lines'][0];
+        $this->assertEquals('UNIT_DIFFERENCE', $line['classification']);
+        $this->assertEquals('UNIT_DIFFERENCE', $line['unmatched_reason']);
+    }
+
+    public function test_no_advance_item_classified_as_no_advance(): void
+    {
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 15.0],
+        ], '2026-08-02');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['skipped_bills']);
+        $line = $plan['skipped_bills'][0]['lines'][0];
+        $this->assertEquals('NO_ADVANCE', $line['classification']);
+        $this->assertEquals('NO_ADVANCE', $line['unmatched_reason']);
+    }
+
+    public function test_advance_exhausted_item_classified_as_advance_exhausted(): void
+    {
+        $this->createAdvance($this->warehouseA, $this->apple, 10.0, '2026-08-01');
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 10.0],
+        ], '2026-08-02');
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 15.0],
+        ], '2026-08-03');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['ready_bills']);
+        $this->assertCount(1, $plan['skipped_bills']);
+        $exhaustedLine = $plan['skipped_bills'][0]['lines'][0];
+        $this->assertEquals('ADVANCE_EXHAUSTED', $exhaustedLine['classification']);
+        $this->assertEquals('ADVANCE_EXHAUSTED', $exhaustedLine['unmatched_reason']);
+    }
+
+    public function test_unconfirmed_advance_item_classified_as_unconfirmed_advance(): void
+    {
+        $adv = $this->createAdvance($this->warehouseA, $this->apple, 25.0, '2026-08-01');
+        StockBatch::query()->where('goods_received_id', $adv->id)->update(['warehouse_receive_pending' => true]);
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 10.0],
+        ], '2026-08-02');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['skipped_bills']);
+        $line = $plan['skipped_bills'][0]['lines'][0];
+        $this->assertEquals('UNCONFIRMED_ADVANCE', $line['classification']);
+        $this->assertEquals('UNCONFIRMED_ADVANCE', $line['unmatched_reason']);
+    }
+
+    public function test_warehouse_advance_accepts_kg_even_if_product_base_is_piece(): void
+    {
+        $pieceProduct = Product::factory()->create(['name' => 'Banana Stem Piece', 'unit' => 'piece']);
+
+        $response = $this->actingAs($this->warehouseUser, 'sanctum')
+            ->postJson('/api/v1/purchasing/grns', [
+                'receipt_type' => 'warehouse_advance',
+                'bill_status' => 'bill_pending',
+                'received_at' => now()->toDateString(),
+                'warehouse_id' => $this->warehouseA->id,
+                'items' => [
+                    [
+                        'product_id' => $pieceProduct->id,
+                        'received_qty' => 142.0,
+                        'received_unit' => 'kg',
+                    ],
+                ],
+            ]);
+
+        $response->assertCreated();
+        $this->assertDatabaseHas('goods_received_items', [
+            'product_id' => $pieceProduct->id,
+            'received_qty' => 142.0,
+            'received_unit' => 'kg',
+        ]);
+    }
+
+    public function test_warehouse_advance_rejects_arbitrary_unsupported_unit(): void
+    {
+        $pieceProduct = Product::factory()->create(['name' => 'Banana Stem Piece 2', 'unit' => 'piece']);
+
+        $response = $this->actingAs($this->warehouseUser, 'sanctum')
+            ->postJson('/api/v1/purchasing/grns', [
+                'receipt_type' => 'warehouse_advance',
+                'bill_status' => 'bill_pending',
+                'received_at' => now()->toDateString(),
+                'warehouse_id' => $this->warehouseA->id,
+                'items' => [
+                    [
+                        'product_id' => $pieceProduct->id,
+                        'received_qty' => 50.0,
+                        'received_unit' => 'litre',
+                    ],
+                ],
+            ]);
+
+        $response->assertUnprocessable();
+        $response->assertJsonValidationErrors(['items.0.received_unit']);
+    }
+
+    public function test_same_unit_matching_for_piece_base_product_with_bill_kg_and_advance_kg(): void
+    {
+        $pieceProduct = Product::factory()->create(['name' => 'Banana Stem Test', 'unit' => 'piece']);
+
+        // Advance 142 kg
+        $adv = $this->createAdvance($this->warehouseA, $pieceProduct, 142.0, '2026-08-01', 'kg');
+
+        // Bill 6 kg
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $pieceProduct->id, 'quantity' => 6.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-02');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['ready_bills']);
+        $this->assertEquals('full_match', $plan['ready_bills'][0]['match_type']);
+        $this->assertEquals(6.0, $plan['summary']['matched_base_qty']);
+    }
+
+    public function test_different_units_bill_piece_vs_advance_kg_yields_unit_difference(): void
+    {
+        $pieceProduct = Product::factory()->create(['name' => 'Raw Banana Test', 'unit' => 'piece']);
+
+        // Advance 50 kg
+        $adv = $this->createAdvance($this->warehouseA, $pieceProduct, 50.0, '2026-08-01', 'kg');
+
+        // Bill 10 piece (different unit from advance kg)
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $pieceProduct->id, 'quantity' => 10.0, 'purchase_unit' => 'piece'],
+        ], '2026-08-02');
+
+        $service = app(AutoAdvanceClearPlanningService::class);
+        $plan = $service->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $plan['skipped_bills']);
+        $line = $plan['skipped_bills'][0]['lines'][0];
+        $this->assertEquals('UNIT_DIFFERENCE', $line['classification']);
+    }
+
+    public function test_phase1db_1_same_product_base_piece_bill_6kg_advance_142kg_full_match(): void
+    {
+        $product = Product::factory()->create(['name' => 'Banana Stem P1', 'unit' => 'piece']);
+        $this->createAdvance($this->warehouseA, $product, 142.0, '2026-08-01', 'kg');
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $product->id, 'quantity' => 6.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-02');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(1, $plan['ready_bills']);
+        $this->assertEquals(6.0, $plan['summary']['matched_base_qty']);
+    }
+
+    public function test_phase1db_2_same_product_base_box_bill_2kg_advance_19kg_full_match(): void
+    {
+        $product = Product::factory()->create(['name' => 'Gala P2', 'unit' => 'box']);
+        $this->createAdvance($this->warehouseA, $product, 19.0, '2026-08-01', 'kg');
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $product->id, 'quantity' => 2.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-02');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(1, $plan['ready_bills']);
+        $this->assertEquals(2.0, $plan['summary']['matched_base_qty']);
+    }
+
+    public function test_phase1db_3_same_product_bill_20piece_advance_142kg_unit_difference_not_no_advance(): void
+    {
+        $product = Product::factory()->create(['name' => 'Banana Stem P3', 'unit' => 'piece']);
+        $this->createAdvance($this->warehouseA, $product, 142.0, '2026-08-01', 'kg');
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $product->id, 'quantity' => 20.0, 'purchase_unit' => 'piece'],
+        ], '2026-08-02');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(1, $plan['skipped_bills']);
+        $line = $plan['skipped_bills'][0]['lines'][0];
+        $this->assertEquals('UNIT_DIFFERENCE', $line['classification']);
+        $this->assertNotEquals('NO_ADVANCE', $line['classification']);
+    }
+
+    public function test_phase1db_4_different_product_id_same_unit_must_not_match(): void
+    {
+        $prodA = Product::factory()->create(['name' => 'Apple A', 'unit' => 'kg']);
+        $prodB = Product::factory()->create(['name' => 'Banana B', 'unit' => 'kg']);
+
+        $this->createAdvance($this->warehouseA, $prodA, 100.0, '2026-08-01', 'kg');
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $prodB->id, 'quantity' => 10.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-02');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(0, $plan['ready_bills']);
+        $this->assertCount(1, $plan['skipped_bills']);
+        $this->assertEquals('NO_ADVANCE', $plan['skipped_bills'][0]['lines'][0]['classification']);
+    }
+
+    public function test_phase1db_5_same_product_multiple_advance_grns_fifo(): void
+    {
+        $product = Product::factory()->create(['name' => 'FIFO Prod', 'unit' => 'kg']);
+        $advA = $this->createAdvance($this->warehouseA, $product, 50.0, '2026-08-01', 'kg');
+        $advB = $this->createAdvance($this->warehouseA, $product, 40.0, '2026-08-02', 'kg');
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $product->id, 'quantity' => 70.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-03');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(1, $plan['ready_bills']);
+        $matches = $plan['ready_bills'][0]['lines'][0]['matches'];
+        $this->assertCount(2, $matches);
+        $this->assertEquals($advA->id, $matches[0]['advance_goods_received_id']);
+        $this->assertEquals(50.0, $matches[0]['matched_base_qty']);
+        $this->assertEquals($advB->id, $matches[1]['advance_goods_received_id']);
+        $this->assertEquals(20.0, $matches[1]['matched_base_qty']);
+    }
+
+    public function test_phase1db_6_same_product_insufficient_quantity_partial_match(): void
+    {
+        $product = Product::factory()->create(['name' => 'Partial Prod', 'unit' => 'kg']);
+        $this->createAdvance($this->warehouseA, $product, 60.0, '2026-08-01', 'kg');
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $product->id, 'quantity' => 100.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-02');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(1, $plan['ready_bills']);
+        $this->assertEquals('partial_match', $plan['ready_bills'][0]['match_type']);
+        $this->assertEquals(60.0, $plan['summary']['matched_base_qty']);
+    }
+
+    public function test_phase1db_7_same_product_previous_advance_allocation_deducted(): void
+    {
+        $product = Product::factory()->create(['name' => 'Prev Alloc Prod', 'unit' => 'kg']);
+        $adv = $this->createAdvance($this->warehouseA, $product, 100.0, '2026-08-01', 'kg');
+
+        // Existing match of 40 kg
+        \App\Models\AdvanceReceiveMatch::create([
+            'tenant_id' => $this->tenant->id,
+            'purchase_order_id' => 99999,
+            'goods_received_id' => 99999,
+            'advance_goods_received_id' => $adv->id,
+            'advance_goods_received_item_id' => $adv->items->first()->id,
+            'product_id' => $product->id,
+            'base_qty' => 40.0,
+            'matched_unit' => 'kg',
+            'matched_qty' => 40.0,
+            'created_by' => $this->warehouseUser->id,
+        ]);
+
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $product->id, 'quantity' => 80.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-02');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(1, $plan['ready_bills']);
+        $this->assertEquals('partial_match', $plan['ready_bills'][0]['match_type']);
+        $this->assertEquals(60.0, $plan['summary']['matched_base_qty']);
+    }
+
+    public function test_phase1db_8_no_same_product_advance_yields_no_advance(): void
+    {
+        $product = Product::factory()->create(['name' => 'No Adv Prod', 'unit' => 'kg']);
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $product->id, 'quantity' => 10.0, 'purchase_unit' => 'kg'],
+        ], '2026-08-02');
+
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+        $this->assertCount(0, $plan['ready_bills']);
+        $this->assertCount(1, $plan['skipped_bills']);
+        $this->assertEquals('NO_ADVANCE', $plan['skipped_bills'][0]['lines'][0]['classification']);
     }
 }

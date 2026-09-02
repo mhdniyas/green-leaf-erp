@@ -523,4 +523,330 @@ class AdminCashbookUnitDifferencesTest extends TestCase
 
         $this->assertEquals(403, $response->getStatusCode());
     }
+
+    public function test_kg_vs_piece_line_appears_in_unit_differences(): void
+    {
+        // 1. Advance GRN in PIECE for Apple (Apple base unit is piece -> enters pool as 100 pieces)
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'grn_number' => 'GRN-ADV-KG-APL',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'received_by' => $this->adminUser->id,
+            'received_at' => now()->subDay(),
+            'approved_at' => now()->subDay(),
+            'approved_by' => $this->adminUser->id,
+        ]);
+
+        $advItem = $advGrn->items()->create([
+            'product_id' => $this->apple->id,
+            'received_qty' => 100.0,
+            'received_unit' => 'piece',
+            'variance' => 0.0,
+        ]);
+
+        $this->createStockBatch($advGrn, $advItem, $this->apple, 100.0);
+
+        // 2. Pending Bill (PO) in KG for Apple (no conversion from KG to PIECE in orderUnits)
+        $po = PurchaseOrder::create([
+            'po_number' => 'PO-APL-PC',
+            'supplier_id' => $this->supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'status' => 'approved',
+            'order_date' => now()->toDateString(),
+            'total_amount' => 500.0,
+            'created_by' => $this->adminUser->id,
+        ]);
+
+        $poItem = $po->items()->create([
+            'product_id' => $this->apple->id,
+            'quantity' => 20.0,
+            'unit_price' => 25.0,
+            'purchase_unit' => 'kg',
+            'total_price' => 500.0,
+        ]);
+
+        // Auto Match planning should exclude this due to unit difference
+        $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->adminUser->id);
+
+        $this->assertEquals(0, $plan['summary']['ready_bills']);
+        $this->assertEquals(1, $plan['summary']['skipped_bills']);
+        $this->assertEquals('unit_difference_requires_manual_review', $plan['skipped_bills'][0]['reason']);
+
+        // Check unit differences endpoint / tab returns this line
+        $response = $this->actingAs($this->adminUser)
+            ->get(route('admin.cashbook.inventory', [
+                'tab' => 'unit_differences',
+                'warehouse_id' => $this->warehouseA->id,
+            ]));
+
+        $response->assertOk();
+        $response->assertSee('PO-APL-PC');
+        $response->assertSee('Apple Royal Gala');
+    }
+
+    public function test_manual_clear_step_by_step_partial_remainder_and_second_clear_completes(): void
+    {
+        // Advance GRN 100 KG
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'grn_number' => 'GRN-ADV-STEP',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'received_by' => $this->adminUser->id,
+            'received_at' => now()->subDay(),
+            'approved_at' => now()->subDay(),
+            'approved_by' => $this->adminUser->id,
+        ]);
+
+        $advItem = $advGrn->items()->create([
+            'product_id' => $this->tomato->id,
+            'received_qty' => 100.0,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
+        ]);
+
+        $this->createStockBatch($advGrn, $advItem, $this->tomato, 100.0);
+
+        // PO for 20 boxes (1 box = 5 kg)
+        $po = PurchaseOrder::create([
+            'po_number' => 'PO-DIFF-STEP',
+            'supplier_id' => $this->supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'status' => 'approved',
+            'order_date' => now()->toDateString(),
+            'total_amount' => 2000.0,
+            'created_by' => $this->adminUser->id,
+        ]);
+
+        $poItem = $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 20.0,
+            'unit_price' => 100.0,
+            'purchase_unit' => 'box',
+            'total_price' => 2000.0,
+        ]);
+
+        // Step 1: Clear 10 boxes (10 * 5 = 50 kg)
+        $res1 = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.resolve-unit-difference'), [
+                'purchase_order_id' => $po->id,
+                'purchase_order_item_id' => $poItem->id,
+                'warehouse_id' => $this->warehouseA->id,
+                'advance_goods_received_id' => $advGrn->id,
+                'advance_goods_received_item_id' => $advItem->id,
+                'matched_qty' => 10.0,
+                'conversion_factor' => 5.0,
+                'notes' => 'Step 1 clear 10 boxes',
+            ]);
+
+        $res1->assertOk();
+        $res1->assertJson([
+            'status' => 'success',
+            'data' => [
+                'remaining_bill_qty' => 10.0,
+                'po_fully_cleared' => false,
+                'advance_fully_cleared' => false,
+            ],
+        ]);
+
+        // Remainder stays visible in pending state
+        $this->assertEquals(POStatus::Approved->value, $po->fresh()->status->value);
+        $this->assertEquals('bill_pending', $advGrn->fresh()->bill_status);
+
+        // Step 2: Second clear for remaining 10 boxes (10 * 5 = 50 kg)
+        $res2 = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.resolve-unit-difference'), [
+                'purchase_order_id' => $po->id,
+                'purchase_order_item_id' => $poItem->id,
+                'warehouse_id' => $this->warehouseA->id,
+                'advance_goods_received_id' => $advGrn->id,
+                'advance_goods_received_item_id' => $advItem->id,
+                'matched_qty' => 10.0,
+                'conversion_factor' => 5.0,
+                'notes' => 'Step 2 clear remaining 10 boxes',
+            ]);
+
+        $res2->assertOk();
+        $res2->assertJson([
+            'status' => 'success',
+            'data' => [
+                'remaining_bill_qty' => 0.0,
+                'po_fully_cleared' => true,
+                'advance_fully_cleared' => true,
+            ],
+        ]);
+
+        $this->assertEquals(POStatus::Received->value, $po->fresh()->status->value);
+        $this->assertEquals('bill_available', $advGrn->fresh()->bill_status);
+    }
+
+    public function test_manual_clear_does_not_create_duplicate_physical_stock(): void
+    {
+        $initialBatchCount = StockBatch::count();
+
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'grn_number' => 'GRN-ADV-NO-STOCK-DUP',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'received_by' => $this->adminUser->id,
+            'received_at' => now()->subDay(),
+            'approved_at' => now()->subDay(),
+            'approved_by' => $this->adminUser->id,
+        ]);
+
+        $advItem = $advGrn->items()->create([
+            'product_id' => $this->tomato->id,
+            'received_qty' => 50.0,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
+        ]);
+
+        $batch = $this->createStockBatch($advGrn, $advItem, $this->tomato, 50.0);
+        $batchCountAfterAdvance = StockBatch::count();
+
+        $po = PurchaseOrder::create([
+            'po_number' => 'PO-NO-STOCK-DUP',
+            'supplier_id' => $this->supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'status' => 'approved',
+            'order_date' => now()->toDateString(),
+            'total_amount' => 1000.0,
+            'created_by' => $this->adminUser->id,
+        ]);
+
+        $poItem = $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 10.0,
+            'unit_price' => 100.0,
+            'purchase_unit' => 'box',
+            'total_price' => 1000.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.resolve-unit-difference'), [
+                'purchase_order_id' => $po->id,
+                'purchase_order_item_id' => $poItem->id,
+                'warehouse_id' => $this->warehouseA->id,
+                'advance_goods_received_id' => $advGrn->id,
+                'advance_goods_received_item_id' => $advItem->id,
+                'matched_qty' => 10.0,
+                'conversion_factor' => 5.0,
+            ]);
+
+        $res->assertOk();
+
+        // NO new stock batches should have been created during manual unit clear
+        $this->assertEquals($batchCountAfterAdvance, StockBatch::count());
+    }
+
+    public function test_validation_rejects_wrong_product_wrong_warehouse_over_clear_and_stale_advance(): void
+    {
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'grn_number' => 'GRN-ADV-VAL-TEST',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'received_by' => $this->adminUser->id,
+            'received_at' => now()->subDay(),
+            'approved_at' => now()->subDay(),
+            'approved_by' => $this->adminUser->id,
+        ]);
+
+        $advItem = $advGrn->items()->create([
+            'product_id' => $this->tomato->id,
+            'received_qty' => 20.0,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
+        ]);
+
+        $this->createStockBatch($advGrn, $advItem, $this->tomato, 20.0);
+
+        $po = PurchaseOrder::create([
+            'po_number' => 'PO-VAL-TEST',
+            'supplier_id' => $this->supplier->id,
+            'destination_shop_id' => $this->shop->id,
+            'status' => 'approved',
+            'order_date' => now()->toDateString(),
+            'total_amount' => 500.0,
+            'created_by' => $this->adminUser->id,
+        ]);
+
+        $poItem = $po->items()->create([
+            'product_id' => $this->apple->id, // Apple on PO, Tomato on Advance
+            'quantity' => 10.0,
+            'unit_price' => 50.0,
+            'purchase_unit' => 'piece',
+            'total_price' => 500.0,
+        ]);
+
+        // 1. Wrong product (Apple vs Tomato) -> 422
+        $resProduct = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.resolve-unit-difference'), [
+                'purchase_order_id' => $po->id,
+                'purchase_order_item_id' => $poItem->id,
+                'warehouse_id' => $this->warehouseA->id,
+                'advance_goods_received_id' => $advGrn->id,
+                'advance_goods_received_item_id' => $advItem->id,
+                'matched_qty' => 5.0,
+                'conversion_factor' => 1.0,
+            ]);
+        $resProduct->assertStatus(422);
+
+        // Update PO item to Tomato for remaining tests
+        $poItem->update(['product_id' => $this->tomato->id, 'purchase_unit' => 'kg']);
+
+        // 2. Unauthorized warehouse -> 403
+        $resWarehouse = $this->actingAs($this->unauthorizedUser)
+            ->postJson(route('admin.cashbook.inventory.resolve-unit-difference'), [
+                'purchase_order_id' => $po->id,
+                'purchase_order_item_id' => $poItem->id,
+                'warehouse_id' => $this->warehouseB->id,
+                'advance_goods_received_id' => $advGrn->id,
+                'advance_goods_received_item_id' => $advItem->id,
+                'matched_qty' => 5.0,
+                'conversion_factor' => 1.0,
+            ]);
+        $resWarehouse->assertStatus(403);
+
+        // 3. Over-clear bill (requested 50 kg when bill is 10 kg) -> 422
+        $resOverBill = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.resolve-unit-difference'), [
+                'purchase_order_id' => $po->id,
+                'purchase_order_item_id' => $poItem->id,
+                'warehouse_id' => $this->warehouseA->id,
+                'advance_goods_received_id' => $advGrn->id,
+                'advance_goods_received_item_id' => $advItem->id,
+                'matched_qty' => 50.0,
+                'conversion_factor' => 1.0,
+            ]);
+        $resOverBill->assertStatus(422);
+
+        // 4. Stale advance balance (advance only has 20 kg available, try matching 30 kg base) -> 422
+        $poItem->update(['quantity' => 100.0]); // enlarge bill to test advance balance limit
+        $resStaleAdv = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.resolve-unit-difference'), [
+                'purchase_order_id' => $po->id,
+                'purchase_order_item_id' => $poItem->id,
+                'warehouse_id' => $this->warehouseA->id,
+                'advance_goods_received_id' => $advGrn->id,
+                'advance_goods_received_item_id' => $advItem->id,
+                'matched_qty' => 30.0,
+                'conversion_factor' => 1.0,
+            ]);
+        $resStaleAdv->assertStatus(422);
+    }
 }

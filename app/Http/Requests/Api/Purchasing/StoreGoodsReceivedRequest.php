@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\Purchasing;
 
+use App\Models\Product;
+use App\Models\ProductUnit;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreGoodsReceivedRequest extends FormRequest
@@ -47,5 +49,46 @@ class StoreGoodsReceivedRequest extends FormRequest
             'advance_matches.*.matched_qty' => ['required', 'numeric', 'min:0.001'],
             'advance_matches.*.unit' => ['sometimes', 'nullable', 'string', 'max:20'],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator): void {
+            $isAdvance = $this->input('receipt_type') === 'warehouse_advance'
+                || ($this->input('purchase_order_id') === null && $this->input('bill_status') === 'bill_pending');
+
+            $items = (array) $this->input('items', []);
+            foreach ($items as $index => $item) {
+                if (empty($item['product_id']) || empty($item['received_unit']) && empty($item['unit'])) {
+                    continue;
+                }
+
+                $rawUnit = (string) ($item['received_unit'] ?? $item['unit']);
+                $product = Product::find($item['product_id']);
+                if (! $product) {
+                    continue;
+                }
+
+                $normUnit = ProductUnit::normalizeUnit($rawUnit);
+                $normBase = ProductUnit::normalizeUnit($product->unit);
+
+                $allowed = [$normBase];
+                if ($isAdvance) {
+                    $allowed[] = 'kg';
+                }
+
+                $orderUnits = $product->relationLoaded('orderUnits') ? $product->orderUnits : $product->orderUnits()->get();
+                foreach ($orderUnits as $ou) {
+                    $allowed[] = ProductUnit::normalizeUnit($ou->unit);
+                }
+
+                if (! in_array($normUnit, $allowed, true)) {
+                    $validator->errors()->add(
+                        "items.{$index}.received_unit",
+                        "The received unit '{$rawUnit}' is not allowed for product '{$product->name}'."
+                    );
+                }
+            }
+        });
     }
 }

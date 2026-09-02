@@ -399,7 +399,8 @@ class AutoAdvanceClearExecutionService
             $grnItemsData,
             $validatedMatches,
             $warehouseId,
-            $userId
+            $userId,
+            true
         );
 
         $item->update([
@@ -495,9 +496,15 @@ class AutoAdvanceClearExecutionService
 
             $orderedBase = round((float) $poItem->quantity * $conv, 3);
             $compBase = (float) ($completedByPoItem[$poItemId] ?? 0.0);
-            $currentOutstandingBase = max(0.0, round($orderedBase - $compBase, 3));
+            $alreadyMatchedBase = (float) AdvanceReceiveMatch::query()
+                ->where('purchase_order_id', $order->id)
+                ->where('purchase_order_item_id', $poItemId)
+                ->sum('base_qty');
+            $currentOutstandingBase = max(0.0, round($orderedBase - $compBase - $alreadyMatchedBase, 3));
 
-            if (abs($currentOutstandingBase - (float) $line['required_base_qty']) > 0.001) {
+            $plannedLineMatchedBase = (float) ($line['planned_matched_base_qty'] ?? $line['matched_base_qty'] ?? 0.0);
+
+            if ($currentOutstandingBase < $plannedLineMatchedBase - 0.001 || abs($currentOutstandingBase - (float) $line['required_base_qty']) > 0.001) {
                 $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
 
                 return;
@@ -573,12 +580,27 @@ class AutoAdvanceClearExecutionService
 
         $itemsData = [];
         foreach ($plannedItem['lines'] as $line) {
+            $matchedBase = (float) ($line['planned_matched_base_qty'] ?? $line['matched_base_qty'] ?? 0.0);
+            if ($matchedBase <= 0.0001) {
+                continue;
+            }
+
+            $lineProduct = $productsMap->get((int) $line['product_id']);
+            $lineConv = $this->balanceCalculator->resolveStrictUnitConversion($lineProduct, $line['unit']) ?? 1.0;
+            $matchedQty = $lineConv > 0 ? round($matchedBase / $lineConv, 3) : $matchedBase;
+
             $itemsData[] = [
                 'purchase_order_item_id' => $line['purchase_order_item_id'],
                 'product_id' => $line['product_id'],
-                'received_qty' => (float) $line['quantity'],
+                'received_qty' => $matchedQty,
                 'received_unit' => $line['unit'],
             ];
+        }
+
+        if ($itemsData === []) {
+            $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
+
+            return;
         }
 
         $targetClientSubId = hash('sha256', "{$run->client_submission_id}:po-{$order->id}:item-{$item->id}");
@@ -597,6 +619,7 @@ class AutoAdvanceClearExecutionService
             clientSubmissionId: $targetClientSubId,
             advanceMatches: $validatedMatches,
             receiptType: 'normal_purchase',
+            autoAdvanceClear: true,
         );
 
         $createdGrn = $this->reconciliationService->reconcileAndExecute($grnData, $userId);

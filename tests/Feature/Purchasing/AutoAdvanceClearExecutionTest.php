@@ -341,7 +341,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $this->assertEquals(0, GoodsReceived::openWarehouseAdvance($this->warehouseA->id)->count());
     }
 
-    public function test_insufficient_advance_bill_is_not_executed(): void
+    public function test_partially_covered_advance_bill_executes_partial_match(): void
     {
         Sanctum::actingAs($this->warehouseUser);
 
@@ -352,6 +352,11 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $planHash = $preview['plan_hash'];
         $submissionId = (string) Str::uuid();
 
+        // Partial match: advance 40 KG, bill 50 KG → executes 40 KG partial
+        $this->assertEquals(1, $preview['summary']['ready_bills']);
+        $this->assertEquals('partial_match', $preview['ready_bills'][0]['match_type']);
+        $this->assertEquals(40.0, $preview['ready_bills'][0]['matched_base_qty']);
+
         $res = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
             'warehouse_id' => $this->warehouseA->id,
             'plan_hash' => $planHash,
@@ -359,8 +364,10 @@ class AutoAdvanceClearExecutionTest extends TestCase
         ]);
 
         $res->assertOk();
-        $this->assertEquals(0, $res->json('data.summary.processed'));
-        $this->assertEquals(0, AdvanceReceiveMatch::count());
+        // Partial was executed: 40 KG matched, PO status = partially_received
+        $this->assertEquals(1, $res->json('data.summary.processed'));
+        $this->assertEquals(40.0, (float) AdvanceReceiveMatch::where('purchase_order_id', $po->id)->sum('base_qty'));
+        $this->assertEquals(POStatus::PartiallyReceived->value, $po->fresh()->status->value);
     }
 
     public function test_multi_product_full_coverage_execution(): void
@@ -525,6 +532,8 @@ class AutoAdvanceClearExecutionTest extends TestCase
     public function test_mixed_unit_execution_using_strict_conversion(): void
     {
         Sanctum::actingAs($this->warehouseUser);
+
+        ProductUnit::create(['product_id' => $this->apple->id, 'unit' => 'box', 'label' => 'Box', 'conversion_to_base' => 10.0]);
 
         // Advance: 5 boxes = 50 kg
         $this->createAdvance($this->warehouseA, $this->apple, 5.0, '2026-08-20', 'box');
@@ -1636,7 +1645,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $this->assertEquals($itemCountFirst, AdvanceAutoClearRunItem::count());
     }
 
-    public function test_eligible_po_with_received_status_clears_successfully_without_state_changed_error(): void
+    public function test_eligible_po_with_received_status_is_excluded_from_planner(): void
     {
         Sanctum::actingAs($this->warehouseUser);
 
@@ -1656,24 +1665,13 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'purchase_unit' => 'kg',
             'unit_price' => 50.0,
         ]);
+        // Mark PO as fully received (already done)
         $po->update(['status' => POStatus::Received]);
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
-        $this->assertEquals(1, $preview['summary']['ready_bills']);
-
-        $planHash = $preview['plan_hash'];
-        $submissionId = (string) Str::uuid();
-
-        $res = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
-            'warehouse_id' => $this->warehouseA->id,
-            'plan_hash' => $planHash,
-            'client_submission_id' => $submissionId,
-        ]);
-
-        $res->assertOk();
-        $this->assertEquals(1, $res->json('data.summary.processed'));
-        $this->assertEquals(0, $res->json('data.summary.skipped'));
-        $this->assertEquals('bill_available', $adv->fresh()->bill_status);
+        // Fully received POs must be excluded from the planner scope
+        $this->assertEquals(0, $preview['summary']['ready_bills']);
+        $this->assertEquals(0, $preview['summary']['skipped_bills']);
     }
 
     public function test_concurrency_business_state_mutation_causes_stale_state_skip(): void

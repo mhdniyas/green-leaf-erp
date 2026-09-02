@@ -97,7 +97,7 @@ class ShopInvoiceAdminControlsVisibilityTest extends TestCase
             ->assertSee('FINALIZED')
             ->assertDontSee('Edit Discount')
             ->assertDontSee('Finalize Invoice')
-            ->assertSee('Edit Finalized Invoice');
+            ->assertSee('Reopen for Editing');
     }
 
     public function test_finalized_invoice_detail_shows_finalized_bill_metadata(): void
@@ -346,7 +346,7 @@ class ShopInvoiceAdminControlsVisibilityTest extends TestCase
         $this->actingAs($this->admin)
             ->post(route('purchasing.shop-invoices.finalize-on-behalf', $invoice), [
                 'approved_delivered_qty' => [
-                    $orderItem->id => 16,
+                    $orderItem->id => 17,
                 ],
                 'item_inventory_actions' => [
                     $orderItem->id => 'none',

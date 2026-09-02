@@ -7,6 +7,7 @@ namespace App\Services\Purchasing;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -51,7 +52,7 @@ class AutoAdvanceClearPlanningService
                 $pending->whereHas('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
                     ->orWhere(function ($withoutPendingReceipt): void {
                         $withoutPendingReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
-                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received', 'received']);
+                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
                     });
             });
 
@@ -71,8 +72,24 @@ class AutoAdvanceClearPlanningService
             ->get();
 
         // 2. Pre-load all confirmed open advances for this warehouse (ordered deterministically by received_at ASC, id ASC)
-        $openAdvances = GoodsReceived::query()
-            ->openWarehouseAdvance($warehouseId)
+        $openAdvancesQuery = GoodsReceived::query()
+            ->where(function (Builder $typeQuery): void {
+                $typeQuery->where('goods_received.receipt_type', 'warehouse_advance')
+                    ->orWhere(function (Builder $legacy): void {
+                        $legacy->whereNull('goods_received.receipt_type')
+                            ->whereNull('goods_received.purchase_order_id');
+                    });
+            })
+            ->where('goods_received.status', 'approved')
+            ->where('goods_received.bill_status', 'bill_pending')
+            ->whereDoesntHave('purchaseInvoices')
+            ->whereHas('stockBatches', function (Builder $batchQuery): void {
+                $batchQuery->where('warehouse_receive_pending', false);
+            });
+
+        $this->readScope->receipts($openAdvancesQuery, [$warehouseId]);
+
+        $openAdvances = $openAdvancesQuery
             ->with([
                 'items.product.orderUnits',
                 'stockBatches',
@@ -119,18 +136,7 @@ class AutoAdvanceClearPlanningService
                     continue;
                 }
 
-                $conv = $this->resolveStrictUnitConversion($product, $item->received_unit);
-                if ($conv === null) {
-                    $warnings[] = [
-                        'advance_goods_received_id' => $advGrn->id,
-                        'advance_goods_received_item_id' => $item->id,
-                        'product_id' => $item->product_id,
-                        'unit' => $item->received_unit,
-                        'warning' => 'invalid_advance_unit_conversion',
-                    ];
-
-                    continue;
-                }
+                $conv = $this->resolveStrictUnitConversion($product, $item->received_unit) ?? 1.0;
 
                 $originalQty = (float) $item->received_qty;
                 $originalBaseQty = round($originalQty * $conv, 3);
@@ -183,7 +189,49 @@ class AutoAdvanceClearPlanningService
             ];
         }
 
+        // Also pre-load unconfirmed advance quantities for exact unmatch reason resolution
+        $unconfirmedAdvancesQuery = GoodsReceived::query()
+            ->where(function (Builder $typeQuery): void {
+                $typeQuery->where('goods_received.receipt_type', 'warehouse_advance')
+                    ->orWhere(function (Builder $legacy): void {
+                        $legacy->whereNull('goods_received.receipt_type')
+                            ->whereNull('goods_received.purchase_order_id');
+                    });
+            })
+            ->where('goods_received.status', 'approved')
+            ->where('goods_received.bill_status', 'bill_pending')
+            ->whereDoesntHave('purchaseInvoices')
+            ->whereHas('stockBatches', function (Builder $batchQuery): void {
+                $batchQuery->where('warehouse_receive_pending', true);
+            });
+
+        $this->readScope->receipts($unconfirmedAdvancesQuery, [$warehouseId]);
+
+        $unconfirmedAdvances = $unconfirmedAdvancesQuery->with(['items.product.orderUnits'])->get();
+        $unconfirmedAdvanceBaseByProduct = [];
+        foreach ($unconfirmedAdvances as $uGrn) {
+            foreach ($uGrn->items as $uItem) {
+                $uProd = $uItem->product;
+                if (! $uProd) {
+                    continue;
+                }
+                $uConv = $this->resolveStrictUnitConversion($uProd, $uItem->received_unit) ?? 1.0;
+                $uBase = round((float) $uItem->received_qty * $uConv, 3);
+                $unconfirmedAdvanceBaseByProduct[$uProd->id] = ($unconfirmedAdvanceBaseByProduct[$uProd->id] ?? 0.0) + $uBase;
+            }
+        }
+
+        $initialConfirmedBaseByProduct = [];
+        foreach ($virtualPoolsByProduct as $pId => $slots) {
+            $initialConfirmedBaseByProduct[$pId] = round(array_sum(array_column($slots, 'initial_available_base_qty')), 3);
+        }
+
         // 4. Construct Bill Targets (discerning existing pending GRNs vs PO-level remaining receivables)
+        $allPendingOrderIds = $pendingOrders->pluck('id')->all();
+        $existingMatches = ! empty($allPendingOrderIds)
+            ? AdvanceReceiveMatch::query()->whereIn('purchase_order_id', $allPendingOrderIds)->get()
+            : collect();
+
         $billTargets = [];
 
         foreach ($pendingOrders as $order) {
@@ -216,14 +264,36 @@ class AutoAdvanceClearPlanningService
                 foreach ($pendingGrns->sortBy('id') as $pGrn) {
                     $targetLines = [];
                     foreach ($pGrn->items->sortBy('id') as $pItem) {
-                        $targetLines[] = [
-                            'source_item_id' => $pItem->id,
-                            'purchase_order_item_id' => $pItem->purchase_order_item_id,
-                            'product' => $pItem->product,
-                            'product_id' => $pItem->product_id,
-                            'unit' => $pItem->received_unit ?: $pItem->product?->unit,
-                            'quantity' => (float) $pItem->received_qty,
-                        ];
+                        $prod = $pItem->product;
+                        $unit = $pItem->received_unit ?: $pItem->product?->unit;
+                        $conv = $this->resolveStrictUnitConversion($prod, $unit) ?? 1.0;
+                        $itemBase = round((float) $pItem->received_qty * $conv, 3);
+
+                        $alreadyMatchedBase = (float) $existingMatches
+                            ->where('purchase_order_id', $order->id)
+                            ->filter(function ($m) use ($pItem, $pGrn): bool {
+                                if ($m->bill_goods_received_id === $pGrn->id && $m->bill_goods_received_item_id === $pItem->id) {
+                                    return true;
+                                }
+
+                                return $pItem->purchase_order_item_id && $m->purchase_order_item_id === $pItem->purchase_order_item_id;
+                            })
+                            ->sum('base_qty');
+
+                        $remBase = max(0.0, round($itemBase - $alreadyMatchedBase, 3));
+                        $remQty = $conv > 0 ? round($remBase / $conv, 3) : $remBase;
+
+                        if ($remBase > 0.0001) {
+                            $targetLines[] = [
+                                'source_item_id' => $pItem->id,
+                                'purchase_order_item_id' => $pItem->purchase_order_item_id,
+                                'product' => $pItem->product,
+                                'product_id' => $pItem->product_id,
+                                'unit' => $unit,
+                                'quantity' => $remQty,
+                                'already_matched_base_qty' => $alreadyMatchedBase,
+                            ];
+                        }
                     }
 
                     $billTargets[] = [
@@ -256,6 +326,7 @@ class AutoAdvanceClearPlanningService
                             'product_id' => $poItem->product_id,
                             'unit' => $itemUnit,
                             'quantity' => $orderedQty,
+                            'already_matched_base_qty' => 0.0,
                         ];
 
                         continue;
@@ -263,8 +334,13 @@ class AutoAdvanceClearPlanningService
 
                     $orderedBaseQty = round($orderedQty * $conv, 3);
                     $completedBaseQty = (float) ($completedItemReceivedBase[$poItem->id] ?? 0.0);
-                    $remainingBaseQty = max(0.0, round($orderedBaseQty - $completedBaseQty, 3));
+                    $alreadyMatchedBaseQty = (float) $existingMatches
+                        ->where('purchase_order_id', $order->id)
+                        ->where('purchase_order_item_id', $poItem->id)
+                        ->sum('base_qty');
 
+                    $totalDeductedBase = round($completedBaseQty + $alreadyMatchedBaseQty, 3);
+                    $remainingBaseQty = max(0.0, round($orderedBaseQty - $totalDeductedBase, 3));
                     $remainingItemQty = $conv > 0 ? round($remainingBaseQty / $conv, 3) : $remainingBaseQty;
 
                     if ($remainingBaseQty > 0.0001) {
@@ -275,6 +351,7 @@ class AutoAdvanceClearPlanningService
                             'product_id' => $poItem->product_id,
                             'unit' => $itemUnit,
                             'quantity' => $remainingItemQty,
+                            'already_matched_base_qty' => $totalDeductedBase,
                         ];
                     }
                 }
@@ -314,103 +391,139 @@ class AutoAdvanceClearPlanningService
                     'bill_date' => $target['bill_date'],
                     'reason' => 'no_reconcilable_items',
                     'shortages' => [],
+                    'lines' => [],
                 ];
 
                 continue;
             }
 
-            $tentativeAllocations = [];
-            $tentativeShortages = [];
-            $hasInvalidQuantity = false;
-            $hasProductNotFound = false;
-            $hasInvalidUnit = false;
             $billTotalRequiredBase = 0.0;
             $evaluatedLines = [];
-            $poolSnapshots = [];
 
             foreach ($billLines as $line) {
                 /** @var Product|null $product */
                 $product = $line['product'];
+                $qty = (float) $line['quantity'];
+                $alreadyMatchedBase = (float) ($line['already_matched_base_qty'] ?? 0.0);
+
+                $goodsReceivedItemId = $target['execution_mode'] === 'reconcile_existing_grn' ? $line['source_item_id'] : null;
+                $initialConfirmedForProduct = $product ? (float) ($initialConfirmedBaseByProduct[$product->id] ?? 0.0) : 0.0;
+                $unconfirmedForProduct = $product ? (float) ($unconfirmedAdvanceBaseByProduct[$product->id] ?? 0.0) : 0.0;
 
                 if (! $product) {
-                    $hasProductNotFound = true;
-                    $tentativeShortages[] = [
+                    $evaluatedLines[] = [
                         'source_item_id' => $line['source_item_id'],
                         'purchase_order_item_id' => $line['purchase_order_item_id'],
+                        'goods_received_item_id' => $goodsReceivedItemId,
                         'product_id' => $line['product_id'],
-                        'reason' => 'product_not_found',
-                        'required_base_qty' => 0.0,
-                        'available_base_qty' => 0.0,
-                        'shortage_base_qty' => 0.0,
-                    ];
-                    break;
-                }
-
-                $qty = (float) $line['quantity'];
-                if ($qty <= 0.0001) {
-                    $hasInvalidQuantity = true;
-                    $tentativeShortages[] = [
-                        'source_item_id' => $line['source_item_id'],
-                        'purchase_order_item_id' => $line['purchase_order_item_id'],
-                        'product_id' => $product->id,
-                        'product_name' => $product->name,
+                        'product_name' => 'Unknown',
+                        'product_sku' => '',
                         'unit' => $line['unit'],
                         'quantity' => $qty,
-                        'reason' => 'invalid_quantity',
+                        'conversion_to_base' => 1.0,
                         'required_base_qty' => 0.0,
-                        'available_base_qty' => 0.0,
-                        'shortage_base_qty' => 0.0,
+                        'already_matched_base_qty' => $alreadyMatchedBase,
+                        'planned_matched_base_qty' => 0.0,
+                        'matched_base_qty' => 0.0,
+                        'remaining_unmatched_base_qty' => 0.0,
+                        'classification' => 'INVALID_DATA',
+                        'unmatched_reason' => 'INVALID_DATA',
+                        'confirmed_advance_qty' => 0.0,
+                        'unconfirmed_advance_qty' => 0.0,
+                        'matches' => [],
+                        'allocations' => [],
                     ];
-                    break;
+
+                    continue;
+                }
+
+                if ($qty <= 0.0001) {
+                    $evaluatedLines[] = [
+                        'source_item_id' => $line['source_item_id'],
+                        'purchase_order_item_id' => $line['purchase_order_item_id'],
+                        'goods_received_item_id' => $goodsReceivedItemId,
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'product_sku' => $product->sku,
+                        'unit' => $line['unit'],
+                        'quantity' => $qty,
+                        'conversion_to_base' => 1.0,
+                        'required_base_qty' => 0.0,
+                        'already_matched_base_qty' => $alreadyMatchedBase,
+                        'planned_matched_base_qty' => 0.0,
+                        'matched_base_qty' => 0.0,
+                        'remaining_unmatched_base_qty' => 0.0,
+                        'classification' => 'NO_RECONCILABLE_QUANTITY',
+                        'unmatched_reason' => 'NO_RECONCILABLE_QUANTITY',
+                        'confirmed_advance_qty' => 0.0,
+                        'unconfirmed_advance_qty' => 0.0,
+                        'matches' => [],
+                        'allocations' => [],
+                    ];
+
+                    continue;
+                }
+
+                $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
+                $hasSameUnitSlot = false;
+                if (isset($virtualPoolsByProduct[$product->id]) && is_array($virtualPoolsByProduct[$product->id])) {
+                    foreach ($virtualPoolsByProduct[$product->id] as $vSlot) {
+                        if (ProductUnit::normalizeUnit($vSlot['unit']) === $normLineUnit) {
+                            $hasSameUnitSlot = true;
+                            break;
+                        }
+                    }
                 }
 
                 $conv = $this->resolveStrictUnitConversion($product, $line['unit']);
+                if ($conv === null && $hasSameUnitSlot) {
+                    $conv = 1.0;
+                }
+
                 if ($conv === null) {
-                    $hasInvalidUnit = true;
-                    $tentativeShortages[] = [
+                    $hasAdvanceForProduct = ($initialConfirmedForProduct > 0.0001 || $unconfirmedForProduct > 0.0001);
+                    $lineClass = $hasAdvanceForProduct ? 'UNIT_DIFFERENCE' : 'NO_ADVANCE';
+                    $unmatchReason = $hasAdvanceForProduct ? 'UNIT_DIFFERENCE' : 'NO_ADVANCE';
+
+                    $evaluatedLines[] = [
                         'source_item_id' => $line['source_item_id'],
                         'purchase_order_item_id' => $line['purchase_order_item_id'],
+                        'goods_received_item_id' => $goodsReceivedItemId,
                         'product_id' => $product->id,
                         'product_name' => $product->name,
+                        'product_sku' => $product->sku,
                         'unit' => $line['unit'],
-                        'reason' => 'unit_difference_requires_manual_review',
-                        'required_base_qty' => 0.0,
-                        'available_base_qty' => 0.0,
-                        'shortage_base_qty' => 0.0,
+                        'quantity' => $qty,
+                        'conversion_to_base' => null,
+                        'required_base_qty' => $qty,
+                        'already_matched_base_qty' => $alreadyMatchedBase,
+                        'planned_matched_base_qty' => 0.0,
+                        'matched_base_qty' => 0.0,
+                        'remaining_unmatched_base_qty' => $qty,
+                        'classification' => $lineClass,
+                        'unmatched_reason' => $unmatchReason,
+                        'confirmed_advance_qty' => $initialConfirmedForProduct,
+                        'unconfirmed_advance_qty' => $unconfirmedForProduct,
+                        'matches' => [],
+                        'allocations' => [],
                     ];
-                    break;
+
+                    continue;
                 }
 
                 $requiredBase = round($qty * $conv, 3);
                 $billTotalRequiredBase += $requiredBase;
 
-                // Ensure snapshot of pool for this product
-                if (! isset($poolSnapshots[$product->id])) {
-                    $poolSnapshots[$product->id] = $virtualPoolsByProduct[$product->id] ?? [];
-                }
+                $poolExists = isset($virtualPoolsByProduct[$product->id]) && is_array($virtualPoolsByProduct[$product->id]);
+                $availableBaseInPool = $poolExists ? array_sum(array_column($virtualPoolsByProduct[$product->id], 'remaining_base_qty')) : 0.0;
 
-                $availableBaseInSnapshot = array_sum(array_column($poolSnapshots[$product->id], 'remaining_base_qty'));
+                $lineMatches = [];
+                $allocations = [];
+                $neededBase = min($requiredBase, $availableBaseInPool);
+                $matchedBase = 0.0;
 
-                if ($availableBaseInSnapshot < $requiredBase - 0.0001) {
-                    $shortageBase = max(0.0, round($requiredBase - $availableBaseInSnapshot, 3));
-                    $tentativeShortages[] = [
-                        'source_item_id' => $line['source_item_id'],
-                        'purchase_order_item_id' => $line['purchase_order_item_id'],
-                        'product_id' => $product->id,
-                        'product_name' => $product->name,
-                        'unit' => $line['unit'],
-                        'quantity' => $qty,
-                        'conversion_to_base' => $conv,
-                        'required_base_qty' => $requiredBase,
-                        'available_base_qty' => round($availableBaseInSnapshot, 3),
-                        'shortage_base_qty' => $shortageBase,
-                    ];
-                } else {
-                    // Tentatively deduct from pool snapshot in FIFO order
-                    $neededBase = $requiredBase;
-                    $lineMatches = [];
-
-                    foreach ($poolSnapshots[$product->id] as $sIdx => &$slot) {
+                if ($neededBase > 0.0001 && $poolExists) {
+                    foreach ($virtualPoolsByProduct[$product->id] as $sIdx => &$slot) {
                         if ($neededBase <= 0.0001) {
                             break;
                         }
@@ -420,132 +533,113 @@ class AutoAdvanceClearPlanningService
                             continue;
                         }
 
-                        $matchBase = min($slotAvail, $neededBase);
-                        $slot['remaining_base_qty'] = round($slotAvail - $matchBase, 3);
-                        $neededBase = round($neededBase - $matchBase, 3);
+                        $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
+                        $normSlotUnit = ProductUnit::normalizeUnit($slot['unit']);
+                        if ($normLineUnit !== $normSlotUnit) {
+                            $slotConv = $this->resolveStrictUnitConversion($product, $slot['unit']);
+                            if ($slotConv === null || $conv === null) {
+                                continue;
+                            }
+                        }
 
-                        $lineMatches[] = [
+                        $takeBase = min($slotAvail, $neededBase);
+                        $slot['remaining_base_qty'] = round($slotAvail - $takeBase, 3);
+                        $slot['preview_matched_base_qty'] = round($slot['preview_matched_base_qty'] + $takeBase, 3);
+                        $neededBase = round($neededBase - $takeBase, 3);
+                        $matchedBase = round($matchedBase + $takeBase, 3);
+
+                        $advGrnId = $slot['advance_goods_received_id'];
+                        if (isset($advanceTracking[$advGrnId])) {
+                            $advanceTracking[$advGrnId]['preview_matched_base_qty'] = round(
+                                $advanceTracking[$advGrnId]['preview_matched_base_qty'] + $takeBase,
+                                3
+                            );
+                        }
+
+                        $allocItem = [
                             'advance_goods_received_id' => $slot['advance_goods_received_id'],
                             'advance_goods_received_item_id' => $slot['advance_goods_received_item_id'],
                             'grn_number' => $slot['grn_number'],
                             'received_at' => $slot['received_at'],
                             'product_id' => $product->id,
-                            'matched_base_qty' => round($matchBase, 3),
-                            'pool_slot_product_id' => $product->id,
-                            'pool_slot_index' => $sIdx,
+                            'matched_base_qty' => round($takeBase, 3),
+                            'base_qty' => round($takeBase, 3),
+                            'matched_unit' => $line['unit'],
+                            'matched_qty' => $conv > 0 ? round($takeBase / $conv, 3) : $takeBase,
                         ];
+                        $lineMatches[] = $allocItem;
+                        $allocations[] = $allocItem;
                     }
                     unset($slot);
-
-                    $evaluatedLines[] = [
-                        'source_item_id' => $line['source_item_id'],
-                        'purchase_order_item_id' => $line['purchase_order_item_id'],
-                        'product_id' => $product->id,
-                        'product_name' => $product->name,
-                        'product_sku' => $product->sku,
-                        'unit' => $line['unit'],
-                        'quantity' => $qty,
-                        'conversion_to_base' => $conv,
-                        'required_base_qty' => $requiredBase,
-                        'matched_base_qty' => $requiredBase,
-                        'matches' => array_map(fn ($m) => [
-                            'advance_goods_received_id' => $m['advance_goods_received_id'],
-                            'advance_goods_received_item_id' => $m['advance_goods_received_item_id'],
-                            'grn_number' => $m['grn_number'],
-                            'received_at' => $m['received_at'],
-                            'base_qty' => $m['matched_base_qty'],
-                        ], $lineMatches),
-                    ];
-
-                    $tentativeAllocations = array_merge($tentativeAllocations, $lineMatches);
                 }
+
+                $remainingUnmatchedBase = max(0.0, round($requiredBase - $matchedBase, 3));
+
+                if ($matchedBase >= $requiredBase - 0.0001) {
+                    $lineClassification = 'FULL_MATCH';
+                    $unmatchedReason = 'NONE';
+                } elseif ($matchedBase > 0.0001) {
+                    $lineClassification = 'PARTIAL_MATCH';
+                    $unmatchedReason = 'PARTIAL_REMAINDER';
+                } else {
+                    if ($initialConfirmedForProduct > 0.0001) {
+                        $hasCompatibleSlot = false;
+                        if (isset($virtualPoolsByProduct[$product->id]) && is_array($virtualPoolsByProduct[$product->id])) {
+                            $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
+                            foreach ($virtualPoolsByProduct[$product->id] as $vSlot) {
+                                $vSlotNorm = ProductUnit::normalizeUnit($vSlot['unit']);
+                                if ($vSlotNorm === $normLineUnit || ($this->resolveStrictUnitConversion($product, $vSlot['unit']) !== null && $conv !== null)) {
+                                    $hasCompatibleSlot = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (! $hasCompatibleSlot) {
+                            $lineClassification = 'UNIT_DIFFERENCE';
+                            $unmatchedReason = 'UNIT_DIFFERENCE';
+                        } else {
+                            $lineClassification = 'ADVANCE_EXHAUSTED';
+                            $unmatchedReason = 'ADVANCE_EXHAUSTED';
+                        }
+                    } elseif ($unconfirmedForProduct > 0.0001) {
+                        $lineClassification = 'UNCONFIRMED_ADVANCE';
+                        $unmatchedReason = 'UNCONFIRMED_ADVANCE';
+                    } else {
+                        $lineClassification = 'NO_ADVANCE';
+                        $unmatchedReason = 'NO_ADVANCE';
+                    }
+                }
+
+                $evaluatedLines[] = [
+                    'source_item_id' => $line['source_item_id'],
+                    'purchase_order_item_id' => $line['purchase_order_item_id'],
+                    'goods_received_item_id' => $goodsReceivedItemId,
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'product_sku' => $product->sku,
+                    'unit' => $line['unit'],
+                    'quantity' => $qty,
+                    'conversion_to_base' => $conv,
+                    'required_base_qty' => $requiredBase,
+                    'already_matched_base_qty' => $alreadyMatchedBase,
+                    'planned_matched_base_qty' => $matchedBase,
+                    'matched_base_qty' => $matchedBase,
+                    'remaining_unmatched_base_qty' => $remainingUnmatchedBase,
+                    'classification' => $lineClassification,
+                    'unmatched_reason' => $unmatchedReason,
+                    'confirmed_advance_qty' => $availableBaseInPool,
+                    'unconfirmed_advance_qty' => $unconfirmedForProduct,
+                    'matches' => $lineMatches,
+                    'allocations' => $allocations,
+                ];
             }
 
-            // Evaluation decision
-            if ($hasProductNotFound) {
-                $skippedBills[] = [
-                    'execution_mode' => $target['execution_mode'],
-                    'purchase_order_id' => $target['purchase_order_id'],
-                    'source_goods_received_id' => $target['source_goods_received_id'],
-                    'reference' => $target['reference'],
-                    'supplier_id' => $target['supplier_id'],
-                    'supplier_name' => $target['supplier_name'],
-                    'bill_date' => $target['bill_date'],
-                    'reason' => 'product_not_found',
-                    'shortages' => $tentativeShortages,
-                ];
-            } elseif ($hasInvalidQuantity) {
-                $skippedBills[] = [
-                    'execution_mode' => $target['execution_mode'],
-                    'purchase_order_id' => $target['purchase_order_id'],
-                    'source_goods_received_id' => $target['source_goods_received_id'],
-                    'reference' => $target['reference'],
-                    'supplier_id' => $target['supplier_id'],
-                    'supplier_name' => $target['supplier_name'],
-                    'bill_date' => $target['bill_date'],
-                    'reason' => 'invalid_quantity',
-                    'shortages' => $tentativeShortages,
-                ];
-            } elseif ($hasInvalidUnit) {
-                $skippedBills[] = [
-                    'execution_mode' => $target['execution_mode'],
-                    'purchase_order_id' => $target['purchase_order_id'],
-                    'source_goods_received_id' => $target['source_goods_received_id'],
-                    'reference' => $target['reference'],
-                    'supplier_id' => $target['supplier_id'],
-                    'supplier_name' => $target['supplier_name'],
-                    'bill_date' => $target['bill_date'],
-                    'reason' => 'unit_difference_requires_manual_review',
-                    'shortages' => $tentativeShortages,
-                ];
-            } elseif ($tentativeShortages !== []) {
-                $anyAvailableOnBill = $tentativeAllocations !== [];
-                if (! $anyAvailableOnBill) {
-                    foreach ($tentativeShortages as $sh) {
-                        if (($sh['available_base_qty'] ?? 0.0) > 0.0001) {
-                            $anyAvailableOnBill = true;
-                            break;
-                        }
-                    }
-                }
+            $billMatchedBase = round(array_sum(array_column($evaluatedLines, 'planned_matched_base_qty')), 3);
+            $billRemainingBase = round(array_sum(array_column($evaluatedLines, 'remaining_unmatched_base_qty')), 3);
 
-                $reason = $anyAvailableOnBill ? 'insufficient_advance' : 'no_advance';
-
-                $skippedBills[] = [
-                    'execution_mode' => $target['execution_mode'],
-                    'purchase_order_id' => $target['purchase_order_id'],
-                    'source_goods_received_id' => $target['source_goods_received_id'],
-                    'reference' => $target['reference'],
-                    'supplier_id' => $target['supplier_id'],
-                    'supplier_name' => $target['supplier_name'],
-                    'bill_date' => $target['bill_date'],
-                    'reason' => $reason,
-                    'shortages' => $tentativeShortages,
-                ];
-            } else {
-                // Bill is 100% COVERED! Commit tentative allocations to global virtual pools
-                foreach ($tentativeAllocations as $alloc) {
-                    $pId = $alloc['pool_slot_product_id'];
-                    $sIdx = $alloc['pool_slot_index'];
-                    $matchedBase = (float) $alloc['matched_base_qty'];
-
-                    $virtualPoolsByProduct[$pId][$sIdx]['remaining_base_qty'] = round(
-                        $virtualPoolsByProduct[$pId][$sIdx]['remaining_base_qty'] - $matchedBase,
-                        3
-                    );
-                    $virtualPoolsByProduct[$pId][$sIdx]['preview_matched_base_qty'] = round(
-                        $virtualPoolsByProduct[$pId][$sIdx]['preview_matched_base_qty'] + $matchedBase,
-                        3
-                    );
-
-                    $advGrnId = $alloc['advance_goods_received_id'];
-                    if (isset($advanceTracking[$advGrnId])) {
-                        $advanceTracking[$advGrnId]['preview_matched_base_qty'] = round(
-                            $advanceTracking[$advGrnId]['preview_matched_base_qty'] + $matchedBase,
-                            3
-                        );
-                    }
-                }
+            if ($billMatchedBase > 0.0001) {
+                $matchType = $billRemainingBase <= 0.0001 ? 'full_match' : 'partial_match';
 
                 $readyBills[] = [
                     'execution_mode' => $target['execution_mode'],
@@ -555,11 +649,39 @@ class AutoAdvanceClearPlanningService
                     'supplier_id' => $target['supplier_id'],
                     'supplier_name' => $target['supplier_name'],
                     'bill_date' => $target['bill_date'],
-                    'matched_base_qty' => round($billTotalRequiredBase, 3),
+                    'match_type' => $matchType,
+                    'required_base_qty' => round($billTotalRequiredBase, 3),
+                    'matched_base_qty' => $billMatchedBase,
+                    'remaining_unmatched_base_qty' => $billRemainingBase,
                     'lines' => $evaluatedLines,
                 ];
 
-                $totalMatchedBaseQty = round($totalMatchedBaseQty + $billTotalRequiredBase, 3);
+                $totalMatchedBaseQty = round($totalMatchedBaseQty + $billMatchedBase, 3);
+            } else {
+                $lines = collect($evaluatedLines);
+                $hasUnitDiff = $lines->contains('classification', 'unit_difference') || $lines->contains('classification', 'UNIT_DIFFERENCE');
+                $allInvalidQty = $lines->isNotEmpty() && $lines->every(fn ($l) => in_array($l['classification'], ['invalid_quantity', 'product_not_found', 'NO_RECONCILABLE_QUANTITY', 'INVALID_DATA'], true));
+                if ($allInvalidQty) {
+                    $reason = 'invalid_quantity';
+                } elseif ($hasUnitDiff) {
+                    $reason = 'unit_difference_requires_manual_review';
+                } else {
+                    $reason = 'no_advance';
+                }
+
+                $skippedBills[] = [
+                    'execution_mode' => $target['execution_mode'],
+                    'purchase_order_id' => $target['purchase_order_id'],
+                    'source_goods_received_id' => $target['source_goods_received_id'],
+                    'reference' => $target['reference'],
+                    'supplier_id' => $target['supplier_id'],
+                    'supplier_name' => $target['supplier_name'],
+                    'bill_date' => $target['bill_date'],
+                    'match_type' => 'no_match',
+                    'reason' => $reason,
+                    'shortages' => $evaluatedLines,
+                    'lines' => $evaluatedLines,
+                ];
             }
         }
 
@@ -583,6 +705,8 @@ class AutoAdvanceClearPlanningService
         $summary = [
             'pending_bills' => count($billTargets),
             'ready_bills' => count($readyBills),
+            'full_bills' => count(array_filter($readyBills, fn ($b) => ($b['match_type'] ?? '') === 'full_match')),
+            'partial_bills' => count(array_filter($readyBills, fn ($b) => ($b['match_type'] ?? '') === 'partial_match')),
             'skipped_bills' => count($skippedBills),
             'advances_fully_cleared' => $fullyClearedCount,
             'advances_partially_cleared' => $partiallyClearedCount,

@@ -26,6 +26,7 @@ final readonly class GoodsReceivedData
         public ?string $clientSubmissionId = null,
         public array $advanceMatches = [],
         public ?string $receiptType = null,
+        public bool $autoAdvanceClear = false,
     ) {}
 
     public static function fromRequest(Request $request): self

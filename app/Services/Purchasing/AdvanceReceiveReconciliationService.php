@@ -48,9 +48,44 @@ class AdvanceReceiveReconciliationService
      */
     public function getSuggestionsForOrder(PurchaseOrder $order, ?int $warehouseId = null, ?array $loadoutsByCohort = null, ?array $preloadedCandidatesByProduct = null): array
     {
-        $order->loadMissing(['items.product.orderUnits', 'supplier']);
+        $order->loadMissing(['items.product.orderUnits', 'supplier', 'goodsReceiveds.items.product.orderUnits']);
         $targetWarehouseId = $warehouseId ?? $order->destination_shop_id ?? $order->warehouse_id;
         $orderDate = $order->order_date instanceof Carbon ? $order->order_date->toDateString() : (string) ($order->order_date ?? now()->toDateString());
+
+        $pendingGrns = collect();
+        foreach ($order->goodsReceiveds as $grn) {
+            $facts = app(WarehouseReceiptStateResolver::class)->forReceipt($grn);
+            if (($facts['receipt_status'] ?? '') !== 'received') {
+                $pendingGrns->push($grn);
+            }
+        }
+
+        $targetItems = [];
+        if ($pendingGrns->isNotEmpty()) {
+            foreach ($pendingGrns->sortBy('id') as $pGrn) {
+                foreach ($pGrn->items->sortBy('id') as $pItem) {
+                    $targetItems[] = [
+                        'goods_received_id' => $pGrn->id,
+                        'goods_received_item_id' => $pItem->id,
+                        'purchase_order_item_id' => $pItem->purchase_order_item_id,
+                        'product' => $pItem->product,
+                        'qty' => (float) $pItem->received_qty,
+                        'unit' => $pItem->received_unit ?: $pItem->product?->unit,
+                    ];
+                }
+            }
+        } else {
+            foreach ($order->items->sortBy('id') as $poItem) {
+                $targetItems[] = [
+                    'goods_received_id' => null,
+                    'goods_received_item_id' => null,
+                    'purchase_order_item_id' => $poItem->id,
+                    'product' => $poItem->product,
+                    'qty' => (float) $poItem->quantity,
+                    'unit' => $poItem->purchase_unit ?: $poItem->unit ?: $poItem->product?->unit,
+                ];
+            }
+        }
 
         $productItems = [];
         $totalBillBaseQty = 0.0;
@@ -62,12 +97,16 @@ class AdvanceReceiveReconciliationService
         $partialCount = 0;
         $unmatchedCount = 0;
 
-        foreach ($order->items as $item) {
-            /** @var Product $product */
-            $product = $item->product;
-            $itemUnit = $item->unit ?: $product->unit;
+        foreach ($targetItems as $tItem) {
+            /** @var Product|null $product */
+            $product = $tItem['product'];
+            if (! $product) {
+                continue;
+            }
+
+            $itemUnit = $tItem['unit'] ?: $product->unit;
             $conversionToBase = (float) ($product->conversionToBaseForUnit($itemUnit) ?? 1.0);
-            $billBaseQty = round((float) $item->quantity * $conversionToBase, 3);
+            $billBaseQty = round((float) $tItem['qty'] * $conversionToBase, 3);
             $totalBillBaseQty += $billBaseQty;
 
             if ($firstUnit === null) {
@@ -121,7 +160,7 @@ class AdvanceReceiveReconciliationService
 
             $totalMatchedBaseQty += $lineMatchedBase;
             $lineMatchedItemQty = $conversionToBase > 0 ? round($lineMatchedBase / $conversionToBase, 3) : $lineMatchedBase;
-            $newReceiveItemQty = max(0.0, round((float) $item->quantity - $lineMatchedItemQty, 3));
+            $newReceiveItemQty = max(0.0, round((float) $tItem['qty'] - $lineMatchedItemQty, 3));
             $lineCoveragePct = $billBaseQty > 0 ? round(($lineMatchedBase / $billBaseQty) * 100, 1) : 0.0;
 
             // Determine line match status
@@ -144,11 +183,13 @@ class AdvanceReceiveReconciliationService
             $unbilledLoadoutQty = max(0.0, round($relevantLoadoutQty - $lineMatchedItemQty, 3));
 
             $productItems[] = [
-                'purchase_order_item_id' => $item->id,
+                'goods_received_id' => $tItem['goods_received_id'],
+                'goods_received_item_id' => $tItem['goods_received_item_id'],
+                'purchase_order_item_id' => $tItem['purchase_order_item_id'],
                 'product_id' => $product->id,
                 'product_name' => $product->name,
                 'product_sku' => $product->sku,
-                'ordered_qty' => (float) $item->quantity,
+                'ordered_qty' => (float) $tItem['qty'],
                 'unit' => $itemUnit,
                 'base_qty' => $billBaseQty,
                 'total_advance_available_qty' => round(array_sum(array_column($candidates, 'available_qty')), 3),
@@ -783,7 +824,7 @@ class AdvanceReceiveReconciliationService
                 $unmatchedBaseQty = max(0.0, round($totalBillItemBaseQty - $matchedBaseQty, 3));
                 $unmatchedItemQty = $conversionToBase > 0 ? round($unmatchedBaseQty / $conversionToBase, 3) : $unmatchedBaseQty;
 
-                if ($unmatchedItemQty <= 0.0001) {
+                if ($unmatchedItemQty <= 0.0001 || $data->autoAdvanceClear) {
                     continue;
                 }
 
@@ -840,11 +881,37 @@ class AdvanceReceiveReconciliationService
                 }
             }
 
-            // 7. Update PO status
+            // 7. Update PO status and Bill GRN bill_status
+            if ($data->autoAdvanceClear && $totalNewReceiveBaseQty > 0.0001) {
+                $billGrn->update(['bill_status' => 'bill_pending']);
+            }
+
             if ($data->purchaseOrderId) {
                 /** @var PurchaseOrder|null $po */
-                $po = PurchaseOrder::find($data->purchaseOrderId);
-                $po?->update(['status' => POStatus::Received]);
+                $po = PurchaseOrder::with('items.product')->find($data->purchaseOrderId);
+                if ($po) {
+                    $poOrderedBase = (float) $po->items->sum(function (PurchaseOrderItem $it): float {
+                        /** @var Product|null $p */
+                        $p = $it->product ?? Product::find($it->product_id);
+                        $unit = $it->purchase_unit ?: $it->unit ?: $p?->unit;
+                        $conv = (float) ($p?->conversionToBaseForUnit($unit) ?? 1.0);
+
+                        return (float) $it->quantity * $conv;
+                    });
+
+                    $poMatchedBase = (float) AdvanceReceiveMatch::query()
+                        ->where('purchase_order_id', $po->id)
+                        ->sum('base_qty');
+
+                    $poFulfilledBase = round($poMatchedBase + $totalNewReceiveBaseQty, 3);
+                    $poRemainingBase = max(0.0, round($poOrderedBase - $poFulfilledBase, 3));
+
+                    if ($poRemainingBase > 0.001) {
+                        $po->update(['status' => POStatus::PartiallyReceived]);
+                    } else {
+                        $po->update(['status' => POStatus::Received]);
+                    }
+                }
             }
 
             // 8. Log activity
@@ -879,9 +946,10 @@ class AdvanceReceiveReconciliationService
         array $items,
         array $advanceMatches,
         int $fallbackWarehouseId,
-        int $userId
+        int $userId,
+        bool $autoAdvanceClear = false
     ): GoodsReceived {
-        return DB::transaction(function () use ($grn, $items, $advanceMatches, $fallbackWarehouseId, $userId): GoodsReceived {
+        return DB::transaction(function () use ($grn, $items, $advanceMatches, $fallbackWarehouseId, $userId, $autoAdvanceClear): GoodsReceived {
             /** @var GoodsReceived $lockedGrn */
             $lockedGrn = GoodsReceived::query()
                 ->whereKey($grn->id)
@@ -1205,7 +1273,7 @@ class AdvanceReceiveReconciliationService
                                 'sorted_at' => now(),
                             ]);
                         }
-                    } else {
+                    } elseif (! $autoAdvanceClear) {
                         // Create remainder batch if didn't exist
                         $costPerKg = (float) ($grnItem->cost_per_unit ?? 0);
                         $this->stockBatchRepository->create([
@@ -1250,9 +1318,11 @@ class AdvanceReceiveReconciliationService
             }
 
             // 7. Approve GRN and update PO
+            $grnBillStatus = ($autoAdvanceClear && $totalNewReceiveBaseQty > 0.0001) ? 'bill_pending' : 'bill_available';
+
             $lockedGrn->update([
                 'status' => 'approved',
-                'bill_status' => 'bill_available',
+                'bill_status' => $grnBillStatus,
                 'approved_by' => $userId,
                 'approved_at' => now(),
                 'updated_by' => $userId,
@@ -1261,9 +1331,31 @@ class AdvanceReceiveReconciliationService
             ]);
 
             if ($lockedGrn->purchase_order_id) {
-                PurchaseOrder::query()
-                    ->whereKey($lockedGrn->purchase_order_id)
-                    ->update(['status' => POStatus::Received]);
+                /** @var PurchaseOrder|null $po */
+                $po = PurchaseOrder::with('items.product')->find($lockedGrn->purchase_order_id);
+                if ($po) {
+                    $poOrderedBase = (float) $po->items->sum(function (PurchaseOrderItem $it): float {
+                        /** @var Product|null $p */
+                        $p = $it->product ?? Product::find($it->product_id);
+                        $unit = $it->purchase_unit ?: $it->unit ?: $p?->unit;
+                        $conv = (float) ($p?->conversionToBaseForUnit($unit) ?? 1.0);
+
+                        return (float) $it->quantity * $conv;
+                    });
+
+                    $poMatchedBase = (float) AdvanceReceiveMatch::query()
+                        ->where('purchase_order_id', $po->id)
+                        ->sum('base_qty');
+
+                    $poFulfilledBase = round($poMatchedBase + $totalNewReceiveBaseQty, 3);
+                    $poRemainingBase = max(0.0, round($poOrderedBase - $poFulfilledBase, 3));
+
+                    if ($poRemainingBase > 0.001) {
+                        $po->update(['status' => POStatus::PartiallyReceived]);
+                    } else {
+                        $po->update(['status' => POStatus::Received]);
+                    }
+                }
             }
 
             activity()
@@ -1301,8 +1393,23 @@ class AdvanceReceiveReconciliationService
      */
     public function preloadOpenAdvanceCandidates(?int $warehouseId = null, ?array $productIds = null): array
     {
-        $advanceGrns = GoodsReceived::query()
-            ->openWarehouseAdvance($warehouseId, $productIds !== null && count($productIds) === 1 ? $productIds[0] : null)
+        $advanceGrnsQuery = GoodsReceived::query()
+            ->where(function (Builder $typeQuery): void {
+                $typeQuery->where('goods_received.receipt_type', 'warehouse_advance')
+                    ->orWhere(function (Builder $legacy): void {
+                        $legacy->whereNull('goods_received.receipt_type')
+                            ->whereNull('goods_received.purchase_order_id');
+                    });
+            })
+            ->where('goods_received.status', 'approved')
+            ->where('goods_received.bill_status', 'bill_pending')
+            ->whereDoesntHave('purchaseInvoices');
+
+        if ($warehouseId !== null) {
+            app(WarehouseReceiptReadScope::class)->receipts($advanceGrnsQuery, [$warehouseId]);
+        }
+
+        $advanceGrns = $advanceGrnsQuery
             ->with([
                 'items' => fn ($q) => $q->when($productIds !== null, fn ($pq) => $pq->whereIn('product_id', $productIds))->with('product.orderUnits'),
                 'stockBatches' => fn ($q) => $q->when($productIds !== null, fn ($pq) => $pq->whereIn('product_id', $productIds))->where('warehouse_receive_pending', false),
@@ -1399,7 +1506,8 @@ class AdvanceReceiveReconciliationService
             ->where(function (Builder $pending): void {
                 $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
                     ->orWhere(function ($withoutReceipt): void {
-                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
                     });
             })
             ->when($date, fn ($q) => $q->whereDate('order_date', $date))
@@ -1509,7 +1617,8 @@ class AdvanceReceiveReconciliationService
             ->where(function (Builder $pending): void {
                 $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
                     ->orWhere(function ($withoutReceipt): void {
-                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
                     });
             })
             ->when($search !== '', function (Builder $q) use ($search): void {
@@ -1547,22 +1656,67 @@ class AdvanceReceiveReconciliationService
         foreach ($allOrders as $order) {
             $orderWhId = $warehouseId ?? $order->destination_shop_id ?? $order->warehouse_id;
 
-            foreach ($order->items as $poItem) {
-                $product = $poItem->product;
+            $pendingGrns = collect();
+            foreach ($order->goodsReceiveds as $grn) {
+                $facts = app(WarehouseReceiptStateResolver::class)->forReceipt($grn);
+                if (($facts['receipt_status'] ?? '') !== 'received') {
+                    $pendingGrns->push($grn);
+                }
+            }
+
+            $targetItems = [];
+            if ($pendingGrns->isNotEmpty()) {
+                foreach ($pendingGrns->sortBy('id') as $pGrn) {
+                    foreach ($pGrn->items->sortBy('id') as $pItem) {
+                        $targetItems[] = [
+                            'source_type' => 'goods_received_item',
+                            'goods_received_id' => $pGrn->id,
+                            'goods_received_item_id' => $pItem->id,
+                            'purchase_order_item_id' => $pItem->purchase_order_item_id,
+                            'product' => $pItem->product,
+                            'qty' => (float) $pItem->received_qty,
+                            'unit' => $pItem->received_unit ?: $pItem->product?->unit,
+                        ];
+                    }
+                }
+            } else {
+                foreach ($order->items->sortBy('id') as $poItem) {
+                    $targetItems[] = [
+                        'source_type' => 'purchase_order_item',
+                        'goods_received_id' => null,
+                        'goods_received_item_id' => null,
+                        'purchase_order_item_id' => $poItem->id,
+                        'product' => $poItem->product,
+                        'qty' => (float) $poItem->quantity,
+                        'unit' => $poItem->purchase_unit ?: $poItem->unit ?: $poItem->product?->unit,
+                    ];
+                }
+            }
+
+            foreach ($targetItems as $tItem) {
+                $product = $tItem['product'];
                 if (! $product) {
                     continue;
                 }
 
-                $billUnit = $poItem->purchase_unit ?: $poItem->unit ?: $product->unit;
+                $billUnit = $tItem['unit'] ?: $product->unit;
                 $normBillUnit = ProductUnit::normalizeUnit($billUnit);
                 $normBaseUnit = ProductUnit::normalizeUnit($product->unit);
 
                 $alreadyMatchedQty = (float) AdvanceReceiveMatch::query()
                     ->where('purchase_order_id', $order->id)
-                    ->where('purchase_order_item_id', $poItem->id)
+                    ->get()
+                    ->filter(function ($m) use ($tItem): bool {
+                        if ($tItem['goods_received_item_id'] !== null) {
+                            return $m->bill_goods_received_id === $tItem['goods_received_id']
+                                && $m->bill_goods_received_item_id === $tItem['goods_received_item_id'];
+                        }
+
+                        return $m->purchase_order_item_id === $tItem['purchase_order_item_id'];
+                    })
                     ->sum('matched_qty');
 
-                $remainingBillQty = max(0.0, round((float) $poItem->quantity - $alreadyMatchedQty, 3));
+                $remainingBillQty = max(0.0, round((float) $tItem['qty'] - $alreadyMatchedQty, 3));
                 if ($remainingBillQty <= 0.0001) {
                     continue;
                 }
@@ -1591,7 +1745,9 @@ class AdvanceReceiveReconciliationService
                 if ($hasUnitMismatch || $strictConv === null) {
                     $diffRows->push([
                         'purchase_order_id' => $order->id,
-                        'purchase_order_item_id' => $poItem->id,
+                        'goods_received_id' => $tItem['goods_received_id'],
+                        'goods_received_item_id' => $tItem['goods_received_item_id'],
+                        'purchase_order_item_id' => $tItem['purchase_order_item_id'],
                         'po_number' => $order->po_number,
                         'order_date' => $order->order_date?->toDateString(),
                         'supplier_name' => $order->supplier?->name ?? 'Vendor',
@@ -1601,7 +1757,7 @@ class AdvanceReceiveReconciliationService
                         'product_name' => $product->name,
                         'product_sku' => $product->sku,
                         'product_base_unit' => $product->unit,
-                        'bill_qty' => (float) $poItem->quantity,
+                        'bill_qty' => (float) $tItem['qty'],
                         'bill_unit' => $billUnit,
                         'available_advance_qty' => round($totalAdvAvailQty, 3),
                         'advance_units' => array_values(array_unique($candidateUnits)),
@@ -1691,18 +1847,50 @@ class AdvanceReceiveReconciliationService
                 ]);
             }
 
-            // Check remaining unbilled qty
-            $alreadyMatchedQty = (float) AdvanceReceiveMatch::query()
+            // 1b. Find existing pending bill GRN early so we can use it for remaining-qty checks.
+            //     The authoritative bill quantity is the bill GRN item's received_qty, NOT the
+            //     PO ordered quantity.  Fall back to PO qty only when no bill GRN exists yet
+            //     (create-bill-grn path) so the over-clear guard still works in that case.
+            $existingBillGrn = $po->goodsReceiveds()
+                ->where(function (Builder $q): void {
+                    $q->where('receipt_type', 'normal_purchase')
+                        ->orWhereNull('receipt_type');
+                })
+                ->first();
+
+            $existingBillItem = null;
+            if ($existingBillGrn) {
+                $existingBillItem = $existingBillGrn->items()->firstWhere('purchase_order_item_id', $poItem->id)
+                    ?? $existingBillGrn->items()->firstWhere('product_id', $poItem->product_id);
+            }
+
+            // Authoritative bill qty: bill GRN item received_qty when available, else PO ordered qty.
+            $authoritativeBillQty = $existingBillItem
+                ? (float) $existingBillItem->received_qty
+                : (float) $poItem->quantity;
+
+            // Check remaining unbilled qty against the authoritative bill quantity
+            $alreadyMatchedBaseQtyForItem = (float) AdvanceReceiveMatch::query()
                 ->where('purchase_order_id', $po->id)
                 ->where('purchase_order_item_id', $poItem->id)
-                ->sum('matched_qty');
+                ->sum('base_qty');
 
-            $remainingBillQty = max(0.0, round((float) $poItem->quantity - $alreadyMatchedQty, 3));
-            if ($matchedQty > $remainingBillQty + 0.0001) {
+            $billItemConv = app(AdvanceAvailableBalanceCalculator::class)->resolveStrictUnitConversion($poItem->product, $poItem->purchase_unit ?: $poItem->product?->unit) ?? 1.0;
+            $effectiveConv = $conversionFactor > 0 ? $conversionFactor : $billItemConv;
+            $authoritativeBillBaseQty = round($authoritativeBillQty * $effectiveConv, 3);
+            $remainingBillBaseQty = max(0.0, round($authoritativeBillBaseQty - $alreadyMatchedBaseQtyForItem, 3));
+
+            // matched_qty is in the bill unit; convert to base for the guard
+            $requestedMatchBaseQty = round($matchedQty * $conversionFactor, 3);
+            if ($requestedMatchBaseQty > $remainingBillBaseQty + 0.0001) {
                 throw ValidationException::withMessages([
-                    'matched_qty' => "Requested match quantity ({$matchedQty}) exceeds remaining unbilled quantity ({$remainingBillQty}).",
+                    'matched_qty' => "Requested match ({$matchedQty} = {$requestedMatchBaseQty} base) exceeds remaining unbilled quantity ({$remainingBillBaseQty} base).",
                 ]);
             }
+
+            $remainingBillQty = $effectiveConv > 0
+                ? round($remainingBillBaseQty / $effectiveConv, 3)
+                : $remainingBillBaseQty;
 
             // 2. Lock and validate Advance GRN
             /** @var GoodsReceived $advGrn */
@@ -1742,19 +1930,12 @@ class AdvanceReceiveReconciliationService
                 ]);
             }
 
-            // 3. Find or Create Bill GoodsReceived for this PO
-            $billGrn = $po->goodsReceiveds()
-                ->where(function (Builder $q): void {
-                    $q->where('receipt_type', 'normal_purchase')
-                        ->orWhereNull('receipt_type');
-                })
-                ->first();
+            // 3. Find or Create Bill GoodsReceived for this PO.
+            //    Re-use the early-loaded bill GRN/item from the remaining-qty check above.
+            $billGrn = $existingBillGrn;
+            $billItem = $existingBillItem;
 
-            $billItem = null;
-            if ($billGrn) {
-                $billItem = $billGrn->items()->firstWhere('purchase_order_item_id', $poItem->id)
-                    ?? $billGrn->items()->firstWhere('product_id', $poItem->product_id);
-            } else {
+            if (! $billGrn) {
                 $billGrn = GoodsReceived::create([
                     'public_uuid' => (string) Str::uuid(),
                     'warehouse_id' => $po->destination_shop_id ?? $advGrn->warehouse_id,
@@ -1771,6 +1952,8 @@ class AdvanceReceiveReconciliationService
                     'notes' => $notes,
                 ]);
 
+                // When creating a new bill GRN in the PO-only path, the bill qty is the PO
+                // ordered quantity (this is the "create-bill-grn" path where PO qty is correct).
                 $billItem = GoodsReceivedItem::create([
                     'goods_received_id' => $billGrn->id,
                     'purchase_order_item_id' => $poItem->id,
@@ -1813,14 +1996,33 @@ class AdvanceReceiveReconciliationService
                 ]);
             }
 
-            // 6. Check if PO is fully reconciled
+            // 6. Check if PO is fully reconciled.
+            //    Compare matched base qty per bill GRN item against the bill item's received_qty
+            //    (not the PO ordered quantity) to determine completion.
             $allPoItemsCompleted = true;
+            $freshBillGrn = $billGrn->fresh(['items.product.orderUnits']);
             foreach ($po->items as $item) {
-                $itemMatched = (float) AdvanceReceiveMatch::query()
+                // Find the corresponding bill GRN item for this PO item
+                $correspondingBillItem = $freshBillGrn?->items
+                    ? ($freshBillGrn->items->firstWhere('purchase_order_item_id', $item->id)
+                        ?? $freshBillGrn->items->firstWhere('product_id', $item->product_id))
+                    : null;
+
+                // Authoritative qty: bill GRN item qty when available, else PO item qty
+                $authQty = $correspondingBillItem
+                    ? (float) $correspondingBillItem->received_qty
+                    : (float) $item->quantity;
+
+                $itemConv = app(AdvanceAvailableBalanceCalculator::class)->resolveStrictUnitConversion($item->product, $item->purchase_unit ?: $item->product?->unit) ?? 1.0;
+                $effItemConv = ($item->id === $poItem->id && $conversionFactor > 0) ? $conversionFactor : $itemConv;
+                $authBaseQty = round($authQty * $effItemConv, 3);
+
+                $itemMatchedBase = (float) AdvanceReceiveMatch::query()
                     ->where('purchase_order_id', $po->id)
                     ->where('purchase_order_item_id', $item->id)
-                    ->sum('matched_qty');
-                if ($itemMatched < (float) $item->quantity - 0.0001) {
+                    ->sum('base_qty');
+
+                if ($itemMatchedBase < $authBaseQty - 0.0001) {
                     $allPoItemsCompleted = false;
                     break;
                 }
@@ -1846,11 +2048,15 @@ class AdvanceReceiveReconciliationService
                 ])
                 ->log('purchasing.unit_difference_resolved');
 
+            $newRemainingBillQty = $effectiveConv > 0
+                ? max(0.0, round(($remainingBillBaseQty - $requestedMatchBaseQty) / $effectiveConv, 3))
+                : max(0.0, round($remainingBillBaseQty - $requestedMatchBaseQty, 3));
+
             return [
                 'status' => 'success',
                 'message' => 'Unit difference resolved successfully.',
                 'match_id' => $matchRecord->id,
-                'remaining_bill_qty' => max(0.0, round($remainingBillQty - $matchedQty, 3)),
+                'remaining_bill_qty' => $newRemainingBillQty,
                 'po_fully_cleared' => $allPoItemsCompleted,
                 'advance_fully_cleared' => array_sum($postBalances) <= 0.0001,
             ];
