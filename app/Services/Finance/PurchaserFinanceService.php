@@ -130,7 +130,7 @@ final class PurchaserFinanceService
                 SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as remaining_advance
             ")
             ->when($startDate !== '', fn (Builder $query) => $query->whereDate('business_date', '>=', $startDate))
-            ->when($endDate !== '', fn (Builder $query) => $query->whereDate('business_date', '<=', $endDate))
+            ->when($endDate !== '', fn (Builder $query) => $query->whereDate('business_date', '<', $endDate))
             ->groupBy('purchaser_id');
     }
 
@@ -274,6 +274,7 @@ final class PurchaserFinanceService
             ->leftJoin('users as creators', 'creators.id', '=', 'credits.created_by')
             ->where('credits.purchaser_id', $purchaserId)
             ->whereDate('credits.business_date', '>=', $startDate)
+            ->when($endDate !== '', fn (Builder $query) => $query->whereDate('credits.business_date', '<', $endDate))
             ->selectRaw("
                 credits.id,
                 credits.business_date,

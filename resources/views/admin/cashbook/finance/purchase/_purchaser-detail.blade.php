@@ -14,16 +14,37 @@
     );
 @endphp
 
-<header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+@php
+    $currentMonthCarbon = \Carbon\Carbon::parse(($settlement['start_date'] ?? today()->toDateString()).' 00:00:00', 'Asia/Kolkata');
+    $prevMonth = $currentMonthCarbon->copy()->subMonth()->format('Y-m');
+    $nextMonth = $currentMonthCarbon->copy()->addMonth()->format('Y-m');
+    $displayMonthLabel = $currentMonthCarbon->format('F Y');
+@endphp
+
+<header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <div>
         <nav class="flex flex-wrap items-center gap-1 text-xs font-bold text-slate-500" aria-label="Breadcrumb">
             <a href="{{ route('admin.cashbook.index') }}" class="hover:text-emerald-700">Cashbook</a><span>/</span>
             <a href="{{ route('admin.cashbook.finance.purchase') }}" class="hover:text-emerald-700">Purchase</a><span>/</span>
             <a href="{{ $listRoute }}" class="hover:text-emerald-700">Purchasers</a><span>/</span>
-            <span>{{ $record->name }}</span><span>/</span><span class="text-slate-900">{{ $purchaserTabs[$tab] }}</span>
+            <span class="text-slate-900">Purchaser Settlement</span>
         </nav>
-        <h1 class="mt-2 text-2xl font-black text-slate-950">{{ $record->name }}</h1>
-        <p class="mt-1 text-xs font-bold text-slate-500">{{ $filters['start_date'] }} to {{ $filters['end_date'] }}</p>
+        <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Purchaser Settlement — {{ $record->name }}</h1>
+        <p class="mt-1 text-xs font-bold text-slate-500">Operational cash settlement, advances, payments, and bill utilization.</p>
+    </div>
+
+    {{-- Month Selection Navigation --}}
+    <div class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+        <a href="{{ route('admin.cashbook.finance.purchase.purchasers.show', array_merge($purchaserRouteParameters, ['tab' => $tab, 'month' => $prevMonth])) }}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition" title="Previous Month">
+            <i data-lucide="chevron-left" class="h-4 w-4"></i>
+        </a>
+        <form method="GET" action="{{ route('admin.cashbook.finance.purchase.purchasers.show', $record->public_uuid) }}" class="flex items-center gap-2">
+            <input type="hidden" name="tab" value="{{ $tab }}">
+            <input type="month" name="month" value="{{ $settlement['month'] ?? $currentMonthCarbon->format('Y-m') }}" onchange="this.form.submit()" class="h-9 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-900 focus:border-emerald-500 focus:outline-none cursor-pointer">
+        </form>
+        <a href="{{ route('admin.cashbook.finance.purchase.purchasers.show', array_merge($purchaserRouteParameters, ['tab' => $tab, 'month' => $nextMonth])) }}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition" title="Next Month">
+            <i data-lucide="chevron-right" class="h-4 w-4"></i>
+        </a>
     </div>
 </header>
 
@@ -34,9 +55,53 @@
     <div class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-800">{{ $errors->first() }}</div>
 @endif
 
+{{-- Purchaser Settlement Top Summary Cards --}}
+<section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+    <div class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+        <span class="text-[10px] font-black uppercase text-slate-400">Opening Balance</span>
+        <strong class="mt-1 block font-mono text-base font-black text-slate-900">₹{{ number_format((float) ($settlement['opening_balance'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-slate-400">Prior to {{ $displayMonthLabel }}</span>
+    </div>
+    <div class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+        <span class="text-[10px] font-black uppercase text-slate-400">Funding Added</span>
+        <strong class="mt-1 block font-mono text-base font-black text-emerald-700">+₹{{ number_format((float) ($settlement['month_funding_added'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-slate-400">{{ $displayMonthLabel }} funding</span>
+    </div>
+    <div class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+        <span class="text-[10px] font-black uppercase text-slate-400">Purchases</span>
+        <strong class="mt-1 block font-mono text-base font-black text-slate-900">₹{{ number_format((float) ($settlement['month_purchases'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-slate-400">Total month spend</span>
+    </div>
+    <div class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+        <span class="text-[10px] font-black uppercase text-slate-400">Cash Returned</span>
+        <strong class="mt-1 block font-mono text-base font-black text-indigo-700">₹{{ number_format((float) ($settlement['month_cash_returned'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-slate-400">Returned to company</span>
+    </div>
+    <div class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+        <span class="text-[10px] font-black uppercase text-slate-400">Advance Utilized</span>
+        <strong class="mt-1 block font-mono text-base font-black text-amber-700">₹{{ number_format((float) ($settlement['month_advance_utilized'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-slate-400">Invoices paid from cash</span>
+    </div>
+    <div class="rounded-2xl border border-emerald-300 bg-emerald-50/60 p-3.5 shadow-xs">
+        <span class="text-[10px] font-black uppercase text-emerald-800">Available Advance</span>
+        <strong class="mt-1 block font-mono text-base font-black text-emerald-900">₹{{ number_format((float) ($settlement['available_advance'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-emerald-700">Net unspent cash</span>
+    </div>
+    <div class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+        <span class="text-[10px] font-black uppercase text-slate-400">Outstanding</span>
+        <strong class="mt-1 block font-mono text-base font-black text-rose-700">₹{{ number_format((float) ($settlement['month_credit_outstanding'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-slate-400">Unpaid credit bills</span>
+    </div>
+    <div class="rounded-2xl border border-slate-900 bg-slate-950 p-3.5 text-white shadow-xs">
+        <span class="text-[10px] font-black uppercase text-slate-400">Closing Balance</span>
+        <strong class="mt-1 block font-mono text-base font-black text-emerald-400">₹{{ number_format((float) ($settlement['closing_balance'] ?? 0), 2) }}</strong>
+        <span class="mt-0.5 block text-[9px] font-semibold text-slate-400">End of {{ $displayMonthLabel }}</span>
+    </div>
+</section>
+
 <nav class="flex gap-2 overflow-x-auto pb-1 text-xs font-black" aria-label="Purchaser detail sections">
     @foreach($purchaserTabs as $tabKey => $tabLabel)
-        <a href="{{ $purchaserTabUrl($tabKey) }}" class="min-w-max rounded-lg border px-3 py-2 {{ $tab === $tabKey ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300' }}">{{ $tabLabel }}</a>
+        <a href="{{ $purchaserTabUrl($tabKey, ['month' => $settlement['month'] ?? null]) }}" class="min-w-max rounded-lg border px-3 py-2 {{ $tab === $tabKey ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300' }}">{{ $tabLabel }}</a>
     @endforeach
 </nav>
 

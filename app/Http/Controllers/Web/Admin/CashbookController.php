@@ -87,6 +87,7 @@ use App\Services\Cashbook\ShopPettyFundingService;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\PurchaserFinanceService;
+use App\Services\Finance\PurchaserSettlementService;
 use App\Services\Finance\VendorSettlementService;
 use App\Services\HR\PayrollPaymentService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
@@ -4129,18 +4130,28 @@ final class CashbookController extends Controller
         )));
     }
 
-    public function companyFinancePurchasePurchaser(Request $request, User $purchaser, PurchaseReportingService $purchaseReportingService, PurchaserFinanceService $purchaserFinanceService): View
+    public function companyFinancePurchasePurchaser(Request $request, User $purchaser, PurchaseReportingService $purchaseReportingService, PurchaserFinanceService $purchaserFinanceService, PurchaserSettlementService $purchaserSettlementService): View
     {
         $this->ensureMainAdmin($request);
         $validated = $request->validate([
             'tab' => ['nullable', 'in:overview,purchases,vendors,categories,finance,funding'],
             'finance_search' => ['nullable', 'string', 'max:100'],
             'finance_payment' => ['nullable', 'in:all,cash,credit'],
+            'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
         ]);
         $tab = $validated['tab'] ?? 'overview';
         $financeSearch = trim((string) ($validated['finance_search'] ?? ''));
         $financePayment = $validated['finance_payment'] ?? 'all';
+
+        $settlement = $purchaserSettlementService->monthSettlement($purchaser, $request->query('month'));
         $filters = $this->purchaseDetailFilters($request);
+
+        if ($request->filled('month') || $filters['period'] === 'month') {
+            $filters['start_date'] = $settlement['start_date'];
+            $filters['end_date'] = $settlement['end_date'];
+            $filters['period'] = 'month';
+        }
+
         $detail = $purchaseReportingService->purchaserDetail((int) $purchaser->id, $filters, $tab);
         $financeSummary = $purchaserFinanceService->summaryFor((int) $purchaser->id);
         $fundingSplits = ($tab === 'funding')
@@ -4157,10 +4168,21 @@ final class CashbookController extends Controller
                 : null,
         ] : null;
 
-        return view('admin.cashbook.finance.purchase.detail', array_merge($this->purchaseLayoutData(), compact('filters', 'detail', 'tab', 'financeSummary', 'fundingSplits', 'finance', 'financeSearch', 'financePayment'), [
+        return view('admin.cashbook.finance.purchase.detail', array_merge($this->purchaseLayoutData(), compact('filters', 'detail', 'tab', 'financeSummary', 'fundingSplits', 'finance', 'financeSearch', 'financePayment', 'settlement'), [
             'kind' => 'purchaser',
             'record' => $purchaser,
         ]));
+    }
+
+    public function fundingReversalPreview(Request $request, User $purchaser, PurchaserCredit $credit, PurchaserSettlementService $purchaserSettlementService): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+        abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id, 404);
+
+        $proposedAmount = $request->has('amount') ? (float) $request->input('amount') : null;
+        $preview = $purchaserSettlementService->reversalPreview($purchaser, $credit, $proposedAmount);
+
+        return response()->json($preview);
     }
 
     public function companyFinancePurchaseVendor(Request $request, Supplier $supplier, PurchaseReportingService $purchaseReportingService): View
@@ -4291,7 +4313,7 @@ final class CashbookController extends Controller
             ->with('success', "{$label} of ₹".number_format((float) $credit->amount, 2).' recorded successfully.');
     }
 
-    public function updatePurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit): RedirectResponse
+    public function updatePurchaserFunding(Request $request, User $purchaser, PurchaserCredit $credit, PurchaserSettlementService $purchaserSettlementService): RedirectResponse
     {
         $this->ensureMainAdmin($request);
         abort_unless($request->user()->isMainAdmin() || $request->user()->hasRole('admin'), 403);
@@ -4305,72 +4327,21 @@ final class CashbookController extends Controller
             'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
             'reference' => ['nullable', 'string', 'max:160'],
             'description' => ['nullable', 'string', 'max:255'],
+            'reason' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $account = CompanyAccount::query()->whereKey($validated['company_account_id'] ?? 0)->where('enabled', true)->first();
-        if (! $account || $account->account_type !== strtolower($validated['payment_source'])) {
-            throw ValidationException::withMessages(['company_account_id' => 'Select an enabled company account matching the payment source.']);
-        }
+        $reason = $validated['reason'] ?? 'Admin Correction';
+        $notes = $validated['notes'] ?? null;
 
-        DB::transaction(function () use ($credit, $validated, $purchaser, $request): void {
-            /** @var PurchaserCredit $credit */
-            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
-            $newAmount = round((float) $validated['amount'], 2);
-            $oldAmount = round((float) $credit->amount, 2);
-            app(PurchaserFinanceService::class)->assertFundingMutable($credit);
-
-            $totalAdvanceExcludingThis = (float) PurchaserCredit::query()
-                ->where('purchaser_id', $credit->purchaser_id)
-                ->where('id', '!=', $credit->id)
-                ->sum(DB::raw("CASE WHEN type = 'in' THEN amount ELSE -amount END"));
-
-            if ($credit->type === 'in') {
-                if ($totalAdvanceExcludingThis + $newAmount < -0.009) {
-                    throw ValidationException::withMessages([
-                        'credit' => 'Funding amount cannot be reduced below already utilized purchase spend (remaining advance cannot be negative).',
-                    ]);
-                }
-            } else {
-                if ($totalAdvanceExcludingThis - $newAmount < -0.009) {
-                    throw ValidationException::withMessages([
-                        'credit' => 'Return amount cannot exceed available net purchaser advance.',
-                    ]);
-                }
-            }
-
-            $defaultDesc = $credit->type === 'in' ? 'Company funding to purchaser' : 'Purchaser return of funding to company';
-
-            $credit->update([
-                'amount' => $newAmount,
-                'business_date' => $validated['business_date'],
-                'payment_source' => $validated['payment_source'],
-                'company_account_id' => $validated['company_account_id'] ?? null,
-                'reference' => $validated['reference'] ?? null,
-                'description' => $validated['description'] ?? $defaultDesc,
-            ]);
-
-            app(JournalService::class)->recordPurchaserCredit($credit, updateExisting: true);
-
-            Log::info('Purchaser cash movement updated', [
-                'purchaser_id' => $purchaser->id,
-                'credit_id' => $credit->id,
-                'actor' => $request->user()->id,
-                'timestamp' => now()->toIso8601String(),
-            ]);
-
-            if (function_exists('activity')) {
-                activity('purchaser_finance')
-                    ->causedBy($request->user())
-                    ->performedOn($purchaser)
-                    ->withProperties([
-                        'credit_id' => $credit->id,
-                        'old_amount' => $oldAmount,
-                        'new_amount' => $newAmount,
-                        'action' => 'update_funding',
-                    ])
-                    ->log("Purchaser cash movement #{$credit->id} updated for {$purchaser->name}");
-            }
-        });
+        $purchaserSettlementService->updateFundingWithReversal(
+            $purchaser,
+            $credit,
+            $validated,
+            $request->user(),
+            $reason,
+            $notes
+        );
 
         $label = $credit->type === 'in' ? 'Purchaser funding' : 'Purchaser return';
         $tab = $request->input('tab', 'funding');
@@ -4396,7 +4367,7 @@ final class CashbookController extends Controller
         Request $request,
         User $purchaser,
         PurchaserCredit $credit,
-        PurchaserFinanceService $purchaserFinanceService
+        PurchaserSettlementService $purchaserSettlementService
     ): RedirectResponse {
         $this->ensureMainAdmin($request);
         abort_unless($request->user()->isMainAdmin() || $request->user()->hasRole('admin'), 403);
@@ -4404,61 +4375,17 @@ final class CashbookController extends Controller
         abort_unless($purchaser->hasRole('purchaser') && (int) $credit->purchaser_id === (int) $purchaser->id && in_array($credit->type, ['in', 'out'], true) && $credit->purchase_invoice_id === null, 404);
 
         $validated = $request->validate([
-            'reason' => ['required', 'string', 'in:duplicate_entry,wrong_entry,other,Duplicate Entry,Wrong Entry,Other'],
+            'reason' => ['required', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        DB::transaction(function () use ($credit, $purchaser, $validated, $request, $purchaserFinanceService): void {
-            $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
-
-            $purchaserFinanceService->assertFundingMutable($credit);
-            $creditAmount = (float) $credit->amount;
-
-            $totalAdvance = (float) PurchaserCredit::query()
-                ->where('purchaser_id', $credit->purchaser_id)
-                ->sum(DB::raw("CASE WHEN type = 'in' THEN amount ELSE -amount END"));
-
-            if ($credit->type === 'in' && $totalAdvance - $creditAmount < -0.009) {
-                throw ValidationException::withMessages([
-                    'credit' => 'Funding cannot be deleted because the advance has already been utilized by purchase bills.',
-                ]);
-            }
-
-            $journalEntry = JournalEntry::query()
-                ->where('source_type', PurchaserCredit::class)
-                ->where('source_id', $credit->id)
-                ->lockForUpdate()
-                ->first();
-
-            if ($journalEntry instanceof JournalEntry) {
-                $journalEntry->transactions()->delete();
-                $journalEntry->delete();
-            }
-
-            $credit->delete();
-
-            Log::info('Purchaser cash movement deleted', [
-                'purchaser_id' => $purchaser->id,
-                'credit_id' => $credit->id,
-                'actor' => $request->user()->id,
-                'reason' => $validated['reason'],
-                'timestamp' => now()->toIso8601String(),
-            ]);
-
-            if (function_exists('activity')) {
-                activity('purchaser_finance')
-                    ->causedBy($request->user())
-                    ->performedOn($purchaser)
-                    ->withProperties([
-                        'credit_id' => $credit->id,
-                        'amount' => $creditAmount,
-                        'reason' => $validated['reason'],
-                        'notes' => $validated['notes'] ?? null,
-                        'action' => 'delete_funding',
-                    ])
-                    ->log('Purchaser cash movement of ₹'.number_format($creditAmount, 2)." deleted for {$purchaser->name}");
-            }
-        }, attempts: 3);
+        $purchaserSettlementService->deleteFundingWithReversal(
+            $purchaser,
+            $credit,
+            $request->user(),
+            $validated['reason'],
+            $validated['notes'] ?? null
+        );
 
         $label = $credit->type === 'in' ? 'Purchaser funding' : 'Purchaser return';
         $tab = $request->input('tab', 'funding');

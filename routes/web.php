@@ -760,11 +760,13 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/trace', [CashbookController::class, 'tracePurchaserFunding'])->name('finance.purchasers.funding.trace');
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/unmatch', [CashbookController::class, 'unmatchPurchaserFunding'])->name('finance.purchasers.funding.unmatch');
             Route::post('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/correct', [CashbookController::class, 'correctPurchaserFunding'])->name('finance.purchasers.funding.correct');
+            Route::get('finance/purchasers/{purchaser:public_uuid}/funding/{credit}/reversal-preview', [CashbookController::class, 'fundingReversalPreview'])->name('finance.purchasers.funding.reversal-preview');
 
             // Direct aliases under /finance/purchase/purchasers/
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/update', [CashbookController::class, 'updatePurchaserFunding']);
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/delete', [CashbookController::class, 'deletePurchaserFunding']);
             Route::delete('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}', [CashbookController::class, 'deletePurchaserFunding']);
+            Route::get('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/reversal-preview', [CashbookController::class, 'fundingReversalPreview']);
             Route::get('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/candidates', [CashbookController::class, 'purchaserFundingCandidates']);
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/match-statement', [CashbookController::class, 'matchStatementPurchaserFunding']);
             Route::post('finance/purchase/purchasers/{purchaser:public_uuid}/funding/{credit}/replace-match', [CashbookController::class, 'replaceMatchPurchaserFunding']);
