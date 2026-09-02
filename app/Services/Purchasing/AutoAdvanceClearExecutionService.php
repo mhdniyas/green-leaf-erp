@@ -281,17 +281,18 @@ class AutoAdvanceClearExecutionService
             ->lockForUpdate()
             ->first();
 
-        if (! $grn || (int) $grn->warehouse_id !== $warehouseId || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
-            $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
-
-            return;
-        }
-
         // Lock source GRN items
         $grnItems = GoodsReceivedItem::query()->where('goods_received_id', $grn->id)->orderBy('id')->lockForUpdate()->get();
 
         // Lock target PO and PO items
         $po = PurchaseOrder::query()->whereKey($item->purchase_order_id)->lockForUpdate()->first();
+
+        $effectiveGrnWh = (int) ($grn->warehouse_id ?? $grn->destination_shop_id ?? $po?->destination_shop_id ?? $warehouseId);
+        if (! $grn || $effectiveGrnWh !== $warehouseId || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
+            $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
+
+            return;
+        }
         if ($po) {
             PurchaseOrderItem::query()->where('purchase_order_id', $po->id)->orderBy('id')->lockForUpdate()->get();
         }
@@ -309,10 +310,10 @@ class AutoAdvanceClearExecutionService
         $lockedAdvanceItems = GoodsReceivedItem::query()->whereIn('goods_received_id', $advGrnIds)->orderBy('id')->lockForUpdate()->get();
         AdvanceReceiveMatch::query()->whereIn('advance_goods_received_id', $advGrnIds)->orderBy('id')->lockForUpdate()->get();
 
-        // Precompute available balances across locked advance GRNs using shared calculator
+        // Compute fresh available balances across locked advance GRNs using shared calculator
         $calculatedBalancesByGrn = [];
         foreach ($lockedAdvanceGrns as $aGrn) {
-            $calculatedBalancesByGrn[$aGrn->id] = $this->balanceCalculator->calculateItemAvailableBase($aGrn, $productsMap);
+            $calculatedBalancesByGrn[$aGrn->id] = $this->balanceCalculator->calculateItemAvailableBase($aGrn->fresh(), $productsMap);
         }
 
         // Revalidate coverage and quantities
@@ -333,7 +334,8 @@ class AutoAdvanceClearExecutionService
 
             foreach ($line['matches'] as $m) {
                 $advGrn = $lockedAdvanceGrns->get((int) $m['advance_goods_received_id']);
-                if (! $advGrn || $advGrn->status !== 'approved' || $advGrn->bill_status !== 'bill_pending' || (int) $advGrn->warehouse_id !== $warehouseId) {
+                $advEffWh = (int) ($advGrn->warehouse_id ?? $advGrn->destination_shop_id ?? $warehouseId);
+                if (! $advGrn || $advGrn->status !== 'approved' || $advGrn->bill_status !== 'bill_pending' || $advEffWh !== $warehouseId) {
                     $coverageOk = false;
                     break 2;
                 }
@@ -425,7 +427,7 @@ class AutoAdvanceClearExecutionService
             ->lockForUpdate()
             ->first();
 
-        if (! $order || ! in_array($order->status->value, ['approved', 'sent_to_supplier', 'partially_received'], true)) {
+        if (! $order || ! in_array($order->status->value, ['approved', 'sent_to_supplier', 'partially_received', 'received'], true)) {
             $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
 
             return;
@@ -451,10 +453,10 @@ class AutoAdvanceClearExecutionService
         $lockedAdvanceItems = GoodsReceivedItem::query()->whereIn('goods_received_id', $advGrnIds)->orderBy('id')->lockForUpdate()->get();
         AdvanceReceiveMatch::query()->whereIn('advance_goods_received_id', $advGrnIds)->orderBy('id')->lockForUpdate()->get();
 
-        // Precompute available balances across locked advance GRNs using shared calculator
+        // Compute fresh available balances across locked advance GRNs using shared calculator
         $calculatedBalancesByGrn = [];
         foreach ($lockedAdvanceGrns as $aGrn) {
-            $calculatedBalancesByGrn[$aGrn->id] = $this->balanceCalculator->calculateItemAvailableBase($aGrn, $productsMap);
+            $calculatedBalancesByGrn[$aGrn->id] = $this->balanceCalculator->calculateItemAvailableBase($aGrn->fresh(), $productsMap);
         }
 
         // Calculate already completed receipts by PO item

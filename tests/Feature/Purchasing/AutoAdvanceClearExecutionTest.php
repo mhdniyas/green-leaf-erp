@@ -1635,4 +1635,87 @@ class AutoAdvanceClearExecutionTest extends TestCase
 
         $this->assertEquals($itemCountFirst, AdvanceAutoClearRunItem::count());
     }
+
+    public function test_eligible_po_with_received_status_clears_successfully_without_state_changed_error(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-TEST-RCV-ONLY',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-08-25',
+            'destination_shop_id' => $this->warehouseA->id,
+            'created_by' => $this->warehouseUser->id,
+        ]);
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'product_id' => $this->apple->id,
+            'quantity' => 100.0,
+            'purchase_unit' => 'kg',
+            'unit_price' => 50.0,
+        ]);
+        $po->update(['status' => POStatus::Received]);
+
+        $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
+        $this->assertEquals(1, $preview['summary']['ready_bills']);
+
+        $planHash = $preview['plan_hash'];
+        $submissionId = (string) Str::uuid();
+
+        $res = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
+            'warehouse_id' => $this->warehouseA->id,
+            'plan_hash' => $planHash,
+            'client_submission_id' => $submissionId,
+        ]);
+
+        $res->assertOk();
+        $this->assertEquals(1, $res->json('data.summary.processed'));
+        $this->assertEquals(0, $res->json('data.summary.skipped'));
+        $this->assertEquals('bill_available', $adv->fresh()->bill_status);
+    }
+
+    public function test_concurrency_business_state_mutation_causes_stale_state_skip(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+
+        $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
+        $planHash = $preview['plan_hash'];
+        $submissionId = (string) Str::uuid();
+
+        // Mutate real business state field (change PO status to cancelled)
+        $po->update(['status' => POStatus::Cancelled]);
+
+        $res = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
+            'warehouse_id' => $this->warehouseA->id,
+            'plan_hash' => $planHash,
+            'client_submission_id' => $submissionId,
+        ]);
+
+        // Stale state detected either by plan hash conflict (409) or item-level state validation
+        if ($res->status() === 409) {
+            $res->assertStatus(409);
+        } else {
+            $res->assertOk();
+            $this->assertEquals(0, $res->json('data.summary.processed'));
+            $this->assertEquals(1, $res->json('data.summary.skipped'));
+        }
+    }
+
+    public function test_deterministic_plan_hash_same_state_loaded_twice(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+
+        $p1 = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
+        $p2 = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
+
+        $this->assertSame($p1['plan_hash'], $p2['plan_hash']);
+    }
 }

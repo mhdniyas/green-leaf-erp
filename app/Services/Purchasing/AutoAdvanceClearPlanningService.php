@@ -51,7 +51,7 @@ class AutoAdvanceClearPlanningService
                 $pending->whereHas('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
                     ->orWhere(function ($withoutPendingReceipt): void {
                         $withoutPendingReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
-                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received', 'received']);
                     });
             });
 
