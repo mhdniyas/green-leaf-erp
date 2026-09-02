@@ -94,11 +94,47 @@
         bulkRemainingAfter: {{ (float) $unallocatedPayments }},
         bulkEligibleAmount: {{ (float) collect($bulkEligiblePayments)->sum('unallocated') }},
         bulkSettlementOutstanding: {{ (float) $openSettlementTransactions->sum('remaining_due') }},
+        isLocalRepairMode: @js(app()->environment(['local', 'testing'])),
         formatCurrency(num) {
             return Number(num || 0).toLocaleString('en-IN', {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2
             });
+        },
+        formatAllocationFlag(flag) {
+            const safeFlag = String(flag || 'OK').toUpperCase();
+            if (safeFlag === 'OK') return 'OK';
+            return safeFlag.replaceAll('_', ' ');
+        },
+        submitLocalRepairAction(actionUrl, confirmMessage) {
+            if (!this.isLocalRepairMode || !this.selectedPaymentForAlloc) return;
+            if (!window.confirm(confirmMessage)) return;
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = actionUrl;
+
+            const tokenInput = document.createElement('input');
+            tokenInput.type = 'hidden';
+            tokenInput.name = '_token';
+            tokenInput.value = '{{ csrf_token() }}';
+
+            const paymentInput = document.createElement('input');
+            paymentInput.type = 'hidden';
+            paymentInput.name = 'payment_request_id';
+            paymentInput.value = String(this.selectedPaymentForAlloc.id || '');
+
+            const monthInput = document.createElement('input');
+            monthInput.type = 'hidden';
+            monthInput.name = 'month';
+            monthInput.value = '{{ $month }}';
+
+            form.appendChild(tokenInput);
+            form.appendChild(paymentInput);
+            form.appendChild(monthInput);
+            document.body.appendChild(form);
+            this.isSubmitting = true;
+            form.submit();
         },
         onShopCashbookUpdated(data) {
             if (data.company_money_received) {
@@ -417,7 +453,7 @@
                         :disabled="paymentsUnallocated <= 0 || bulkSettlementOutstanding <= 0"
                         class="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black shadow-sm transition cursor-pointer">
                     <i data-lucide="check-square" class="w-4 h-4"></i>
-                    <span>Allocate All</span>
+                    <span>Auto Allocate All</span>
                 </button>
             </div>
         </div>
@@ -2210,7 +2246,7 @@
          @keydown.escape.window="showAllocateModal = false"
          class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
         <div @click.away="showAllocateModal = false"
-             class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+               class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div class="px-6 py-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                     <div class="p-2 rounded-xl bg-white/10">
@@ -2229,7 +2265,7 @@
             <template x-if="selectedPaymentForAlloc">
                 <form method="POST"
                       action="{{ route('admin.cashbook.shop.allocate-payment', $currentShop->slug ?: $currentShop->shop_id) }}"
-                      class="p-6 space-y-4">
+                      class="p-6 space-y-4 overflow-y-auto">
                     @csrf
                     <input type="hidden" name="payment_request_id" :value="selectedPaymentForAlloc.id">
                     <input type="hidden" name="month" value="{{ $month }}">
@@ -2241,16 +2277,36 @@
                         </div>
                     @endif
 
-                    <!-- Selected Payment Info Banner -->
-                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
+                    <!-- Selected Payment Summary -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 font-mono text-xs space-y-3">
+                        <div x-show="selectedPaymentForAlloc.allocation_has_error" x-cloak class="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 text-xs font-bold font-sans">
+                            ⚠ Current Allocation Error
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div>
+                                <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Total Amount</span>
+                                <span class="text-base font-black text-slate-900" x-text="'₹' + Number(selectedPaymentForAlloc.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            </div>
+                            <div>
+                                <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Actual Allocated</span>
+                                <span class="text-base font-black text-emerald-700" x-text="'₹' + Number(selectedPaymentForAlloc.actual_allocated).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            </div>
+                            <div>
+                                <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Actual Unallocated</span>
+                                <span class="text-base font-black" :class="Number(selectedPaymentForAlloc.actual_unallocated) < 0 ? 'text-rose-700' : 'text-amber-700'" x-text="'₹' + Number(selectedPaymentForAlloc.actual_unallocated).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            </div>
+                            <div>
+                                <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Allocation Status</span>
+                                <span class="text-[11px] font-black text-slate-800" x-text="formatAllocationFlag(selectedPaymentForAlloc.allocation_integrity_flag)"></span>
+                            </div>
+                        </div>
                         <div>
-                            <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Payment Received</span>
-                            <span class="text-base font-black text-slate-900" x-text="'₹' + Number(selectedPaymentForAlloc.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Payment Method &amp; Account</span>
                             <span class="text-[10px] text-slate-500 block" x-text="selectedPaymentForAlloc.method + ' • ' + selectedPaymentForAlloc.account"></span>
                         </div>
                         <div>
-                            <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Available Unallocated</span>
-                            <span class="text-base font-black text-amber-700" x-text="'₹' + Number(selectedPaymentForAlloc.unallocated_amount_calc).toLocaleString('en-IN', {minimumFractionDigits: 2})"></span>
+                            <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Last Allocated Date</span>
+                            <span class="text-[11px] font-bold text-slate-700" x-text="selectedPaymentForAlloc.last_allocated_date || 'Not allocated yet'"></span>
                         </div>
                         <div>
                             <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Remaining After Allocation</span>
@@ -2339,13 +2395,27 @@
                         </div>
 
                         <div class="flex items-center gap-2">
+                            <template x-if="isLocalRepairMode">
+                                <button type="button"
+                                        @click="submitLocalRepairAction('{{ route('admin.cashbook.shop.allocate-payment.clear', $currentShop->slug ?: $currentShop->shop_id) }}', 'Clear all current allocations for this payment? This local repair action cannot be undone.')"
+                                        class="px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold transition text-xs border border-rose-200">
+                                    Clear Allocation
+                                </button>
+                            </template>
+                            <template x-if="isLocalRepairMode">
+                                <button type="button"
+                                        @click="submitLocalRepairAction('{{ route('admin.cashbook.shop.allocate-payment.clear-reallocate', $currentShop->slug ?: $currentShop->shop_id) }}', 'Clear all current allocations and re-run auto allocation from zero for this payment? Local-only repair action.')"
+                                        class="px-4 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold transition text-xs border border-amber-200">
+                                    Clear &amp; Reallocate
+                                </button>
+                            </template>
                             <button type="button" @click="showAllocateModal = false" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition text-xs">
                                 Cancel
                             </button>
                             <button type="submit"
                                     :disabled="totalAllocatedSum() <= 0 || remainingUnallocatedPayment() < 0"
                                     class="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-xs shadow-sm transition cursor-pointer">
-                                Confirm Settlement Allocation
+                                Submit
                             </button>
                         </div>
                     </div>
@@ -2360,7 +2430,7 @@
          @keydown.escape.window="showBulkAllocateModal = false"
          class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
         <div @click.away="showBulkAllocateModal = false"
-             class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+               class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div class="px-6 py-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                     <div class="p-2 rounded-xl bg-white/10">
@@ -2378,7 +2448,7 @@
 
             <form method="POST"
                   action="{{ route('admin.cashbook.shop.allocate-payments.bulk', $currentShop->slug ?: $currentShop->shop_id) }}"
-                  class="p-6 space-y-4"
+                class="p-6 space-y-4 overflow-y-auto"
                   @submit="isSubmitting = true">
                 @csrf
                 <input type="hidden" name="month" value="{{ $month }}">
@@ -2460,7 +2530,7 @@
          @keydown.escape.window="showPaymentDetailsListModal = false"
          class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
         <div @click.away="showPaymentDetailsListModal = false"
-             class="bg-white rounded-3xl max-w-5xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+               class="bg-white rounded-3xl max-w-5xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div class="px-6 py-5 bg-slate-900 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                     <div class="p-2 rounded-xl bg-white/10">
@@ -2475,7 +2545,7 @@
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
-            <div class="p-6">
+            <div class="p-6 overflow-y-auto">
                 <div x-show="paymentsList.length === 0" class="p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl">
                     <i data-lucide="wallet" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="text-xs font-bold">No payment detail rows are available on this page.</p>
@@ -2490,12 +2560,13 @@
                                 <th class="py-3 px-4 text-right">Received</th>
                                 <th class="py-3 px-4 text-right">Allocated</th>
                                 <th class="py-3 px-4 text-right">Unallocated</th>
+                                <th class="py-3 px-4">Allocated Date</th>
                                 <th class="py-3 px-4 text-right rounded-r-xl">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-mono">
                             <template x-for="payment in paymentsList" :key="payment.key || payment.id">
-                                <tr class="hover:bg-slate-50/80 transition-colors">
+                                <tr class="hover:bg-slate-50/80 transition-colors" :class="payment.allocation_has_error ? 'bg-rose-50/40' : ''">
                                     <td class="py-3 px-4 font-sans">
                                         <span class="font-extrabold text-slate-900 text-sm block" x-text="payment.date"></span>
                                         <span class="text-[10px] text-slate-400 font-mono" x-text="payment.reference || 'No reference'"></span>
@@ -2510,9 +2581,15 @@
                                     <td class="py-3 px-4 text-right font-bold text-slate-900">₹<span x-text="formatCurrency(payment.amount)"></span></td>
                                     <td class="py-3 px-4 text-right font-bold text-emerald-700">₹<span x-text="formatCurrency(payment.allocated)"></span></td>
                                     <td class="py-3 px-4 text-right font-black" :class="Number(payment.unallocated) > 0 ? 'text-amber-700' : 'text-slate-400'">₹<span x-text="formatCurrency(payment.unallocated)"></span></td>
+                                    <td class="py-3 px-4 font-sans">
+                                        <span class="text-[11px] font-bold" :class="payment.last_allocated_date ? 'text-slate-700' : 'text-slate-400'" x-text="payment.last_allocated_date || '—'"></span>
+                                    </td>
                                     <td class="py-3 px-4 text-right font-sans">
                                         <div class="flex items-center justify-end gap-1.5">
                                             <span class="inline-flex items-center text-[10px] font-extrabold px-2.5 py-1 rounded-lg border" :class="payment.status_badge" x-text="payment.allocation_status_label"></span>
+                                            <template x-if="payment.allocation_has_error">
+                                                <span class="inline-flex items-center text-[10px] font-black px-2.5 py-1 rounded-lg border bg-rose-100 text-rose-800 border-rose-300">⚠ Fix Allocation</span>
+                                            </template>
                                             <button type="button" @click="openDetailsModal(payment)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
                                                 <i data-lucide="eye" class="w-3 h-3"></i>
                                                 <span>Details</span>
@@ -2540,7 +2617,7 @@
          @keydown.escape.window="showPaymentDetailsModal = false"
          class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
         <div @click.away="showPaymentDetailsModal = false"
-             class="bg-white rounded-3xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+               class="bg-white rounded-3xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div class="px-6 py-5 bg-slate-900 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                     <div class="p-2 rounded-xl bg-white/10">
@@ -2557,7 +2634,7 @@
             </div>
 
             <template x-if="selectedPaymentForDetails">
-                <div class="p-6 space-y-4 text-xs font-sans">
+                <div class="p-6 space-y-4 text-xs font-sans overflow-y-auto">
                     <!-- Summary Grid -->
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
                         <div>
@@ -2584,10 +2661,14 @@
                             <span class="text-[9px] font-black uppercase text-slate-400 block">Date &amp; Reference</span>
                             <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.date + ' • ' + (selectedPaymentForDetails.reference || 'No ref')"></span>
                         </div>
+                        <div class="sm:col-span-3">
+                            <span class="text-[9px] font-black uppercase text-slate-400 block">Allocated Date</span>
+                            <span class="font-bold" :class="selectedPaymentForDetails.last_allocated_date ? 'text-slate-800' : 'text-slate-400'" x-text="selectedPaymentForDetails.last_allocated_date || 'Not allocated yet'"></span>
+                        </div>
                     </div>
 
                     <!-- 1. Settlement Allocation Status & Breakdown Link -->
-                    <div class="p-4 rounded-2xl border border-emerald-100 bg-emerald-50/40 space-y-2">
+                    <div class="p-4 rounded-2xl space-y-2" :class="selectedPaymentForDetails.allocation_has_error ? 'border border-rose-200 bg-rose-50' : 'border border-emerald-100 bg-emerald-50/40'">
                         <div class="flex items-center justify-between">
                             <div>
                                 <span class="text-[10px] font-black uppercase tracking-wide text-emerald-900 block">Settlement Allocation</span>
@@ -2603,6 +2684,9 @@
                         <p class="text-[11px] text-slate-500 font-medium">
                             <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.allocations.length"></span> daily settlements cleared with this payment.
                         </p>
+                        <template x-if="selectedPaymentForDetails.allocation_has_error">
+                            <p class="text-[11px] font-bold text-rose-700">⚠ Current Allocation Error. Please open allocation and fix.</p>
+                        </template>
                     </div>
 
                     <!-- 2. Company Cash Movement / Bank Reconciliation Section -->
@@ -2658,7 +2742,7 @@
          @keydown.escape.window="showAllocationBreakdownModal = false"
          class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
         <div @click.away="showAllocationBreakdownModal = false"
-             class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+               class="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div class="px-6 py-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between">
                 <div class="flex items-center gap-2.5">
                     <div class="p-2 rounded-xl bg-white/10">
@@ -2675,7 +2759,7 @@
             </div>
 
             <template x-if="selectedPaymentForBreakdown">
-                <div class="p-6 space-y-4">
+                <div class="p-6 space-y-4 overflow-y-auto">
                     <!-- Payment Header Summary -->
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 font-sans text-xs">
                         <div>

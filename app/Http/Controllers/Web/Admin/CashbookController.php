@@ -798,15 +798,20 @@ final class CashbookController extends Controller
      */
     private function enrichShopPaymentModel(ShopInvoicePaymentRequest $payment, int $shopId): ShopInvoicePaymentRequest
     {
-        $allocatedAmount = round((float) $payment->ledgerAllocations->sum('amount'), 2);
+        $integrity = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
+        $allocatedAmount = (float) $integrity['actual_allocated'];
+        $remainingAmount = (float) $integrity['actual_remaining'];
+
+        $payment->payment_total_calc = (float) $integrity['total_amount'];
         $payment->allocated_amount_calc = $allocatedAmount;
-        $payment->unallocated_amount_calc = round(max(0, (float) $payment->requested_amount - $allocatedAmount), 2);
-        $payment->allocation_status = match (true) {
-            $payment->cheque_status === 'pending' => 'pending_cheque',
-            $allocatedAmount <= 0 => 'unallocated',
-            $allocatedAmount >= (float) $payment->requested_amount => 'fully_allocated',
-            default => 'partially_allocated',
-        };
+        $payment->unallocated_amount_calc = $remainingAmount;
+        $payment->allocation_status = $payment->cheque_status === 'pending'
+            ? 'pending_cheque'
+            : strtolower((string) $integrity['actual_status']);
+        $payment->allocation_integrity_flag = (string) $integrity['integrity_flag'];
+        $payment->allocation_has_error = (bool) $integrity['has_error'];
+        $payment->duplicate_allocation_count = (int) $integrity['duplicate_allocation_count'];
+        $payment->over_allocated_amount = (float) $integrity['over_allocated_amount'];
         $payment->reconciliation_status = $payment->reconciliation_status ?? ($payment->cheque_status === 'pending' ? 'floating' : 'unreconciled');
         $payment->is_reconciled = $payment->reconciliation_status === 'reconciled';
         $payment->can_reconcile = in_array($payment->reconciliation_status, ['unreconciled', 'pending', 'floating', 'partially_reconciled'], true);
@@ -853,24 +858,26 @@ final class CashbookController extends Controller
      */
     private function formatShopPaymentPayload(ShopInvoicePaymentRequest $payment, int $shopId): array
     {
-        $allocatedAmount = round((float) $payment->ledgerAllocations->sum('amount'), 2);
-        $unallocatedAmount = round(max(0, (float) $payment->requested_amount - $allocatedAmount), 2);
+        $integrity = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
+        $paymentAmount = (float) $integrity['total_amount'];
+        $allocatedAmount = (float) $integrity['actual_allocated'];
+        $unallocatedAmount = (float) $integrity['actual_remaining'];
+        $allocationStatus = $payment->cheque_status === 'pending'
+            ? 'pending_cheque'
+            : strtolower((string) $integrity['actual_status']);
 
-        $allocationStatus = match (true) {
-            $payment->cheque_status === 'pending' => 'pending_cheque',
-            $allocatedAmount <= 0 => 'unallocated',
-            $allocatedAmount >= (float) $payment->requested_amount => 'fully_allocated',
-            default => 'partially_allocated',
-        };
+        $integrityFlag = (string) $integrity['integrity_flag'];
+        $integrityHasError = (bool) $integrity['has_error'];
+
         $statusLabel = match ($allocationStatus) {
-            'unallocated' => 'Unallocated',
+            'ok' => 'Unallocated',
             'partially_allocated' => 'Partially Allocated',
             'fully_allocated' => 'Fully Allocated',
             'pending_cheque' => 'Pending Cheque',
             default => 'Recorded',
         };
         $statusBadge = match ($allocationStatus) {
-            'unallocated' => 'bg-amber-50 text-amber-800 border-amber-200',
+            'ok' => 'bg-amber-50 text-amber-800 border-amber-200',
             'partially_allocated' => 'bg-sky-50 text-sky-800 border-sky-200',
             'fully_allocated' => 'bg-emerald-50 text-emerald-800 border-emerald-200',
             'pending_cheque' => 'bg-violet-50 text-violet-800 border-violet-200',
@@ -919,6 +926,7 @@ final class CashbookController extends Controller
             return [
                 'id' => $alloc->id,
                 'date' => $alloc->ledgerTransaction?->business_date?->format('d M Y') ?? 'N/A',
+                'date_sort' => $alloc->ledgerTransaction?->business_date?->toDateString(),
                 'name' => $alloc->ledgerTransaction?->entryType?->name ?? 'Daily Settlement',
                 'company_payable' => $expectedPayable,
                 'applied_amount' => (float) $alloc->amount,
@@ -926,6 +934,17 @@ final class CashbookController extends Controller
                 'settlement_status' => $settlementStatus,
             ];
         })->values()->all();
+
+        $allocationDates = collect($allocationsData)
+            ->pluck('date_sort')
+            ->filter(fn (?string $date): bool => filled($date))
+            ->unique()
+            ->sort()
+            ->values();
+
+        $lastAllocatedDate = $allocationDates->isEmpty()
+            ? null
+            : Carbon::parse((string) $allocationDates->last())->format('d M Y');
 
         return [
             'id' => $payment->id,
@@ -937,18 +956,27 @@ final class CashbookController extends Controller
             'method' => str_replace('_', ' ', (string) $payment->payment_method),
             'company_account_id' => $destinationAccount?->id ?? $payment->company_account_id,
             'account' => $destinationAccount?->name ?? 'Company Account',
-            'amount' => (float) $payment->requested_amount,
+            'amount' => $paymentAmount,
             'allocated' => $allocatedAmount,
             'unallocated' => $unallocatedAmount,
+            'actual_allocated' => $allocatedAmount,
+            'actual_unallocated' => $unallocatedAmount,
             'allocated_amount_calc' => $allocatedAmount,
             'unallocated_amount_calc' => $unallocatedAmount,
             'allocation_status' => $allocationStatus,
             'allocation_status_label' => $statusLabel,
             'status_badge' => $statusBadge,
+            'allocation_integrity_flag' => $integrityFlag,
+            'allocation_has_error' => $integrityHasError,
+            'over_allocated_amount' => (float) $integrity['over_allocated_amount'],
+            'duplicate_allocation_count' => (int) $integrity['duplicate_allocation_count'],
+            'allocated_dates' => $allocationDates->map(fn (string $date): string => Carbon::parse($date)->format('d M Y'))->all(),
+            'last_allocated_date' => $lastAllocatedDate,
             'reconciliation_status' => $payment->reconciliation_status,
             'is_reconciled' => $payment->reconciliation_status === 'reconciled',
             'can_reconcile' => in_array($payment->reconciliation_status, ['unreconciled', 'pending', 'floating', 'partially_reconciled'], true),
-            'can_allocate' => true,
+            'can_allocate' => $payment->cheque_status !== 'pending' && $unallocatedAmount > 0.01,
+            'cheque_status' => $payment->cheque_status,
             'statement_ref' => $statementEntry?->reference ?: $statementEntry?->narration,
             'reconciled_at' => $reconciliation?->reconciled_at?->format('d M Y H:i'),
             'reconciled_by' => $reconciliation?->reconciledBy?->name ?? 'System',
@@ -981,6 +1009,12 @@ final class CashbookController extends Controller
             'allocation_status' => 'unallocated',
             'allocation_status_label' => 'Unallocated',
             'status_badge' => 'bg-amber-50 text-amber-800 border-amber-200',
+            'allocation_integrity_flag' => 'OK',
+            'allocation_has_error' => false,
+            'over_allocated_amount' => 0.0,
+            'duplicate_allocation_count' => 0,
+            'allocated_dates' => [],
+            'last_allocated_date' => null,
             'reconciliation_status' => 'reconciled',
             'is_reconciled' => true,
             'can_reconcile' => false,
@@ -1034,23 +1068,38 @@ final class CashbookController extends Controller
      */
     private function shopPaymentSummary(int $shopId, string $monthStart, string $monthEnd): array
     {
-        $paymentIds = (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))->pluck('id');
-        $paymentReceived = (float) (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))->sum('requested_amount');
+        $payments = (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))
+            ->with('ledgerAllocations:id,payment_request_id,shop_ledger_transaction_id,amount')
+            ->get();
+
+        $paymentIds = $payments->pluck('id');
+        $paymentReceived = round((float) $payments->sum(function (ShopInvoicePaymentRequest $payment): float {
+            $snapshot = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
+
+            return (float) $snapshot['total_amount'];
+        }), 2);
         $directReceived = (float) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->sum('amount');
-        $allocated = $paymentIds->isEmpty()
-            ? 0.0
-            : (float) ShopPaymentLedgerAllocation::query()
-                ->where('shop_id', $shopId)
-                ->whereIn('payment_request_id', $paymentIds->all())
-                ->sum('amount');
+
+        $allocated = round((float) $payments->sum(function (ShopInvoicePaymentRequest $payment): float {
+            $snapshot = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
+
+            return (float) $snapshot['actual_allocated'];
+        }), 2);
+
+        $paymentRemaining = round((float) $payments->sum(function (ShopInvoicePaymentRequest $payment): float {
+            $snapshot = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
+
+            return (float) $snapshot['actual_remaining'];
+        }), 2);
+
         $received = round($paymentReceived + $directReceived, 2);
 
         return [
             'payment_count' => (int) $paymentIds->count() + (int) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->count(),
             'direct_receipt_count' => (int) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->count(),
             'received' => $received,
-            'allocated' => round($allocated, 2),
-            'unallocated' => round(max(0, $received - $allocated), 2),
+            'allocated' => $allocated,
+            'unallocated' => round($paymentRemaining + $directReceived, 2),
         ];
     }
 
@@ -1060,19 +1109,21 @@ final class CashbookController extends Controller
     private function bulkEligibleShopPayments(int $shopId, string $monthStart, string $monthEnd): array
     {
         $payments = (clone $this->shopPaymentRequestReceiptQuery($shopId, $monthStart, $monthEnd))
-            ->withSum('ledgerAllocations as allocated_amount', 'amount')
+            ->with('ledgerAllocations:id,payment_request_id,shop_ledger_transaction_id,amount')
             ->oldest('payment_date')
             ->oldest('id')
             ->get()
             ->map(function (ShopInvoicePaymentRequest $payment): array {
-                $amount = round((float) $payment->requested_amount, 2);
-                $allocated = round((float) ($payment->allocated_amount ?? 0), 2);
+                $snapshot = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
+                $amount = round((float) $snapshot['total_amount'], 2);
+                $allocated = round((float) $snapshot['actual_allocated'], 2);
+                $remaining = round((float) $snapshot['actual_remaining'], 2);
 
                 return [
                     'id' => (int) $payment->id,
                     'amount' => $amount,
                     'allocated' => $allocated,
-                    'unallocated' => round(max(0, $amount - $allocated), 2),
+                    'unallocated' => round(max(0, $remaining), 2),
                     'date' => $payment->payment_date?->toDateString() ?? $payment->created_at?->toDateString() ?? today()->toDateString(),
                     'direct_statement_id' => null,
                 ];
@@ -2271,6 +2322,66 @@ final class CashbookController extends Controller
         ])->with('success', 'Payment allocated to selected daily settlements successfully.');
     }
 
+    public function clearShopPaymentAllocations(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $this->ensureLocalAllocationRepairMode();
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $payment = ShopInvoicePaymentRequest::query()
+            ->whereKey((int) $validated['payment_request_id'])
+            ->where('shop_id', $shopId)
+            ->firstOrFail();
+
+        $clearedCount = $this->shopPaymentLedgerReconciliationService
+            ->clearPaymentAllocations($payment, (int) $request->user()->id);
+
+        $month = $request->input('month', Carbon::parse($payment->payment_date)->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.show', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Cleared '.$clearedCount.' allocation '.Str::plural('record', $clearedCount).' for the selected payment.');
+    }
+
+    public function clearAndReallocateShopPayment(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $this->ensureLocalAllocationRepairMode();
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $validated = $request->validate([
+            'payment_request_id' => ['required', 'integer', 'exists:shop_invoice_payment_requests,id'],
+            'month' => ['nullable', 'string'],
+        ]);
+
+        $payment = ShopInvoicePaymentRequest::query()
+            ->whereKey((int) $validated['payment_request_id'])
+            ->where('shop_id', $shopId)
+            ->firstOrFail();
+
+        $result = $this->shopPaymentLedgerReconciliationService
+            ->clearAndReallocatePayment($payment, (int) $request->user()->id);
+
+        $month = $request->input('month', Carbon::parse($payment->payment_date)->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.show', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with(
+            'success',
+            'Clear & reallocate complete. Cleared '.$result['cleared_count'].' and rebuilt '.$result['created_count'].' allocation '
+            .Str::plural('record', $result['created_count']).' for ₹'.number_format((float) $result['allocated_total'], 2).'.'
+        );
+    }
+
     public function allocateAllShopPayments(Request $request, int|string $shop): RedirectResponse
     {
         $this->ensureMainAdmin($request);
@@ -2390,6 +2501,11 @@ final class CashbookController extends Controller
             'shop' => $currentShop->slug ?: $currentShop->shop_id,
             'month' => $request->input('month', now()->format('Y-m')),
         ])->with('success', 'Settlement allocation removed successfully.');
+    }
+
+    private function ensureLocalAllocationRepairMode(): void
+    {
+        abort_unless(app()->environment(['local', 'testing']), 403, 'Allocation repair actions are restricted to local/testing environments.');
     }
 
     public function rulesPage(Request $request): View

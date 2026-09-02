@@ -797,6 +797,8 @@ Route::middleware('auth')->group(function () {
             Route::post('shops/{shop}/accept-payment/reconcile', [CashbookController::class, 'reconcileShopPaymentLedger'])->name('shop.accept-payment.reconcile');
             Route::post('shops/{shop}/receive-payment', [CashbookController::class, 'receiveShopPayment'])->name('shop.receive-payment');
             Route::post('shops/{shop}/allocate-payment', [CashbookController::class, 'allocateShopPayment'])->name('shop.allocate-payment');
+            Route::post('shops/{shop}/allocate-payment/clear', [CashbookController::class, 'clearShopPaymentAllocations'])->name('shop.allocate-payment.clear');
+            Route::post('shops/{shop}/allocate-payment/clear-reallocate', [CashbookController::class, 'clearAndReallocateShopPayment'])->name('shop.allocate-payment.clear-reallocate');
             Route::post('shops/{shop}/allocate-payments/bulk', [CashbookController::class, 'allocateAllShopPayments'])->name('shop.allocate-payments.bulk');
             Route::post('shops/{shop}/allocations/{allocation}/remove', [CashbookController::class, 'removeShopAllocation'])->name('shop.allocations.remove');
             Route::post('shops/{shop}/company-payments', [CashbookController::class, 'storeCompanyPayment'])->name('shop.company-payments.store');

@@ -1404,4 +1404,211 @@ class ShopCashbookPaymentAllocationTest extends TestCase
         $response->assertDontSee('OTHER-SHOP-PAYMENT-SECRET-999');
         $response->assertDontSee('888,888.00');
     }
+
+    public function test_integrity_flag_shows_allocation_error_when_requested_amount_differs_from_actual_payment_amount(): void
+    {
+        $settlement = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-15',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $payment = ShopInvoicePaymentRequest::query()->create([
+            'shop_id' => $this->shop->id,
+            'requested_by' => $this->admin->id,
+            'submission_uuid' => (string) str()->uuid(),
+            'request_type' => 'invoice_payment',
+            'payment_method' => 'bank_transfer',
+            'payment_reference' => 'MISMATCH-100K-70K',
+            'payment_date' => '2026-08-15',
+            'requested_amount' => 70000.00,
+            'approved_amount' => 100000.00,
+            'reconciled_amount' => 100000.00,
+            'status' => 'approved',
+            'reconciliation_status' => 'reconciled',
+        ]);
+
+        ShopPaymentLedgerAllocation::query()->create([
+            'payment_request_id' => $payment->id,
+            'shop_id' => $this->shop->id,
+            'shop_ledger_transaction_id' => $settlement->id,
+            'amount' => 70000.00,
+            'reconciled_by' => $this->admin->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+
+        $items = collect($response->viewData('allShopPaymentsFormattedList'));
+        $row = $items->firstWhere('id', $payment->id);
+
+        $this->assertNotNull($row);
+        $this->assertSame(100000.00, (float) $row['amount']);
+        $this->assertSame(70000.00, (float) $row['actual_allocated']);
+        $this->assertSame(30000.00, (float) $row['actual_unallocated']);
+        $this->assertSame('ALLOCATION_ERROR', $row['allocation_integrity_flag']);
+        $this->assertSame('15 Aug 2026', $row['last_allocated_date']);
+        $this->assertTrue((bool) $row['can_allocate']);
+    }
+
+    public function test_manual_allocation_uses_actual_payment_amount_instead_of_requested_amount(): void
+    {
+        $settlement = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-20',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $payment = ShopInvoicePaymentRequest::query()->create([
+            'shop_id' => $this->shop->id,
+            'requested_by' => $this->admin->id,
+            'submission_uuid' => (string) str()->uuid(),
+            'request_type' => 'invoice_payment',
+            'payment_method' => 'bank_transfer',
+            'payment_reference' => 'ACTUAL-AMOUNT-100K',
+            'payment_date' => '2026-08-20',
+            'requested_amount' => 70000.00,
+            'approved_amount' => 100000.00,
+            'reconciled_amount' => 100000.00,
+            'status' => 'approved',
+            'reconciliation_status' => 'reconciled',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payment', $this->profile->slug), [
+                'payment_request_id' => $payment->id,
+                'allocations' => [
+                    ['ledger_transaction_id' => $settlement->id, 'amount' => 100000.00],
+                ],
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(100000.00, (float) $payment->fresh()->ledgerAllocations()->sum('amount'));
+    }
+
+    public function test_clear_allocation_and_clear_reallocate_are_idempotent_and_scoped_to_selected_payment(): void
+    {
+        $txA = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-10',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 70000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $txB = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-11',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 30000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $txC = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-12',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 5000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $paymentA = ShopInvoicePaymentRequest::query()->create([
+            'shop_id' => $this->shop->id,
+            'requested_by' => $this->admin->id,
+            'submission_uuid' => (string) str()->uuid(),
+            'request_type' => 'invoice_payment',
+            'payment_method' => 'bank_transfer',
+            'payment_reference' => 'PAY-CLEAR-A',
+            'payment_date' => '2026-08-12',
+            'requested_amount' => 100000.00,
+            'approved_amount' => 100000.00,
+            'reconciled_amount' => 100000.00,
+            'status' => 'approved',
+            'reconciliation_status' => 'reconciled',
+        ]);
+
+        $paymentB = ShopInvoicePaymentRequest::query()->create([
+            'shop_id' => $this->shop->id,
+            'requested_by' => $this->admin->id,
+            'submission_uuid' => (string) str()->uuid(),
+            'request_type' => 'invoice_payment',
+            'payment_method' => 'bank_transfer',
+            'payment_reference' => 'PAY-CLEAR-B',
+            'payment_date' => '2026-08-12',
+            'requested_amount' => 5000.00,
+            'approved_amount' => 5000.00,
+            'reconciled_amount' => 5000.00,
+            'status' => 'approved',
+            'reconciliation_status' => 'reconciled',
+        ]);
+
+        // Existing partial allocation for A and unrelated allocation for B.
+        ShopPaymentLedgerAllocation::query()->create([
+            'payment_request_id' => $paymentA->id,
+            'shop_id' => $this->shop->id,
+            'shop_ledger_transaction_id' => $txA->id,
+            'amount' => 70000.00,
+            'reconciled_by' => $this->admin->id,
+        ]);
+
+        ShopPaymentLedgerAllocation::query()->create([
+            'payment_request_id' => $paymentB->id,
+            'shop_id' => $this->shop->id,
+            'shop_ledger_transaction_id' => $txC->id,
+            'amount' => 5000.00,
+            'reconciled_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payment.clear', $this->profile->slug), [
+                'payment_request_id' => $paymentA->id,
+                'month' => '2026-08',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(0.00, (float) $paymentA->fresh()->ledgerAllocations()->sum('amount'));
+        $this->assertSame(5000.00, (float) $paymentB->fresh()->ledgerAllocations()->sum('amount'));
+
+        // Second clear remains no-op for A.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payment.clear', $this->profile->slug), [
+                'payment_request_id' => $paymentA->id,
+                'month' => '2026-08',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(0.00, (float) $paymentA->fresh()->ledgerAllocations()->sum('amount'));
+
+        // Clear & reallocate rebuilds A to 100k using two open settlements.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payment.clear-reallocate', $this->profile->slug), [
+                'payment_request_id' => $paymentA->id,
+                'month' => '2026-08',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(100000.00, (float) $paymentA->fresh()->ledgerAllocations()->sum('amount'));
+
+        // Running clear & reallocate again must not duplicate money.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payment.clear-reallocate', $this->profile->slug), [
+                'payment_request_id' => $paymentA->id,
+                'month' => '2026-08',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(100000.00, (float) $paymentA->fresh()->ledgerAllocations()->sum('amount'));
+        $this->assertSame(5000.00, (float) $paymentB->fresh()->ledgerAllocations()->sum('amount'));
+    }
 }

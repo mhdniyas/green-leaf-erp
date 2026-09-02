@@ -20,6 +20,8 @@ use Illuminate\Validation\ValidationException;
 
 class ShopPaymentLedgerReconciliationService
 {
+    private const ALLOCATION_TOLERANCE = 0.01;
+
     public function __construct(
         private readonly DailyLedgerService $dailyLedgerService,
         private readonly JournalService $journalService,
@@ -261,13 +263,14 @@ class ShopPaymentLedgerReconciliationService
                 ->firstOrFail();
 
             $shopId = (int) $payment->shop_id;
+            $paymentAmount = $this->resolvePaymentAmount($payment);
 
             $alreadyAllocated = (float) ShopPaymentLedgerAllocation::query()
                 ->where('payment_request_id', $payment->id)
                 ->lockForUpdate()
                 ->sum('amount');
 
-            $availableToAllocate = round(max(0, (float) $payment->requested_amount - $alreadyAllocated), 2);
+            $availableToAllocate = round(max(0, $paymentAmount - $alreadyAllocated), 2);
 
             $requestedTotal = 0.0;
             $transactionIds = [];
@@ -359,6 +362,224 @@ class ShopPaymentLedgerReconciliationService
 
             return $createdAllocations;
         }, attempts: 3);
+    }
+
+    /**
+     * Determine canonical payment amount used for allocation integrity and limits.
+     */
+    public function resolvePaymentAmount(ShopInvoicePaymentRequest $payment): float
+    {
+        $reconciledAmount = round((float) ($payment->reconciled_amount ?? 0), 2);
+        $approvedAmount = round((float) ($payment->approved_amount ?? 0), 2);
+        $requestedAmount = round((float) $payment->requested_amount, 2);
+
+        if ($reconciledAmount > self::ALLOCATION_TOLERANCE) {
+            return $reconciledAmount;
+        }
+
+        if ($approvedAmount > self::ALLOCATION_TOLERANCE) {
+            return $approvedAmount;
+        }
+
+        return $requestedAmount;
+    }
+
+    /**
+     * @return array{
+     *   total_amount: float,
+     *   actual_allocated: float,
+     *   actual_remaining: float,
+     *   over_allocated_amount: float,
+     *   duplicate_allocation_count: int,
+     *   integrity_flag: string,
+     *   stored_status: string,
+     *   actual_status: string,
+     *   has_error: bool
+     * }
+     */
+    public function allocationIntegritySnapshot(ShopInvoicePaymentRequest $payment): array
+    {
+        $totalAmount = $this->resolvePaymentAmount($payment);
+
+        $allocations = $payment->relationLoaded('ledgerAllocations')
+            ? $payment->ledgerAllocations
+            : $payment->ledgerAllocations()->get(['id', 'shop_ledger_transaction_id', 'amount']);
+
+        $actualAllocated = round((float) $allocations->sum(fn (ShopPaymentLedgerAllocation $allocation): float => (float) $allocation->amount), 2);
+        $actualRemaining = round($totalAmount - $actualAllocated, 2);
+        $overAllocatedAmount = round(max(0, $actualAllocated - $totalAmount), 2);
+
+        $duplicateAllocationCount = (int) $allocations
+            ->groupBy(fn (ShopPaymentLedgerAllocation $allocation): int => (int) $allocation->shop_ledger_transaction_id)
+            ->sum(fn (Collection $group): int => max(0, $group->count() - 1));
+
+        $storedStatus = match (true) {
+            $payment->cheque_status === 'pending' => 'PENDING_CHEQUE',
+            round((float) $payment->requested_amount, 2) <= self::ALLOCATION_TOLERANCE => 'OK',
+            $actualAllocated <= self::ALLOCATION_TOLERANCE => 'OK',
+            $actualAllocated + self::ALLOCATION_TOLERANCE >= round((float) $payment->requested_amount, 2) => 'FULLY_ALLOCATED',
+            default => 'PARTIALLY_ALLOCATED',
+        };
+
+        $actualStatus = match (true) {
+            $actualAllocated <= self::ALLOCATION_TOLERANCE => 'OK',
+            $actualRemaining <= self::ALLOCATION_TOLERANCE => 'FULLY_ALLOCATED',
+            default => 'PARTIALLY_ALLOCATED',
+        };
+
+        $integrityFlag = $actualStatus;
+
+        if ($duplicateAllocationCount > 0) {
+            $integrityFlag = 'DUPLICATE_ALLOCATION';
+        } elseif ($overAllocatedAmount > self::ALLOCATION_TOLERANCE) {
+            $integrityFlag = 'OVER_ALLOCATED';
+        } elseif ($storedStatus !== 'PENDING_CHEQUE' && $storedStatus !== $actualStatus) {
+            $integrityFlag = 'ALLOCATION_ERROR';
+        }
+
+        return [
+            'total_amount' => $totalAmount,
+            'actual_allocated' => $actualAllocated,
+            'actual_remaining' => $actualRemaining,
+            'over_allocated_amount' => $overAllocatedAmount,
+            'duplicate_allocation_count' => $duplicateAllocationCount,
+            'integrity_flag' => $integrityFlag,
+            'stored_status' => $storedStatus,
+            'actual_status' => $actualStatus,
+            'has_error' => in_array($integrityFlag, ['ALLOCATION_ERROR', 'OVER_ALLOCATED', 'DUPLICATE_ALLOCATION'], true),
+        ];
+    }
+
+    /**
+     * Remove all allocations for a payment in one transaction.
+     */
+    public function clearPaymentAllocations(ShopInvoicePaymentRequest $payment, int $userId): int
+    {
+        return DB::transaction(function () use ($payment): int {
+            $lockedPayment = ShopInvoicePaymentRequest::query()
+                ->whereKey($payment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $allocations = ShopPaymentLedgerAllocation::query()
+                ->where('payment_request_id', $lockedPayment->id)
+                ->where('shop_id', (int) $lockedPayment->shop_id)
+                ->lockForUpdate()
+                ->get();
+
+            $allocationIds = $allocations->pluck('id')->all();
+            if ($allocationIds === []) {
+                return 0;
+            }
+
+            return (int) ShopPaymentLedgerAllocation::query()
+                ->whereIn('id', $allocationIds)
+                ->delete();
+        }, attempts: 3);
+    }
+
+    /**
+     * Clear payment allocations and rebuild using current auto-allocation rules.
+     *
+     * @return array{cleared_count: int, created_count: int, allocated_total: float, remaining_amount: float}
+     */
+    public function clearAndReallocatePayment(ShopInvoicePaymentRequest $payment, int $userId): array
+    {
+        return DB::transaction(function () use ($payment, $userId): array {
+            $lockedPayment = ShopInvoicePaymentRequest::query()
+                ->whereKey($payment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $shopId = (int) $lockedPayment->shop_id;
+
+            $existingAllocations = ShopPaymentLedgerAllocation::query()
+                ->where('payment_request_id', $lockedPayment->id)
+                ->where('shop_id', $shopId)
+                ->lockForUpdate()
+                ->get();
+
+            $clearedCount = 0;
+            if ($existingAllocations->isNotEmpty()) {
+                $clearedCount = (int) ShopPaymentLedgerAllocation::query()
+                    ->whereIn('id', $existingAllocations->pluck('id')->all())
+                    ->delete();
+            }
+
+            $plan = $this->buildAutoAllocationPlanForPayment($lockedPayment, $shopId);
+            if ($plan === []) {
+                $remainingAmount = round(max(0, $this->resolvePaymentAmount($lockedPayment)), 2);
+
+                return [
+                    'cleared_count' => $clearedCount,
+                    'created_count' => 0,
+                    'allocated_total' => 0.0,
+                    'remaining_amount' => $remainingAmount,
+                ];
+            }
+
+            $createdAllocations = $this->allocatePayment($lockedPayment, $plan, $userId);
+            $allocatedTotal = round((float) $createdAllocations->sum('amount'), 2);
+            $remainingAmount = round(max(0, $this->resolvePaymentAmount($lockedPayment) - $allocatedTotal), 2);
+
+            return [
+                'cleared_count' => $clearedCount,
+                'created_count' => $createdAllocations->count(),
+                'allocated_total' => $allocatedTotal,
+                'remaining_amount' => $remainingAmount,
+            ];
+        }, attempts: 3);
+    }
+
+    /**
+     * @return array<int, array{ledger_transaction_id: int, amount: float}>
+     */
+    private function buildAutoAllocationPlanForPayment(ShopInvoicePaymentRequest $payment, int $shopId): array
+    {
+        $payment = ShopInvoicePaymentRequest::query()
+            ->whereKey($payment->id)
+            ->with('ledgerAllocations:id,payment_request_id,amount')
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $paymentSnapshot = $this->allocationIntegritySnapshot($payment);
+        $remaining = round(max(0, $paymentSnapshot['actual_remaining']), 2);
+
+        if ($remaining <= self::ALLOCATION_TOLERANCE) {
+            return [];
+        }
+
+        $openSettlements = $this->getOpenDailySettlements($shopId)
+            ->filter(fn (array $settlement): bool => (float) $settlement['remaining_due'] > self::ALLOCATION_TOLERANCE)
+            ->sortBy([['business_date', 'asc'], ['id', 'asc']])
+            ->values();
+
+        $allocationPlan = [];
+
+        foreach ($openSettlements as $settlement) {
+            if ($remaining <= self::ALLOCATION_TOLERANCE) {
+                break;
+            }
+
+            $settlementRemaining = round((float) ($settlement['remaining_due'] ?? 0.0), 2);
+            if ($settlementRemaining <= self::ALLOCATION_TOLERANCE) {
+                continue;
+            }
+
+            $amount = round(min($remaining, $settlementRemaining), 2);
+            if ($amount <= self::ALLOCATION_TOLERANCE) {
+                continue;
+            }
+
+            $allocationPlan[] = [
+                'ledger_transaction_id' => (int) $settlement['id'],
+                'amount' => $amount,
+            ];
+
+            $remaining = round($remaining - $amount, 2);
+        }
+
+        return $allocationPlan;
     }
 
     /**
