@@ -380,6 +380,8 @@ Route::middleware('auth')->group(function () {
         Route::patch('shop-invoices/{invoice}/items/{item}', [ShopInvoiceController::class, 'updateItem'])->name('shop-invoices.items.update');
         Route::post('shop-invoices/{invoice}/finalize-on-behalf', [ShopInvoiceController::class, 'finalizeOnBehalf'])->name('shop-invoices.finalize-on-behalf');
         Route::post('shop-invoices/{invoice}/revert-approval', [ShopInvoiceController::class, 'revertApproval'])->name('shop-invoices.revert-approval');
+        Route::post('shop-invoices/{invoice}/reopen-for-edit', [ShopInvoiceController::class, 'reopenForEdit'])->name('shop-invoices.reopen-for-edit');
+
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
         Route::get('bill-prices', [BillPriceApprovalController::class, 'index'])->name('bill-prices.index');
         Route::post('bill-prices', [BillPriceApprovalController::class, 'store'])->name('bill-prices.store');

@@ -1277,6 +1277,55 @@ class ShopInvoiceService
         return $invoice;
     }
 
+    public function reopenFinalizedInvoice(ShopInvoice $invoice, int $userId): ShopInvoice
+    {
+        return DB::transaction(function () use ($invoice, $userId): ShopInvoice {
+            $invoice = ShopInvoice::query()
+                ->with('items')
+                ->lockForUpdate()
+                ->findOrFail($invoice->id);
+
+            if (! $invoice->isFinalized()) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'This invoice is not finalized and does not need to be reopened.',
+                ]);
+            }
+
+            if (
+                (float) $invoice->paid_amount > 0.0
+                || $invoice->payment_approved_at !== null
+                || in_array((string) $invoice->payment_status, ['partially_paid', 'paid'], true)
+            ) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Cannot reopen an invoice that already has payment activity.',
+                ]);
+            }
+
+            $before = [
+                'status' => $invoice->status,
+                'finalized_at' => $invoice->finalized_at?->toDateTimeString(),
+                'finalized_by' => $invoice->finalized_by,
+            ];
+
+            $invoice->forceFill([
+                'status' => 'approved',
+                'finalized_by' => null,
+                'finalized_at' => null,
+            ])->save();
+
+            $invoice = $invoice->fresh('items');
+
+            $this->recordInvoiceActivity($invoice, 'invoice_reopened_for_edit', $userId, $before, [
+                'status' => $invoice->status,
+                'finalized_at' => null,
+            ], 'Invoice reopened for editing by admin.', 'reopen');
+
+            $this->invoiceCashbookProjectionService->syncInvoice($invoice, $userId);
+
+            return $invoice;
+        });
+    }
+
     private function assertInvoiceFinalizedForMoneyMutation(ShopInvoice $invoice): void
     {
         if (! $invoice->isFinalized()) {

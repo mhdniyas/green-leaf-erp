@@ -254,9 +254,13 @@
                                 Print / PDF
                             </a>
                             @if ($isFinalized && auth()->user()?->hasRole('admin'))
-                                <a href="{{ route('purchasing.bill-prices.show', $invoice) }}" class="inline-flex h-11 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-black text-amber-800 hover:bg-amber-100">
-                                    Edit Finalized Invoice
-                                </a>
+                                <form method="POST" action="{{ route('purchasing.shop-invoices.reopen-for-edit', $invoice) }}" class="inline">
+                                    @csrf
+                                    <button type="submit" onclick="return confirm('Reopen this finalized invoice for editing? The cashbook entry will be updated.')" class="inline-flex h-11 items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-black text-amber-800 hover:bg-amber-100">
+                                        Reopen for Editing
+                                    </button>
+                                </form>
+
                             @elseif (($canFinalize ?? false) && $reviewAction)
                                 <button type="button" class="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-black text-white hover:bg-slate-800 sm:w-auto" data-open-finalize>
                                     Finalize Invoice

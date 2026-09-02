@@ -278,6 +278,24 @@ class ShopInvoiceController extends Controller
             ->with('success', 'Delivery approval was reverted. You can now edit and approve the review again.');
     }
 
+    public function reopenForEdit(Request $request, ShopInvoice $invoice): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        try {
+            $this->shopInvoiceService->reopenFinalizedInvoice(
+                $invoice,
+                (int) $request->user()->id,
+            );
+        } catch (ValidationException $exception) {
+            return redirect()->route('purchasing.shop-invoices.show', $invoice)
+                ->withErrors($exception->errors());
+        }
+
+        return redirect()->route('purchasing.shop-invoices.show', $invoice)
+            ->with('success', 'Invoice reopened for editing.');
+    }
+
     /**
      * @param  array<int|string, mixed>  $approvedDeliveredQuantities
      * @return array<int, float>
