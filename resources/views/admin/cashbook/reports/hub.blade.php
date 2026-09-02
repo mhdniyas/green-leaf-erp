@@ -300,6 +300,15 @@
                     return (pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
                 },
 
+                formatNetPct(item) {
+                    if (!item) return '';
+                    const sales = parseFloat(item.sales || 0);
+                    const net = parseFloat(item.net || 0);
+                    const pct = sales > 0 ? (net / sales) * 100 : 0;
+                    const formatted = pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1);
+                    return (pct >= 0 ? '+' : '') + formatted + '% of sales';
+                },
+
                 getDaysCount() {
                     if (!this.startDate || !this.endDate) return 1;
                     const start = new Date(this.startDate);
@@ -671,6 +680,10 @@
                                     <span class="text-[11px] font-black truncate block"
                                         :class="item.net >= 0 ? 'text-emerald-700' : 'text-rose-700'"
                                         x-text="currency(item.net)"></span>
+                                    <span class="text-[7.5px] font-bold block truncate"
+                                        :class="item.net >= 0 ? 'text-emerald-600' : 'text-rose-600'"
+                                        x-text="formatNetPct(item)">
+                                    </span>
                                 </div>
                             </div>
                         </div>
