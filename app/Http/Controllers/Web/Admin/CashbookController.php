@@ -88,6 +88,7 @@ use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\PurchaserFinanceService;
 use App\Services\Finance\PurchaserSettlementService;
+use App\Services\Finance\VendorSettlementCorrectionService;
 use App\Services\Finance\VendorSettlementService;
 use App\Services\HR\PayrollPaymentService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
@@ -5002,7 +5003,9 @@ final class CashbookController extends Controller
             ->where('amount_remaining', '>', 0)
             ->sum('amount_remaining'), 2);
         $settlementHistory = VendorSettlement::query()
-            ->with('journalEntry')
+            ->with(['companyAccount', 'journalEntry', 'allocations.purchaseInvoice'])
+            ->withCount('allocations')
+            ->withSum('allocations', 'total_settled')
             ->where('supplier_id', $supplier->id)
             ->latest('payment_date')
             ->latest('id')
@@ -5248,6 +5251,63 @@ final class CashbookController extends Controller
         }
 
         return redirect()->back()->with('success', 'Vendor settlement recorded. Reconcile only actual Cash/Bank payment.');
+    }
+
+    public function vendorSettlementReversalPreview(Request $request, VendorSettlement $vendorSettlement, VendorSettlementCorrectionService $correctionService): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+        $preview = $correctionService->reversalPreview($vendorSettlement);
+
+        return response()->json($preview);
+    }
+
+    public function updateVendorSettlement(Request $request, VendorSettlement $vendorSettlement, VendorSettlementCorrectionService $correctionService): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $validated = $request->validate([
+            'actual_payment_amount' => ['nullable', 'numeric', 'min:0'],
+            'settlement_discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'payment_date' => ['nullable', 'date'],
+            'payment_method' => ['nullable', 'string', 'in:Cash,Bank,Online,GPay'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'statement_entry_id' => ['nullable', 'integer', 'exists:cashbook_company_account_statement_entries,id'],
+            'reference' => ['nullable', 'string', 'max:160'],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'invoice_ids' => ['nullable', 'array', 'min:1'],
+            'invoice_ids.*' => ['integer', 'distinct', 'exists:purchase_invoices,id'],
+            'use_vendor_advance' => ['nullable', 'boolean'],
+            'difference_treatment' => ['nullable', 'string', 'in:outstanding,discount'],
+            'allocation_order' => ['nullable', 'string', 'in:oldest,newest'],
+            'reason' => ['required', 'string', 'max:255'],
+        ]);
+
+        $correctionService->updateSettlementWithReversal(
+            $vendorSettlement,
+            $validated,
+            $request->user(),
+            $validated['reason'],
+            $validated['note'] ?? null
+        );
+
+        return redirect()->back()->with('success', "Vendor settlement #{$vendorSettlement->id} updated successfully.");
+    }
+
+    public function deleteVendorSettlement(Request $request, VendorSettlement $vendorSettlement, VendorSettlementCorrectionService $correctionService): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $correctionService->deleteSettlementWithReversal(
+            $vendorSettlement,
+            $request->user(),
+            $validated['reason'],
+            $validated['notes'] ?? null
+        );
+
+        return redirect()->back()->with('success', "Vendor settlement #{$vendorSettlement->id} deleted and allocations reversed.");
     }
 
     public function settleVendorCreditInvoice(Request $request, PurchaseInvoice $invoice, PurchaseInvoiceService $purchaseInvoiceService): RedirectResponse

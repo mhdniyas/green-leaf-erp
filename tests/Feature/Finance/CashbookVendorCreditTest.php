@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\VendorAdvance;
 use App\Models\VendorSettlement;
 use App\Services\Cashbook\CompanyPaymentReconciliationService;
+use App\Services\Finance\VendorSettlementCorrectionService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -684,8 +685,10 @@ class CashbookVendorCreditTest extends TestCase
 
         $settlement = VendorSettlement::query()->sole();
 
-        $this->expectException(\RuntimeException::class);
-        $settlement->update(['actual_payment_amount' => 1]);
+        $correctionService = app(VendorSettlementCorrectionService::class);
+        $correctionService->deleteSettlementWithReversal($settlement, $this->admin, 'Correcting test settlement');
+
+        $this->assertDatabaseMissing('vendor_settlements', ['id' => $settlement->id]);
     }
 
     public function test_existing_statement_transaction_is_authoritative_and_reused_once(): void

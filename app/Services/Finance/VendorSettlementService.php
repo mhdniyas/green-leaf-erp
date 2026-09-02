@@ -95,8 +95,8 @@ class VendorSettlementService
             $settlement = VendorSettlement::query()->create([
                 'supplier_id' => $supplier->id, 'actual_payment_amount' => $cash, 'settlement_discount_amount' => $discount,
                 'vendor_advance_used_amount' => $advanceUsed, 'new_vendor_advance_amount' => $newAdvance,
-                'company_account_id' => $companyAccount?->id, 'payment_method' => $payload['payment_method'], 'payment_date' => $payload['payment_date'],
-                'reference' => $payload['reference'], 'note' => $payload['note'], 'status' => 'approved',
+                'company_account_id' => $companyAccount?->id, 'payment_method' => $payload['payment_method'] ?? 'Bank', 'payment_date' => $payload['payment_date'],
+                'reference' => $payload['reference'] ?? null, 'note' => $payload['note'] ?? null, 'status' => 'approved',
                 'reconciliation_status' => $cash > 0 ? 'unreconciled' : 'not_required', 'is_finalized' => $cash <= 0, 'finalized_at' => $cash <= 0 ? now() : null, 'created_by' => $userId,
             ]);
 
@@ -109,7 +109,7 @@ class VendorSettlementService
                     'discount_allocated' => round((float) $row['discount_allocated'], 2), 'total_settled' => round($cashAllocation + (float) $row['advance_allocated'] + (float) $row['discount_allocated'], 2),
                 ]);
                 if ($cashAllocation > 0) {
-                    PurchaseInvoicePayment::query()->create(['purchase_invoice_id' => $invoice->id, 'supplier_id' => $supplier->id, 'payment_date' => $payload['payment_date'], 'amount' => $cashAllocation, 'discount_amount' => 0, 'payment_method' => $payload['payment_method'], 'payment_paid_by' => 'company', 'note' => $payload['note'], 'created_by' => $userId]);
+                    PurchaseInvoicePayment::query()->create(['purchase_invoice_id' => $invoice->id, 'supplier_id' => $supplier->id, 'payment_date' => $payload['payment_date'], 'amount' => $cashAllocation, 'discount_amount' => 0, 'payment_method' => $payload['payment_method'] ?? 'Bank', 'payment_paid_by' => 'company', 'note' => $payload['note'] ?? null, 'created_by' => $userId]);
                 }
                 $settledForInvoice = round((float) VendorSettlementAllocation::query()->where('purchase_invoice_id', $invoice->id)->sum('total_settled'), 2);
                 $net = round((float) $invoice->amount - (float) $invoice->discount_amount, 2);
@@ -136,9 +136,9 @@ class VendorSettlementService
                     'company_account_id' => $companyAccount->id,
                     'statement_entry_id' => $selectedStatement?->id,
                     'transaction_date' => $payload['payment_date'],
-                    'reference' => $payload['reference'] ?: 'VENDOR-SETTLEMENT-'.$settlement->id,
+                    'reference' => ($payload['reference'] ?? null) ?: 'VENDOR-SETTLEMENT-'.$settlement->id,
                     'narration' => 'Vendor settlement for '.$supplier->name,
-                    'notes' => $payload['note'],
+                    'notes' => $payload['note'] ?? null,
                 ], $userId);
             }
 
@@ -237,11 +237,11 @@ class VendorSettlementService
                 'settlement_discount_amount' => $discount,
                 'vendor_advance_used_amount' => $advance,
                 'payment_date' => $payload['payment_date'],
-                'payment_method' => $payload['payment_method'],
-                'company_account_id' => $payload['company_account_id'],
+                'payment_method' => $payload['payment_method'] ?? 'Bank',
+                'company_account_id' => $payload['company_account_id'] ?? null,
                 'statement_entry_id' => $payload['statement_entry_id'] ?? null,
-                'reference' => $payload['reference'],
-                'note' => $payload['note'],
+                'reference' => $payload['reference'] ?? null,
+                'note' => $payload['note'] ?? null,
                 'allocations' => $allocations,
             ], $userId);
         }, attempts: 3);

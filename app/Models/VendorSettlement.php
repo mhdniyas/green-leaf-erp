@@ -40,10 +40,6 @@ class VendorSettlement extends Model
             if ($settlement->isDirty('public_uuid')) {
                 throw new RuntimeException('Vendor settlement routing identity cannot be changed.');
             }
-
-            if ($settlement->getOriginal('is_finalized') && $settlement->isDirty(['actual_payment_amount', 'settlement_discount_amount', 'vendor_advance_used_amount', 'new_vendor_advance_amount', 'supplier_id'])) {
-                throw new RuntimeException('Finalized vendor settlements cannot be changed.');
-            }
         });
     }
 

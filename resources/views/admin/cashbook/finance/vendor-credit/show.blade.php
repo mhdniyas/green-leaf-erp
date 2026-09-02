@@ -42,37 +42,333 @@
 
         <section class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm sm:p-5">
             <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div><h2 class="text-base font-extrabold text-slate-950">Simple Vendor Settlement</h2><p class="mt-0.5 text-xs font-semibold text-slate-500">Select bills, enter actual payment, review automatic allocation.</p></div>
-                <span class="rounded-lg bg-sky-50 px-3 py-1.5 font-mono text-xs font-extrabold text-sky-800">Advance available: ₹{{ number_format($availableVendorAdvance, 2) }}</span>
+                <div>
+                    <h2 class="text-base font-extrabold text-slate-950">Admin Vendor Credit Settlement</h2>
+                    <p class="mt-0.5 text-xs font-semibold text-slate-500">Enter payment amount to auto-select bills, or customize bill selection and difference treatment.</p>
+                </div>
+                <span class="rounded-lg bg-sky-50 px-3 py-1.5 font-mono text-xs font-extrabold text-sky-800">Available Advance: ₹{{ number_format($availableVendorAdvance, 2) }}</span>
             </div>
+
             <form method="POST" action="{{ route('admin.cashbook.finance.vendor-credit.settle', $supplier) }}" class="space-y-4">
                 @csrf
-                <div class="rounded-xl border border-slate-200 p-3"><span class="text-[10px] font-black uppercase text-slate-500">Payment Source</span><div class="mt-2 flex flex-wrap gap-4 text-xs font-bold"><label><input x-model="paymentSource" value="company" type="radio"> Company Account</label><label><input x-model="paymentSource" value="statement" type="radio"> Existing Statement Transaction</label></div></div>
-                <div class="flex flex-wrap gap-2"><button type="button" @click="selectVisible()" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Select All Visible</button><button type="button" @click="clearSelection()" class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Clear</button><span class="px-2 py-2 text-xs font-bold text-slate-600" x-text="`${selectedRows.length} Bills Selected`"></span></div>
-                <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><template x-for="row in rows" :key="row.id"><label class="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border p-3" :class="row.selected ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'"><input x-model="row.selected" type="checkbox" class="h-6 w-6"><span class="min-w-0"><b class="block font-mono text-xs" x-text="row.number"></b><span class="block text-[11px] text-slate-500" x-text="row.date"></span></span><b class="ml-auto font-mono text-xs" x-text="rupees(row.outstanding)"></b></label></template></div>
-                <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div class="rounded-xl bg-slate-100 p-3"><span class="text-[10px] font-black uppercase text-slate-500">Selected Bills Total</span><div class="mt-1 font-mono text-xl font-black" x-text="rupees(selectedTotal)"></div></div>
-                    <label class="text-xs font-bold text-slate-700">Actual Cash/Bank Payment<input x-model.number="cash" name="actual_payment_amount" type="number" min="0" step="0.01" required :readonly="paymentSource === 'statement'" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 font-mono"></label>
-                    <label class="flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700"><input x-model="useAdvance" name="use_vendor_advance" value="1" type="checkbox" class="h-5 w-5"> Use Vendor Advance</label>
-                    <label class="text-xs font-bold text-slate-700">Allocation Order<select x-model="allocationOrder" name="allocation_order" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"><option value="oldest">Oldest First</option><option value="newest">Newest First</option></select></label>
-                    <label class="text-xs font-bold text-slate-700">Payment Date<input x-model="paymentDate" name="payment_date" type="date" value="{{ now()->toDateString() }}" required :readonly="paymentSource === 'statement'" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 font-mono"></label>
-                    <label class="text-xs font-bold text-slate-700">Payment Method<select name="payment_method" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"><option value="Bank">Bank</option><option value="Cash">Cash</option><option value="Online">Online</option><option value="GPay">GPay</option></select></label>
-                    <label class="text-xs font-bold text-slate-700">Company Account<select x-model="companyAccountId" name="company_account_id" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"><option value="">Optional: finalize Cashbook movement</option>@foreach($companyAccounts as $acc)<option value="{{ $acc->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($acc, old('company_account_id'), $companyAccounts))>{{ $acc->name }} ({{ strtoupper($acc->account_type) }})</option>@endforeach</select></label>
-                    <label class="text-xs font-bold text-slate-700">Reference<input x-model="reference" name="reference" type="text" :readonly="paymentSource === 'statement'" class="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3"></label>
+                <div class="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-500">Payment Source</span>
+                    <div class="mt-2 flex flex-wrap gap-4 text-xs font-bold">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input x-model="paymentSource" value="company" type="radio" class="text-emerald-600 focus:ring-emerald-500"> Company Account
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input x-model="paymentSource" value="statement" type="radio" class="text-emerald-600 focus:ring-emerald-500"> Existing Statement Transaction
+                        </label>
+                    </div>
                 </div>
-                <div x-show="paymentSource === 'statement'" class="rounded-xl border border-sky-200 bg-sky-50 p-3"><label class="block text-xs font-bold text-slate-700">Existing OUT Statement Transaction<select x-model="statementEntryId" name="statement_entry_id" @change="selectStatement($event)" class="mt-1 min-h-11 w-full rounded-lg border border-sky-300 bg-white px-3 font-mono text-xs"><option value="">Select statement transaction</option>@foreach($statementTransactions as $statement)<option value="{{ $statement->id }}" data-account="{{ $statement->company_account_id }}" data-amount="{{ $statement->amount }}" data-date="{{ $statement->transaction_date?->toDateString() }}" data-reference="{{ $statement->reference }}">{{ $statement->companyAccount?->name }} | {{ $statement->transaction_date?->format('d M') }} | {{ $statement->reference ?: $statement->narration }} | OUT | ₹{{ number_format($statement->amount, 2) }}</option>@endforeach</select></label><p class="mt-1 text-[11px] font-semibold text-sky-800">Statement amount, date, account, and reference become authoritative.</p></div>
-                <div x-show="difference > 0.01" class="rounded-xl border border-amber-200 bg-amber-50 p-3"><div class="font-mono text-lg font-black text-amber-900" x-text="`${rupees(difference)} remains`"></div><p class="mt-1 text-xs font-semibold text-amber-800">How should difference be handled?</p><label class="mr-4 text-xs font-bold"><input x-model="differenceTreatment" name="difference_treatment" value="outstanding" type="radio"> Keep as Vendor Outstanding</label><label class="text-xs font-bold"><input x-model="differenceTreatment" name="difference_treatment" value="discount" type="radio"> Apply as Settlement Discount</label></div>
+
+                {{-- Amount & Primary Controls (Amount-First) --}}
+                <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Actual Cash/Bank Payment (₹) <span class="text-rose-600">*</span></label>
+                        <input x-model.number="cash" @input="onCashInput()" name="actual_payment_amount" type="number" min="0" step="0.01" required :readonly="paymentSource === 'statement'" class="min-h-11 w-full rounded-xl border border-slate-300 px-3 font-mono text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none shadow-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Payment Date <span class="text-rose-600">*</span></label>
+                        <input x-model="paymentDate" name="payment_date" type="date" value="{{ now()->toDateString() }}" required :readonly="paymentSource === 'statement'" class="min-h-11 w-full rounded-xl border border-slate-300 px-3 font-mono text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Payment Method</label>
+                        <select name="payment_method" class="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                            <option value="Bank">Bank Transfer / NEFT / RTGS</option>
+                            <option value="Cash">Cash in Hand</option>
+                            <option value="Online">Online / Net Banking</option>
+                            <option value="GPay">GPay / UPI</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Company Account</label>
+                        <select x-model="companyAccountId" name="company_account_id" class="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                            <option value="">Optional: finalize Cashbook movement</option>
+                            @foreach($companyAccounts as $acc)
+                                <option value="{{ $acc->id }}" @selected(App\Models\Cashbook\CompanyAccount::isSelected($acc, old('company_account_id'), $companyAccounts))>{{ $acc->name }} ({{ strtoupper($acc->account_type) }})</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" @click="autoSelectByAmount()" class="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-2xs">
+                            <i data-lucide="sparkles" class="h-3.5 w-3.5 text-emerald-600"></i> Auto Select
+                        </button>
+                        <button type="button" @click="selectVisible()" class="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">Select All Visible</button>
+                        <button type="button" @click="clearSelection()" class="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">Clear</button>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs font-bold">
+                        <label class="flex items-center gap-2 cursor-pointer text-slate-700">
+                            <input x-model="useAdvance" @change="autoSelectByAmount()" name="use_vendor_advance" value="1" type="checkbox" class="h-4 w-4 text-emerald-600 focus:ring-emerald-500 rounded"> Use Vendor Advance
+                        </label>
+                        <span class="rounded-lg bg-slate-100 px-2.5 py-1 text-slate-700 font-mono" x-text="`${selectedRows.length} Bills Selected`"></span>
+                        <span class="rounded-lg bg-slate-900 px-2.5 py-1 text-white font-mono" x-text="`Total: ${rupees(selectedTotal)}`"></span>
+                    </div>
+                </div>
+
+                {{-- Compact Bill Selection Table --}}
+                <div class="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs max-h-72 custom-scrollbar">
+                    <table class="w-full text-left text-xs">
+                        <thead class="sticky top-0 bg-slate-100 text-[10px] font-black uppercase text-slate-500 z-10">
+                            <tr class="border-b border-slate-200">
+                                <th class="p-2.5 text-center w-10">Select</th>
+                                <th class="p-2.5">Bill Number</th>
+                                <th class="p-2.5">Date</th>
+                                <th class="p-2.5 text-right">Outstanding</th>
+                                <th class="p-2.5 text-right">Cash Allocation</th>
+                                <th class="p-2.5 text-right">Advance / Discount</th>
+                                <th class="p-2.5 text-right">Remaining Due</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 bg-white">
+                            <template x-for="row in preview" :key="row.id">
+                                <tr class="hover:bg-slate-50 transition" :class="row.selected ? 'bg-emerald-50/40' : ''">
+                                    <td class="p-2.5 text-center">
+                                        <input type="checkbox" :checked="row.selected" @change="toggleBillRow(row.id)" class="h-4 w-4 text-emerald-600 focus:ring-emerald-500 rounded cursor-pointer">
+                                    </td>
+                                    <td class="p-2.5 font-mono font-bold text-slate-900" x-text="row.number"></td>
+                                    <td class="p-2.5 text-slate-600 font-mono text-[11px]" x-text="row.date"></td>
+                                    <td class="p-2.5 text-right font-mono font-bold text-slate-900" x-text="rupees(row.outstanding)"></td>
+                                    <td class="p-2.5 text-right font-mono font-bold text-emerald-700" x-text="rupees(row.cash)"></td>
+                                    <td class="p-2.5 text-right font-mono font-bold text-amber-700" x-text="rupees(row.advance + row.discount)"></td>
+                                    <td class="p-2.5 text-right font-mono font-extrabold" :class="row.remaining > 0 ? 'text-rose-700' : 'text-slate-400'" x-text="rupees(row.remaining)"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                {{-- Statement Transaction Selector (when paymentSource === 'statement') --}}
+                <div x-show="paymentSource === 'statement'" class="rounded-xl border border-sky-200 bg-sky-50/70 p-3.5">
+                    <label class="block text-xs font-bold text-slate-700">Existing OUT Statement Transaction <span class="text-rose-600">*</span>
+                        <select x-model="statementEntryId" name="statement_entry_id" @change="selectStatement($event)" class="mt-1 min-h-11 w-full rounded-xl border border-sky-300 bg-white px-3 font-mono text-xs focus:border-sky-500 focus:outline-none">
+                            <option value="">Select statement transaction</option>
+                            @foreach($statementTransactions as $statement)
+                                <option value="{{ $statement->id }}" data-account="{{ $statement->company_account_id }}" data-amount="{{ $statement->amount }}" data-date="{{ $statement->transaction_date?->toDateString() }}" data-reference="{{ $statement->reference }}">
+                                    {{ $statement->companyAccount?->name }} | {{ $statement->transaction_date?->format('d M') }} | {{ $statement->reference ?: $statement->narration }} | OUT | ₹{{ number_format($statement->amount, 2) }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <p class="mt-1 text-[11px] font-semibold text-sky-800">Statement amount, date, account, and reference become authoritative and avoid duplicate company cashbook movements.</p>
+                </div>
+
+                {{-- Real-Time Difference & Settlement Discount Choice --}}
+                <div x-show="difference > 0.01" class="rounded-2xl border border-amber-300 bg-amber-50/90 p-4 shadow-2xs">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-amber-200/80 pb-3">
+                        <div>
+                            <span class="text-[10px] font-black uppercase text-amber-800 tracking-wider">Unallocated Bill Remainder</span>
+                            <div class="font-mono text-xl font-black text-amber-950" x-text="rupees(difference)"></div>
+                        </div>
+                        <div class="space-y-1">
+                            <span class="block text-xs font-bold text-slate-800">How should this difference be treated?</span>
+                            <div class="flex flex-wrap gap-4 text-xs font-bold">
+                                <label class="flex items-center gap-2 cursor-pointer text-slate-900">
+                                    <input x-model="differenceTreatment" name="difference_treatment" value="outstanding" type="radio" class="text-amber-700 focus:ring-amber-600"> Keep as Vendor Outstanding
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer text-slate-900">
+                                    <input x-model="differenceTreatment" name="difference_treatment" value="discount" type="radio" class="text-amber-700 focus:ring-amber-600"> Apply as Settlement Discount
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Live Financial Monetary Feedback Box --}}
+                    <div class="mt-3 rounded-xl p-3 text-xs font-bold border" :class="differenceTreatment === 'discount' ? 'border-emerald-300 bg-emerald-100/60 text-emerald-950' : 'border-amber-300 bg-amber-100/60 text-amber-950'">
+                        <template x-if="differenceTreatment === 'discount'">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="block uppercase text-[10px] text-emerald-800 font-black">Settlement Discount Applied</span>
+                                    <span class="font-mono text-sm font-extrabold text-emerald-900" x-text="rupees(difference)"></span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="block uppercase text-[10px] text-emerald-800 font-black">Vendor Outstanding After Settlement</span>
+                                    <span class="font-mono text-sm font-extrabold text-emerald-900">₹0.00 (Fully Settled)</span>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="differenceTreatment === 'outstanding'">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="block uppercase text-[10px] text-amber-800 font-black">Settlement Discount</span>
+                                    <span class="font-mono text-sm font-extrabold text-amber-900">₹0.00</span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="block uppercase text-[10px] text-amber-800 font-black">Remaining Vendor Outstanding</span>
+                                    <span class="font-mono text-sm font-extrabold text-rose-700" x-text="rupees(difference)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
                 <input x-show="difference <= 0.01" type="hidden" name="difference_treatment" value="outstanding">
-                <template x-for="row in selectedRows" :key="row.id"><input type="hidden" name="invoice_ids[]" :value="row.id"></template>
-                <aside class="sticky bottom-3 z-10 rounded-xl bg-slate-900 p-4 text-white shadow-xl"><div class="grid gap-2 text-xs font-bold sm:grid-cols-4"><span>SELECTED BILLS <b class="block font-mono text-base" x-text="rupees(selectedTotal)"></b></span><span>VENDOR ADVANCE USED <b class="block font-mono text-base" x-text="rupees(advanceUsed)"></b></span><span>CASH/BANK PAYMENT <b class="block font-mono text-base" x-text="rupees(cash)"></b></span><span>SETTLEMENT DISCOUNT <b class="block font-mono text-base" x-text="rupees(discount)"></b></span><span>TOTAL SETTLED <b class="block font-mono text-base" x-text="rupees(totalSettled)"></b></span><span>REMAINING <b class="block font-mono text-base" x-text="rupees(remaining)"></b></span><span>NEW VENDOR ADVANCE <b class="block font-mono text-base" x-text="rupees(newAdvance)"></b></span></div></aside>
-                <div><h3 class="mb-2 text-sm font-extrabold">How this payment will be applied</h3><div class="overflow-x-auto"><table class="w-full text-xs"><thead class="bg-slate-100 text-left"><tr><th class="p-2">Invoice</th><th class="p-2 text-right">Before</th><th class="p-2 text-right">Cash</th><th class="p-2 text-right">Advance</th><th class="p-2 text-right">Discount</th><th class="p-2 text-right">Remaining</th></tr></thead><tbody><template x-for="row in preview" :key="row.id"><tr class="border-b"><td class="p-2 font-mono" x-text="row.number"></td><td class="p-2 text-right font-mono" x-text="rupees(row.outstanding)"></td><td class="p-2 text-right font-mono" x-text="rupees(row.cash)"></td><td class="p-2 text-right font-mono" x-text="rupees(row.advance)"></td><td class="p-2 text-right font-mono" x-text="rupees(row.discount)"></td><td class="p-2 text-right font-mono" x-text="rupees(row.remaining)"></td></tr></template></tbody></table></div></div>
-                <button type="submit" :disabled="selectedRows.length === 0" class="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-400" x-text="`Confirm ${rupees(cash)} Vendor Payment`"></button>
+                <template x-for="row in selectedRows" :key="row.id">
+                    <input type="hidden" name="invoice_ids[]" :value="row.id">
+                </template>
+
+                {{-- Floating Calculation Summary Strip --}}
+                <aside class="sticky bottom-3 z-10 rounded-2xl bg-slate-950 p-4 text-white shadow-2xl border border-slate-800">
+                    <div class="grid gap-3 text-xs font-bold sm:grid-cols-4 xl:grid-cols-7">
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">SELECTED BILLS</span><b class="block font-mono text-sm text-slate-100" x-text="rupees(selectedTotal)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">VENDOR ADVANCE</span><b class="block font-mono text-sm text-amber-400" x-text="rupees(advanceUsed)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">CASH/BANK PAYMENT</span><b class="block font-mono text-sm text-emerald-400" x-text="rupees(cash)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">SETTLEMENT DISCOUNT</span><b class="block font-mono text-sm text-sky-400" x-text="rupees(discount)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">TOTAL SETTLED</span><b class="block font-mono text-sm text-white" x-text="rupees(totalSettled)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">REMAINING OUTSTANDING</span><b class="block font-mono text-sm text-rose-400" x-text="rupees(remaining)"></b></div>
+                        <div><span class="text-[9px] text-slate-400 uppercase font-black">NEW VENDOR ADVANCE</span><b class="block font-mono text-sm text-emerald-300" x-text="rupees(newAdvance)"></b></div>
+                    </div>
+                </aside>
+
+                <div class="flex justify-end pt-2">
+                    <button type="submit" :disabled="selectedRows.length === 0" class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-xs font-extrabold text-white shadow-md hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-400 transition">
+                        <i data-lucide="check-circle-2" class="h-4 w-4"></i>
+                        <span x-text="`Confirm ${rupees(cash)} Vendor Settlement`"></span>
+                    </button>
+                </div>
             </form>
         </section>
 
         <section class="white-card rounded-2xl border border-slate-200 p-4 shadow-sm sm:p-5">
-            <div class="mb-3"><h2 class="text-base font-extrabold text-slate-950">Settlement History</h2><p class="text-xs font-semibold text-slate-500">Cash paid, internal settlement amounts, and reconciliation state.</p></div>
-            <div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="bg-slate-100 text-[10px] uppercase text-slate-500"><tr><th class="p-2">Date</th><th class="p-2">Reference</th><th class="p-2 text-right">Cash</th><th class="p-2 text-right">Discount</th><th class="p-2 text-right">Advance Used</th><th class="p-2 text-right">New Advance</th><th class="p-2">Reconciliation</th><th class="p-2">Finalized</th><th class="p-2">Action</th></tr></thead><tbody>@forelse($settlementHistory as $history)<tr class="border-b"><td class="p-2 font-mono">{{ $history->payment_date?->format('Y-m-d') }}</td><td class="p-2">{{ $history->reference ?: ('VENDOR-SETTLEMENT-'.$history->id) }}</td><td class="p-2 text-right font-mono">₹{{ number_format($history->actual_payment_amount, 2) }}</td><td class="p-2 text-right font-mono">₹{{ number_format($history->settlement_discount_amount, 2) }}</td><td class="p-2 text-right font-mono">₹{{ number_format($history->vendor_advance_used_amount, 2) }}</td><td class="p-2 text-right font-mono">₹{{ number_format($history->new_vendor_advance_amount, 2) }}</td><td class="p-2 uppercase">{{ $history->reconciliation_status }}</td><td class="p-2">{{ $history->is_finalized ? 'YES' : 'NO' }}</td><td class="p-2"><div class="flex flex-wrap gap-2">@unless($history->is_finalized)<a class="font-bold text-emerald-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $history) }}#reconcile">Reconcile Now</a>@endunless<a class="font-bold text-slate-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $history) }}">View Details</a></div></td></tr>@empty<tr><td colspan="9" class="p-4 text-center text-slate-400">No new settlement history.</td></tr>@endforelse</tbody></table></div>
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h2 class="text-base font-extrabold text-slate-950">Settlement History</h2>
+                    <p class="text-xs font-semibold text-slate-500">Actual payments, discounts, bill allocations, payment sources, and admin correction status.</p>
+                </div>
+            </div>
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-100 text-[10px] font-black uppercase text-slate-500">
+                        <tr class="border-b border-slate-200">
+                            <th class="p-2.5">Date / Ref</th>
+                            <th class="p-2.5 text-right">Actual Payment</th>
+                            <th class="p-2.5 text-right">Discount</th>
+                            <th class="p-2.5 text-right">Advance Used</th>
+                            <th class="p-2.5">Bills</th>
+                            <th class="p-2.5 text-center">Result</th>
+                            <th class="p-2.5">Source</th>
+                            <th class="p-2.5 text-center">Status</th>
+                            <th class="p-2.5 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 bg-white">
+                        @forelse($settlementHistory as $history)
+                            @php
+                                $allocationsCount = $history->allocations_count ?? $history->allocations->count();
+                                $totalSettledAmount = (float) ($history->allocations_sum_total_settled ?? $history->allocations->sum('total_settled'));
+                                $newAdvance = (float) $history->new_vendor_advance_amount;
+                                $discountAmount = (float) $history->settlement_discount_amount;
+                                $actualPayment = (float) $history->actual_payment_amount;
+
+                                $remainingInvoicesDue = (float) $history->allocations->sum(function($alloc) {
+                                    $inv = $alloc->purchaseInvoice;
+                                    if (!$inv) return 0;
+                                    $allSettled = (float) $inv->vendorSettlementAllocations()->sum('total_settled');
+                                    return max(0, (float) $inv->amount - (float) $inv->discount_amount - $allSettled);
+                                });
+                            @endphp
+                            <tr class="hover:bg-slate-50 transition">
+                                {{-- Date / Ref --}}
+                                <td class="p-2.5">
+                                    <div class="font-mono font-bold text-slate-900">{{ $history->payment_date?->format('d M Y') }}</div>
+                                    <span class="block font-mono text-[11px] font-bold text-slate-600 truncate max-w-[140px]" title="{{ $history->reference ?: ('VENDOR-SETTLEMENT-'.$history->id) }}">
+                                        {{ $history->reference ?: ('VENDOR-SETTLEMENT-'.$history->id) }}
+                                    </span>
+                                </td>
+
+                                {{-- Actual Payment --}}
+                                <td class="p-2.5 text-right font-mono font-extrabold text-emerald-700">
+                                    ₹{{ number_format($actualPayment, 2) }}
+                                </td>
+
+                                {{-- Discount --}}
+                                <td class="p-2.5 text-right font-mono">
+                                    <div class="font-bold text-sky-700">₹{{ number_format($discountAmount, 2) }}</div>
+                                    @if($discountAmount > 0.009)
+                                        <span class="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-sky-800">
+                                            Settlement Discount
+                                        </span>
+                                    @endif
+                                </td>
+
+                                {{-- Advance Used / New Advance --}}
+                                <td class="p-2.5 text-right font-mono">
+                                    <div class="font-bold text-amber-700">₹{{ number_format((float) $history->vendor_advance_used_amount, 2) }}</div>
+                                    @if($newAdvance > 0.009)
+                                        <span class="block text-[10px] font-bold text-emerald-600">+ ₹{{ number_format($newAdvance, 2) }} New</span>
+                                    @endif
+                                </td>
+
+                                {{-- Bills / Allocation --}}
+                                <td class="p-2.5">
+                                    <div class="font-bold text-slate-800">{{ $allocationsCount }} {{ Str::plural('Bill', $allocationsCount) }}</div>
+                                    <span class="block font-mono text-[11px] text-slate-500 font-semibold">₹{{ number_format($totalSettledAmount, 2) }} settled</span>
+                                </td>
+
+                                {{-- Result --}}
+                                <td class="p-2.5 text-center">
+                                    @if($newAdvance > 0.009)
+                                        <span class="inline-block rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black uppercase text-emerald-800">
+                                            ₹{{ number_format($newAdvance, 2) }} New Advance
+                                        </span>
+                                    @elseif($remainingInvoicesDue <= 0.009)
+                                        <span class="inline-block rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black uppercase text-emerald-800">
+                                            Fully Settled
+                                        </span>
+                                    @else
+                                        <span class="inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-black uppercase text-amber-800">
+                                            ₹{{ number_format($remainingInvoicesDue, 2) }} Outstanding
+                                        </span>
+                                    @endif
+                                </td>
+
+                                {{-- Source --}}
+                                <td class="p-2.5">
+                                    <div class="font-bold text-slate-800 text-[11px] truncate max-w-[130px]">
+                                        {{ $history->companyAccount?->name ?: ($history->payment_method ? 'Company Account' : 'Direct') }}
+                                    </div>
+                                    <span class="block text-[10px] font-bold text-slate-500 uppercase">{{ $history->payment_method ?: 'Bank' }}</span>
+                                </td>
+
+                                {{-- Status --}}
+                                <td class="p-2.5 text-center">
+                                    @if($history->status === 'reversed')
+                                        <span class="inline-block rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-black uppercase text-rose-800">Reversed</span>
+                                    @elseif($history->status === 'corrected')
+                                        <span class="inline-block rounded-full bg-sky-100 px-2.5 py-0.5 text-[10px] font-black uppercase text-sky-800">Corrected</span>
+                                    @else
+                                        <span class="inline-block rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black uppercase text-emerald-800">Finalized</span>
+                                    @endif
+                                </td>
+
+                                {{-- Actions --}}
+                                <td class="p-2.5 text-right">
+                                    <div class="flex items-center justify-end gap-2 text-xs">
+                                        @unless($history->is_finalized)
+                                            <a class="font-bold text-emerald-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $history) }}#reconcile">Reconcile</a>
+                                        @endunless
+                                        <a class="font-bold text-slate-700 hover:text-emerald-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $history) }}">View</a>
+                                        <button type="button" @click="openEditSettlementModal({{ $history->id }}, '{{ $history->reference }}', '{{ $history->note }}', {{ (float) $history->actual_payment_amount }}, '{{ $history->payment_date?->format('Y-m-d') }}')" class="font-bold text-amber-700 hover:text-amber-900 hover:underline">
+                                            Edit
+                                        </button>
+                                        <button type="button" @click="openDeleteSettlementModal({{ $history->id }}, '{{ $supplier->public_uuid }}', '{{ $history->payment_date?->format('Y-m-d') }}', {{ (float) $history->actual_payment_amount }}, {{ (float) $history->settlement_discount_amount }})" class="font-bold text-rose-700 hover:text-rose-900 hover:underline">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="9" class="p-6 text-center text-xs font-bold text-slate-400">No settlement history found for this supplier.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </section>
 
         <!-- FILTERS TOOLBAR -->
@@ -274,12 +570,123 @@
                 </form>
             </div>
         </div>
+        {{-- EDIT SETTLEMENT REVERSAL MODAL --}}
+        <div x-show="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" style="display: none;" x-cloak>
+            <div @click.away="showEditModal = false" class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900">Edit Vendor Settlement</h3>
+                        <p class="text-xs text-amber-600 font-semibold" x-text="`Correcting settlement #${editTarget?.id}`"></p>
+                    </div>
+                    <button @click="showEditModal = false" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                        <i data-lucide="x" class="h-5 w-5"></i>
+                    </button>
+                </div>
+
+                <template x-if="editTarget">
+                    <form :action="`/admin/cashbook/finance/vendor-credit/settlements/${editTarget.id}/update`" method="POST" class="mt-4 space-y-4">
+                        @csrf
+                        <div class="rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 font-medium">
+                            <span class="block font-black text-amber-950 uppercase text-[10px]">Financial Correction Notice</span>
+                            <p class="mt-1 text-[11px] font-semibold text-amber-800">Financial edits (amount, date, account, discount choice) perform an atomic reversal of previous allocations and journals before applying corrected values.</p>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Reference</label>
+                            <input type="text" name="reference" x-model="editTarget.reference" class="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Payment Note</label>
+                            <input type="text" name="note" x-model="editTarget.note" class="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Correction Reason <span class="text-rose-600">*</span></label>
+                            <select x-model="editReason" name="reason" required class="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                                <option value="">Select reason for edit</option>
+                                <option value="Correction of Note / Reference">Correction of Note / Reference</option>
+                                <option value="Wrong Payment Amount">Wrong Payment Amount</option>
+                                <option value="Wrong Company Account">Wrong Company Account</option>
+                                <option value="Wrong Date">Wrong Date</option>
+                                <option value="Wrong Discount Application">Wrong Discount Application</option>
+                                <option value="Other / Data Correction">Other / Data Correction</option>
+                            </select>
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                            <button type="button" @click="showEditModal = false" class="min-h-10 rounded-xl border border-slate-300 px-4 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+                            <button type="submit" :disabled="!editReason" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-600 px-5 text-xs font-bold text-white shadow-sm hover:bg-amber-500 disabled:bg-slate-400">
+                                <i data-lucide="check" class="h-4 w-4"></i> Save Correction
+                            </button>
+                        </div>
+                    </form>
+                </template>
+            </div>
+        </div>
+
+        {{-- DELETE SETTLEMENT REVERSAL MODAL --}}
+        <div x-show="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" style="display: none;" x-cloak>
+            <div @click.away="showDeleteModal = false" class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900">Delete Vendor Settlement</h3>
+                        <p class="text-xs text-rose-600 font-semibold" x-text="`Reversing settlement #${deleteTarget?.id}`"></p>
+                    </div>
+                    <button @click="showDeleteModal = false" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                        <i data-lucide="x" class="h-5 w-5"></i>
+                    </button>
+                </div>
+
+                <template x-if="deleteTarget">
+                    <form :action="`/admin/cashbook/finance/vendor-credit/settlements/${deleteTarget.id}/delete`" method="POST" class="mt-4 space-y-4">
+                        @csrf
+                        <div class="rounded-xl border border-rose-200 bg-rose-50/70 p-3.5 text-xs text-rose-900 font-medium">
+                            <span class="block font-black text-rose-950 uppercase text-[10px]">Reversal Summary</span>
+                            <div class="mt-1 font-mono text-xs space-y-1">
+                                <div>Date: <strong x-text="deleteTarget.date"></strong></div>
+                                <div>Cash Paid: <strong x-text="rupees(deleteTarget.cash)"></strong></div>
+                                <div>Discount Waived: <strong x-text="rupees(deleteTarget.discount)"></strong></div>
+                            </div>
+                            <p class="mt-2 text-[11px] font-semibold text-rose-800">Deleting this settlement will restore affected bill outstanding balances, restore vendor advance balances, unmatch statement reconciliations, and reverse GL entries.</p>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Correction Reason <span class="text-rose-600">*</span></label>
+                            <select x-model="deleteReason" name="reason" required class="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800">
+                                <option value="">Select reason for deletion</option>
+                                <option value="Duplicate Entry">Duplicate Entry</option>
+                                <option value="Wrong Payment Amount">Wrong Payment Amount</option>
+                                <option value="Wrong Company Account">Wrong Company Account</option>
+                                <option value="Wrong Date">Wrong Date</option>
+                                <option value="Wrong Discount Application">Wrong Discount Application</option>
+                                <option value="Other / Data Correction">Other / Data Correction</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Additional Notes (Optional)</label>
+                            <input type="text" x-model="deleteNotes" name="notes" placeholder="Explain correction..." class="min-h-11 w-full rounded-xl border border-slate-300 px-3 text-xs font-semibold text-slate-800">
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                            <button type="button" @click="showDeleteModal = false" class="min-h-10 rounded-xl border border-slate-300 px-4 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+                            <button type="submit" :disabled="!deleteReason" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-rose-600 px-5 text-xs font-bold text-white shadow-sm hover:bg-rose-500 disabled:bg-slate-400">
+                                <i data-lucide="trash-2" class="h-4 w-4"></i> Confirm Reversal & Delete
+                            </button>
+                        </div>
+                    </form>
+                </template>
+            </div>
+        </div>
     </div>
     <script>
         function vendorSettlement(candidates) {
             return {
                 showPayModal: false, selectedInvoice: null, payAmount: 0, cash: 0, paymentSource: 'company', statementEntryId: '', companyAccountId: '{{ App\Models\Cashbook\CompanyAccount::resolveSelectedId(old('company_account_id'), $companyAccounts) ?? '' }}', paymentDate: '{{ now()->toDateString() }}', reference: '',
                 useAdvance: false, differenceTreatment: 'outstanding', allocationOrder: 'oldest',
+                showEditModal: false, editTarget: null, editReason: '',
+                showDeleteModal: false, deleteTarget: null, deleteReason: '', deleteNotes: '',
                 rows: candidates.map(row => ({ ...row, selected: false })),
                 rupees(value) { return `₹${Number(value || 0).toFixed(2)}` },
                 get selectedRows() { return this.rows.filter(row => row.selected) },
@@ -293,12 +700,49 @@
                 get newAdvance() { return Math.max(0, Number(this.cash || 0) - this.cashForInvoices) },
                 get preview() {
                     let cash = this.cashForInvoices; let advance = this.advanceUsed; let discount = this.discount;
-                    let rows = this.allocationOrder === 'newest' ? [...this.selectedRows].reverse() : this.selectedRows;
-                    return rows.map(row => { const paidCash = Math.min(cash, row.outstanding); cash -= paidCash; const afterCash = row.outstanding - paidCash; const paidAdvance = Math.min(advance, afterCash); advance -= paidAdvance; const afterAdvance = afterCash - paidAdvance; const paidDiscount = Math.min(discount, afterAdvance); discount -= paidDiscount; return { ...row, cash: paidCash, advance: paidAdvance, discount: paidDiscount, remaining: afterAdvance - paidDiscount }; });
+                    let rows = this.allocationOrder === 'newest' ? [...this.rows].reverse() : this.rows;
+                    return rows.map(row => {
+                        if (!row.selected) {
+                            return { ...row, cash: 0, advance: 0, discount: 0, remaining: row.outstanding };
+                        }
+                        const paidCash = Math.min(cash, row.outstanding); cash -= paidCash; const afterCash = row.outstanding - paidCash; const paidAdvance = Math.min(advance, afterCash); advance -= paidAdvance; const afterAdvance = afterCash - paidAdvance; const paidDiscount = Math.min(discount, afterAdvance); discount -= paidDiscount; return { ...row, cash: paidCash, advance: paidAdvance, discount: paidDiscount, remaining: afterAdvance - paidDiscount };
+                    });
+                },
+                onCashInput() {
+                    if (this.cash > 0 && this.selectedRows.length === 0) {
+                        this.autoSelectByAmount();
+                    }
+                },
+                autoSelectByAmount() {
+                    let target = Number(this.cash || 0) + (this.useAdvance ? {{ $availableVendorAdvance }} : 0);
+                    let accumulated = 0;
+                    this.rows.forEach(row => {
+                        if (target > 0 && accumulated < target) {
+                            row.selected = true;
+                            accumulated += Number(row.outstanding);
+                        } else if (this.cash > 0) {
+                            row.selected = false;
+                        }
+                    });
+                },
+                toggleBillRow(id) {
+                    const row = this.rows.find(r => r.id === id);
+                    if (row) row.selected = !row.selected;
                 },
                 selectVisible() { this.rows.forEach(row => { row.selected = true }) },
                 clearSelection() { this.rows.forEach(row => { row.selected = false }) },
-                selectStatement(event) { const option = event.target.options[event.target.selectedIndex]; if (!option || !option.value) return; this.cash = Number(option.dataset.amount); this.companyAccountId = option.dataset.account; this.paymentDate = option.dataset.date; this.reference = option.dataset.reference; },
+                selectStatement(event) { const option = event.target.options[event.target.selectedIndex]; if (!option || !option.value) return; this.cash = Number(option.dataset.amount); this.companyAccountId = option.dataset.account; this.paymentDate = option.dataset.date; this.reference = option.dataset.reference; this.autoSelectByAmount(); },
+                openEditSettlementModal(id, reference, note, cash, date) {
+                    this.editTarget = { id, reference: reference || '', note: note || '', cash, date };
+                    this.editReason = '';
+                    this.showEditModal = true;
+                },
+                openDeleteSettlementModal(id, uuid, date, cash, discount) {
+                    this.deleteTarget = { id, uuid, date, cash, discount };
+                    this.deleteReason = '';
+                    this.deleteNotes = '';
+                    this.showDeleteModal = true;
+                }
             }
         }
     </script>
