@@ -852,12 +852,19 @@ class CompanyMoneyPositionService
 
         $txByDate = $transactions->groupBy(fn ($tx) => $tx->business_date->toDateString());
 
+        $entrySettings = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->get()
+            ->keyBy('entry_type_id');
+
         $dailyRows = [];
         $monthTotalCollections = 0.0;
+        $monthCompanyPayable = 0.0;
         $monthCompanyReceived = 0.0;
         $monthPendingAcceptance = 0.0;
         $monthPendingVerification = 0.0;
-        $monthOutstanding = 0.0;
+        $monthNonPayableAudit = 0.0;
         $monthPendingCount = 0;
 
         $dates = $txByDate->keys()->sortDesc();
@@ -867,6 +874,8 @@ class CompanyMoneyPositionService
             $carbonDate = Carbon::parse($dateStr);
 
             $dayCollections = 0.0;
+            $dayCompanyPayable = 0.0;
+            $dayNonPayableAudit = 0.0;
             $dayReceived = 0.0;
             $dayPendingAcceptance = 0.0;
             $dayPendingVerification = 0.0;
@@ -878,6 +887,7 @@ class CompanyMoneyPositionService
             foreach ($dayTxs as $tx) {
                 $amount = (float) $tx->amount;
                 $stmt = $statements->get($tx->id);
+                $setting = $entrySettings->get($tx->entry_type_id);
 
                 if ($stmt && $stmt->duplicate_status === 'possible_duplicate') {
                     $hasAttention = true;
@@ -888,6 +898,19 @@ class CompanyMoneyPositionService
 
                 if ($isIncome) {
                     $dayCollections += $amount;
+
+                    $isPayable = $setting ? (bool) $setting->include_in_payable : true;
+                    $payableDirection = $setting?->payable_direction ?? 'add';
+
+                    if ($isPayable) {
+                        if ($payableDirection === 'subtract') {
+                            $dayCompanyPayable -= $amount;
+                        } else {
+                            $dayCompanyPayable += $amount;
+                        }
+                    } else {
+                        $dayNonPayableAudit += $amount;
+                    }
 
                     if ($tx->status !== 'approved') {
                         $dayPendingAcceptance += $amount;
@@ -903,12 +926,7 @@ class CompanyMoneyPositionService
                 }
             }
 
-            $allocReceivedForDay = (float) ($reconciledAllocationsByDate->get($dateStr, 0.0));
-            if ($allocReceivedForDay > 0) {
-                $dayReceived = max($dayReceived, $allocReceivedForDay);
-            }
-
-            $expectedPayable = max(0.0, round($dayCollections - $dayDeductions, 2));
+            $expectedPayable = max(0.0, round($dayCompanyPayable, 2));
             $dayOutstanding = max(0.0, round($expectedPayable - $dayReceived, 2));
             $pendingOpCount = $dayPendingAcceptanceCount + $dayPendingVerificationCount;
 
@@ -927,10 +945,11 @@ class CompanyMoneyPositionService
             }
 
             $monthTotalCollections += $dayCollections;
+            $monthCompanyPayable += $dayCompanyPayable;
             $monthCompanyReceived += $dayReceived;
+            $monthNonPayableAudit += $dayNonPayableAudit;
             $monthPendingAcceptance += $dayPendingAcceptance;
             $monthPendingVerification += $dayPendingVerification;
-            $monthOutstanding += $dayOutstanding;
             $monthPendingCount += $pendingOpCount;
 
             $dailyRows[] = [
@@ -940,6 +959,8 @@ class CompanyMoneyPositionService
                 'day_number' => $carbonDate->format('d'),
                 'is_today' => $dateStr === today()->toDateString(),
                 'total_collection' => round($dayCollections, 2),
+                'company_payable' => round($dayCompanyPayable, 2),
+                'non_payable_audit' => round($dayNonPayableAudit, 2),
                 'company_received' => round($dayReceived, 2),
                 'pending_acceptance' => round($dayPendingAcceptance, 2),
                 'pending_verification' => round($dayPendingVerification, 2),
@@ -953,7 +974,10 @@ class CompanyMoneyPositionService
             ];
         }
 
-        $monthCompanyReceived = max($monthCompanyReceived, $monthReconciledPayments);
+        $monthCompanyReceived = $monthCompanyPayable > 0
+            ? min($monthCompanyPayable, max($monthCompanyReceived, $monthReconciledPayments))
+            : max($monthCompanyReceived, $monthReconciledPayments);
+        $monthStillToReceive = max(0.0, round($monthCompanyPayable - $monthCompanyReceived, 2));
 
         return [
             'year_month' => $yearMonth,
@@ -963,10 +987,13 @@ class CompanyMoneyPositionService
             'days' => $dailyRows,
             'summary' => [
                 'total_collections' => round($monthTotalCollections, 2),
+                'company_payable' => round($monthCompanyPayable, 2),
                 'company_received' => round($monthCompanyReceived, 2),
+                'still_to_receive' => round($monthStillToReceive, 2),
+                'non_payable_audit' => round($monthNonPayableAudit, 2),
                 'pending_acceptance' => round($monthPendingAcceptance, 2),
                 'pending_verification' => round($monthPendingVerification, 2),
-                'outstanding' => round($monthOutstanding, 2),
+                'outstanding' => round($monthStillToReceive, 2),
                 'pending_count' => $monthPendingCount,
                 'active_days_count' => count($dailyRows),
             ],

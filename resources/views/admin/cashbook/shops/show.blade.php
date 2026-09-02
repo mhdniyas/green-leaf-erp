@@ -524,7 +524,15 @@
                 <div class="text-xl sm:text-2xl font-black font-mono text-slate-900 mt-1">
                     ₹{{ number_format($monthlyData['summary']['total_collections'], 2) }}
                 </div>
-                <span class="text-[10px] text-slate-400 font-bold mt-1 block">{{ $monthlyData['summary']['active_days_count'] }} active days</span>
+                <span class="text-[10px] text-slate-400 font-bold mt-1 block">Audit / total shop collections</span>
+            </div>
+
+            <div class="p-5 rounded-3xl bg-white border border-indigo-200 shadow-sm">
+                <span class="text-[10px] font-extrabold uppercase tracking-wider text-indigo-700">Company Payable</span>
+                <div class="text-xl sm:text-2xl font-black font-mono text-indigo-800 mt-1">
+                    ₹{{ number_format($monthlyData['summary']['company_payable'], 2) }}
+                </div>
+                <span class="text-[10px] text-indigo-600 font-bold mt-1 block">Configured payable collections</span>
             </div>
 
             <div class="p-5 rounded-3xl bg-white border border-emerald-200 shadow-sm">
@@ -535,28 +543,20 @@
                 <span class="text-[10px] text-emerald-600 font-bold mt-1 block">Verified &amp; reconciled</span>
             </div>
 
-            <div class="p-5 rounded-3xl bg-white border border-amber-200 shadow-sm">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">Pending Acceptance</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-amber-800 mt-1">
-                    ₹{{ number_format($monthlyData['summary']['pending_acceptance'], 2) }}
+            <div class="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-sm">
+                <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-400">Still To Receive</span>
+                <div class="text-xl sm:text-2xl font-black font-mono text-amber-400 mt-1">
+                    ₹{{ number_format($monthlyData['summary']['still_to_receive'], 2) }}
                 </div>
-                <span class="text-[10px] text-amber-600 font-bold mt-1 block">Unapproved entries</span>
+                <span class="text-[10px] text-slate-400 font-bold mt-1 block">Awaiting receipt from shop</span>
             </div>
 
-            <div class="p-5 rounded-3xl bg-white border border-sky-200 shadow-sm">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-sky-700">Pending Verification</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-sky-800 mt-1">
-                    ₹{{ number_format($monthlyData['summary']['pending_verification'], 2) }}
+            <div class="p-5 rounded-3xl bg-white border border-purple-200 shadow-sm col-span-2 sm:col-span-1">
+                <span class="text-[10px] font-extrabold uppercase tracking-wider text-purple-700">Non-Payable Audit</span>
+                <div class="text-xl sm:text-2xl font-black font-mono text-purple-800 mt-1">
+                    ₹{{ number_format($monthlyData['summary']['non_payable_audit'], 2) }}
                 </div>
-                <span class="text-[10px] text-sky-600 font-bold mt-1 block">Awaiting company verification</span>
-            </div>
-
-            <div class="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-sm col-span-2 sm:col-span-1">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Month Outstanding</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-white mt-1">
-                    ₹{{ number_format($monthlyData['summary']['outstanding'], 2) }}
-                </div>
-                <span class="text-[10px] text-slate-400 font-bold mt-1 block">{{ $monthlyData['summary']['pending_count'] }} pending operations</span>
+                <span class="text-[10px] text-purple-600 font-bold mt-1 block">CP &amp; secondary audit entries</span>
             </div>
         </div>
 

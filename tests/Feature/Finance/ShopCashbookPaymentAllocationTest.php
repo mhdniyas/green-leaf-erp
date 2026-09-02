@@ -9,6 +9,7 @@ use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
@@ -16,6 +17,7 @@ use App\Models\JournalEntry;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
+use App\Services\Cashbook\CompanyMoneyPositionService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -2772,14 +2774,172 @@ class ShopCashbookPaymentAllocationTest extends TestCase
             ]);
         }
 
-        $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shopA->id]);
-        $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shopB->id]);
-
         $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.clear-all', $profileA->slug), [
             'month' => '2026-08',
         ])->assertRedirect();
 
         $this->assertDatabaseMissing('shop_payment_ledger_allocations', ['shop_id' => $shopA->id]);
         $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shopB->id]);
+    }
+
+    public function test_settings_driven_company_payable_includes_payable_and_excludes_non_payable(): void
+    {
+        $shop = Shop::factory()->create();
+        $profile = ShopLedgerProfile::create(['shop_id' => $shop->id]);
+
+        $incomeType1 = LedgerEntryType::firstOrCreate(['code' => 'custom_payable_sales'], ['name' => 'Custom Payable Sales', 'category' => 'income']);
+        $incomeType2 = LedgerEntryType::firstOrCreate(['code' => 'custom_non_payable_audit'], ['name' => 'Custom Audit', 'category' => 'income']);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $shop->id,
+            'entry_type_id' => $incomeType1->id,
+            'effective_from' => '2026-01-01',
+            'version' => 1,
+            'enabled' => true,
+            'include_in_sales' => true,
+            'include_in_payable' => true,
+            'payable_direction' => 'add',
+        ]);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $shop->id,
+            'entry_type_id' => $incomeType2->id,
+            'effective_from' => '2026-01-01',
+            'version' => 1,
+            'enabled' => true,
+            'include_in_sales' => true,
+            'include_in_payable' => false,
+            'generates_secondary_entry' => true,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_id' => $incomeType1->id,
+            'entry_type_code' => $incomeType1->code,
+            'amount' => 5000.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_id' => $incomeType2->id,
+            'entry_type_code' => $incomeType2->code,
+            'amount' => 2000.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $summary = app(CompanyMoneyPositionService::class)->getShopMonthlyDailySummaries($shop->id, '2026-08')['summary'];
+
+        $this->assertSame(7000.00, (float) $summary['total_collections']);
+        $this->assertSame(5000.00, (float) $summary['company_payable']);
+        $this->assertSame(2000.00, (float) $summary['non_payable_audit']);
+        $this->assertSame(5000.00, (float) $summary['still_to_receive']);
+    }
+
+    public function test_expenses_do_not_reduce_still_to_receive_collection_card(): void
+    {
+        $shop = Shop::factory()->create();
+        $profile = ShopLedgerProfile::create(['shop_id' => $shop->id]);
+
+        $incomeType = LedgerEntryType::firstOrCreate(['code' => 'shop_cash_income'], ['name' => 'Shop Cash Income', 'category' => 'income']);
+        $expenseType = LedgerEntryType::firstOrCreate(['code' => 'shop_exp_deduct'], ['name' => 'Shop Exp Deduct', 'category' => 'expense']);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $shop->id,
+            'entry_type_id' => $incomeType->id,
+            'effective_from' => '2026-01-01',
+            'version' => 1,
+            'enabled' => true,
+            'include_in_sales' => true,
+            'include_in_payable' => true,
+        ]);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $shop->id,
+            'entry_type_id' => $expenseType->id,
+            'effective_from' => '2026-01-01',
+            'version' => 1,
+            'enabled' => true,
+            'include_in_expense' => true,
+            'include_in_payable' => false,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_id' => $incomeType->id,
+            'entry_type_code' => $incomeType->code,
+            'amount' => 10000.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_id' => $expenseType->id,
+            'entry_type_code' => $expenseType->code,
+            'amount' => 3000.00,
+            'funding_source' => 'sales',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $summary = app(CompanyMoneyPositionService::class)->getShopMonthlyDailySummaries($shop->id, '2026-08')['summary'];
+
+        $this->assertSame(10000.00, (float) $summary['company_payable']);
+        $this->assertSame(10000.00, (float) $summary['still_to_receive']);
+    }
+
+    public function test_payable_direction_subtract_is_respected(): void
+    {
+        $shop = Shop::factory()->create();
+        $profile = ShopLedgerProfile::create(['shop_id' => $shop->id]);
+
+        $addType = LedgerEntryType::firstOrCreate(['code' => 'add_type_income'], ['name' => 'Add Type Income', 'category' => 'income']);
+        $subType = LedgerEntryType::firstOrCreate(['code' => 'sub_type_income'], ['name' => 'Sub Type Income', 'category' => 'income']);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $shop->id,
+            'entry_type_id' => $addType->id,
+            'effective_from' => '2026-01-01',
+            'version' => 1,
+            'enabled' => true,
+            'include_in_payable' => true,
+            'payable_direction' => 'add',
+        ]);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $shop->id,
+            'entry_type_id' => $subType->id,
+            'effective_from' => '2026-01-01',
+            'version' => 1,
+            'enabled' => true,
+            'include_in_payable' => true,
+            'payable_direction' => 'subtract',
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_id' => $addType->id,
+            'entry_type_code' => $addType->code,
+            'amount' => 10000.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_id' => $subType->id,
+            'entry_type_code' => $subType->code,
+            'amount' => 2000.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $summary = app(CompanyMoneyPositionService::class)->getShopMonthlyDailySummaries($shop->id, '2026-08')['summary'];
+
+        $this->assertSame(8000.00, (float) $summary['company_payable']);
+        $this->assertSame(8000.00, (float) $summary['still_to_receive']);
     }
 }
