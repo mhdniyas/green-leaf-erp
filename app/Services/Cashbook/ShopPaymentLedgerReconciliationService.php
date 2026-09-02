@@ -7,6 +7,7 @@ namespace App\Services\Cashbook;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
+use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Shop;
@@ -249,6 +250,7 @@ class ShopPaymentLedgerReconciliationService
         ShopInvoicePaymentRequest $payment,
         array $allocations,
         int $userId,
+        ?string $batchUuid = null,
     ): Collection {
         if (empty($allocations)) {
             throw ValidationException::withMessages([
@@ -256,7 +258,7 @@ class ShopPaymentLedgerReconciliationService
             ]);
         }
 
-        return DB::transaction(function () use ($payment, $allocations, $userId): Collection {
+        return DB::transaction(function () use ($payment, $allocations, $userId, $batchUuid): Collection {
             $payment = ShopInvoicePaymentRequest::query()
                 ->whereKey($payment->id)
                 ->lockForUpdate()
@@ -349,13 +351,29 @@ class ShopPaymentLedgerReconciliationService
                     ]);
                 }
 
-                $allocationRecord = ShopPaymentLedgerAllocation::query()->create([
-                    'payment_request_id' => $payment->id,
-                    'shop_id' => $shopId,
-                    'shop_ledger_transaction_id' => $transaction->id,
-                    'amount' => $amount,
-                    'reconciled_by' => $userId,
-                ]);
+                $existingAlloc = ShopPaymentLedgerAllocation::query()
+                    ->where('payment_request_id', $payment->id)
+                    ->where('shop_ledger_transaction_id', $transaction->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingAlloc instanceof ShopPaymentLedgerAllocation) {
+                    $existingAlloc->update([
+                        'amount' => round((float) $existingAlloc->amount + $amount, 2),
+                        'reconciled_by' => $userId,
+                        'batch_uuid' => $batchUuid ?? $existingAlloc->batch_uuid,
+                    ]);
+                    $allocationRecord = $existingAlloc->fresh();
+                } else {
+                    $allocationRecord = ShopPaymentLedgerAllocation::query()->create([
+                        'payment_request_id' => $payment->id,
+                        'shop_id' => $shopId,
+                        'shop_ledger_transaction_id' => $transaction->id,
+                        'amount' => $amount,
+                        'reconciled_by' => $userId,
+                        'batch_uuid' => $batchUuid,
+                    ]);
+                }
 
                 $createdAllocations->push($allocationRecord);
             }
@@ -464,6 +482,37 @@ class ShopPaymentLedgerReconciliationService
             $allocations = ShopPaymentLedgerAllocation::query()
                 ->where('payment_request_id', $lockedPayment->id)
                 ->where('shop_id', (int) $lockedPayment->shop_id)
+                ->lockForUpdate()
+                ->get();
+
+            $allocationIds = $allocations->pluck('id')->all();
+            if ($allocationIds === []) {
+                return 0;
+            }
+
+            return (int) ShopPaymentLedgerAllocation::query()
+                ->whereIn('id', $allocationIds)
+                ->delete();
+        }, attempts: 3);
+    }
+
+    /**
+     * Remove all allocations for an entire shop in one transaction.
+     * Deletes ONLY ShopPaymentLedgerAllocation rows for the shop.
+     * Leaves ShopInvoicePaymentRequest, received payment records, bank reconciliations,
+     * shop_paid_company ledger receipts, and settlement obligations 100% untouched.
+     */
+    public function clearAllShopPaymentAllocations(Shop|ShopLedgerProfile|int $shop, int $userId): int
+    {
+        $shopId = match (true) {
+            $shop instanceof Shop => (int) $shop->id,
+            $shop instanceof ShopLedgerProfile => (int) $shop->shop_id,
+            default => (int) $shop,
+        };
+
+        return DB::transaction(function () use ($shopId): int {
+            $allocations = ShopPaymentLedgerAllocation::query()
+                ->where('shop_id', $shopId)
                 ->lockForUpdate()
                 ->get();
 

@@ -1667,7 +1667,13 @@
                     body: JSON.stringify({
                         shop_uuid: shopId,
                         company_account_uuid: companyAccountUuid,
-                        request_uuid: form.dataset.requestUuid || (form.dataset.requestUuid = crypto.randomUUID()),
+                        request_uuid: form.dataset.requestUuid || (form.dataset.requestUuid = (function() {
+                            if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+                            if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.getRandomValues === 'function') {
+                                return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ window.crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+                            }
+                            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => ((Math.random()*16)|0).toString(16));
+                        })()),
                         business_date: date,
                         amount: amount,
                         notes: notes

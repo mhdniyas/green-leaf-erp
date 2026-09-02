@@ -525,6 +525,8 @@ final class CashbookController extends Controller
 
         $allShopPayments->through(fn (ShopInvoicePaymentRequest $payment): ShopInvoicePaymentRequest => $this->enrichShopPaymentModel($payment, $shopId));
         $allShopPaymentsFormattedList = $allShopPayments
+            ->getCollection()
+            ->toBase()
             ->map(fn (ShopInvoicePaymentRequest $p): array => $this->formatShopPaymentPayload($p, $shopId))
             ->merge($this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd)
                 ->with(['companyAccount', 'sourceRecord.entryType'])
@@ -566,11 +568,12 @@ final class CashbookController extends Controller
             ->where('shop_id', $shopId)
             ->sum('amount');
 
-        $settlementOutstanding = round(max(0, $netSettlementDue - $totalSettlementAllocated), 2);
+        $settlementOutstanding = round((float) $openSettlementTransactions->sum('remaining_due'), 2);
 
         $totalPaymentsReceived = $shopPaymentSummary['received'];
         $totalPaymentsAllocated = $shopPaymentSummary['allocated'];
         $unallocatedPayments = $shopPaymentSummary['unallocated'];
+        $eligibleUnallocated = $shopPaymentSummary['eligible_unallocated'];
 
         $netDifference = round($settlementOutstanding - $unallocatedPayments, 2);
         $netPositionDirection = match (true) {
@@ -715,6 +718,7 @@ final class CashbookController extends Controller
             'totalPaymentsReceived',
             'totalPaymentsAllocated',
             'unallocatedPayments',
+            'eligibleUnallocated',
             'netPositionDirection',
             'netPositionAmount',
             'connectedBankAccounts',
@@ -870,11 +874,11 @@ final class CashbookController extends Controller
         $integrityHasError = (bool) $integrity['has_error'];
 
         $statusLabel = match ($allocationStatus) {
-            'ok' => 'Unallocated',
+            'ok' => 'Not Allocated',
             'partially_allocated' => 'Partially Allocated',
             'fully_allocated' => 'Fully Allocated',
             'pending_cheque' => 'Pending Cheque',
-            default => 'Recorded',
+            default => 'Not Allocated',
         };
         $statusBadge = match ($allocationStatus) {
             'ok' => 'bg-amber-50 text-amber-800 border-amber-200',
@@ -1064,7 +1068,7 @@ final class CashbookController extends Controller
     }
 
     /**
-     * @return array{payment_count: int, direct_receipt_count: int, received: float, allocated: float, unallocated: float}
+     * @return array{payment_count: int, direct_receipt_count: int, received: float, allocated: float, unallocated: float, eligible_unallocated: float, direct_received: float}
      */
     private function shopPaymentSummary(int $shopId, string $monthStart, string $monthEnd): array
     {
@@ -1093,13 +1097,27 @@ final class CashbookController extends Controller
         }), 2);
 
         $received = round($paymentReceived + $directReceived, 2);
+        $unallocated = round($paymentRemaining + $directReceived, 2);
+
+        // Eligible unallocated: only reconciled payments with remaining balance.
+        // Direct receipts are always eligible (they'll be converted on execution).
+        // Pending cheque payments are NOT eligible.
+        $eligibleUnallocated = round((float) $payments
+            ->filter(fn (ShopInvoicePaymentRequest $payment): bool => $payment->cheque_status !== 'pending')
+            ->sum(function (ShopInvoicePaymentRequest $payment): float {
+                $snapshot = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
+
+                return max(0, (float) $snapshot['actual_remaining']);
+            }) + $directReceived, 2);
 
         return [
             'payment_count' => (int) $paymentIds->count() + (int) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->count(),
             'direct_receipt_count' => (int) (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))->count(),
             'received' => $received,
             'allocated' => $allocated,
-            'unallocated' => round($paymentRemaining + $directReceived, 2),
+            'unallocated' => $unallocated,
+            'eligible_unallocated' => $eligibleUnallocated,
+            'direct_received' => round($directReceived, 2),
         ];
     }
 
@@ -1113,6 +1131,7 @@ final class CashbookController extends Controller
             ->oldest('payment_date')
             ->oldest('id')
             ->get()
+            ->toBase()
             ->map(function (ShopInvoicePaymentRequest $payment): array {
                 $snapshot = $this->shopPaymentLedgerReconciliationService->allocationIntegritySnapshot($payment);
                 $amount = round((float) $snapshot['total_amount'], 2);
@@ -2350,6 +2369,23 @@ final class CashbookController extends Controller
         ])->with('success', 'Cleared '.$clearedCount.' allocation '.Str::plural('record', $clearedCount).' for the selected payment.');
     }
 
+    public function clearAllShopPaymentAllocationsWeb(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $this->ensureLocalAllocationRepairMode();
+        $currentShop = $this->resolveShop($shop);
+
+        $clearedCount = $this->shopPaymentLedgerReconciliationService
+            ->clearAllShopPaymentAllocations($currentShop, (int) $request->user()->id);
+
+        $month = (string) $request->input('month', today()->format('Y-m'));
+
+        return redirect()->route('admin.cashbook.shop.show', [
+            'shop' => $currentShop->slug ?: $currentShop->shop_id,
+            'month' => $month,
+        ])->with('success', 'Cleared all '.$clearedCount.' allocation '.Str::plural('record', $clearedCount).' for this shop. All received payment records remain intact.');
+    }
+
     public function clearAndReallocateShopPayment(Request $request, int|string $shop): RedirectResponse
     {
         $this->ensureMainAdmin($request);
@@ -2391,13 +2427,41 @@ final class CashbookController extends Controller
         $validated = $request->validate([
             'month' => ['required', 'date_format:Y-m'],
             'expected_total' => ['required', 'numeric', 'min:0.01'],
+            'submission_uuid' => ['required', 'uuid'],
         ]);
 
         $month = (string) $validated['month'];
         $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
         $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+        $submissionUuid = (string) $validated['submission_uuid'];
+        $expectedTotal = round((float) $validated['expected_total'], 2);
 
-        $result = DB::transaction(function () use ($shopId, $monthStart, $monthEnd, $request, $validated): array {
+        $result = DB::transaction(function () use ($shopId, $monthStart, $monthEnd, $request, $submissionUuid, $expectedTotal): array {
+            // Durable idempotency: check if this submission_uuid was already executed.
+            $existingAllocations = ShopPaymentLedgerAllocation::query()
+                ->where('batch_uuid', $submissionUuid)
+                ->lockForUpdate()
+                ->get();
+
+            if ($existingAllocations->isNotEmpty()) {
+                $existingTotal = round((float) $existingAllocations->sum('amount'), 2);
+
+                // Same UUID + same expected total = return original result (idempotent retry).
+                if ($existingTotal === $expectedTotal) {
+                    return [
+                        'created_count' => $existingAllocations->count(),
+                        'allocated_total' => $existingTotal,
+                        'is_replay' => true,
+                    ];
+                }
+
+                // Same UUID + different payload = conflict.
+                throw ValidationException::withMessages([
+                    'submission_uuid' => 'This allocation was already submitted with a different amount (₹'.number_format($existingTotal, 2).'). Refresh and try again.',
+                ]);
+            }
+
+            // Convert direct bank receipts to payment requests before computing eligibility.
             $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd)
                 ->lockForUpdate()
                 ->get()
@@ -2405,6 +2469,7 @@ final class CashbookController extends Controller
                     $this->companyPaymentReconciliationService->verifyPendingShopCollection($statement, (int) $request->user()->id);
                 });
 
+            // Use the same eligible-payments and settlements query for both preview and execution.
             $eligiblePayments = collect($this->bulkEligibleShopPayments($shopId, $monthStart, $monthEnd));
             $openSettlements = $this->shopPaymentLedgerReconciliationService
                 ->getOpenDailySettlements($shopId)
@@ -2416,7 +2481,6 @@ final class CashbookController extends Controller
             $eligibleAmount = round((float) $eligiblePayments->sum('unallocated'), 2);
             $settlementOutstanding = round((float) collect($openSettlements)->sum('remaining_due'), 2);
             $selectedTotal = round(min($eligibleAmount, $settlementOutstanding), 2);
-            $expectedTotal = round((float) $validated['expected_total'], 2);
 
             if ($selectedTotal !== $expectedTotal) {
                 throw ValidationException::withMessages([
@@ -2439,7 +2503,14 @@ final class CashbookController extends Controller
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                $paymentRemaining = round(min((float) $eligiblePayment['unallocated'], $selectedTotal), 2);
+                // Re-verify available amount under lock, not from stale snapshot.
+                $lockedAvailable = round(max(0, $this->shopPaymentLedgerReconciliationService->resolvePaymentAmount($payment)
+                    - (float) ShopPaymentLedgerAllocation::query()
+                        ->where('payment_request_id', $payment->id)
+                        ->lockForUpdate()
+                        ->sum('amount')), 2);
+
+                $paymentRemaining = round(min($lockedAvailable, $selectedTotal), 2);
                 $allocations = [];
 
                 while ($paymentRemaining > 0.0 && $settlementIndex < count($openSettlements)) {
@@ -2470,7 +2541,7 @@ final class CashbookController extends Controller
 
                 if (! empty($allocations)) {
                     $createdCount += $this->shopPaymentLedgerReconciliationService
-                        ->allocatePayment($payment, $allocations, (int) $request->user()->id)
+                        ->allocatePayment($payment, $allocations, (int) $request->user()->id, $submissionUuid)
                         ->count();
                 }
             }
@@ -2478,6 +2549,7 @@ final class CashbookController extends Controller
             return [
                 'created_count' => $createdCount,
                 'allocated_total' => $allocatedTotal,
+                'is_replay' => false,
             ];
         }, attempts: 3);
 

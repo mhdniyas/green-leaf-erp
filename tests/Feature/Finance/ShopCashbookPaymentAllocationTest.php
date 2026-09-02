@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -68,6 +69,9 @@ class ShopCashbookPaymentAllocationTest extends TestCase
 
         foreach ([
             ['code' => 'cash_sales', 'name' => 'Cash Sales', 'category' => 'income'],
+            ['code' => 'paytm', 'name' => 'Paytm', 'category' => 'income'],
+            ['code' => 'card', 'name' => 'Card', 'category' => 'income'],
+            ['code' => 'income_cp', 'name' => 'CP', 'category' => 'income'],
             ['code' => 'rent_expense', 'name' => 'Rent', 'category' => 'expense'],
             ['code' => 'shop_paid_company', 'name' => 'Shop Paid Company', 'category' => 'settlement'],
         ] as $entryType) {
@@ -588,8 +592,7 @@ class ShopCashbookPaymentAllocationTest extends TestCase
             ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
 
         $response->assertOk()
-            ->assertSee('0 Payments Recorded')
-            ->assertSee('Receive First Payment')
+            ->assertSee('Receive Payment')
             ->assertSee('@click="openReceivePayment()"', false)
             ->assertSee('Receive Shop Payment')
             ->assertSee(route('admin.cashbook.shop.receive-payment', $this->profile->slug), false)
@@ -1285,11 +1288,12 @@ class ShopCashbookPaymentAllocationTest extends TestCase
             ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
 
         $response->assertOk()
-            ->assertSee('Payment Count')
             ->assertSee('Total Received')
             ->assertSee('Total Allocated')
             ->assertSee('Total Unallocated')
-            ->assertSee('Allocate All');
+            ->assertSee('Eligible Unallocated')
+            ->assertSee('Settlement Outstanding')
+            ->assertSee('Auto Allocate All');
 
         $summary = $response->viewData('shopPaymentSummary');
         $this->assertSame(5, $summary['payment_count']);
@@ -1303,6 +1307,7 @@ class ShopCashbookPaymentAllocationTest extends TestCase
             ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
                 'month' => '2026-08',
                 'expected_total' => 93653.00,
+                'submission_uuid' => (string) Str::uuid(),
             ])
             ->assertRedirect();
 
@@ -1317,6 +1322,7 @@ class ShopCashbookPaymentAllocationTest extends TestCase
             ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
                 'month' => '2026-08',
                 'expected_total' => 93653.00,
+                'submission_uuid' => (string) Str::uuid(),
             ])
             ->assertSessionHasErrors('expected_total');
 
@@ -1610,5 +1616,1170 @@ class ShopCashbookPaymentAllocationTest extends TestCase
 
         $this->assertSame(100000.00, (float) $paymentA->fresh()->ledgerAllocations()->sum('amount'));
         $this->assertSame(5000.00, (float) $paymentB->fresh()->ledgerAllocations()->sum('amount'));
+    }
+
+    // ── BULK ALLOCATION INCIDENT FIX TESTS ──────────────────────────────
+
+    public function test_bulk_allocation_money_less_than_settlements(): void
+    {
+        // Settlement: ₹250 (2 days of ₹125 each). Money: ₹100.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 125.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-02',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 125.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 100.00,
+                'payment_date' => '2026-08-03',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-100-OF-250',
+            ])
+            ->assertRedirect();
+
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 100.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // All money allocated (₹100), outstanding remains (₹150).
+        $this->assertSame(100.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+
+        // Verify summary shows correct remaining.
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+        $summary = $response->viewData('shopPaymentSummary');
+        $this->assertSame(100.00, $summary['received']);
+        $this->assertSame(100.00, $summary['allocated']);
+        $this->assertSame(0.00, $summary['unallocated']);
+        $this->assertSame(0.00, $summary['eligible_unallocated']);
+
+        // Verify status message renders.
+        $response->assertSee('All available money allocated');
+        $response->assertSee('Settlement outstanding');
+    }
+
+    public function test_bulk_allocation_money_more_than_settlements(): void
+    {
+        // Settlement: ₹100. Money: ₹250.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 250.00,
+                'payment_date' => '2026-08-03',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-250-OF-100',
+            ])
+            ->assertRedirect();
+
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 100.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // Only ₹100 allocated (capped by settlements), ₹150 remains.
+        $this->assertSame(100.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+        $summary = $response->viewData('shopPaymentSummary');
+        $this->assertSame(250.00, $summary['received']);
+        $this->assertSame(100.00, $summary['allocated']);
+        $this->assertSame(150.00, $summary['unallocated']);
+        $this->assertSame(150.00, $summary['eligible_unallocated']);
+
+        $response->assertSee('All eligible settlements cleared');
+    }
+
+    public function test_bulk_allocation_older_settlements_appear_in_preview_and_receive_allocation(): void
+    {
+        // July settlement (older period): ₹200.
+        $julyTx = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-07-15',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 200.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        // August settlement: ₹100.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // August money: ₹250.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 250.00,
+                'payment_date' => '2026-08-05',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-250-CROSS-MONTH',
+            ])
+            ->assertRedirect();
+
+        // Verify the open settlements include July via the view page.
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+        $openSettlements = $response->viewData('openSettlementTransactions');
+        // July settlement must appear in all-time open settlements.
+        $this->assertNotNull($openSettlements->firstWhere('id', $julyTx->id));
+
+        // Execute allocation: ₹250 money, ₹300 outstanding → allocate ₹250.
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 250.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // July should be fully settled first (FIFO).
+        $julyAlloc = ShopPaymentLedgerAllocation::query()
+            ->where('shop_ledger_transaction_id', $julyTx->id)
+            ->sum('amount');
+        $this->assertSame(200.00, (float) $julyAlloc);
+
+        // Total allocated: ₹250. Remaining outstanding: ₹50.
+        $this->assertSame(250.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+    }
+
+    public function test_bulk_allocation_with_existing_partial_allocations(): void
+    {
+        // Settlement: ₹200.
+        $tx = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 200.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        // Money: ₹150.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 150.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-PARTIAL-A',
+            ])
+            ->assertRedirect();
+
+        $paymentA = ShopInvoicePaymentRequest::query()->where('payment_reference', 'PAY-PARTIAL-A')->firstOrFail();
+
+        // Manually allocate ₹30 from payment A.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payment', $this->profile->slug), [
+                'payment_request_id' => $paymentA->id,
+                'allocations' => [
+                    ['ledger_transaction_id' => $tx->id, 'amount' => 30.00],
+                ],
+            ])
+            ->assertRedirect();
+
+        // ₹120 remains unallocated. ₹170 settlement remaining.
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 120.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // Total allocated should be ₹30 (manual) + ₹120 (bulk) = ₹150.
+        $this->assertSame(150.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+
+        // Settlement remaining: ₹200 - ₹150 = ₹50.
+        $reconciliationService = app(ShopPaymentLedgerReconciliationService::class);
+        $open = $reconciliationService->getOpenDailySettlements($this->shop->id);
+        $day = $open->firstWhere('business_date', '2026-08-01');
+        $this->assertSame(50.00, (float) $day['remaining_due']);
+    }
+
+    public function test_bulk_allocation_excludes_ineligible_pending_cheque(): void
+    {
+        // Settlement: ₹200.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 200.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // Cheque (pending) payment: ₹150 — will be floating/unreconciled.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 150.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'cheque',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'CHQ-PENDING-150',
+            ])
+            ->assertRedirect();
+
+        // Also add a reconciled bank payment: ₹50 — eligible.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 50.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-BANK-50',
+            ])
+            ->assertRedirect();
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+        $summary = $response->viewData('shopPaymentSummary');
+
+        // Summary includes only reconciled payments (₹50 bank).
+        // Cheque (₹150) is floating/unreconciled and excluded from summary totals.
+        $this->assertSame(50.00, $summary['received']);
+        $this->assertSame(50.00, $summary['unallocated']);
+        $this->assertSame(50.00, $summary['eligible_unallocated']);
+
+        // The cheque IS visible in the payment list but not in summary.
+        $payments = $response->viewData('allShopPaymentsFormattedList');
+        $chequePayment = collect($payments)->firstWhere('reference', 'CHQ-PENDING-150');
+        $this->assertNotNull($chequePayment);
+        $this->assertSame('CHEQUE', $chequePayment['source']);
+    }
+
+    public function test_fully_allocated_receipts_remain_in_received_totals(): void
+    {
+        // Settlement: ₹100.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // Money: ₹100.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 100.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-100-EXACT',
+            ])
+            ->assertRedirect();
+
+        // Before allocation.
+        $responseBefore = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+        $summaryBefore = $responseBefore->viewData('shopPaymentSummary');
+        $this->assertSame(100.00, $summaryBefore['received']);
+
+        // Allocate all.
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 100.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // After allocation, received total must be unchanged.
+        $responseAfter = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+        $summaryAfter = $responseAfter->viewData('shopPaymentSummary');
+        $this->assertSame(100.00, $summaryAfter['received']);
+        $this->assertSame(100.00, $summaryAfter['allocated']);
+        $this->assertSame(0.00, $summaryAfter['unallocated']);
+
+        // Fully settled message.
+        $responseAfter->assertSee('Fully settled');
+    }
+
+    public function test_direct_receipt_deduplication_before_and_after_conversion(): void
+    {
+        // Settlement: ₹200 across 2 days.
+        $settlementTx = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-02',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // Create a direct bank receipt (CompanyAccountStatementEntry linked to a settlement).
+        $directReceiptTx = $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-03',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 80.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ])['transaction'];
+
+        CompanyAccountStatementEntry::query()->create([
+            'company_account_id' => $this->companyAccount->id,
+            'transaction_date' => '2026-08-03',
+            'value_date' => '2026-08-03',
+            'direction' => 'in',
+            'amount' => 80.00,
+            'reference' => 'DIRECT-RECEIPT-80',
+            'source_type' => ShopLedgerTransaction::class,
+            'source_id' => $directReceiptTx->id,
+            'status' => 'reconciled',
+            'is_finalized' => true,
+        ]);
+
+        // BEFORE conversion — verify counts.
+        $responseBefore = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+        $responseBefore->assertOk();
+        $summaryBefore = $responseBefore->viewData('shopPaymentSummary');
+        $this->assertSame(1, $summaryBefore['direct_receipt_count']);
+        $this->assertSame(80.00, $summaryBefore['received']);
+        $this->assertSame(80.00, $summaryBefore['unallocated']);
+
+        $paymentCountBefore = ShopInvoicePaymentRequest::query()->where('shop_id', $this->shop->id)->count();
+
+        // Execute bulk allocation — converts direct receipt to payment request then allocates.
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 80.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // AFTER conversion — direct receipt moved to payment request path.
+        $paymentCountAfter = ShopInvoicePaymentRequest::query()->where('shop_id', $this->shop->id)->count();
+        $this->assertSame($paymentCountBefore + 1, $paymentCountAfter);
+
+        $responseAfter = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+        $summaryAfter = $responseAfter->viewData('shopPaymentSummary');
+
+        // After conversion, direct receipt count drops to 0 (now tracked as payment request).
+        $this->assertSame(0, $summaryAfter['direct_receipt_count']);
+        // Received total must remain ₹80 — not doubled.
+        $this->assertSame(80.00, $summaryAfter['received']);
+        // All money allocated against settlements.
+        $this->assertSame(80.00, $summaryAfter['allocated']);
+        $this->assertSame(0.00, $summaryAfter['unallocated']);
+
+        // Total allocation records must sum to exactly ₹80.
+        $this->assertSame(80.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+    }
+
+    public function test_same_uuid_retry_returns_original_result(): void
+    {
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 100.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-IDEM-100',
+            ])
+            ->assertRedirect();
+
+        $uuid = (string) Str::uuid();
+
+        // First submission.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 100.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $allocCountAfterFirst = ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->count();
+        $allocSumAfterFirst = (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount');
+
+        // Retry with same UUID and same expected_total — idempotent.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 100.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        // No additional allocations created.
+        $this->assertSame($allocCountAfterFirst, ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->count());
+        $this->assertSame($allocSumAfterFirst, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+    }
+
+    public function test_changed_payload_same_uuid_returns_conflict(): void
+    {
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 200.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 200.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-CONFLICT-200',
+            ])
+            ->assertRedirect();
+
+        $uuid = (string) Str::uuid();
+
+        // First submission with expected_total = 200.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 200.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // Same UUID with DIFFERENT expected_total → conflict error.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 150.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertSessionHasErrors('submission_uuid');
+
+        // Allocation total unchanged (₹200).
+        $this->assertSame(200.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+    }
+
+    public function test_preview_clear_cancel_cause_no_financial_writes(): void
+    {
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 100.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-NO-WRITE-100',
+            ])
+            ->assertRedirect();
+
+        $allocBefore = ShopPaymentLedgerAllocation::query()->count();
+        $paymentsBefore = ShopInvoicePaymentRequest::query()->count();
+
+        // Loading the page (preview) should not create any allocations.
+        $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']))
+            ->assertOk();
+
+        $this->assertSame($allocBefore, ShopPaymentLedgerAllocation::query()->count());
+        $this->assertSame($paymentsBefore, ShopInvoicePaymentRequest::query()->count());
+    }
+
+    public function test_bulk_allocation_shop_month_isolation(): void
+    {
+        // Setup shop A (test fixture) with settlement + money.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 100.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-SHOP-A',
+            ])
+            ->assertRedirect();
+
+        // Setup shop B with its own settlement + money.
+        $shopB = Shop::factory()->create(['name' => 'Other Fresh', 'code' => 'OTHER']);
+        $profileB = ShopLedgerProfile::query()->create([
+            'shop_id' => $shopB->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'other-fresh-'.$shopB->id,
+            'code' => $shopB->code,
+            'name' => $shopB->name,
+            'enabled' => true,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shopB->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 50.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $profileB->slug), [
+                'amount' => 50.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-SHOP-B',
+            ])
+            ->assertRedirect();
+
+        // Allocate shop A only.
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 100.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        // Shop A: ₹100 allocated.
+        $this->assertSame(100.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $this->shop->id)->sum('amount'));
+        // Shop B: ₹0 allocated (untouched).
+        $this->assertSame(0.00, (float) ShopPaymentLedgerAllocation::query()->where('shop_id', $shopB->id)->sum('amount'));
+    }
+
+    public function test_summary_shows_settlement_outstanding_after_full_allocation(): void
+    {
+        // Settlement: ₹300 (₹200 + ₹100). Money: ₹200.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 200.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-08-02',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 100.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $this->profile->slug), [
+                'amount' => 200.00,
+                'payment_date' => '2026-08-03',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-200-OF-300',
+            ])
+            ->assertRedirect();
+
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 200.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+
+        // Settlement Outstanding card should show ₹100 via the view data.
+        $settlementOutstanding = $response->viewData('settlementOutstanding');
+        $this->assertSame(100.00, (float) $settlementOutstanding);
+
+        // The view must render Settlement Outstanding text.
+        $response->assertSee('Settlement Outstanding');
+        $response->assertSee('All available money allocated');
+    }
+
+    public function test_unreceived_cash_sales_keeps_settlement_outstanding_positive_when_paytm_card_fully_allocated(): void
+    {
+        $shop = Shop::factory()->create(['name' => 'Test Shop A', 'code' => 'TEST_A']);
+        $profile = ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'test-shop-a-'.$shop->id,
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'enabled' => true,
+        ]);
+
+        // 1. Cash Sales = ₹500 (held by shop, unreceived by company).
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 500.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // 2. Paytm = ₹1000 (received directly into company bank).
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-02',
+            'entry_type_code' => 'paytm',
+            'amount' => 1000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // Record Company Receipt of Paytm (₹1000).
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+                'amount' => 1000.00,
+                'payment_date' => '2026-08-02',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAYTM-1000-RECV',
+            ])
+            ->assertRedirect();
+
+        // 3. Allocate Paytm received money (₹1000).
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 1000.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+
+        // Total Received = ₹1000, Total Allocated = ₹1000, Unallocated = ₹0.
+        $summary = $response->viewData('shopPaymentSummary');
+        $this->assertSame(1000.00, (float) $summary['received']);
+        $this->assertSame(1000.00, (float) $summary['allocated']);
+        $this->assertSame(0.00, (float) $summary['unallocated']);
+
+        // BUT Settlement Outstanding must equal ₹500 (Cash Sales remaining due).
+        $settlementOutstanding = $response->viewData('settlementOutstanding');
+        $this->assertSame(500.00, (float) $settlementOutstanding);
+
+        // Status banner must show debt remains (amber banner rendered in HTML).
+        $response->assertSee('All available money allocated. Settlement outstanding:');
+    }
+
+    public function test_fully_settled_status_is_allowed_when_all_obligations_are_genuinely_cleared(): void
+    {
+        $shop = Shop::factory()->create(['name' => 'Test Shop B', 'code' => 'TEST_B']);
+        $profile = ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'test-shop-b-'.$shop->id,
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'enabled' => true,
+        ]);
+
+        // 1. Paytm = ₹1000 obligation.
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'paytm',
+            'amount' => 1000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // 2. Receive and allocate ₹1000.
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+                'amount' => 1000.00,
+                'payment_date' => '2026-08-01',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAYTM-FULL-SETTLE',
+            ])
+            ->assertRedirect();
+
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 1000.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+
+        // All obligations cleared => Settlement Outstanding = 0.
+        $settlementOutstanding = $response->viewData('settlementOutstanding');
+        $this->assertSame(0.00, (float) $settlementOutstanding);
+
+        // Fully settled banner is allowed.
+        $response->assertSee('Fully settled — all money allocated and all settlements cleared.');
+    }
+
+    public function test_shop_paid_company_plus_allocation_does_not_cause_double_deduction(): void
+    {
+        $shop = Shop::factory()->create(['name' => 'Test Shop C', 'code' => 'TEST_C']);
+        $profile = ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'test-shop-c-'.$shop->id,
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'enabled' => true,
+        ]);
+
+        // 1. Cash Sales = ₹300, Paytm = ₹700 (Total Gross Payable = ₹1000).
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'cash_sales',
+            'amount' => 300.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'paytm',
+            'amount' => 700.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        // 2. Record shop_paid_company entry (e.g. ₹700 Paytm received into company account).
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+                'amount' => 700.00,
+                'payment_date' => '2026-08-01',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAYTM-700-RECV',
+            ])
+            ->assertRedirect();
+
+        // 3. Allocate ₹700.
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 700.00,
+                'submission_uuid' => $uuid,
+            ])
+            ->assertRedirect();
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $profile->slug, 'month' => '2026-08']));
+
+        $response->assertOk();
+
+        // Settlement Outstanding must equal ₹300 (₹1000 gross - ₹700 allocated), NOT 0 or negative.
+        $settlementOutstanding = $response->viewData('settlementOutstanding');
+        $this->assertSame(300.00, (float) $settlementOutstanding);
+    }
+
+    public function test_details_shows_fully_partially_and_not_allocated_statuses_and_reconciles_totals(): void
+    {
+        $shop = Shop::factory()->create(['name' => 'Test Details Shop', 'code' => 'TEST_DET']);
+        $profile = ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'test-details-shop-'.$shop->id,
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'enabled' => true,
+        ]);
+
+        foreach ([['paytm', 20000.00, '2026-08-01'], ['card', 20000.00, '2026-08-02'], ['income_cp', 20000.00, '2026-08-03']] as [$type, $amt, $date]) {
+            $this->ledgerService->recordEntry([
+                'shop_id' => $shop->id,
+                'business_date' => $date,
+                'entry_type_code' => $type,
+                'amount' => $amt,
+                'funding_source' => 'none',
+                'entered_by' => $this->admin->id,
+            ]);
+        }
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+            'amount' => 20000.00,
+            'payment_date' => '2026-08-01',
+            'payment_method' => 'bank',
+            'company_account_id' => $this->companyAccount->id,
+            'payment_reference' => 'PAY1-FULL',
+        ]);
+        $pay1 = ShopInvoicePaymentRequest::query()->where('payment_reference', 'PAY1-FULL')->firstOrFail();
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+            'amount' => 20000.00,
+            'payment_date' => '2026-08-02',
+            'payment_method' => 'bank',
+            'company_account_id' => $this->companyAccount->id,
+            'payment_reference' => 'PAY2-PART',
+        ]);
+        $pay2 = ShopInvoicePaymentRequest::query()->where('payment_reference', 'PAY2-PART')->firstOrFail();
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+            'amount' => 15000.00,
+            'payment_date' => '2026-08-03',
+            'payment_method' => 'bank',
+            'company_account_id' => $this->companyAccount->id,
+            'payment_reference' => 'PAY3-NONE',
+        ]);
+        $pay3 = ShopInvoicePaymentRequest::query()->where('payment_reference', 'PAY3-NONE')->firstOrFail();
+
+        $tx1 = ShopLedgerTransaction::query()->where('shop_id', $shop->id)->whereDate('business_date', '2026-08-01')->where('settlement_delta', '>', 0)->firstOrFail();
+        ShopPaymentLedgerAllocation::query()->create([
+            'shop_id' => $shop->id,
+            'payment_request_id' => $pay1->id,
+            'shop_ledger_transaction_id' => $tx1->id,
+            'amount' => 20000.00,
+            'allocated_by' => $this->admin->id,
+        ]);
+
+        $tx2 = ShopLedgerTransaction::query()->where('shop_id', $shop->id)->whereDate('business_date', '2026-08-02')->where('settlement_delta', '>', 0)->firstOrFail();
+        ShopPaymentLedgerAllocation::query()->create([
+            'shop_id' => $shop->id,
+            'payment_request_id' => $pay2->id,
+            'shop_ledger_transaction_id' => $tx2->id,
+            'amount' => 1000.00,
+            'allocated_by' => $this->admin->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $profile->slug, 'month' => '2026-08']));
+        $response->assertOk();
+
+        $paymentsList = $response->viewData('allShopPaymentsFormattedList');
+        $items = collect($paymentsList);
+
+        $item1 = $items->firstWhere('reference', 'PAY1-FULL');
+        $item2 = $items->firstWhere('reference', 'PAY2-PART');
+        $item3 = $items->firstWhere('reference', 'PAY3-NONE');
+
+        $this->assertSame('Fully Allocated', $item1['allocation_status_label']);
+        $this->assertSame(20000.00, (float) $item1['amount']);
+        $this->assertSame(20000.00, (float) $item1['allocated']);
+        $this->assertSame(0.00, (float) $item1['unallocated']);
+
+        $this->assertSame('Partially Allocated', $item2['allocation_status_label']);
+        $this->assertSame(20000.00, (float) $item2['amount']);
+        $this->assertSame(1000.00, (float) $item2['allocated']);
+        $this->assertSame(19000.00, (float) $item2['unallocated']);
+
+        $this->assertSame('Not Allocated', $item3['allocation_status_label']);
+        $this->assertSame(15000.00, (float) $item3['amount']);
+        $this->assertSame(0.00, (float) $item3['allocated']);
+        $this->assertSame(15000.00, (float) $item3['unallocated']);
+
+        $summary = $response->viewData('shopPaymentSummary');
+        $sumReceived = $items->sum('amount');
+        $sumAllocated = $items->sum('allocated');
+        $sumUnallocated = $items->sum('unallocated');
+
+        $this->assertSame((float) $summary['received'], (float) $sumReceived);
+        $this->assertSame((float) $summary['allocated'], (float) $sumAllocated);
+        $this->assertSame((float) $summary['unallocated'], (float) $sumUnallocated);
+    }
+
+    public function test_clear_one_payment_allocation_leaves_payment_receipt_intact(): void
+    {
+        $shop = Shop::factory()->create(['name' => 'Test Clear One', 'code' => 'CLR_ONE']);
+        $profile = ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'test-clear-one-'.$shop->id,
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'enabled' => true,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'paytm',
+            'amount' => 5000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+            'amount' => 5000.00,
+            'payment_date' => '2026-08-01',
+            'payment_method' => 'bank',
+            'company_account_id' => $this->companyAccount->id,
+            'payment_reference' => 'SINGLE-PAY-REF',
+        ]);
+        $pay = ShopInvoicePaymentRequest::query()->where('payment_reference', 'SINGLE-PAY-REF')->firstOrFail();
+
+        $tx = ShopLedgerTransaction::query()->where('shop_id', $shop->id)->whereDate('business_date', '2026-08-01')->where('settlement_delta', '>', 0)->firstOrFail();
+        ShopPaymentLedgerAllocation::query()->create([
+            'shop_id' => $shop->id,
+            'payment_request_id' => $pay->id,
+            'shop_ledger_transaction_id' => $tx->id,
+            'amount' => 5000.00,
+            'allocated_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payment.clear', $profile->slug), [
+            'payment_request_id' => $pay->id,
+            'month' => '2026-08',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('shop_invoice_payment_requests', [
+            'id' => $pay->id,
+            'payment_reference' => 'SINGLE-PAY-REF',
+        ]);
+        $this->assertSame(5000.00, (float) $pay->fresh()->requested_amount);
+
+        $this->assertDatabaseMissing('shop_payment_ledger_allocations', [
+            'payment_request_id' => $pay->id,
+        ]);
+    }
+
+    public function test_clear_all_allocations_leaves_payment_requests_and_shop_paid_company_intact(): void
+    {
+        $shop = Shop::factory()->create(['name' => 'Test Clear All', 'code' => 'CLR_ALL']);
+        $profile = ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'test-clear-all-'.$shop->id,
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'enabled' => true,
+        ]);
+
+        $this->ledgerService->recordEntry([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-01',
+            'entry_type_code' => 'paytm',
+            'amount' => 8000.00,
+            'funding_source' => 'none',
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+            'amount' => 8000.00,
+            'payment_date' => '2026-08-01',
+            'payment_method' => 'bank',
+            'company_account_id' => $this->companyAccount->id,
+            'payment_reference' => 'CLEAR-ALL-PAY-REF',
+        ]);
+        $pay = ShopInvoicePaymentRequest::query()->where('payment_reference', 'CLEAR-ALL-PAY-REF')->firstOrFail();
+
+        $uuid = (string) Str::uuid();
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.bulk', $profile->slug), [
+            'month' => '2026-08',
+            'expected_total' => 8000.00,
+            'submission_uuid' => $uuid,
+        ]);
+
+        $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shop->id]);
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.clear-all', $profile->slug), [
+            'month' => '2026-08',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('shop_invoice_payment_requests', ['id' => $pay->id, 'payment_reference' => 'CLEAR-ALL-PAY-REF']);
+        $this->assertSame(8000.00, (float) $pay->fresh()->requested_amount);
+
+        $this->assertDatabaseMissing('shop_payment_ledger_allocations', ['shop_id' => $shop->id]);
+
+        $this->assertDatabaseHas('shop_ledger_transactions', [
+            'shop_id' => $shop->id,
+            'amount' => 8000.00,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.shop.show', ['shop' => $profile->slug, 'month' => '2026-08']));
+        $summary = $response->viewData('shopPaymentSummary');
+        $this->assertSame(8000.00, (float) $summary['received']);
+        $this->assertSame(0.00, (float) $summary['allocated']);
+        $this->assertSame(8000.00, (float) $summary['unallocated']);
+
+        $uuid2 = (string) Str::uuid();
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.bulk', $profile->slug), [
+            'month' => '2026-08',
+            'expected_total' => 8000.00,
+            'submission_uuid' => $uuid2,
+        ])->assertRedirect();
+
+        $response2 = $this->actingAs($this->admin)->get(route('admin.cashbook.shop.show', ['shop' => $profile->slug, 'month' => '2026-08']));
+        $summary2 = $response2->viewData('shopPaymentSummary');
+        $this->assertSame(8000.00, (float) $summary2['received']);
+        $this->assertSame(8000.00, (float) $summary2['allocated']);
+        $this->assertSame(0.00, (float) $summary2['unallocated']);
+    }
+
+    public function test_non_admin_cannot_clear_allocations(): void
+    {
+        $shop = Shop::factory()->create(['name' => 'Test Security Shop', 'code' => 'SEC_SHOP']);
+        $profile = ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'test-security-shop-'.$shop->id,
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'enabled' => true,
+        ]);
+
+        $regularUser = User::factory()->create(['email' => 'regular-staff@example.test']);
+
+        $response = $this->actingAs($regularUser)->post(route('admin.cashbook.shop.allocate-payments.clear-all', $profile->slug), [
+            'month' => '2026-08',
+        ]);
+        $response->assertStatus(403);
+    }
+
+    public function test_clear_all_only_affects_selected_shop_not_another_shop(): void
+    {
+        $shopA = Shop::factory()->create(['name' => 'Shop A', 'code' => 'SHOP_A']);
+        $profileA = ShopLedgerProfile::query()->create([
+            'shop_id' => $shopA->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'shop-a-'.$shopA->id,
+            'code' => $shopA->code,
+            'name' => $shopA->name,
+            'enabled' => true,
+        ]);
+
+        $shopB = Shop::factory()->create(['name' => 'Shop B', 'code' => 'SHOP_B']);
+        $profileB = ShopLedgerProfile::query()->create([
+            'shop_id' => $shopB->id,
+            'uuid' => (string) str()->uuid(),
+            'slug' => 'shop-b-'.$shopB->id,
+            'code' => $shopB->code,
+            'name' => $shopB->name,
+            'enabled' => true,
+        ]);
+
+        foreach ([[$shopA, $profileA, 'A'], [$shopB, $profileB, 'B']] as [$s, $p, $label]) {
+            $this->ledgerService->recordEntry([
+                'shop_id' => $s->id,
+                'business_date' => '2026-08-01',
+                'entry_type_code' => 'paytm',
+                'amount' => 3000.00,
+                'funding_source' => 'none',
+                'entered_by' => $this->admin->id,
+            ]);
+
+            $this->actingAs($this->admin)->post(route('admin.cashbook.shop.receive-payment', $p->slug), [
+                'amount' => 3000.00,
+                'payment_date' => '2026-08-01',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PAY-'.$label,
+            ]);
+
+            $uuid = (string) Str::uuid();
+            $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.bulk', $p->slug), [
+                'month' => '2026-08',
+                'expected_total' => 3000.00,
+                'submission_uuid' => $uuid,
+            ]);
+        }
+
+        $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shopA->id]);
+        $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shopB->id]);
+
+        $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.clear-all', $profileA->slug), [
+            'month' => '2026-08',
+        ])->assertRedirect();
+
+        $this->assertDatabaseMissing('shop_payment_ledger_allocations', ['shop_id' => $shopA->id]);
+        $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shopB->id]);
     }
 }

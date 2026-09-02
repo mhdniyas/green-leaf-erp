@@ -23,6 +23,7 @@ class ShopPaymentLedgerAllocation extends Model
         'shop_ledger_transaction_id',
         'amount',
         'reconciled_by',
+        'batch_uuid',
     ];
 
     protected function casts(): array

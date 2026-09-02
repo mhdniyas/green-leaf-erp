@@ -81,6 +81,7 @@
         paymentsReceived: {{ (float) $totalPaymentsReceived }},
         paymentsAllocated: {{ (float) $totalPaymentsAllocated }},
         paymentsUnallocated: {{ (float) $unallocatedPayments }},
+        eligibleUnallocated: {{ (float) $eligibleUnallocated }},
         settlementDue: {{ (float) $netSettlementDue }},
         settlementAllocated: {{ (float) $totalSettlementAllocated }},
         settlementOutstanding: {{ (float) $settlementOutstanding }},
@@ -94,6 +95,7 @@
         bulkRemainingAfter: {{ (float) $unallocatedPayments }},
         bulkEligibleAmount: {{ (float) collect($bulkEligiblePayments)->sum('unallocated') }},
         bulkSettlementOutstanding: {{ (float) $openSettlementTransactions->sum('remaining_due') }},
+        bulkSubmissionUuid: '',
         isLocalRepairMode: @js(app()->environment(['local', 'testing'])),
         formatCurrency(num) {
             return Number(num || 0).toLocaleString('en-IN', {
@@ -141,6 +143,7 @@
                 this.paymentsReceived = Number(data.company_money_received.received || 0);
                 this.paymentsAllocated = Number(data.company_money_received.allocated || 0);
                 this.paymentsUnallocated = Number(data.company_money_received.unallocated || 0);
+                this.eligibleUnallocated = Number(data.company_money_received.eligible_unallocated || 0);
             }
             if (data.settlement_summary) {
                 this.settlementDue = Number(data.settlement_summary.due || 0);
@@ -183,10 +186,23 @@
         openDetailsListModal() {
             this.showPaymentDetailsListModal = true;
         },
+        generateUuid() {
+            if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID();
+            }
+            if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.getRandomValues === 'function') {
+                return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, function (c) {
+                    return (c ^ window.crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16);
+                });
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                var r = (Math.random() * 16) | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        },
         openBulkAllocateModal() {
-            this.bulkAutoAllocated = false;
-            this.bulkSelectedTotal = 0;
-            this.bulkRemainingAfter = this.paymentsUnallocated;
+            this.bulkSubmissionUuid = this.generateUuid();
+            this.autoAllocateAllPayments();
             this.showBulkAllocateModal = true;
         },
         autoAllocateAllPayments() {
@@ -422,14 +438,10 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <span class="text-[10px] font-black uppercase text-slate-400">Payment Count</span>
-                    <p class="mt-1 text-2xl font-black font-mono text-slate-900" x-text="allPaymentsCount">{{ $shopPaymentSummary['payment_count'] }}</p>
-                </div>
-                <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                    <span class="text-[10px] font-black uppercase text-emerald-700">Total Received</span>
-                    <p class="mt-1 text-xl font-black font-mono text-emerald-800">₹<span x-text="formatCurrency(paymentsReceived)">{{ number_format($totalPaymentsReceived, 2) }}</span></p>
+                    <span class="text-[10px] font-black uppercase text-slate-400">Total Received</span>
+                    <p class="mt-1 text-xl font-black font-mono text-slate-900">₹<span x-text="formatCurrency(paymentsReceived)">{{ number_format($totalPaymentsReceived, 2) }}</span></p>
                 </div>
                 <div class="rounded-2xl border border-sky-200 bg-sky-50 p-4">
                     <span class="text-[10px] font-black uppercase text-sky-700">Total Allocated</span>
@@ -438,6 +450,40 @@
                 <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                     <span class="text-[10px] font-black uppercase text-amber-700">Total Unallocated</span>
                     <p class="mt-1 text-xl font-black font-mono text-amber-800">₹<span x-text="formatCurrency(paymentsUnallocated)">{{ number_format($unallocatedPayments, 2) }}</span></p>
+                </div>
+                <div class="rounded-2xl border p-4"
+                     :class="eligibleUnallocated > 0 ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'">
+                    <span class="text-[10px] font-black uppercase" :class="eligibleUnallocated > 0 ? 'text-emerald-700' : 'text-slate-400'">Eligible Unallocated</span>
+                    <p class="mt-1 text-xl font-black font-mono" :class="eligibleUnallocated > 0 ? 'text-emerald-800' : 'text-slate-500'">₹<span x-text="formatCurrency(eligibleUnallocated)">{{ number_format($eligibleUnallocated, 2) }}</span></p>
+                </div>
+                <div class="rounded-2xl border p-4"
+                     :class="settlementOutstanding > 0 ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50'">
+                    <span class="text-[10px] font-black uppercase" :class="settlementOutstanding > 0 ? 'text-rose-700' : 'text-emerald-700'">Settlement Outstanding</span>
+                    <p class="mt-1 text-xl font-black font-mono" :class="settlementOutstanding > 0 ? 'text-rose-800' : 'text-emerald-800'">₹<span x-text="formatCurrency(settlementOutstanding)">{{ number_format($settlementOutstanding, 2) }}</span></p>
+                </div>
+            </div>
+
+            {{-- Status message: distinguish money-exhausted from settlements-cleared --}}
+            <div class="pt-2" x-show="paymentsReceived > 0 || settlementOutstanding > 0">
+                <div x-show="eligibleUnallocated <= 0 && settlementOutstanding > 0"
+                     class="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 text-xs font-bold">
+                    <i data-lucide="info" class="w-3.5 h-3.5 inline-block mr-1"></i>
+                    All available money allocated. Settlement outstanding: ₹<span x-text="formatCurrency(settlementOutstanding)"></span>.
+                </div>
+                <div x-show="settlementOutstanding <= 0 && eligibleUnallocated > 0"
+                     class="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-900 text-xs font-bold">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5 inline-block mr-1"></i>
+                    All eligible settlements cleared. Unallocated money: ₹<span x-text="formatCurrency(eligibleUnallocated)"></span>.
+                </div>
+                <div x-show="settlementOutstanding <= 0 && eligibleUnallocated <= 0 && paymentsReceived > 0"
+                     class="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-900 text-xs font-bold">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5 inline-block mr-1"></i>
+                    Fully settled — all money allocated and all settlements cleared.
+                </div>
+                <div x-show="paymentsUnallocated > 0 && eligibleUnallocated <= 0 && paymentsUnallocated !== eligibleUnallocated"
+                     class="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-700 text-xs font-bold mt-2">
+                    <i data-lucide="alert-circle" class="w-3.5 h-3.5 inline-block mr-1"></i>
+                    ₹<span x-text="formatCurrency(paymentsUnallocated - eligibleUnallocated)"></span> unallocated but ineligible (pending cheque or unverified).
                 </div>
             </div>
 
@@ -448,9 +494,22 @@
                     <i data-lucide="eye" class="w-4 h-4"></i>
                     <span>Details</span>
                 </button>
+                <form method="POST"
+                      action="{{ route('admin.cashbook.shop.allocate-payments.clear-all', $currentShop->slug) }}"
+                      class="inline-block"
+                      @submit.prevent="if (window.confirm('Clear all payment allocations for this shop? Received payment records will remain, but their settlement allocations will be removed.')) $el.submit()">
+                    @csrf
+                    <input type="hidden" name="month" value="{{ $month }}">
+                    <button type="submit"
+                            :disabled="paymentsAllocated <= 0"
+                            class="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed text-rose-700 border border-rose-200 text-xs font-black transition cursor-pointer">
+                        <i data-lucide="trash-2" class="w-4 h-4 text-rose-600"></i>
+                        <span>Clear All Allocations</span>
+                    </button>
+                </form>
                 <button type="button"
                         @click="openBulkAllocateModal()"
-                        :disabled="paymentsUnallocated <= 0 || bulkSettlementOutstanding <= 0"
+                        :disabled="eligibleUnallocated <= 0 || bulkSettlementOutstanding <= 0"
                         class="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-black shadow-sm transition cursor-pointer">
                     <i data-lucide="check-square" class="w-4 h-4"></i>
                     <span>Auto Allocate All</span>
@@ -2453,6 +2512,7 @@
                 @csrf
                 <input type="hidden" name="month" value="{{ $month }}">
                 <input type="hidden" name="expected_total" :value="bulkSelectedTotal.toFixed(2)">
+                <input type="hidden" name="submission_uuid" :value="bulkSubmissionUuid">
 
                 @if($errors->has('expected_total'))
                     <div class="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 text-xs font-bold font-sans">
@@ -2460,17 +2520,28 @@
                         {{ $errors->first('expected_total') }}
                     </div>
                 @endif
+                @if($errors->has('submission_uuid'))
+                    <div class="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-rose-800 text-xs font-bold font-sans">
+                        <i data-lucide="alert-circle" class="w-4 h-4 inline-block mr-1"></i>
+                        {{ $errors->first('submission_uuid') }}
+                    </div>
+                @endif
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-xs">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
                     <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200">
                         <span class="text-[9px] font-extrabold uppercase text-slate-400 block">Total Received</span>
                         <span class="text-base font-black text-slate-900">₹<span x-text="formatCurrency(paymentsReceived)"></span></span>
-                        <span class="text-[10px] text-slate-500 block font-sans">Total valid receipts in the selected scope</span>
+                        <span class="text-[10px] text-slate-500 block font-sans">Payments: {{ \Carbon\Carbon::createFromFormat('Y-m', $month)->format('F Y') }}</span>
                     </div>
                     <div class="p-4 bg-amber-50 rounded-2xl border border-amber-200">
-                        <span class="text-[9px] font-extrabold uppercase text-amber-700 block">Total Unallocated</span>
-                        <span class="text-base font-black text-amber-800">₹<span x-text="formatCurrency(paymentsUnallocated)"></span></span>
-                        <span class="text-[10px] text-amber-700 block font-sans">Combined available unallocated amount</span>
+                        <span class="text-[9px] font-extrabold uppercase text-amber-700 block">Eligible Unallocated</span>
+                        <span class="text-base font-black text-amber-800">₹<span x-text="formatCurrency(eligibleUnallocated)"></span></span>
+                        <span class="text-[10px] text-amber-700 block font-sans">Available for allocation</span>
+                    </div>
+                    <div class="p-4 rounded-2xl border" :class="bulkSettlementOutstanding > 0 ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'">
+                        <span class="text-[9px] font-extrabold uppercase block" :class="bulkSettlementOutstanding > 0 ? 'text-rose-700' : 'text-emerald-700'">Settlement Outstanding</span>
+                        <span class="text-base font-black" :class="bulkSettlementOutstanding > 0 ? 'text-rose-800' : 'text-emerald-800'">₹<span x-text="formatCurrency(bulkSettlementOutstanding)"></span></span>
+                        <span class="text-[10px] block font-sans" :class="bulkSettlementOutstanding > 0 ? 'text-rose-600' : 'text-emerald-600'">Includes older unpaid days</span>
                     </div>
                     <div class="p-4 bg-emerald-50 rounded-2xl border border-emerald-200">
                         <span class="text-[9px] font-extrabold uppercase text-emerald-700 block">Remaining After Allocation</span>
@@ -2546,6 +2617,21 @@
                 </button>
             </div>
             <div class="p-6 overflow-y-auto">
+                <div class="mb-4 grid grid-cols-3 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 text-center font-mono">
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block font-sans">Total Received</span>
+                        <span class="text-sm font-black text-slate-900">₹{{ number_format($totalPaymentsReceived, 2) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block font-sans">Total Allocated</span>
+                        <span class="text-sm font-black text-emerald-700">₹{{ number_format($totalPaymentsAllocated, 2) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-[9px] font-extrabold uppercase text-slate-400 block font-sans">Total Unallocated</span>
+                        <span class="text-sm font-black text-amber-700">₹{{ number_format($unallocatedPayments, 2) }}</span>
+                    </div>
+                </div>
+
                 <div x-show="paymentsList.length === 0" class="p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-2xl">
                     <i data-lucide="wallet" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
                     <p class="text-xs font-bold">No payment detail rows are available on this page.</p>
@@ -2594,6 +2680,20 @@
                                                 <i data-lucide="eye" class="w-3 h-3"></i>
                                                 <span>Details</span>
                                             </button>
+                                            <template x-if="Number(payment.allocated) > 0">
+                                                <form method="POST"
+                                                      action="{{ route('admin.cashbook.shop.allocate-payment.clear', $currentShop->slug) }}"
+                                                      class="inline-block"
+                                                      @submit.prevent="if (window.confirm('Clear allocations for this payment? The received payment record will remain, but its allocations will be cleared.')) $el.submit()">
+                                                    @csrf
+                                                    <input type="hidden" name="payment_request_id" :value="payment.id">
+                                                    <input type="hidden" name="month" value="{{ $month }}">
+                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer">
+                                                        <i data-lucide="x-circle" class="w-3 h-3 text-rose-600"></i>
+                                                        <span>Clear Allocation</span>
+                                                    </button>
+                                                </form>
+                                            </template>
                                             <template x-if="payment.can_allocate && Number(payment.unallocated) > 0 && payment.cheque_status !== 'pending'">
                                                 <button type="button" @click="openAllocateModal(payment)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer">
                                                     <i data-lucide="check-square" class="w-3 h-3"></i>
@@ -2607,6 +2707,17 @@
                         </tbody>
                     </table>
                 </div>
+
+                @if ($allShopPayments->hasPages())
+                    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-sans">
+                        <div>
+                            Showing <span class="font-bold text-slate-800">{{ $allShopPayments->firstItem() ?? 0 }}</span> to <span class="font-bold text-slate-800">{{ $allShopPayments->lastItem() ?? 0 }}</span> of <span class="font-bold text-slate-800">{{ $allShopPayments->total() }}</span> payments
+                        </div>
+                        <div>
+                            {{ $allShopPayments->appends(request()->query())->links() }}
+                        </div>
+                    </div>
+                @endif
             </div>
         </div>
     </div>
