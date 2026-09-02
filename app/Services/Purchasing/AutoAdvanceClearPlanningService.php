@@ -16,6 +16,7 @@ class AutoAdvanceClearPlanningService
     public function __construct(
         private readonly WarehouseReceiptStateResolver $receiptStateResolver,
         private readonly AdvanceAvailableBalanceCalculator $balanceCalculator,
+        private readonly WarehouseReceiptReadScope $readScope,
     ) {}
 
     /**
@@ -44,7 +45,7 @@ class AutoAdvanceClearPlanningService
         $warnings = [];
 
         // 1. Pre-load all eligible pending purchase orders and their goods receipts
-        $pendingOrders = PurchaseOrder::query()
+        $pendingOrdersQuery = PurchaseOrder::query()
             ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
             ->where(function (Builder $pending): void {
                 $pending->whereHas('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
@@ -52,8 +53,11 @@ class AutoAdvanceClearPlanningService
                         $withoutPendingReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
                             ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
                     });
-            })
-            ->where('destination_shop_id', $warehouseId)
+            });
+
+        $this->readScope->orders($pendingOrdersQuery, [$warehouseId]);
+
+        $pendingOrders = $pendingOrdersQuery
             ->with([
                 'items.product.orderUnits',
                 'supplier:id,name',

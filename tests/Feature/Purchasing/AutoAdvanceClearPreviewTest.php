@@ -871,4 +871,116 @@ class AutoAdvanceClearPreviewTest extends TestCase
 
         $this->assertNotSame($hash1, $hash2);
     }
+
+    public function test_auto_match_warehouse_scope_parity_where_destination_shop_id_differs(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
+
+        // PO where destination_shop_id is set to shop->id (not warehouseA->id directly),
+        // but product default_warehouse_id is warehouseA->id (matched via WarehouseReceiptReadScope)
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-SCOPE-PARITY-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-08-25',
+            'destination_shop_id' => $this->shop->id,
+            'created_by' => $this->warehouseUser->id,
+        ]);
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'product_id' => $this->apple->id,
+            'quantity' => 50.0,
+            'purchase_unit' => 'kg',
+            'unit_price' => 50.0,
+        ]);
+
+        // 1. Manual Match candidates sees the PO via WarehouseReceiptReadScope
+        $manualRes = $this->getJson("/api/v1/purchasing/grns/advance-match-candidates?warehouse_id={$this->warehouseA->id}");
+        $manualRes->assertOk();
+        $manualPoIds = array_column($manualRes->json('data'), 'id');
+        $this->assertContains($po->id, $manualPoIds, 'Manual Match candidates did not return scope-matched PO!');
+
+        // 2. Auto Clear preview ALSO sees and matches the PO via WarehouseReceiptReadScope
+        $autoRes = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}");
+        $autoRes->assertOk();
+        $autoData = $autoRes->json('data');
+        $this->assertEquals(1, $autoData['summary']['ready_bills']);
+        $this->assertEquals($po->id, $autoData['ready_bills'][0]['purchase_order_id']);
+        $this->assertEquals(50.0, $autoData['ready_bills'][0]['matched_base_qty']);
+    }
+
+    public function test_candidate_orders_query_count_is_bounded_and_does_not_scale_per_item(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->createAdvance($this->warehouseA, $this->apple, 100.0, "2026-08-0{$i}");
+        }
+
+        for ($i = 0; $i < 25; $i++) {
+            $this->createPendingBill($this->warehouseA, [
+                ['product_id' => $this->apple->id, 'quantity' => 20.0],
+                ['product_id' => $this->banana->id, 'quantity' => 15.0],
+            ], '2026-08-10', "PO-PERF-{$i}");
+        }
+
+        // Warm up
+        $this->getJson("/api/v1/purchasing/grns/advance-match-candidates?warehouse_id={$this->warehouseA->id}&per_page=25")->assertOk();
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $res = $this->getJson("/api/v1/purchasing/grns/advance-match-candidates?warehouse_id={$this->warehouseA->id}&per_page=25");
+        $res->assertOk();
+
+        $queries = DB::getQueryLog();
+        $queryCount = count($queries);
+
+        $this->assertLessThanOrEqual(17, $queryCount, "Candidate orders query count {$queryCount} exceeded bounded threshold <= 17");
+    }
+
+    public function test_goods_received_serialization_does_not_trigger_n_plus_one_queries_for_purchaser_cart(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        for ($i = 0; $i < 20; $i++) {
+            $po = $this->createPendingBill($this->warehouseA, [
+                ['product_id' => $this->apple->id, 'quantity' => 10.0],
+            ], '2026-08-10', "PO-SERIAL-{$i}");
+
+            GoodsReceived::create([
+                'public_uuid' => (string) Str::uuid(),
+                'warehouse_id' => $this->warehouseA->id,
+                'destination_shop_id' => $this->warehouseA->id,
+                'purchase_order_id' => $po->id,
+                'grn_number' => "GRN-SERIAL-{$i}",
+                'status' => 'approved',
+                'bill_status' => 'bill_available',
+                'receipt_type' => 'normal_purchase',
+                'received_by' => $this->warehouseUser->id,
+                'received_at' => '2026-08-10',
+            ]);
+        }
+
+        // Warm up auth
+        $this->getJson("/api/v1/purchasing/grns?warehouse_id={$this->warehouseA->id}&per_page=1")->assertOk();
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $res5 = $this->getJson("/api/v1/purchasing/grns?warehouse_id={$this->warehouseA->id}&per_page=5");
+        $res5->assertOk();
+        $q5 = count(DB::getQueryLog());
+
+        DB::flushQueryLog();
+
+        $res20 = $this->getJson("/api/v1/purchasing/grns?warehouse_id={$this->warehouseA->id}&per_page=20");
+        $res20->assertOk();
+        $q20 = count(DB::getQueryLog());
+
+        $this->assertEquals($q5, $q20, "Query count for 20 GRNs ({$q20}) differed from 5 GRNs ({$q5}), indicating N+1 query leak in serialization.");
+        $this->assertLessThanOrEqual(15, $q20);
+    }
 }

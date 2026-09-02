@@ -44,7 +44,7 @@ class AdvanceReceiveReconciliationService
      * @param  array<string, float>|null  $loadoutsByCohort
      * @return array<string, mixed>
      */
-    public function getSuggestionsForOrder(PurchaseOrder $order, ?int $warehouseId = null, ?array $loadoutsByCohort = null): array
+    public function getSuggestionsForOrder(PurchaseOrder $order, ?int $warehouseId = null, ?array $loadoutsByCohort = null, ?array $preloadedCandidatesByProduct = null): array
     {
         $order->loadMissing(['items.product.orderUnits', 'supplier']);
         $targetWarehouseId = $warehouseId ?? $order->destination_shop_id ?? $order->warehouse_id;
@@ -75,7 +75,7 @@ class AdvanceReceiveReconciliationService
             }
 
             // Find all confirmed open/partial Advance GRN items for this product
-            $candidates = $this->getOpenAdvanceCandidatesForProduct($product->id, $targetWarehouseId);
+            $candidates = $preloadedCandidatesByProduct !== null ? ($preloadedCandidatesByProduct[$product->id] ?? []) : $this->getOpenAdvanceCandidatesForProduct($product->id, $targetWarehouseId);
 
             $suggestedMatches = [];
             $remainingNeededBase = $billBaseQty;
@@ -398,7 +398,7 @@ class AdvanceReceiveReconciliationService
 
             foreach ($grn->items as $grnItem) {
                 /** @var Product|null $product */
-                $product = $grnItem->relationLoaded('product') ? $grnItem->product : Product::find($grnItem->product_id);
+                $product = $grnItem->product;
                 $conv = (float) ($product?->conversionToBaseForUnit($grnItem->received_unit) ?? 1.0);
                 $originalQty = (float) $grnItem->received_qty;
                 $originalBaseQty = $originalQty * $conv;
@@ -1272,6 +1272,99 @@ class AdvanceReceiveReconciliationService
      *
      * @param  array<string, mixed>  $filters
      */
+    /**
+     * Pre-load open advance candidates in bulk for a list of products in memory.
+     * Avoids per-product N+1 DB queries during paginated candidate matching.
+     *
+     * @param  array<int>|null  $productIds
+     * @return array<int, array<int, array<string, mixed>>>
+     */
+    public function preloadOpenAdvanceCandidates(?int $warehouseId = null, ?array $productIds = null): array
+    {
+        $advanceGrns = GoodsReceived::query()
+            ->openWarehouseAdvance($warehouseId, $productIds !== null && count($productIds) === 1 ? $productIds[0] : null)
+            ->with([
+                'items' => fn ($q) => $q->when($productIds !== null, fn ($pq) => $pq->whereIn('product_id', $productIds))->with('product.orderUnits'),
+                'stockBatches' => fn ($q) => $q->when($productIds !== null, fn ($pq) => $pq->whereIn('product_id', $productIds))->where('warehouse_receive_pending', false),
+            ])
+            ->orderBy('received_at')
+            ->orderBy('id')
+            ->get();
+
+        $advanceIds = $advanceGrns->pluck('id')->all();
+        $allMatches = $advanceIds !== []
+            ? AdvanceReceiveMatch::query()->whereIn('advance_goods_received_id', $advanceIds)->get()
+            : collect();
+
+        $matchesByAdvanceId = $allMatches->groupBy('advance_goods_received_id');
+        $candidatesByProduct = [];
+
+        foreach ($advanceGrns as $grn) {
+            $grnMatches = $matchesByAdvanceId->get($grn->id, collect());
+
+            $legacyUnassignedMatchedBase = [];
+            foreach ($grnMatches->whereNull('advance_goods_received_item_id') as $m) {
+                $legacyUnassignedMatchedBase[$m->product_id] = ($legacyUnassignedMatchedBase[$m->product_id] ?? 0.0) + (float) $m->base_qty;
+            }
+
+            foreach ($grn->items as $grnItem) {
+                $pId = (int) $grnItem->product_id;
+                if ($productIds !== null && ! in_array($pId, $productIds, true)) {
+                    continue;
+                }
+
+                /** @var Product|null $product */
+                $product = $grnItem->relationLoaded('product') ? $grnItem->product : Product::find($grnItem->product_id);
+                $conv = (float) ($product?->conversionToBaseForUnit($grnItem->received_unit) ?? 1.0);
+                $originalQty = (float) $grnItem->received_qty;
+                $originalBaseQty = $originalQty * $conv;
+
+                $explicitItemMatchedBase = (float) $grnMatches
+                    ->where('advance_goods_received_item_id', $grnItem->id)
+                    ->sum('base_qty');
+
+                $itemRemainingBase = max(0.0, $originalBaseQty - $explicitItemMatchedBase);
+
+                $legacyPool = (float) ($legacyUnassignedMatchedBase[$pId] ?? 0.0);
+                $legacyApplied = 0.0;
+                if ($legacyPool > 0.0001 && $itemRemainingBase > 0.0001) {
+                    $legacyApplied = min($itemRemainingBase, $legacyPool);
+                    $legacyUnassignedMatchedBase[$pId] = $legacyPool - $legacyApplied;
+                    $itemRemainingBase = max(0.0, $itemRemainingBase - $legacyApplied);
+                }
+
+                $totalMatchedBaseForItem = $explicitItemMatchedBase + $legacyApplied;
+                $availableBaseQty = round($itemRemainingBase, 3);
+                $availableItemQty = $conv > 0 ? round($availableBaseQty / $conv, 3) : $availableBaseQty;
+
+                if ($availableBaseQty <= 0.0001) {
+                    continue;
+                }
+
+                $batch = $grn->stockBatches->firstWhere('goods_received_item_id', $grnItem->id)
+                    ?? $grn->stockBatches->first();
+
+                $candidatesByProduct[$pId][] = [
+                    'advance_goods_received_id' => $grn->id,
+                    'advance_goods_received_item_id' => $grnItem->id,
+                    'advance_stock_batch_id' => $batch?->id,
+                    'grn_number' => $grn->grn_number,
+                    'received_at' => $grn->received_at?->toDateString() ?? $grn->created_at?->toDateString(),
+                    'unit' => $grnItem->received_unit ?? 'kg',
+                    'original_qty' => $originalQty,
+                    'original_base_qty' => round($originalBaseQty, 3),
+                    'already_matched_qty' => $conv > 0 ? round($totalMatchedBaseForItem / $conv, 3) : round($totalMatchedBaseForItem, 3),
+                    'already_matched_base_qty' => round($totalMatchedBaseForItem, 3),
+                    'available_qty' => $availableItemQty,
+                    'available_base_qty' => $availableBaseQty,
+                    'status' => $totalMatchedBaseForItem > 0.0001 ? 'partial' : 'open',
+                ];
+            }
+        }
+
+        return $candidatesByProduct;
+    }
+
     public function paginateMatchCandidates(array $filters = [], int $perPage = 25): LengthAwarePaginator
     {
         $search = trim((string) ($filters['search'] ?? ''));
@@ -1347,9 +1440,13 @@ class AdvanceReceiveReconciliationService
             }
         }
 
+        $candidatesByProduct = ! empty($productIds)
+            ? $this->preloadOpenAdvanceCandidates($warehouseId, $productIds)
+            : [];
+
         // Attach suggestion and reconciliation context
-        $paginator->getCollection()->transform(function (PurchaseOrder $order) use ($warehouseId, $loadoutsByCohort): array {
-            $suggestions = $this->getSuggestionsForOrder($order, $warehouseId, $loadoutsByCohort);
+        $paginator->getCollection()->transform(function (PurchaseOrder $order) use ($warehouseId, $loadoutsByCohort, $candidatesByProduct): array {
+            $suggestions = $this->getSuggestionsForOrder($order, $warehouseId, $loadoutsByCohort, $candidatesByProduct);
             $receiptState = app(WarehouseReceiptStateResolver::class)->forOrder($order);
 
             return [

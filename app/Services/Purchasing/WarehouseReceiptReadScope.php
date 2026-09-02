@@ -88,7 +88,10 @@ class WarehouseReceiptReadScope
                     ->whereDoesntHave('goodsReceiveds', fn (Builder $foreignReceipt) => $foreignReceipt->whereNot(fn (Builder $allowed) => $this->receipts($allowed, $ids)));
             })->orWhere(function (Builder $withoutReceipts) use ($ids): void {
                 $withoutReceipts->whereDoesntHave('goodsReceiveds');
-                $this->productItems($withoutReceipts, $ids);
+                $withoutReceipts->where(function (Builder $location) use ($ids): void {
+                    $location->whereIn('purchase_orders.destination_shop_id', $ids)
+                        ->orWhere(fn (Builder $pi) => $this->productItems($pi, $ids));
+                });
             });
         });
     }

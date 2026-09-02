@@ -50,7 +50,7 @@ class GoodsReceivedService
                 'updated_at',
             ])
             ->where('status', '!=', 'draft')
-            ->with(['purchaseOrder:id,supplier_id,destination_shop_id', 'purchaseOrder.supplier:id,name', 'purchaseOrder.destinationShop:id,name', 'destinationShop:id,name', 'receivedBy:id,name'])
+            ->with(['purchaseOrder:id,supplier_id,destination_shop_id', 'purchaseOrder.supplier:id,name', 'purchaseOrder.destinationShop:id,name', 'purchaseOrder.purchaserCart:id,purchase_order_id,purchase_source', 'destinationShop:id,name', 'receivedBy:id,name'])
             ->withCount(['items', 'purchaseInvoices'])
             ->withSum('items', 'received_qty')
             ->selectSub(function ($sub): void {
