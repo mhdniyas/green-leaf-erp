@@ -2374,7 +2374,6 @@ final class CashbookController extends Controller
     public function clearAllShopPaymentAllocationsWeb(Request $request, int|string $shop): RedirectResponse
     {
         $this->ensureMainAdmin($request);
-        $this->ensureLocalAllocationRepairMode();
         $currentShop = $this->resolveShop($shop);
 
         $clearedCount = $this->shopPaymentLedgerReconciliationService

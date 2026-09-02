@@ -17,6 +17,7 @@ use App\Models\JournalEntry;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
+use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CompanyMoneyPositionService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
@@ -2724,6 +2725,104 @@ class ShopCashbookPaymentAllocationTest extends TestCase
             'month' => '2026-08',
         ]);
         $response->assertStatus(403);
+    }
+
+    public function test_clear_all_allocations_works_in_production_environment(): void
+    {
+        $this->withoutMiddleware();
+        $previousEnv = app()->environment();
+        app()['env'] = 'production';
+
+        try {
+            $shop = Shop::factory()->create(['name' => 'Prod Clear All', 'code' => 'PROD_CLR']);
+            $profile = ShopLedgerProfile::query()->create([
+                'shop_id' => $shop->id,
+                'uuid' => (string) str()->uuid(),
+                'slug' => 'prod-clear-all-'.$shop->id,
+                'code' => $shop->code,
+                'name' => $shop->name,
+                'enabled' => true,
+            ]);
+            app(CashbookShopSyncService::class)->syncAndGetProfiles();
+
+            $this->ledgerService->recordEntry([
+                'shop_id' => $shop->id,
+                'business_date' => '2026-08-01',
+                'entry_type_code' => 'paytm',
+                'amount' => 5000.00,
+                'funding_source' => 'none',
+                'entered_by' => $this->admin->id,
+            ]);
+
+            $this->actingAs($this->admin)->post(route('admin.cashbook.shop.receive-payment', $profile->slug), [
+                'amount' => 5000.00,
+                'payment_date' => '2026-08-01',
+                'payment_method' => 'bank',
+                'company_account_id' => $this->companyAccount->id,
+                'payment_reference' => 'PROD-PAY-REF',
+            ]);
+
+            $uuid = (string) Str::uuid();
+            $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.bulk', $profile->slug), [
+                'month' => '2026-08',
+                'expected_total' => 5000.00,
+                'submission_uuid' => $uuid,
+            ]);
+
+            $this->assertDatabaseHas('shop_payment_ledger_allocations', ['shop_id' => $shop->id]);
+
+            $response = $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payments.clear-all', $profile->slug), [
+                'month' => '2026-08',
+            ]);
+            $response->assertRedirect();
+
+            $this->assertDatabaseMissing('shop_payment_ledger_allocations', ['shop_id' => $shop->id]);
+            $this->assertDatabaseHas('shop_invoice_payment_requests', ['payment_reference' => 'PROD-PAY-REF']);
+
+            $this->assertDatabaseHas('activity_log', [
+                'log_name' => 'shop_cashbook.clear_all_allocations',
+                'subject_id' => $shop->id,
+            ]);
+        } finally {
+            app()['env'] = $previousEnv;
+        }
+    }
+
+    public function test_other_repair_endpoints_remain_restricted_in_production(): void
+    {
+        $this->withoutMiddleware();
+        $previousEnv = app()->environment();
+        app()['env'] = 'production';
+
+        try {
+            $shop = Shop::factory()->create(['name' => 'Prod Other Repair', 'code' => 'PROD_OTH']);
+            $profile = ShopLedgerProfile::query()->create([
+                'shop_id' => $shop->id,
+                'uuid' => (string) str()->uuid(),
+                'slug' => 'prod-other-repair-'.$shop->id,
+                'code' => $shop->code,
+                'name' => $shop->name,
+                'enabled' => true,
+            ]);
+            app(CashbookShopSyncService::class)->syncAndGetProfiles();
+
+            $payment = ShopInvoicePaymentRequest::factory()->create([
+                'shop_id' => $shop->id,
+                'requested_amount' => 1000.00,
+            ]);
+
+            $res1 = $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payment.clear', $profile->slug), [
+                'payment_request_id' => $payment->id,
+            ]);
+            $res1->assertStatus(403);
+
+            $res2 = $this->actingAs($this->admin)->post(route('admin.cashbook.shop.allocate-payment.clear-reallocate', $profile->slug), [
+                'payment_request_id' => $payment->id,
+            ]);
+            $res2->assertStatus(403);
+        } finally {
+            app()['env'] = $previousEnv;
+        }
     }
 
     public function test_clear_all_only_affects_selected_shop_not_another_shop(): void

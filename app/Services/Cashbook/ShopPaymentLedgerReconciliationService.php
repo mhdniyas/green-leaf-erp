@@ -12,10 +12,12 @@ use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
+use App\Models\User;
 use App\Services\Finance\JournalService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -502,15 +504,22 @@ class ShopPaymentLedgerReconciliationService
      * Leaves ShopInvoicePaymentRequest, received payment records, bank reconciliations,
      * shop_paid_company ledger receipts, and settlement obligations 100% untouched.
      */
-    public function clearAllShopPaymentAllocations(Shop|ShopLedgerProfile|int $shop, int $userId): int
+    public function clearAllShopPaymentAllocations(Shop|ShopLedgerProfile|int $shop, int $userId, ?string $reason = null): int
     {
+        $shopModel = match (true) {
+            $shop instanceof Shop => $shop,
+            $shop instanceof ShopLedgerProfile => Shop::query()->where('id', $shop->shop_id)->first() ?? $shop,
+            default => Shop::query()->where('id', $shop)->first(),
+        };
+
         $shopId = match (true) {
             $shop instanceof Shop => (int) $shop->id,
             $shop instanceof ShopLedgerProfile => (int) $shop->shop_id,
             default => (int) $shop,
         };
 
-        return DB::transaction(function () use ($shopId): int {
+        return DB::transaction(function () use ($shopModel, $shopId, $userId, $reason): int {
+            // 1. Lock allocation rows for target shop
             $allocations = ShopPaymentLedgerAllocation::query()
                 ->where('shop_id', $shopId)
                 ->lockForUpdate()
@@ -521,9 +530,93 @@ class ShopPaymentLedgerReconciliationService
                 return 0;
             }
 
-            return (int) ShopPaymentLedgerAllocation::query()
+            // 2. Capture allocation metrics
+            $paymentIds = $allocations->pluck('payment_request_id')->unique()->filter()->values()->all();
+            $billIds = $allocations->pluck('shop_ledger_transaction_id')->unique()->filter()->values()->all();
+            $totalReleased = round((float) $allocations->sum('amount'), 2);
+
+            // 3. Lock affected ShopInvoicePaymentRequest rows
+            if (! empty($paymentIds)) {
+                ShopInvoicePaymentRequest::query()
+                    ->whereIn('id', $paymentIds)
+                    ->lockForUpdate()
+                    ->get();
+            }
+
+            // 4. Lock affected ShopLedgerTransaction rows
+            if (! empty($billIds)) {
+                ShopLedgerTransaction::query()
+                    ->whereIn('id', $billIds)
+                    ->lockForUpdate()
+                    ->get();
+            }
+
+            // 5. Delete ONLY ShopPaymentLedgerAllocation rows for target shop
+            $clearedCount = (int) ShopPaymentLedgerAllocation::query()
                 ->whereIn('id', $allocationIds)
                 ->delete();
+
+            // 6. Verify allocations for this scope are now zero
+            $remainingAllocationsCount = ShopPaymentLedgerAllocation::query()
+                ->where('shop_id', $shopId)
+                ->count();
+
+            if ($remainingAllocationsCount !== 0) {
+                throw new \RuntimeException('Allocation clear verification failed: allocations remain for scope.');
+            }
+
+            // 7. Verify original payment rows still exist
+            if (! empty($paymentIds)) {
+                $remainingPaymentCount = ShopInvoicePaymentRequest::query()
+                    ->whereIn('id', $paymentIds)
+                    ->count();
+
+                if ($remainingPaymentCount !== count($paymentIds)) {
+                    throw new \RuntimeException('Allocation clear verification failed: original payment records were affected.');
+                }
+            }
+
+            // 8. Server diagnostic log
+            Log::info('Shop payment allocations cleared for shop', [
+                'shop_id' => $shopId,
+                'admin_user_id' => $userId,
+                'action' => 'clear_all_shop_payment_allocations',
+                'allocation_ids' => $allocationIds,
+                'payment_request_ids' => $paymentIds,
+                'shop_ledger_transaction_ids' => $billIds,
+                'allocation_count' => $clearedCount,
+                'total_released_amount' => $totalReleased,
+                'reason' => $reason,
+                'timestamp' => now()->toIso8601String(),
+            ]);
+
+            // 9. Durable application activity log
+            $actor = $userId > 0 ? User::find($userId) : auth()->user();
+            $activity = activity('shop_cashbook.clear_all_allocations')
+                ->withProperties([
+                    'action' => 'clear_all_shop_payment_allocations',
+                    'shop_id' => $shopId,
+                    'shop_name' => $shopModel instanceof Shop ? $shopModel->name : null,
+                    'shop_code' => $shopModel instanceof Shop ? $shopModel->code : null,
+                    'admin_user_id' => $userId,
+                    'allocation_ids' => $allocationIds,
+                    'payment_request_ids' => $paymentIds,
+                    'shop_ledger_transaction_ids' => $billIds,
+                    'allocation_count' => $clearedCount,
+                    'total_released_amount' => $totalReleased,
+                    'reason' => $reason,
+                    'timestamp' => now()->toIso8601String(),
+                ]);
+
+            if ($shopModel) {
+                $activity->performedOn($shopModel);
+            }
+            if ($actor) {
+                $activity->causedBy($actor);
+            }
+            $activity->log('shop_cashbook.clear_all_allocations');
+
+            return $clearedCount;
         }, attempts: 3);
     }
 

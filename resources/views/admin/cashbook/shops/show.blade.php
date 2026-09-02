@@ -497,7 +497,12 @@
                 <form method="POST"
                       action="{{ route('admin.cashbook.shop.allocate-payments.clear-all', $currentShop->slug) }}"
                       class="inline-block"
-                      @submit.prevent="if (window.confirm('Clear all payment allocations for this shop? Received payment records will remain, but their settlement allocations will be removed.')) $el.submit()">
+                      @submit.prevent="
+                          const paymentsAffected = (paymentsList || []).filter(p => Number(p.allocated || 0) > 0).length;
+                          const settlementsAffected = (openSettlementsList || []).filter(s => Number(s.already_allocated || 0) > 0).length;
+                          const msg = 'Clear all payment allocations for this shop?\n\nThis will remove all bill allocations and return the allocated amounts to the payments\' unallocated balance.\n\nThe original payment records will remain unchanged.\n\nImpact:\n• Payments affected: ' + paymentsAffected + '\n• Amount released to release: ₹' + formatCurrency(paymentsAllocated) + '\n• Bills/ledger entries affected: ' + settlementsAffected;
+                          if (window.confirm(msg)) $el.submit();
+                      ">
                     @csrf
                     <input type="hidden" name="month" value="{{ $month }}">
                     <button type="submit"
