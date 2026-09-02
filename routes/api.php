@@ -102,6 +102,8 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::apiResource('suppliers', SupplierController::class);
             Route::apiResource('orders', PurchaseOrderController::class);
             Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
+            Route::get('advance-inventory', [GoodsReceivedController::class, 'advanceInventory'])->name('advance-inventory');
+            Route::get('grns/advance-inventory', [GoodsReceivedController::class, 'advanceInventory'])->name('grns.advance-inventory');
             Route::get('grns/pending-suggestions', [GoodsReceivedController::class, 'pendingSuggestions'])->name('grns.pending-suggestions');
             Route::get('grns/advance-match-suggestions', [GoodsReceivedController::class, 'advanceMatchSuggestions'])->name('grns.advance-match-suggestions');
             Route::get('grns/advance-match-candidates', [GoodsReceivedController::class, 'advanceMatchCandidates'])->name('grns.advance-match-candidates');

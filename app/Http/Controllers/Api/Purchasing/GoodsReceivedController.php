@@ -12,6 +12,7 @@ use App\Http\Resources\Purchasing\GoodsReceivedSummaryResource;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
+use App\Services\Purchasing\AdvanceInventoryService;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\AutoAdvanceClearExecutionService;
 use App\Services\Purchasing\AutoAdvanceClearPlanningService;
@@ -28,6 +29,30 @@ class GoodsReceivedController extends Controller
     public function __construct(
         private readonly GoodsReceivedService $service,
     ) {}
+
+    
+    public function advanceInventory(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'date' => ['nullable', 'date'],
+            'search' => ['nullable', 'string', 'max:120'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $validated['authorized_warehouse_ids'] = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null
+        );
+
+        $perPage = (int) ($validated['per_page'] ?? 20);
+        $paginator = app(AdvanceInventoryService::class)->paginateDailyInventory($validated, $perPage);
+
+        return ApiResponse::paginated($paginator);
+    }
 
     public function index(Request $request): JsonResponse
     {

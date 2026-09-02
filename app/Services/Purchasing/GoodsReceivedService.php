@@ -115,7 +115,17 @@ class GoodsReceivedService
             }
         }
 
-        if (! empty($filters['date'])) {
+        $isOperationalAdvance = ! empty($filters['operational_advance']) || (! empty($filters['receipt_type']) && $filters['receipt_type'] === 'warehouse_advance' && empty($filters['bill_status']) && empty($filters['audit_mode']));
+        if ($isOperationalAdvance) {
+            $cutoffDate = Carbon::parse($filters['date'] ?? now()->toDateString())->subDays(3)->toDateString();
+            $query->where(function ($advScope) use ($cutoffDate): void {
+                $advScope->where(function ($open): void {
+                    $open->openWarehouseAdvance();
+                })->orWhere(function ($recent) use ($cutoffDate): void {
+                    $recent->whereDate('goods_received.received_at', '>=', $cutoffDate);
+                });
+            });
+        } elseif (! empty($filters['date'])) {
             $query->whereDate('received_at', $filters['date']);
         }
 
