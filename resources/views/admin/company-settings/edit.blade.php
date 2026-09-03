@@ -122,6 +122,28 @@
                         @enderror
                         </div>
 
+                        <div class="rounded-2xl border border-teal-200 bg-teal-50/60 p-4 space-y-2">
+                            <label for="shop_attendance_cutoff_time" class="text-[11px] font-black uppercase tracking-[0.16em] text-teal-900">
+                                Shop Attendance Cutoff Time
+                            </label>
+                            <div class="flex items-center gap-3">
+                                <input
+                                    id="shop_attendance_cutoff_time"
+                                    type="time"
+                                    name="shop_attendance_cutoff_time"
+                                    value="{{ old('shop_attendance_cutoff_time', $companyDetails['shop_attendance_cutoff_time']) }}"
+                                    class="h-11 w-48 rounded-xl border border-teal-300 bg-white px-3 text-sm font-bold text-slate-900 focus:border-teal-600 focus:outline-none cursor-pointer"
+                                >
+                                <span class="text-xs font-bold text-teal-800">Asia/Kolkata (Default: 10:00 AM)</span>
+                            </div>
+                            <p class="text-xs font-semibold leading-5 text-slate-600">
+                                Shop owners can mark same-day staff attendance until this time. HR/Admin can correct attendance afterward.
+                            </p>
+                            @error('shop_attendance_cutoff_time')
+                                <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
                         <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
                         <label class="flex cursor-pointer items-start gap-3">
                             <input type="hidden" name="allow_historical_invoice_repricing" value="0">

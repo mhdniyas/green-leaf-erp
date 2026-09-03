@@ -695,4 +695,438 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
         // Must be <= 20 queries total (bounded aggregate queries, zero N+1 per product row)
         $this->assertLessThanOrEqual(20, count($queries), 'Query count for Daily Inventory must be bounded');
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8. PHASE 2A: AUTO MATCH & CLEAR MODAL TESTS (CASES 1 - 11)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function test_phase2a_1_full_match_line_renders_in_ready_table_payload(): void
+    {
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 50.0, '2026-09-02');
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-FULL-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 50.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 1000.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $res->assertJsonPath('status', 'success');
+        $res->assertJsonPath('data.summary.ready_bills', 1);
+        $res->assertJsonPath('data.summary.full_bills', 1);
+        $res->assertJsonPath('data.summary.partial_bills', 0);
+
+        $line = $res->json('data.ready_bills.0.lines.0');
+        $this->assertEquals('FULL_MATCH', $line['classification']);
+        $this->assertEquals(50.0, (float) $line['matched_base_qty']);
+        $this->assertEquals(0.0, (float) $line['remaining_unmatched_base_qty']);
+    }
+
+    public function test_phase2a_2_partial_line_shows_match_qty_and_remaining(): void
+    {
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 60.0, '2026-09-02');
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-PART-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 2000.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $res->assertJsonPath('data.summary.partial_bills', 1);
+        $res->assertJsonPath('data.ready_bills.0.match_type', 'partial_match');
+
+        $line = $res->json('data.ready_bills.0.lines.0');
+        $this->assertEquals('PARTIAL_MATCH', $line['classification']);
+        $this->assertEquals(60.0, (float) $line['matched_base_qty']);
+        $this->assertEquals(40.0, (float) $line['remaining_unmatched_base_qty']);
+    }
+
+    public function test_phase2a_3_unit_difference_renders_correct_reason(): void
+    {
+        // Banana Stem with piece base unit, advance received as kg, bill as piece
+        $stem = Product::factory()->create([
+            'name' => 'Banana Stem Test',
+            'sku' => 'STEM-001',
+            'unit' => 'piece',
+            'category_id' => $this->category->id,
+            'default_warehouse_id' => $this->warehouseA->id,
+        ]);
+
+        // Advance in kg
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'grn_number' => 'GRN-ADV-STEM-KG',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'warehouse_id' => $this->warehouseA->id,
+            'received_by' => $this->adminUser->id,
+            'received_at' => '2026-09-02',
+        ]);
+        $advGrn->items()->create([
+            'product_id' => $stem->id,
+            'received_qty' => 142.0,
+            'received_unit' => 'kg',
+            'variance' => 0,
+        ]);
+        $this->createPhysicalBatch($stem, $this->warehouseA, 142.0, '2026-09-02', $advGrn);
+
+        // Bill in piece
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-DIFF-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $stem->id,
+            'quantity' => 20.0,
+            'purchase_unit' => 'piece',
+            'unit_price' => 10.0,
+            'total_price' => 200.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $res->assertJsonPath('data.summary.skipped_bills', 1);
+        $line = $res->json('data.skipped_bills.0.lines.0');
+        $this->assertEquals('UNIT_DIFFERENCE', $line['classification']);
+        $this->assertEquals('UNIT_DIFFERENCE', $line['unmatched_reason']);
+    }
+
+    public function test_phase2a_4_no_advance_renders_correct_reason(): void
+    {
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-NOADV-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->potato->id, // zero potato advances exist
+            'quantity' => 30.0,
+            'unit' => 'kg',
+            'unit_price' => 25.0,
+            'total_price' => 750.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $res->assertJsonPath('data.summary.skipped_bills', 1);
+        $line = $res->json('data.skipped_bills.0.lines.0');
+        $this->assertEquals('NO_ADVANCE', $line['classification']);
+        $this->assertEquals('NO_ADVANCE', $line['unmatched_reason']);
+    }
+
+    public function test_phase2a_5_exhausted_renders_correct_reason(): void
+    {
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 50.0, '2026-09-01');
+
+        // Bill 1 consumes the 50 kg
+        $po1 = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-FIFO-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-01',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po1->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 50.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 1000.0,
+        ]);
+
+        // Bill 2 arrives on 2026-09-02, advance is exhausted
+        $po2 = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-FIFO-002',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po2->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 20.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 400.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $this->assertCount(1, $res->json('data.ready_bills'));
+        $this->assertCount(1, $res->json('data.skipped_bills'));
+
+        $skippedLine = $res->json('data.skipped_bills.0.lines.0');
+        $this->assertEquals('ADVANCE_EXHAUSTED', $skippedLine['classification']);
+    }
+
+    public function test_phase2a_6_unconfirmed_renders_quantity_but_cannot_execute(): void
+    {
+        // Unconfirmed physical batch (warehouse_receive_pending = true)
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'grn_number' => 'GRN-ADV-UNCONF-001',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'warehouse_id' => $this->warehouseA->id,
+            'received_by' => $this->adminUser->id,
+            'received_at' => '2026-09-02',
+        ]);
+        $advGrn->items()->create([
+            'product_id' => $this->tomato->id,
+            'received_qty' => 50.0,
+            'received_unit' => 'kg',
+            'variance' => 0,
+        ]);
+        StockBatch::create([
+            'product_id' => $this->tomato->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'goods_received_id' => $advGrn->id,
+            'reference' => 'BATCH-UNCONF',
+            'total_kg' => 50.0,
+            'available_kg' => 50.0,
+            'cost_per_kg' => 20.0,
+            'received_at' => '2026-09-02',
+            'warehouse_receive_pending' => true,
+            'created_by' => $this->adminUser->id,
+        ]);
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-UNCONF-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 50.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 1000.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $res->assertJsonPath('data.summary.ready_bills', 0);
+        $res->assertJsonPath('data.summary.skipped_bills', 1);
+
+        $line = $res->json('data.skipped_bills.0.lines.0');
+        $this->assertEquals('UNCONFIRMED_ADVANCE', $line['classification']);
+        $this->assertEquals(50.0, (float) $line['unconfirmed_advance_qty']);
+    }
+
+    public function test_phase2a_7_multiple_advance_allocations_produce_one_bill_item_row(): void
+    {
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 60.0, '2026-09-01');
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 40.0, '2026-09-02');
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-MULTI-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 100.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 2000.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $bill = $res->json('data.ready_bills.0');
+        $this->assertCount(1, $bill['lines'], 'Must have exactly ONE line row for the bill item');
+
+        $line = $bill['lines'][0];
+        $this->assertEquals(100.0, (float) $line['matched_base_qty']);
+        $this->assertCount(2, $line['matches'], 'Must contain 2 advance allocation records');
+    }
+
+    public function test_phase2a_8_same_product_on_two_genuine_bill_items_stays_as_two_rows(): void
+    {
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 100.0, '2026-09-02');
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-TWO-ITEMS',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 25.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 500.0,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 35.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 700.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $bill = $res->json('data.ready_bills.0');
+        $this->assertCount(2, $bill['lines'], 'Two genuine separate item lines for same product must stay as two rows');
+    }
+
+    public function test_phase2a_9_zero_remaining_item_is_hidden(): void
+    {
+        // PO with an item that has 0 remaining quantity
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-ZERO-001',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 0.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 0.0,
+        ]);
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $res->assertJsonPath('data.summary.ready_bills', 0);
+    }
+
+    public function test_phase2a_10_all_warehouses_cannot_silently_execute_warehouse_1(): void
+    {
+        // 1. Missing warehouse_id in plan request fails validation (422)
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan'));
+        $res->assertUnprocessable();
+
+        // 2. View without warehouse_id initializes Alpine with empty currentWarehouseId
+        $viewRes = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'date' => '2026-09-02',
+        ]));
+        $viewRes->assertOk();
+        $viewRes->assertSee("currentWarehouseId: ''", false);
+    }
+
+    public function test_phase2a_11_modal_totals_equal_planner_output(): void
+    {
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 50.0, '2026-09-02');
+        $this->createAdvanceGrn($this->warehouseA, $this->onion, 30.0, '2026-09-02');
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'po_number' => 'PO-P2A-TOTALS',
+            'status' => POStatus::Approved,
+            'order_date' => '2026-09-02',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 50.0,
+            'unit' => 'kg',
+            'unit_price' => 20.0,
+            'total_price' => 1000.0,
+        ]);
+
+        $plannerOutput = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan(
+            $this->warehouseA->id,
+            $this->adminUser->id
+        );
+
+        $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
+            'warehouse_id' => $this->warehouseA->id,
+        ]));
+
+        $res->assertOk();
+        $apiSummary = $res->json('data.summary');
+
+        $this->assertEquals($plannerOutput['summary']['ready_bills'], $apiSummary['ready_bills']);
+        $this->assertEquals($plannerOutput['summary']['full_bills'], $apiSummary['full_bills']);
+        $this->assertEquals($plannerOutput['summary']['partial_bills'], $apiSummary['partial_bills']);
+        $this->assertEquals($plannerOutput['summary']['skipped_bills'], $apiSummary['skipped_bills']);
+        $this->assertEquals($plannerOutput['summary']['matched_base_qty'], (float) $apiSummary['matched_base_qty']);
+    }
 }

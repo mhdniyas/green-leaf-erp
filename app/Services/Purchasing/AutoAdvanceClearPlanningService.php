@@ -136,7 +136,25 @@ class AutoAdvanceClearPlanningService
                     continue;
                 }
 
-                $conv = $this->resolveStrictUnitConversion($product, $item->received_unit) ?? 1.0;
+                $conv = $this->resolveStrictUnitConversion($product, $item->received_unit);
+                if ($conv === null) {
+                    $normReceived = ProductUnit::normalizeUnit($item->received_unit);
+                    if (in_array($normReceived, ['kg', 'piece', 'box', 'bag', 'bunch'], true)) {
+                        $conv = 1.0;
+                    }
+                }
+
+                if ($conv === null) {
+                    $warnings[] = [
+                        'advance_goods_received_id' => $advGrn->id,
+                        'advance_goods_received_item_id' => $item->id,
+                        'product_id' => $item->product_id,
+                        'unit' => $item->received_unit,
+                        'warning' => 'invalid_advance_unit_conversion',
+                    ];
+
+                    continue;
+                }
 
                 $originalQty = (float) $item->received_qty;
                 $originalBaseQty = round($originalQty * $conv, 3);

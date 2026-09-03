@@ -66,12 +66,12 @@
                                     <option
                                         value="{{ $employee->id }}"
                                         data-staff-area="{{ $employee->staff_area }}"
-                                        data-category-name="{{ $employee->category->name }}"
+                                        data-category-name="{{ $employee->category?->name ?? 'Unassigned' }}"
                                         data-shop-id="{{ $employee->default_shop_id }}"
                                         data-shop-name="{{ $employee->defaultShop?->name }}"
                                         @selected((int) old('employee_id') === $employee->id)
                                     >
-                                        {{ $employee->name }} · {{ $employee->category->name }}
+                                        {{ $employee->name }} · {{ $employee->category?->name ?? 'Unassigned' }}
                                     </option>
                                 @endforeach
                             </select>

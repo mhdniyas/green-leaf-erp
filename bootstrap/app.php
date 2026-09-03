@@ -1,5 +1,9 @@
 <?php
 
+use App\Console\Commands\CancelOverduePurchaserWorkCommand;
+use App\Console\Commands\CleanupLegacyStaffCommand;
+use App\Console\Commands\RunAutoLoadAllCommand;
+use App\Console\Commands\SeedDailyPriceMatrixNextDayCommand;
 use App\Http\Middleware\ApiVersionMiddleware;
 use App\Http\Middleware\LogSlowPathPerformance;
 use App\Http\Middleware\SecureHeaders;
@@ -21,6 +25,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withCommands([
+        CleanupLegacyStaffCommand::class,
+        CancelOverduePurchaserWorkCommand::class,
+        RunAutoLoadAllCommand::class,
+        SeedDailyPriceMatrixNextDayCommand::class,
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->api(prepend: [
             ApiVersionMiddleware::class,

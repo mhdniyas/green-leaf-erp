@@ -29,6 +29,7 @@ class CompanySettingsController extends Controller
         'auto_load_all_next_business_day',
         'auto_load_all_delay_seconds',
         'auto_load_all_allow_manual',
+        'shop_attendance_cutoff_time',
     ];
 
     public function edit(Request $request): View
@@ -56,6 +57,7 @@ class CompanySettingsController extends Controller
             'auto_load_all_next_business_day' => filter_var($settings->get('auto_load_all_next_business_day') ?? false, FILTER_VALIDATE_BOOLEAN),
             'auto_load_all_delay_seconds' => (int) ($settings->get('auto_load_all_delay_seconds') ?: 3),
             'auto_load_all_allow_manual' => filter_var($settings->get('auto_load_all_allow_manual') ?? true, FILTER_VALIDATE_BOOLEAN),
+            'shop_attendance_cutoff_time' => $settings->get('shop_attendance_cutoff_time') ?: '10:00',
         ];
 
         $purchaserUsers = User::query()
@@ -106,6 +108,7 @@ class CompanySettingsController extends Controller
             'auto_load_all_next_business_day' => ['nullable', 'boolean'],
             'auto_load_all_delay_seconds' => ['nullable', 'integer', 'min:1', 'max:60'],
             'auto_load_all_allow_manual' => ['nullable', 'boolean'],
+            'shop_attendance_cutoff_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {

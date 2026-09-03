@@ -15,6 +15,7 @@ use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\AutoAdvanceClearPlanningService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -848,5 +849,212 @@ class AdminCashbookUnitDifferencesTest extends TestCase
                 'conversion_factor' => 1.0,
             ]);
         $resStaleAdv->assertStatus(422);
+    }
+
+    public function test_fix_advance_units_updates_advance_unit_to_product_default_unit_without_changing_qty(): void
+    {
+        // Product Gala with base unit 'box'
+        $gala = Product::factory()->create([
+            'name' => 'Gala Apple',
+            'sku' => 'GAL-001',
+            'unit' => 'box',
+            'category_id' => $this->category->id,
+            'default_warehouse_id' => $this->warehouseA->id,
+            'base_price' => 50.0,
+            'is_active' => true,
+        ]);
+
+        // Product Cauliflower with base unit 'piece'
+        $cauliflower = Product::factory()->create([
+            'name' => 'Cauliflower Fresh',
+            'sku' => 'CAU-001',
+            'unit' => 'piece',
+            'category_id' => $this->category->id,
+            'default_warehouse_id' => $this->warehouseA->id,
+            'base_price' => 30.0,
+            'is_active' => true,
+        ]);
+
+        // 1. Advance GRN with incorrect unit 'kg' for Gala and Cauliflower
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'grn_number' => 'GRN-ADV-FIX-001',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'received_by' => $this->adminUser->id,
+            'received_at' => now()->toDateString(),
+            'approved_at' => now(),
+            'approved_by' => $this->adminUser->id,
+        ]);
+
+        $advItemGala = $advGrn->items()->create([
+            'product_id' => $gala->id,
+            'received_qty' => 0.75,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
+            'unit_price' => 50.0,
+            'total_price' => 37.50,
+        ]);
+        $this->createStockBatch($advGrn, $advItemGala, $gala, 0.75);
+
+        $advItemCauli = $advGrn->items()->create([
+            'product_id' => $cauliflower->id,
+            'received_qty' => 10.0,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
+            'unit_price' => 30.0,
+            'total_price' => 300.0,
+        ]);
+        $this->createStockBatch($advGrn, $advItemCauli, $cauliflower, 10.0);
+
+        // 2. Open Purchase Orders with matching product base units (box, piece)
+        $poGala = PurchaseOrder::create([
+            'po_number' => 'PO-GALA-001',
+            'supplier_id' => $this->supplier->id,
+            'destination_shop_id' => $this->warehouseA->id,
+            'status' => 'approved',
+            'order_date' => now()->toDateString(),
+            'total_amount' => 50.0,
+            'created_by' => $this->adminUser->id,
+        ]);
+        $poGala->items()->create([
+            'product_id' => $gala->id,
+            'quantity' => 0.75,
+            'unit_price' => 50.0,
+            'purchase_unit' => 'box',
+            'total_price' => 37.50,
+        ]);
+
+        $poCauli = PurchaseOrder::create([
+            'po_number' => 'PO-CAULI-001',
+            'supplier_id' => $this->supplier->id,
+            'destination_shop_id' => $this->warehouseA->id,
+            'status' => 'approved',
+            'order_date' => now()->toDateString(),
+            'total_amount' => 300.0,
+            'created_by' => $this->adminUser->id,
+        ]);
+        $poCauli->items()->create([
+            'product_id' => $cauliflower->id,
+            'quantity' => 10.0,
+            'unit_price' => 30.0,
+            'purchase_unit' => 'piece',
+            'total_price' => 300.0,
+        ]);
+
+        // Verify Unit Differences tab shows unit mismatch before fix
+        $diffBefore = app(AdvanceReceiveReconciliationService::class)->paginateUnitDifferences([
+            'warehouse_id' => $this->warehouseA->id,
+        ]);
+        $this->assertGreaterThanOrEqual(2, $diffBefore->total());
+
+        // 3. Call fixAdvanceUnits endpoint
+        $response = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.fix-advance-units'), [
+                'date' => now()->toDateString(),
+                'warehouse_id' => $this->warehouseA->id,
+            ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'status' => 'success',
+                'data' => [
+                    'fixed_count' => 2,
+                    'already_correct_count' => 0,
+                    'skipped_count' => 0,
+                ],
+            ]);
+
+        // 4. Verify Advance item units updated to product default unit, but quantities remained unchanged!
+        $advItemGala->refresh();
+        $this->assertEquals('box', $advItemGala->received_unit);
+        $this->assertEquals(0.75, (float) $advItemGala->received_qty);
+
+        $advItemCauli->refresh();
+        $this->assertEquals('piece', $advItemCauli->received_unit);
+        $this->assertEquals(10.0, (float) $advItemCauli->received_qty);
+
+        // 5. Verify Activity logs recorded
+        $this->assertDatabaseHas('activity_log', [
+            'subject_type' => get_class($advItemGala),
+            'subject_id' => $advItemGala->id,
+            'causer_id' => $this->adminUser->id,
+        ]);
+
+        // 6. Verify Unit Differences tab after fix no longer flags unit mismatch for resolved rows
+        $diffAfter = app(AdvanceReceiveReconciliationService::class)->paginateUnitDifferences([
+            'warehouse_id' => $this->warehouseA->id,
+        ]);
+        $poIds = collect($diffAfter->items())->pluck('purchase_order_id')->all();
+        $this->assertNotContains($poGala->id, $poIds);
+        $this->assertNotContains($poCauli->id, $poIds);
+    }
+
+    public function test_fix_advance_units_handles_already_correct_and_unauthorized_users(): void
+    {
+        // 1. Unauthorized user attempt -> 403
+        $resUnauthorized = $this->actingAs($this->unauthorizedUser)
+            ->postJson(route('admin.cashbook.inventory.fix-advance-units'), [
+                'date' => now()->toDateString(),
+                'warehouse_id' => $this->warehouseA->id,
+            ]);
+        $resUnauthorized->assertStatus(403);
+
+        // 2. Advance GRN already having correct base unit ('kg' for Tomato)
+        $advGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->shop->id,
+            'grn_number' => 'GRN-ADV-CORRECT-001',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'warehouse_advance',
+            'received_by' => $this->adminUser->id,
+            'received_at' => now()->toDateString(),
+        ]);
+        $advItem = $advGrn->items()->create([
+            'product_id' => $this->tomato->id,
+            'received_qty' => 15.0,
+            'received_unit' => 'kg', // Already matches tomato's base unit ('kg')
+            'variance' => 0.0,
+        ]);
+        $this->createStockBatch($advGrn, $advItem, $this->tomato, 15.0);
+
+        // Create PO in 'piece' to force a unit difference row
+        $po = PurchaseOrder::create([
+            'po_number' => 'PO-TOM-PIECE-001',
+            'supplier_id' => $this->supplier->id,
+            'destination_shop_id' => $this->warehouseA->id,
+            'status' => 'approved',
+            'order_date' => now()->toDateString(),
+            'total_amount' => 100.0,
+            'created_by' => $this->adminUser->id,
+        ]);
+        $po->items()->create([
+            'product_id' => $this->tomato->id,
+            'quantity' => 15.0,
+            'unit_price' => 10.0,
+            'purchase_unit' => 'piece',
+            'total_price' => 150.0,
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->postJson(route('admin.cashbook.inventory.fix-advance-units'), [
+                'date' => now()->toDateString(),
+                'warehouse_id' => $this->warehouseA->id,
+            ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'status' => 'success',
+                'data' => [
+                    'fixed_count' => 0,
+                    'already_correct_count' => 1,
+                    'skipped_count' => 0,
+                ],
+            ]);
     }
 }

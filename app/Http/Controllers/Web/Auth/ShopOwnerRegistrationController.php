@@ -8,7 +8,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Auth\StoreShopOwnerRegistrationRequest;
 use App\Models\Shop;
 use App\Models\User;
-use App\Services\HR\EmployeeSyncService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -16,10 +15,6 @@ use Illuminate\View\View;
 
 class ShopOwnerRegistrationController extends Controller
 {
-    public function __construct(
-        private readonly EmployeeSyncService $employeeSyncService,
-    ) {}
-
     public function create(): View
     {
         return view('auth.shop-owner-register');
@@ -48,7 +43,6 @@ class ShopOwnerRegistrationController extends Controller
             ]);
 
             $user->syncRoles(['shop']);
-            $this->employeeSyncService->ensureForUser($user->fresh());
         });
 
         return redirect()->route('login')

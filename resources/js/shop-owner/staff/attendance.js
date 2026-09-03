@@ -103,6 +103,32 @@ const submitAttendance = async (form) => {
     }
 };
 
+window.submitAttendanceStatus = (form, status, notes = '') => {
+    if (!form) {
+        return;
+    }
+
+    let statusInput = form.querySelector('input[name="status"]');
+    if (!statusInput) {
+        statusInput = document.createElement('input');
+        statusInput.type = 'hidden';
+        statusInput.name = 'status';
+        form.appendChild(statusInput);
+    }
+    statusInput.value = status;
+
+    let notesInput = form.querySelector('input[name="notes"]');
+    if (!notesInput) {
+        notesInput = document.createElement('input');
+        notesInput.type = 'hidden';
+        notesInput.name = 'notes';
+        form.appendChild(notesInput);
+    }
+    notesInput.value = notes;
+
+    submitAttendance(form);
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-owned-shop-attendance-form]').forEach((form) => {
         form.addEventListener('submit', (event) => {

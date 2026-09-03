@@ -8,11 +8,13 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreEmployeeAdvanceRequest;
 use App\Http\Requests\Web\ShopOwner\StoreEmployeeLeaveRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopEmployeeAssignmentRequest;
+use App\Http\Requests\Web\ShopOwner\StoreShopOwnerEmployeeRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopStaffSalaryPaymentRequest;
 use App\Http\Requests\Web\ShopOwner\UpsertOwnedShopAttendanceRequest;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAttendance;
+use App\Models\EmployeeCategory;
 use App\Models\EmployeeLeaveRequest;
 use App\Models\LeaveType;
 use App\Models\PayrollRunItem;
@@ -21,6 +23,7 @@ use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeAdvanceService;
+use App\Services\HR\ImageUploadService;
 use App\Services\HR\PayrollService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -35,6 +38,7 @@ class ShopOwnerStaffController extends Controller
         private readonly AttendanceService $attendanceService,
         private readonly EmployeeAdvanceService $employeeAdvanceService,
         private readonly PayrollService $payrollService,
+        private readonly ImageUploadService $imageUploadService,
     ) {}
 
     public function index(Request $request): View
@@ -52,7 +56,6 @@ class ShopOwnerStaffController extends Controller
             : 'attendance';
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
         $employeeSearch = trim($request->string('employee_search')->toString());
-        $ownerEmployee = $request->user()->employee()->with('category')->first();
         $attendanceRecords = EmployeeAttendance::query()
             ->with(['shop', 'markedBy'])
             ->whereDate('attendance_date', $selectedDate)
@@ -74,8 +77,6 @@ class ShopOwnerStaffController extends Controller
             'selectedTab' => $selectedTab,
             'shops' => $ownedShops,
             'selectedShop' => $selectedShop,
-            'ownerEmployee' => $ownerEmployee,
-            'ownerAttendance' => $ownerEmployee !== null ? $attendanceRecords->get($ownerEmployee->id) : null,
             'employeeSearch' => $employeeSearch,
             'employees' => $quickEmployees,
             'advanceEmployees' => $advanceEmployees,
@@ -114,7 +115,156 @@ class ShopOwnerStaffController extends Controller
                 ->withQueryString(),
             'filterStartDate' => $filterStartDate,
             'filterEndDate' => $filterEndDate,
+            'pendingEmployees' => $this->pendingEmployeesForShop($selectedShop?->id),
+            'isAttendanceOpen' => $this->attendanceService->isShopAttendanceOpen(attendanceDate: $selectedDate),
+            'cutoffFormatted' => $this->attendanceService->formattedShopAttendanceCutoffTime(),
         ]);
+    }
+
+    public function createEmployee(Request $request): View
+    {
+        $this->ensureOwnerAccess($request);
+
+        $ownedShops = Shop::query()
+            ->whereIn('id', $request->user()->ownedShopAssignments()->pluck('shop_id'))
+            ->orderBy('name')
+            ->get();
+        $selectedShop = $this->selectedShop($ownedShops, $request->string('shop')->toString());
+
+        $categories = EmployeeCategory::query()
+            ->where('staff_area', 'shop')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return view('shop-owner.staff.create', [
+            'selectedShop' => $selectedShop,
+            'shops' => $ownedShops,
+            'categories' => $categories,
+            'employee' => null,
+        ]);
+    }
+
+    public function storeEmployee(StoreShopOwnerEmployeeRequest $request): RedirectResponse
+    {
+        $this->ensureOwnerAccess($request);
+
+        $validated = $request->validated();
+        $ownedShops = $request->user()->ownedShopAssignments()->pluck('shop_id');
+        $shopId = $request->integer('shop_id');
+
+        if (! $ownedShops->contains($shopId)) {
+            $shopId = (int) $ownedShops->first();
+        }
+
+        $shop = Shop::query()->findOrFail($shopId);
+
+        $photoPath = $request->filled('photo_data_url')
+            ? $this->imageUploadService->processAndStore((string) $request->input('photo_data_url'), 'employees/photos', 600)
+            : null;
+
+        $idFrontPath = $request->filled('id_front_data_url')
+            ? $this->imageUploadService->processAndStore((string) $request->input('id_front_data_url'), 'employees/ids', 1200)
+            : null;
+
+        $idBackPath = $request->filled('id_back_data_url')
+            ? $this->imageUploadService->processAndStore((string) $request->input('id_back_data_url'), 'employees/ids', 1200)
+            : null;
+
+        $employee = Employee::create([
+            'employee_code' => Employee::generateNextCode(),
+            'user_id' => null,
+            'default_shop_id' => $shop->id,
+            'employee_category_id' => null,
+            'name' => $validated['name'],
+            'phone' => $validated['phone'],
+            'alternate_phone' => $validated['alternate_phone'] ?? null,
+            'email' => $validated['email'] ?? null,
+            'photo_path' => $photoPath,
+            'id_type' => $validated['id_type'],
+            'other_id_type' => $validated['other_id_type'] ?? null,
+            'id_number' => $validated['id_number'],
+            'id_front_path' => $idFrontPath,
+            'id_back_path' => $idBackPath,
+            'address' => $validated['address'],
+            'staff_area' => 'shop',
+            'employment_status' => 'active',
+            'verification_status' => 'pending',
+            'submitted_by' => $request->user()->id,
+            'joined_on' => $validated['joined_on'],
+            'salary_type' => null,
+            'monthly_salary' => null,
+            'daily_wage' => null,
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
+            ->with('success', 'Employee submitted for HR approval.');
+    }
+
+    public function editEmployeeSubmission(Request $request, Employee $employee): View
+    {
+        $this->ensureOwnerAccess($request);
+
+        $ownedShops = $request->user()->ownedShopAssignments()->pluck('shop_id');
+        abort_unless($ownedShops->contains($employee->default_shop_id), 403, 'Unauthorized submission edit.');
+        abort_unless(in_array($employee->verification_status, ['pending', 'rejected'], true), 403, 'Only pending or rejected submissions can be edited.');
+
+        $ownedShopsModels = Shop::query()->whereIn('id', $ownedShops)->orderBy('name')->get();
+
+        return view('shop-owner.staff.create', [
+            'selectedShop' => $employee->defaultShop,
+            'shops' => $ownedShopsModels,
+            'employee' => $employee,
+        ]);
+    }
+
+    public function resubmitEmployee(StoreShopOwnerEmployeeRequest $request, Employee $employee): RedirectResponse
+    {
+        $this->ensureOwnerAccess($request);
+
+        $ownedShops = $request->user()->ownedShopAssignments()->pluck('shop_id');
+        abort_unless($ownedShops->contains($employee->default_shop_id), 403, 'Unauthorized submission edit.');
+        abort_unless(in_array($employee->verification_status, ['pending', 'rejected'], true), 403, 'Only pending or rejected submissions can be edited.');
+
+        $validated = $request->validated();
+
+        $photoPath = $request->filled('photo_data_url')
+            ? $this->imageUploadService->processAndStore((string) $request->input('photo_data_url'), 'employees/photos', 600)
+            : $employee->photo_path;
+
+        $idFrontPath = $request->filled('id_front_data_url')
+            ? $this->imageUploadService->processAndStore((string) $request->input('id_front_data_url'), 'employees/ids', 1200)
+            : $employee->id_front_path;
+
+        $idBackPath = $request->filled('id_back_data_url')
+            ? $this->imageUploadService->processAndStore((string) $request->input('id_back_data_url'), 'employees/ids', 1200)
+            : $employee->id_back_path;
+
+        $employee->update([
+            'employee_category_id' => null,
+            'name' => $validated['name'],
+            'phone' => $validated['phone'],
+            'alternate_phone' => $validated['alternate_phone'] ?? null,
+            'email' => $validated['email'] ?? null,
+            'photo_path' => $photoPath,
+            'id_type' => $validated['id_type'],
+            'other_id_type' => $validated['other_id_type'] ?? null,
+            'id_number' => $validated['id_number'],
+            'id_front_path' => $idFrontPath,
+            'id_back_path' => $idBackPath,
+            'address' => $validated['address'],
+            'verification_status' => 'pending',
+            'rejection_reason' => null,
+            'submitted_by' => $request->user()->id,
+            'joined_on' => $validated['joined_on'],
+            'salary_type' => null,
+            'monthly_salary' => null,
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        return redirect()->route('shop-owner.staff.index', ['shop' => $employee->defaultShop?->code])
+            ->with('success', 'Employee resubmitted for HR approval.');
     }
 
     public function storeEmployeeAssignment(StoreShopEmployeeAssignmentRequest $request): RedirectResponse
@@ -181,20 +331,35 @@ class ShopOwnerStaffController extends Controller
         $shop = Shop::query()->findOrFail($request->integer('shop_id'));
         $attendanceDate = Carbon::parse($request->string('attendance_date')->toString());
 
+        if (! $this->attendanceService->isShopAttendanceOpen(attendanceDate: $attendanceDate)) {
+            $cutoffFormatted = $this->attendanceService->formattedShopAttendanceCutoffTime();
+            $message = "Attendance marking closed at {$cutoffFormatted}. Contact HR for corrections.";
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message], 422);
+            }
+
+            return redirect()->back()->with('error', $message);
+        }
+
         abort_unless(
             $this->attendanceService->canOwnerMarkAttendance($request->user(), $employee, $attendanceDate, $shop->id),
             403,
             'You can only mark today attendance for shop staff assigned to your client shops.',
         );
 
-        $notes = $request->string('status')->toString() === 'leave'
-            ? $request->string('leave_reason')->toString()
+        $status = $request->string('status')->toString();
+        $notes = $status === 'leave'
+            ? ($request->input('leave_reason') ?: $request->input('notes'))
             : $request->input('notes');
+
+        if ($status === 'present') {
+            $notes = null;
+        }
 
         $attendance = $this->attendanceService->upsert(
             $employee,
             $attendanceDate,
-            $request->string('status')->toString(),
+            $status,
             $request->user(),
             'owner',
             $shop,
@@ -318,12 +483,17 @@ class ShopOwnerStaffController extends Controller
             })
             ->pluck('employee_id');
 
-        $todayEmployeeIds = EmployeeAttendance::query()
-            ->where('shop_id', $shopId)
-            ->whereDate('attendance_date', $selectedDate)
-            ->pluck('employee_id');
+        $defaultShopEmployeeIds = Employee::query()
+            ->approved()
+            ->where('default_shop_id', $shopId)
+            ->where('staff_area', 'shop')
+            ->where('employment_status', 'active')
+            ->pluck('id');
 
-        $employeeIds = $assignedEmployeeIds->merge($todayEmployeeIds)->unique()->values();
+        $employeeIds = $assignedEmployeeIds
+            ->merge($defaultShopEmployeeIds)
+            ->unique()
+            ->values();
 
         if ($employeeIds->isEmpty()) {
             return collect();
@@ -376,13 +546,22 @@ class ShopOwnerStaffController extends Controller
             return collect();
         }
 
-        $employeeIds = ShopEmployeeAssignment::query()
+        $assignedEmployeeIds = ShopEmployeeAssignment::query()
             ->where('shop_id', $shopId)
             ->where(function ($query) use ($selectedDate): void {
                 $query->whereNull('effective_from')
                     ->orWhereDate('effective_from', '<=', $selectedDate->toDateString());
             })
-            ->pluck('employee_id')
+            ->pluck('employee_id');
+
+        $defaultShopEmployeeIds = Employee::query()
+            ->where('default_shop_id', $shopId)
+            ->where('staff_area', 'shop')
+            ->where('employment_status', 'active')
+            ->pluck('id');
+
+        $employeeIds = $assignedEmployeeIds
+            ->merge($defaultShopEmployeeIds)
             ->unique()
             ->values();
 
@@ -476,5 +655,22 @@ class ShopOwnerStaffController extends Controller
         }
 
         return [$startDate, $endDate];
+    }
+
+    /**
+     * @return Collection<int, Employee>
+     */
+    private function pendingEmployeesForShop(?int $shopId): Collection
+    {
+        if ($shopId === null) {
+            return collect();
+        }
+
+        return Employee::query()
+            ->with(['category', 'submittedBy', 'reviewedBy'])
+            ->where('default_shop_id', $shopId)
+            ->whereIn('verification_status', ['pending', 'rejected'])
+            ->orderByDesc('id')
+            ->get();
     }
 }

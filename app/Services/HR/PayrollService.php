@@ -50,6 +50,7 @@ class PayrollService
 
             $employees = Employee::query()
                 ->with('category')
+                ->approved()
                 ->where('employment_status', 'active')
                 ->get();
 
@@ -242,7 +243,7 @@ class PayrollService
             $cursor->addDay();
         }
 
-        $paidLeaveLimit = max(0, (int) $employee->category->monthly_paid_leave_limit);
+        $paidLeaveLimit = max(0, (int) ($employee->category?->monthly_paid_leave_limit ?? 0));
         $paidLeaveDays = min($approvedPaidLikeLeaveCount, $paidLeaveLimit);
         $unpaidLeaveDays += max(0, $approvedPaidLikeLeaveCount - $paidLeaveDays);
 
@@ -296,11 +297,11 @@ class PayrollService
             ? (string) $employee->salary_type
             : 'monthly';
         $payableUnits = round(
-            ($summary['present_days'] * (float) $employee->category->present_day_weight)
-            + ($summary['half_days'] * (float) $employee->category->half_day_weight)
-            + ($summary['paid_leave_days'] * (float) $employee->category->paid_leave_weight)
-            + ($summary['unpaid_leave_days'] * (float) $employee->category->excess_leave_weight)
-            + ($summary['absent_days'] * (float) $employee->category->absent_day_weight),
+            ($summary['present_days'] * (float) ($employee->category?->present_day_weight ?? 1.0))
+            + ($summary['half_days'] * (float) ($employee->category?->half_day_weight ?? 0.5))
+            + ($summary['paid_leave_days'] * (float) ($employee->category?->paid_leave_weight ?? 1.0))
+            + ($summary['unpaid_leave_days'] * (float) ($employee->category?->excess_leave_weight ?? 0.0))
+            + ($summary['absent_days'] * (float) ($employee->category?->absent_day_weight ?? 0.0)),
             2,
         );
         $greenLeafPayableUnits = $greenLeafPayable['payable_units'];
@@ -334,12 +335,12 @@ class PayrollService
             'rule_snapshot' => [
                 'salary_type' => $salaryType,
                 'daily_wage' => $dailyWage,
-                'monthly_paid_leave_limit' => (int) $employee->category->monthly_paid_leave_limit,
-                'present_day_weight' => (float) $employee->category->present_day_weight,
-                'half_day_weight' => (float) $employee->category->half_day_weight,
-                'paid_leave_weight' => (float) $employee->category->paid_leave_weight,
-                'excess_leave_weight' => (float) $employee->category->excess_leave_weight,
-                'absent_day_weight' => (float) $employee->category->absent_day_weight,
+                'monthly_paid_leave_limit' => (int) ($employee->category?->monthly_paid_leave_limit ?? 0),
+                'present_day_weight' => (float) ($employee->category?->present_day_weight ?? 1.0),
+                'half_day_weight' => (float) ($employee->category?->half_day_weight ?? 0.5),
+                'paid_leave_weight' => (float) ($employee->category?->paid_leave_weight ?? 1.0),
+                'excess_leave_weight' => (float) ($employee->category?->excess_leave_weight ?? 0.0),
+                'absent_day_weight' => (float) ($employee->category?->absent_day_weight ?? 0.0),
                 'green_leaf_summary' => $greenLeafSummary,
                 'client_shop_summary' => $clientShopSummary,
             ],
@@ -352,11 +353,11 @@ class PayrollService
     private function payableUnitsForSummary(array $summary, Employee $employee): float
     {
         return round(
-            ($summary['present_days'] * (float) $employee->category->present_day_weight)
-            + ($summary['half_days'] * (float) $employee->category->half_day_weight)
-            + ($summary['paid_leave_days'] * (float) $employee->category->paid_leave_weight)
-            + ($summary['unpaid_leave_days'] * (float) $employee->category->excess_leave_weight)
-            + ($summary['absent_days'] * (float) $employee->category->absent_day_weight),
+            ($summary['present_days'] * (float) ($employee->category?->present_day_weight ?? 1.0))
+            + ($summary['half_days'] * (float) ($employee->category?->half_day_weight ?? 0.5))
+            + ($summary['paid_leave_days'] * (float) ($employee->category?->paid_leave_weight ?? 1.0))
+            + ($summary['unpaid_leave_days'] * (float) ($employee->category?->excess_leave_weight ?? 0.0))
+            + ($summary['absent_days'] * (float) ($employee->category?->absent_day_weight ?? 0.0)),
             2,
         );
     }

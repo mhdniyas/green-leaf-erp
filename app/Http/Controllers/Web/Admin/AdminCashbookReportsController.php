@@ -2055,6 +2055,51 @@ class AdminCashbookReportsController extends Controller
         }
     }
 
+    public function fixAdvanceUnits(Request $request): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'date' => ['nullable', 'date'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'search' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $warehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && $warehouseId !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $filters = [
+            'date' => $validated['date'] ?? null,
+            'search' => trim((string) ($validated['search'] ?? '')),
+            'warehouse_id' => $warehouseId,
+            'authorized_warehouse_ids' => $authorizedWarehouseIds,
+        ];
+
+        try {
+            $result = app(AdvanceReceiveReconciliationService::class)->fixAdvanceUnits($filters, $request->user());
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Advance units fixed successfully.',
+                'data' => $result,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('Fix advance units execution failed', [
+                'filters' => $filters,
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fix advance units: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function matchBill(Request $request, GoodsReceived $goodsReceived): RedirectResponse
     {
         $this->ensureAuthorized($request);

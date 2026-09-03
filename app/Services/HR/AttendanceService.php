@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\HR;
 
+use App\Models\BusinessSetting;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\Shop;
@@ -13,13 +14,55 @@ use Illuminate\Support\Carbon;
 
 class AttendanceService
 {
-    public function canOwnerMarkAttendance(User $user, Employee $employee, Carbon $date, ?int $shopId): bool
+    public function getShopAttendanceCutoffTime(): string
+    {
+        return BusinessSetting::query()
+            ->where('key', 'shop_attendance_cutoff_time')
+            ->value('value') ?: '10:00';
+    }
+
+    public function formattedShopAttendanceCutoffTime(): string
+    {
+        $cutoffStr = $this->getShopAttendanceCutoffTime();
+
+        try {
+            return Carbon::createFromFormat('H:i', $cutoffStr)->format('g:i A');
+        } catch (\Throwable) {
+            return '10:00 AM';
+        }
+    }
+
+    public function isShopAttendanceOpen(?Carbon $now = null, ?Carbon $attendanceDate = null): bool
+    {
+        $attendanceDate = $attendanceDate ?? today();
+        if (! $attendanceDate->isToday()) {
+            return false;
+        }
+
+        $now = $now ?? now('Asia/Kolkata');
+        $cutoffStr = $this->getShopAttendanceCutoffTime();
+
+        try {
+            [$hours, $minutes] = explode(':', $cutoffStr);
+            $cutoffDateTime = $now->copy()->setTime((int) $hours, (int) $minutes, 59);
+
+            return $now->lessThanOrEqualTo($cutoffDateTime);
+        } catch (\Throwable) {
+            return true;
+        }
+    }
+
+    public function canOwnerMarkAttendance(User $user, Employee $employee, Carbon $date, ?int $shopId, ?Carbon $now = null): bool
     {
         if (! $user->hasRole('shop')) {
             return false;
         }
 
         if (! $date->isToday()) {
+            return false;
+        }
+
+        if (! $this->isShopAttendanceOpen($now, $date)) {
             return false;
         }
 
@@ -31,12 +74,16 @@ class AttendanceService
             return false;
         }
 
-        if ((int) $user->employee?->id === (int) $employee->id) {
-            return true;
-        }
-
         if ($employee->staff_area !== 'shop') {
             return false;
+        }
+
+        if ($employee->verification_status !== 'approved') {
+            return false;
+        }
+
+        if ((int) $employee->default_shop_id === (int) $shopId) {
+            return true;
         }
 
         return ShopEmployeeAssignment::query()

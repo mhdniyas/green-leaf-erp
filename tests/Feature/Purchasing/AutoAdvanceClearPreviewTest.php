@@ -1368,11 +1368,22 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $product = Product::factory()->create(['name' => 'Prev Alloc Prod', 'unit' => 'kg']);
         $adv = $this->createAdvance($this->warehouseA, $product, 100.0, '2026-08-01', 'kg');
 
+        $priorPo = PurchaseOrder::factory()->create([
+            'status' => POStatus::Approved,
+        ]);
+        $priorGrn = GoodsReceived::factory()->create([
+            'purchase_order_id' => $priorPo->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'receipt_type' => 'purchase_order',
+            'bill_status' => 'billed',
+            'status' => 'approved',
+        ]);
+
         // Existing match of 40 kg
-        \App\Models\AdvanceReceiveMatch::create([
-            'tenant_id' => $this->tenant->id,
-            'purchase_order_id' => 99999,
-            'goods_received_id' => 99999,
+        AdvanceReceiveMatch::create([
+            'purchase_order_id' => $priorPo->id,
+            'bill_goods_received_id' => $priorGrn->id,
+            'confirmed_at' => now(),
             'advance_goods_received_id' => $adv->id,
             'advance_goods_received_item_id' => $adv->items->first()->id,
             'product_id' => $product->id,

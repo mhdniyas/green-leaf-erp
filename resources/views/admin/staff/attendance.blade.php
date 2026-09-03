@@ -111,6 +111,16 @@
                                             <span class="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-700' }}">
                                                 {{ str_replace('_', ' ', $status) }}
                                             </span>
+                                            @if($attendance?->marked_at)
+                                                <p class="mt-1 text-xs font-bold text-slate-700">
+                                                    {{ $attendance->marked_at->timezone('Asia/Kolkata')->format('h:i A') }}
+                                                </p>
+                                            @endif
+                                            @if($attendance?->notes)
+                                                <p class="mt-1 text-xs font-semibold text-slate-600 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+                                                    Reason: {{ $attendance->notes }}
+                                                </p>
+                                            @endif
                                         </td>
                                         <td class="px-4 py-4">
                                             <p class="font-semibold text-slate-900">{{ $attendance?->markedBy?->name ?? 'Pending admin mark' }}</p>
@@ -118,26 +128,30 @@
                                         </td>
                                         <td class="px-4 py-4 text-slate-600">{{ $attendance?->shop?->name ?? ($employee->defaultShop?->name ?? 'Office / unassigned') }}</td>
                                         <td class="px-4 py-4 text-right">
-                                            <form id="{{ $formId }}" method="POST" action="{{ route('admin.staff.attendance.store') }}" class="inline">
+                                            <form id="{{ $formId }}" method="POST" action="{{ route('admin.staff.attendance.store') }}" class="space-y-2">
                                                 @csrf
                                                 <input type="hidden" name="employee_id" value="{{ $employee->id }}">
                                                 <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
-                                                <input type="hidden" name="notes" value="{{ $attendance?->notes }}">
-                                                <select name="status" class="w-36 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold">
-                                                    @foreach(['present' => 'Present', 'half_day' => 'Half Day', 'absent' => 'Absent', 'leave' => 'Leave'] as $value => $label)
-                                                        <option value="{{ $value }}" @selected($status === $value)>{{ $label }}</option>
-                                                    @endforeach
-                                                </select>
-                                                <select name="shop_id" class="ml-2 w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold">
-                                                    <option value="">Worked at shop</option>
-                                                    @foreach($shops as $shop)
-                                                        <option value="{{ $shop->id }}" @selected((int) $attendance?->shop_id === $shop->id)>{{ $shop->name }}</option>
-                                                    @endforeach
-                                                </select>
+                                                <div class="flex items-center justify-end gap-2">
+                                                    <select name="status" class="w-32 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold">
+                                                        @foreach(['present' => 'Present', 'half_day' => 'Half Day', 'absent' => 'Absent', 'leave' => 'Leave'] as $value => $label)
+                                                            <option value="{{ $value }}" @selected($status === $value)>{{ $label }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                    <select name="shop_id" class="w-40 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold">
+                                                        <option value="">Worked at shop</option>
+                                                        @foreach($shops as $shop)
+                                                            <option value="{{ $shop->id }}" @selected((int) $attendance?->shop_id === $shop->id)>{{ $shop->name }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <input type="text" name="notes" value="{{ old('notes', $attendance?->notes) }}" placeholder="Reason / Note (Required for Half Day, Leave, Absent)" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold">
+                                                </div>
                                             </form>
-                                            <div class="mt-3 flex items-center justify-end gap-2">
-                                                <a href="{{ route('admin.staff.show', $employee) }}" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">Show</a>
-                                                <button form="{{ $formId }}" type="submit" class="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-black text-slate-950">Save</button>
+                                            <div class="mt-2 flex items-center justify-end gap-2">
+                                                <a href="{{ route('admin.staff.show', $employee) }}" class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700">Show</a>
+                                                <button form="{{ $formId }}" type="submit" class="rounded-xl bg-cyan-500 px-4 py-1.5 text-xs font-black text-slate-950">Save</button>
                                             </div>
                                         </td>
                                     </tr>

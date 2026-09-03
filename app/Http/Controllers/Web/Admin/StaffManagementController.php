@@ -42,8 +42,8 @@ use App\Models\User;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\ContractWorkerPaymentService;
 use App\Services\HR\EmployeeAdvanceService;
-use App\Services\HR\EmployeeSyncService;
 use App\Services\HR\HrOverrideService;
+use App\Services\HR\ImageUploadService;
 use App\Services\HR\LeaveLedgerService;
 use App\Services\HR\PayrollPaymentService;
 use App\Services\HR\PayrollService;
@@ -57,6 +57,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -70,12 +71,12 @@ class StaffManagementController extends Controller
         private readonly AttendanceService $attendanceService,
         private readonly PayrollService $payrollService,
         private readonly PayrollPaymentService $payrollPaymentService,
-        private readonly EmployeeSyncService $employeeSyncService,
         private readonly LeaveLedgerService $leaveLedgerService,
         private readonly HrOverrideService $hrOverrideService,
         private readonly ShopEmployeeAssignmentService $shopEmployeeAssignmentService,
         private readonly EmployeeAdvanceService $employeeAdvanceService,
         private readonly ContractWorkerPaymentService $contractWorkerPaymentService,
+        private readonly ImageUploadService $imageUploadService,
     ) {}
 
     public function index(Request $request): View
@@ -132,6 +133,13 @@ class StaffManagementController extends Controller
             : null;
         $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
 
+        $pendingCount = Employee::query()->pending()->count();
+        $pendingEmployees = Employee::query()
+            ->pending()
+            ->with(['category', 'defaultShop', 'submittedBy'])
+            ->orderByDesc('id')
+            ->get();
+
         return view('admin.staff.employees', [
             'selectedDate' => $selectedDate,
             'search' => $search,
@@ -149,6 +157,9 @@ class StaffManagementController extends Controller
             'selectedCategory' => $selectedCategory,
             'shops' => $ownedShops,
             'users' => User::query()->with('roles')->orderBy('name')->get(),
+            'pendingCount' => $pendingCount,
+            'pendingEmployees' => $pendingEmployees,
+            'selectedTab' => $request->string('tab', 'all')->toString(),
         ]);
     }
 
@@ -295,11 +306,105 @@ class StaffManagementController extends Controller
         ]);
     }
 
+    public function approvalsIndex(Request $request): View
+    {
+        Gate::authorize('viewAny', Employee::class);
+
+        $pendingEmployees = Employee::query()
+            ->with(['defaultShop', 'submittedBy'])
+            ->pending()
+            ->latest('id')
+            ->paginate(self::PAGE_SIZE);
+
+        return view('admin.staff.approvals', [
+            'pendingEmployees' => $pendingEmployees,
+        ]);
+    }
+
+    public function approvalShow(Request $request, Employee $employee): View
+    {
+        Gate::authorize('viewAny', Employee::class);
+        abort_unless($employee->verification_status === 'pending', 404, 'Employee registration is not pending approval.');
+
+        $categories = EmployeeCategory::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return view('admin.staff.approval-review', [
+            'employee' => $employee,
+            'categories' => $categories,
+        ]);
+    }
+
+    public function approveEmployee(Request $request, Employee $employee): RedirectResponse
+    {
+        Gate::authorize('update', $employee);
+
+        $validated = $request->validate([
+            'employee_category_id' => ['required', 'exists:employee_categories,id'],
+            'salary_type' => ['required', Rule::in(['monthly', 'daily_wage'])],
+            'monthly_salary' => ['nullable', 'required_if:salary_type,monthly', 'numeric', 'min:0'],
+            'daily_wage' => ['nullable', 'required_if:salary_type,daily_wage', 'numeric', 'min:0'],
+        ]);
+
+        $employee->update([
+            'employee_category_id' => (int) $validated['employee_category_id'],
+            'salary_type' => $validated['salary_type'],
+            'monthly_salary' => $validated['salary_type'] === 'monthly' ? (float) $validated['monthly_salary'] : null,
+            'daily_wage' => $validated['salary_type'] === 'daily_wage' ? (float) $validated['daily_wage'] : null,
+            'verification_status' => 'approved',
+            'employment_status' => 'active',
+            'reviewed_by' => auth()->id(),
+            'reviewed_at' => now(),
+            'rejection_reason' => null,
+        ]);
+
+        return redirect()->route('admin.staff.approvals.index')
+            ->with('success', 'Employee approved successfully.');
+    }
+
+    public function rejectEmployee(Request $request, Employee $employee): RedirectResponse
+    {
+        Gate::authorize('update', $employee);
+
+        $validated = $request->validate([
+            'rejection_reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $employee->update([
+            'verification_status' => 'rejected',
+            'reviewed_by' => auth()->id(),
+            'reviewed_at' => now(),
+            'rejection_reason' => $validated['rejection_reason'],
+        ]);
+
+        return redirect()->back()->with('warning', "Employee {$employee->name} ({$employee->employee_code}) registration rejected.");
+    }
+
     public function store(StoreEmployeeRequest $request): RedirectResponse
     {
         $validated = $request->validated();
         $validated['is_user_linked'] = filled($validated['user_id'] ?? null);
         $validated['daily_wage'] = round((float) ($validated['daily_wage'] ?? 0), 2);
+
+        if ($request->filled('photo_data_url')) {
+            $validated['photo_path'] = $this->imageUploadService->processAndStore($request->string('photo_data_url')->toString(), 'employees/photos', 800);
+        } elseif ($request->hasFile('photo')) {
+            $validated['photo_path'] = $this->imageUploadService->processAndStore($request->file('photo'), 'employees/photos', 800);
+        }
+
+        if ($request->filled('id_front_data_url')) {
+            $validated['id_front_path'] = $this->imageUploadService->processAndStore($request->string('id_front_data_url')->toString(), 'employees/id_docs', 1600);
+        } elseif ($request->hasFile('id_front')) {
+            $validated['id_front_path'] = $this->imageUploadService->processAndStore($request->file('id_front'), 'employees/id_docs', 1600);
+        }
+
+        if ($request->filled('id_back_data_url')) {
+            $validated['id_back_path'] = $this->imageUploadService->processAndStore($request->string('id_back_data_url')->toString(), 'employees/id_docs', 1600);
+        } elseif ($request->hasFile('id_back')) {
+            $validated['id_back_path'] = $this->imageUploadService->processAndStore($request->file('id_back'), 'employees/id_docs', 1600);
+        }
 
         Employee::query()->create($validated);
 
@@ -329,6 +434,24 @@ class StaffManagementController extends Controller
         $validated['is_user_linked'] = filled($validated['user_id'] ?? null);
         $validated['daily_wage'] = round((float) ($validated['daily_wage'] ?? 0), 2);
 
+        if ($request->filled('photo_data_url')) {
+            $validated['photo_path'] = $this->imageUploadService->processAndStore($request->string('photo_data_url')->toString(), 'employees/photos', 800);
+        } elseif ($request->hasFile('photo')) {
+            $validated['photo_path'] = $this->imageUploadService->processAndStore($request->file('photo'), 'employees/photos', 800);
+        }
+
+        if ($request->filled('id_front_data_url')) {
+            $validated['id_front_path'] = $this->imageUploadService->processAndStore($request->string('id_front_data_url')->toString(), 'employees/id_docs', 1600);
+        } elseif ($request->hasFile('id_front')) {
+            $validated['id_front_path'] = $this->imageUploadService->processAndStore($request->file('id_front'), 'employees/id_docs', 1600);
+        }
+
+        if ($request->filled('id_back_data_url')) {
+            $validated['id_back_path'] = $this->imageUploadService->processAndStore($request->string('id_back_data_url')->toString(), 'employees/id_docs', 1600);
+        } elseif ($request->hasFile('id_back')) {
+            $validated['id_back_path'] = $this->imageUploadService->processAndStore($request->file('id_back'), 'employees/id_docs', 1600);
+        }
+
         $employee->update($validated);
 
         return redirect()->route('admin.staff.show', $employee)->with('success', 'Employee updated successfully.');
@@ -342,16 +465,6 @@ class StaffManagementController extends Controller
 
         return redirect()->route('admin.staff.show', $employee)
             ->with('success', 'Employee status updated successfully.');
-    }
-
-    public function syncLinkedUsers(Request $request): RedirectResponse
-    {
-        Gate::authorize('create', Employee::class);
-
-        $syncedEmployees = $this->employeeSyncService->syncExistingUsers();
-
-        return redirect()->route('admin.staff.employees.index')
-            ->with('success', sprintf('%d linked user staff records were re-synced.', $syncedEmployees->count()));
     }
 
     public function storeCategory(StoreEmployeeCategoryRequest $request): RedirectResponse

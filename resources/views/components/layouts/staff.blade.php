@@ -42,7 +42,16 @@
         ];
     }
 
+    $pendingApprovalsCount = \App\Models\Employee::pending()->count();
+
     if ($canViewStaffEmployees) {
+        $sidebarItems[] = [
+            'label' => 'Pending Approvals'.($pendingApprovalsCount > 0 ? " ({$pendingApprovalsCount})" : ''),
+            'href' => route('admin.staff.approvals.index'),
+            'active' => request()->routeIs('admin.staff.approvals.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>',
+        ];
+
         $sidebarItems[] = [
             'label' => 'Employees',
             'href' => route('admin.staff.employees.index', ['date' => $navDate]),

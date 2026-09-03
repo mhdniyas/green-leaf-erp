@@ -16,13 +16,14 @@
              csrfToken: '{{ csrf_token() }}',
              currentTab: '{{ $tab }}',
              currentDate: '{{ $selectedDate }}',
-             currentWarehouseId: '{{ $selectedWarehouseId ?? ($availableWarehouses->first()?->id ?? '') }}',
+             currentWarehouseId: '{{ $selectedWarehouseId ?? '' }}',
              currentSearch: '{{ addslashes($search) }}',
              autoPlanUrl: '{{ route('admin.cashbook.inventory.auto-clear-plan') }}',
              autoExecuteUrl: '{{ route('admin.cashbook.inventory.auto-clear-execute') }}',
              manualMatchUrlPrefix: '/admin/cashbook/inventory/manual-match-suggestions/',
              manualExecuteUrlPrefix: '/admin/cashbook/inventory/manual-match/',
-             resolveUnitDiffUrl: '{{ route('admin.cashbook.inventory.resolve-unit-difference') }}'
+             resolveUnitDiffUrl: '{{ route('admin.cashbook.inventory.resolve-unit-difference') }}',
+             fixAdvanceUnitsUrl: '{{ route('admin.cashbook.inventory.fix-advance-units') }}'
          })">
 
         <!-- Top Header & Actions Bar -->
@@ -628,11 +629,21 @@
                             Pending bill lines where advance stock exists, but units differ and require manual interpretation
                         </p>
                     </div>
-                    @if($unitDifferences)
-                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
-                            Showing {{ $unitDifferences->firstItem() ?? 0 }}–{{ $unitDifferences->lastItem() ?? 0 }} of {{ $unitDifferences->total() }} lines
-                        </span>
-                    @endif
+                    <div class="flex items-center gap-3">
+                        <button type="button"
+                                id="btn-fix-advance-units"
+                                @click="fixAdvanceUnits()"
+                                :disabled="executingFixAdvanceUnits"
+                                class="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3.5 py-2 text-xs font-black shadow-xs transition-all cursor-pointer">
+                            <i data-lucide="wrench" class="w-3.5 h-3.5"></i>
+                            <span x-text="executingFixAdvanceUnits ? 'Fixing...' : 'Fix Advance Units'">Fix Advance Units</span>
+                        </button>
+                        @if($unitDifferences)
+                            <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
+                                Showing {{ $unitDifferences->firstItem() ?? 0 }}–{{ $unitDifferences->lastItem() ?? 0 }} of {{ $unitDifferences->total() }} lines
+                            </span>
+                        @endif
+                    </div>
                 </div>
 
                 @if(!$unitDifferences || $unitDifferences->isEmpty())
@@ -822,126 +833,417 @@
         <!-- ────────────────────────────────────────────────────────────────── -->
         <div x-show="autoClearModalOpen"
              x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-            <div class="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+             class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs">
+            <div class="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-5xl w-full flex flex-col max-h-[92vh] overflow-hidden"
                  @click.away="if(!executingAutoClear) autoClearModalOpen = false">
 
-                <!-- Header -->
-                <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <div class="flex items-center gap-2">
-                        <div class="w-9 h-9 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black">
+                <!-- Header (Sticky) -->
+                <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black shrink-0 shadow-xs">
                             <i data-lucide="sparkles" class="w-5 h-5"></i>
                         </div>
                         <div>
-                            <h3 class="text-base font-black text-slate-900">Auto Match &amp; Clear Bills</h3>
-                            <p class="text-xs text-slate-500 font-semibold">Deterministic FIFO matching of pending bills against open advances</p>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-base font-black text-slate-900">Auto Match &amp; Clear Bills</h3>
+                                <template x-if="currentWarehouseId">
+                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200/60">
+                                        Warehouse Isolated
+                                    </span>
+                                </template>
+                            </div>
+                            <p class="text-xs text-slate-500 font-semibold">Authoritative item-level FIFO match plan generated by AutoAdvanceClearPlanningService</p>
                         </div>
                     </div>
                     <button type="button"
                             @click="autoClearModalOpen = false"
                             :disabled="executingAutoClear"
-                            class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+                            class="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer transition">
                         <i data-lucide="x" class="w-5 h-5"></i>
                     </button>
                 </div>
 
-                <!-- Step 1: Loading State -->
-                <div x-show="loadingPlan" class="py-12 text-center space-y-3">
-                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-600 border-r-transparent"></div>
-                    <p class="text-xs font-black text-slate-700">Evaluating eligible pending bills and open advances...</p>
+                <!-- Warehouse Selection Required Notice (when !currentWarehouseId) -->
+                <div x-show="!currentWarehouseId" class="p-8 text-center space-y-4 my-auto">
+                    <div class="w-14 h-14 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto shadow-xs">
+                        <i data-lucide="alert-triangle" class="w-7 h-7"></i>
+                    </div>
+                    <div class="space-y-1.5 max-w-md mx-auto">
+                        <h4 class="text-sm font-black text-slate-900">Specific Warehouse Selection Required</h4>
+                        <p class="text-xs text-slate-500 font-medium">
+                            Auto Match strictly operates with single-warehouse physical isolation. Please select a specific warehouse (e.g. <strong>Vegetable Warehouse</strong> or <strong>Fruit Warehouse</strong>) from the warehouse filter at the top of the page before opening Auto Match.
+                        </p>
+                    </div>
+                    <button type="button"
+                            @click="autoClearModalOpen = false"
+                            class="px-5 py-2.5 text-xs font-black rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition cursor-pointer shadow-xs">
+                        Close &amp; Select Warehouse
+                    </button>
                 </div>
 
-                <!-- Step 2: Plan Preview Display -->
-                <div x-show="!loadingPlan && planData && !autoClearCompleted" class="space-y-4">
-                    <!-- Summary Stats Banner -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
-                        <div>
-                            <span class="text-[9px] font-black uppercase text-slate-400 block">Ready to Clear</span>
-                            <span class="text-base font-black text-emerald-700" x-text="planData.summary.ready_bills + ' Bills'"></span>
+                <!-- Loading State -->
+                <div x-show="loadingPlan && currentWarehouseId" class="py-16 text-center space-y-3 my-auto">
+                    <div class="inline-block animate-spin rounded-full h-9 w-9 border-4 border-emerald-600 border-r-transparent"></div>
+                    <p class="text-xs font-black text-slate-700">Evaluating eligible pending bills against open advances in FIFO order...</p>
+                </div>
+
+                <!-- Plan Preview Display -->
+                <div x-show="!loadingPlan && planData && !autoClearCompleted && currentWarehouseId" class="flex flex-col flex-1 min-h-0 overflow-hidden">
+                    <!-- Summary Stats Cards (Sticky) -->
+                    <div class="p-5 border-b border-slate-100 bg-slate-50/50 shrink-0 space-y-3">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">Ready to Clear</span>
+                                <span class="text-xl font-black text-emerald-700 block" x-text="(planData.summary.full_bills ?? 0) + ' Bills'"></span>
+                                <span class="text-[10px] text-emerald-600 font-bold block mt-0.5">100% Fully Matched</span>
+                            </div>
+                            <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">Partial Matches</span>
+                                <span class="text-xl font-black text-amber-600 block" x-text="(planData.summary.partial_bills ?? 0) + ' Bills'"></span>
+                                <span class="text-[10px] text-amber-700 font-bold block mt-0.5">Partial Advance Coverage</span>
+                            </div>
+                            <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">Cannot Auto Clear</span>
+                                <span class="text-xl font-black text-rose-600 block" x-text="(planData.summary.skipped_bills ?? 0) + ' Bills'"></span>
+                                <span class="text-[10px] text-rose-700 font-bold block mt-0.5">Needs Manual Attention</span>
+                            </div>
+                            <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">Matched Qty</span>
+                                <span class="text-xl font-black text-indigo-700 block" x-text="Number(planData.summary.matched_base_qty || 0).toFixed(2) + ' KG'"></span>
+                                <span class="text-[10px] text-indigo-600 font-bold block mt-0.5" x-text="(planData.summary.advances_fully_cleared || 0) + ' Advances Full'"></span>
+                            </div>
                         </div>
-                        <div>
-                            <span class="text-[9px] font-black uppercase text-slate-400 block">Cannot Clear</span>
-                            <span class="text-base font-black text-slate-500" x-text="planData.summary.skipped_bills + ' Bills'"></span>
-                        </div>
-                        <div>
-                            <span class="text-[9px] font-black uppercase text-slate-400 block">Advances Full</span>
-                            <span class="text-base font-black text-purple-700" x-text="planData.summary.advances_fully_cleared + ' GRNs'"></span>
-                        </div>
-                        <div>
-                            <span class="text-[9px] font-black uppercase text-slate-400 block">Matched Base Qty</span>
-                            <span class="text-base font-black text-slate-900" x-text="Number(planData.summary.matched_base_qty).toFixed(2) + ' KG'"></span>
+
+                        <!-- Filter Tabs -->
+                        <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs font-bold">
+                            <button type="button"
+                                    @click="activeFilter = 'all'"
+                                    :class="activeFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'"
+                                    class="px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0">
+                                All (<span x-text="modalCounts.all"></span>)
+                            </button>
+                            <button type="button"
+                                    @click="activeFilter = 'ready'"
+                                    :class="activeFilter === 'ready' ? 'bg-emerald-700 text-white' : 'bg-white text-emerald-800 hover:bg-emerald-50 border border-slate-200'"
+                                    class="px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0">
+                                Ready (<span x-text="modalCounts.ready"></span>)
+                            </button>
+                            <button type="button"
+                                    @click="activeFilter = 'partial'"
+                                    :class="activeFilter === 'partial' ? 'bg-amber-600 text-white' : 'bg-white text-amber-800 hover:bg-amber-50 border border-slate-200'"
+                                    class="px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0">
+                                Partial (<span x-text="modalCounts.partial"></span>)
+                            </button>
+                            <button type="button"
+                                    @click="activeFilter = 'unit_diff'"
+                                    :class="activeFilter === 'unit_diff' ? 'bg-sky-700 text-white' : 'bg-white text-sky-800 hover:bg-sky-50 border border-slate-200'"
+                                    class="px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0">
+                                Unit Difference (<span x-text="modalCounts.unit_diff"></span>)
+                            </button>
+                            <button type="button"
+                                    @click="activeFilter = 'no_advance'"
+                                    :class="activeFilter === 'no_advance' ? 'bg-slate-700 text-white' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'"
+                                    class="px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0">
+                                No Advance (<span x-text="modalCounts.no_advance"></span>)
+                            </button>
+                            <button type="button"
+                                    @click="activeFilter = 'exhausted'"
+                                    :class="activeFilter === 'exhausted' ? 'bg-orange-700 text-white' : 'bg-white text-orange-800 hover:bg-orange-50 border border-slate-200'"
+                                    class="px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0">
+                                Advance Exhausted (<span x-text="modalCounts.exhausted"></span>)
+                            </button>
+                            <button type="button"
+                                    @click="activeFilter = 'unconfirmed'"
+                                    :class="activeFilter === 'unconfirmed' ? 'bg-indigo-700 text-white' : 'bg-white text-indigo-800 hover:bg-indigo-50 border border-slate-200'"
+                                    class="px-3 py-1.5 rounded-xl transition cursor-pointer shrink-0">
+                                Unconfirmed (<span x-text="modalCounts.unconfirmed"></span>)
+                            </button>
                         </div>
                     </div>
 
-                    <!-- Ready Bills List -->
-                    <div x-show="planData.ready_bills && planData.ready_bills.length > 0" class="space-y-2">
-                        <h4 class="text-xs font-black uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-                            <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-600"></i>
-                            <span>Ready to Auto-Clear (<span x-text="planData.ready_bills.length"></span>)</span>
-                        </h4>
-                        <div class="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                            <template x-for="bill in planData.ready_bills" :key="bill.po_number">
-                                <div class="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/40 text-xs flex items-center justify-between">
-                                    <div class="flex items-center gap-2">
-                                        <span class="font-mono font-black text-slate-900" x-text="bill.po_number"></span>
-                                        <span class="text-slate-600" x-text="'• ' + bill.supplier_name"></span>
+                    <!-- Scrollable Bills Container -->
+                    <div class="flex-1 overflow-y-auto px-6 py-4 space-y-6 min-h-0">
+
+                        <!-- SECTION A: READY TO MATCH BILLS -->
+                        <div x-show="filteredReadyBills.length > 0" class="space-y-3">
+                            <h4 class="text-xs font-black uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                                <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600"></i>
+                                <span>Ready to Auto-Clear (<span x-text="filteredReadyBills.length"></span> Bills)</span>
+                            </h4>
+
+                            <div class="space-y-4">
+                                <template x-for="bill in filteredReadyBills" :key="bill.purchase_order_id || bill.source_goods_received_id || bill.reference">
+                                    <div class="rounded-2xl border border-emerald-200 bg-white overflow-hidden shadow-2xs">
+                                        <!-- Bill Header -->
+                                        <div class="px-4 py-2.5 bg-emerald-50/60 border-b border-emerald-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-mono font-black text-slate-900 bg-white px-2 py-0.5 rounded-md border border-emerald-200" x-text="bill.reference || ('PO #' + bill.purchase_order_id)"></span>
+                                                <span class="font-bold text-slate-800" x-text="bill.supplier_name"></span>
+                                                <span class="text-[11px] text-slate-500 font-medium" x-text="'• ' + (bill.bill_date || '')"></span>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span :class="bill.match_type === 'full_match' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'"
+                                                      class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase border tracking-wider"
+                                                      x-text="bill.match_type === 'full_match' ? 'FULL MATCH' : 'PARTIAL MATCH'"></span>
+                                                <span class="font-mono font-black text-emerald-900" x-text="Number(bill.matched_base_qty || 0).toFixed(2) + ' KG matched'"></span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Item Lines Table -->
+                                        <div class="overflow-x-auto">
+                                            <table class="w-full text-left text-xs">
+                                                <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                                                    <tr>
+                                                        <th class="px-4 py-2">Product</th>
+                                                        <th class="px-3 py-2 text-right">Bill Remaining</th>
+                                                        <th class="px-3 py-2 text-right">Advance Available</th>
+                                                        <th class="px-3 py-2 text-right text-emerald-700">Match Now</th>
+                                                        <th class="px-3 py-2 text-right text-slate-500">Remain After</th>
+                                                        <th class="px-3 py-2 text-center">Status</th>
+                                                        <th class="px-4 py-2 text-center">Allocations</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
+                                                    <template x-for="line in (bill.lines || []).filter(l => (parseFloat(l.quantity) || 0) > 0.0001 && l.classification !== 'NO_RECONCILABLE_QUANTITY')"
+                                                              :key="line.goods_received_item_id ? 'gri_' + line.goods_received_item_id : 'poi_' + line.purchase_order_item_id">
+                                                        <tr class="hover:bg-slate-50/70 transition">
+                                                            <td class="px-4 py-2.5">
+                                                                <span class="font-black text-slate-900 block" x-text="line.product_name"></span>
+                                                                <span class="text-[10px] font-mono text-slate-400" x-text="'SKU: ' + (line.product_sku || 'N/A')"></span>
+                                                            </td>
+                                                            <td class="px-3 py-2.5 text-right font-mono font-bold" x-text="line.quantity + ' ' + line.unit"></td>
+                                                            <td class="px-3 py-2.5 text-right font-mono text-slate-600" x-text="(line.confirmed_advance_qty ?? 0) + ' ' + line.unit"></td>
+                                                            <td class="px-3 py-2.5 text-right font-mono font-black text-emerald-700" x-text="line.matched_base_qty + ' ' + (line.matched_unit || line.unit)"></td>
+                                                            <td class="px-3 py-2.5 text-right font-mono text-slate-500" x-text="line.remaining_unmatched_base_qty + ' ' + line.unit"></td>
+                                                            <td class="px-3 py-2.5 text-center">
+                                                                <template x-if="line.classification === 'FULL_MATCH'">
+                                                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                                        FULL MATCH
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="line.classification === 'PARTIAL_MATCH'">
+                                                                    <div>
+                                                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                                                                            PARTIAL MATCH
+                                                                        </span>
+                                                                        <span class="text-[9px] text-amber-700 font-bold block mt-0.5" x-text="line.remaining_unmatched_base_qty + ' ' + line.unit + ' will remain'"></span>
+                                                                    </div>
+                                                                </template>
+                                                                <template x-if="line.classification === 'UNIT_DIFFERENCE'">
+                                                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-200">
+                                                                        UNIT DIFFERENCE
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="line.classification === 'NO_ADVANCE'">
+                                                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-bold text-slate-500 bg-slate-100">
+                                                                        NO ADVANCE
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="line.classification === 'ADVANCE_EXHAUSTED'">
+                                                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200">
+                                                                        EXHAUSTED
+                                                                    </span>
+                                                                </template>
+                                                            </td>
+                                                            <td class="px-4 py-2.5 text-center">
+                                                                <template x-if="line.matches && line.matches.length > 0">
+                                                                    <div>
+                                                                        <button type="button"
+                                                                                @click="toggleAllocation(lineKey(bill, line))"
+                                                                                class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-black rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer transition">
+                                                                            <i data-lucide="layers" class="w-3 h-3 text-slate-500"></i>
+                                                                            <span x-text="line.matches.length + ' GRN' + (line.matches.length > 1 ? 's' : '')"></span>
+                                                                        </button>
+                                                                    </div>
+                                                                </template>
+                                                                <template x-if="!line.matches || line.matches.length === 0">
+                                                                    <span class="text-slate-300 font-mono">-</span>
+                                                                </template>
+                                                            </td>
+                                                        </tr>
+                                                        <!-- Expandable Nested Allocations -->
+                                                        <template x-if="expandedAllocations[lineKey(bill, line)] && line.matches && line.matches.length > 0">
+                                                            <tr class="bg-emerald-50/30">
+                                                                <td colspan="7" class="px-4 py-2.5 border-t border-emerald-100/60">
+                                                                    <div class="bg-white rounded-xl border border-emerald-200 p-3 space-y-2">
+                                                                        <span class="text-[10px] font-black uppercase tracking-wider text-emerald-800 block">
+                                                                            FIFO Advance GRN Allocations for <span x-text="line.product_name"></span>
+                                                                        </span>
+                                                                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                                            <template x-for="alloc in line.matches" :key="alloc.advance_goods_received_item_id || alloc.advance_goods_received_id">
+                                                                                <div class="p-2 rounded-lg bg-slate-50 border border-slate-200/80 text-[11px] space-y-0.5">
+                                                                                    <div class="flex items-center justify-between font-mono font-bold">
+                                                                                        <span class="text-slate-900" x-text="alloc.grn_number"></span>
+                                                                                        <span class="text-emerald-700 font-black" x-text="alloc.matched_base_qty + ' KG'"></span>
+                                                                                    </div>
+                                                                                    <div class="text-[10px] text-slate-400 font-medium" x-text="'Received: ' + (alloc.received_at || 'N/A')"></div>
+                                                                                </div>
+                                                                            </template>
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        </template>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
-                                    <div class="font-mono font-black text-emerald-900" x-text="bill.matched_base_qty + ' KG matched'"></div>
-                                </div>
-                            </template>
+                                </template>
+                            </div>
                         </div>
-                    </div>
 
-                    <!-- Skipped / Cannot Clear Bills List -->
-                    <div x-show="planData.skipped_bills && planData.skipped_bills.length > 0" class="space-y-2">
-                        <h4 class="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                            <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-slate-400"></i>
-                            <span>Skipped Bills (<span x-text="planData.skipped_bills.length"></span>)</span>
-                        </h4>
-                        <div class="max-h-36 overflow-y-auto space-y-1.5 pr-1">
-                            <template x-for="bill in planData.skipped_bills" :key="bill.po_number">
-                                <div class="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs flex items-center justify-between">
-                                    <div class="flex items-center gap-2">
-                                        <span class="font-mono font-bold text-slate-700" x-text="bill.po_number"></span>
-                                        <span class="text-slate-500" x-text="'• ' + (bill.supplier_name || 'Vendor')"></span>
+                        <!-- SECTION B: NEEDS ATTENTION / UNMATCHED -->
+                        <div x-show="filteredSkippedBills.length > 0" class="space-y-3">
+                            <h4 class="text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                                <i data-lucide="alert-circle" class="w-4 h-4 text-slate-400"></i>
+                                <span>Needs Attention / Unmatched (<span x-text="filteredSkippedBills.length"></span> Bills)</span>
+                            </h4>
+
+                            <div class="space-y-4">
+                                <template x-for="bill in filteredSkippedBills" :key="bill.purchase_order_id || bill.source_goods_received_id || bill.reference">
+                                    <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                                        <!-- Bill Header -->
+                                        <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-mono font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200" x-text="bill.reference || ('PO #' + bill.purchase_order_id)"></span>
+                                                <span class="font-bold text-slate-700" x-text="bill.supplier_name"></span>
+                                                <span class="text-[11px] text-slate-400 font-medium" x-text="'• ' + (bill.bill_date || '')"></span>
+                                            </div>
+                                            <div>
+                                                <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-200 text-slate-700"
+                                                      x-text="bill.reason || 'NO ADVANCE'"></span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Item Lines Table -->
+                                        <div class="overflow-x-auto">
+                                            <table class="w-full text-left text-xs">
+                                                <thead class="bg-slate-50/60 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                                                    <tr>
+                                                        <th class="px-4 py-2">Product</th>
+                                                        <th class="px-3 py-2 text-right">Bill Remaining</th>
+                                                        <th class="px-3 py-2 text-right">Confirmed Advance</th>
+                                                        <th class="px-3 py-2 text-right">Unconfirmed Advance</th>
+                                                        <th class="px-4 py-2">Reason &amp; Details</th>
+                                                        <th class="px-3 py-2 text-center">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
+                                                    <template x-for="line in (bill.lines || []).filter(l => (parseFloat(l.quantity) || 0) > 0.0001 && l.classification !== 'NO_RECONCILABLE_QUANTITY')"
+                                                              :key="line.goods_received_item_id ? 'gri_' + line.goods_received_item_id : 'poi_' + line.purchase_order_item_id">
+                                                        <tr class="hover:bg-slate-50/70 transition">
+                                                            <td class="px-4 py-2.5">
+                                                                <span class="font-black text-slate-900 block" x-text="line.product_name"></span>
+                                                                <span class="text-[10px] font-mono text-slate-400" x-text="'SKU: ' + (line.product_sku || 'N/A')"></span>
+                                                            </td>
+                                                            <td class="px-3 py-2.5 text-right font-mono font-bold text-slate-800" x-text="line.quantity + ' ' + line.unit"></td>
+                                                            <td class="px-3 py-2.5 text-right font-mono text-slate-600" x-text="(line.confirmed_advance_qty ?? 0) + ' ' + line.unit"></td>
+                                                            <td class="px-3 py-2.5 text-right font-mono text-indigo-700 font-bold" x-text="(line.unconfirmed_advance_qty ?? 0) + ' ' + line.unit"></td>
+                                                            <td class="px-4 py-2.5">
+                                                                <template x-if="line.classification === 'UNIT_DIFFERENCE' || line.unmatched_reason === 'UNIT_DIFFERENCE'">
+                                                                    <div class="space-y-0.5">
+                                                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-200 inline-block">
+                                                                            UNIT DIFFERENCE
+                                                                        </span>
+                                                                        <span class="text-[11px] text-slate-600 block font-medium">
+                                                                            <span x-text="line.quantity + ' ' + line.unit"></span> &harr; <span x-text="(line.confirmed_advance_qty ?? 0) + ' (Advance)'"></span> &bull; Needs Unit Correction
+                                                                        </span>
+                                                                    </div>
+                                                                </template>
+                                                                <template x-if="line.classification === 'NO_ADVANCE' || line.unmatched_reason === 'NO_ADVANCE'">
+                                                                    <div class="space-y-0.5">
+                                                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold text-slate-600 bg-slate-100 inline-block">
+                                                                            NO ADVANCE
+                                                                        </span>
+                                                                        <span class="text-[11px] text-slate-500 block">No open advance for this product in warehouse</span>
+                                                                    </div>
+                                                                </template>
+                                                                <template x-if="line.classification === 'ADVANCE_EXHAUSTED' || line.unmatched_reason === 'ADVANCE_EXHAUSTED'">
+                                                                    <div class="space-y-0.5">
+                                                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold text-orange-800 bg-orange-100 border border-orange-200 inline-block">
+                                                                            ADVANCE EXHAUSTED
+                                                                        </span>
+                                                                        <span class="text-[11px] text-orange-700 block">Advance fully consumed by earlier FIFO bills</span>
+                                                                    </div>
+                                                                </template>
+                                                                <template x-if="line.classification === 'UNCONFIRMED_ADVANCE' || line.unmatched_reason === 'UNCONFIRMED_ADVANCE'">
+                                                                    <div class="space-y-0.5">
+                                                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold text-indigo-800 bg-indigo-100 border border-indigo-200 inline-block">
+                                                                            UNCONFIRMED ADVANCE
+                                                                        </span>
+                                                                        <span class="text-[11px] text-indigo-700 block" x-text="line.unconfirmed_advance_qty + ' ' + line.unit + ' pending physical confirmation'"></span>
+                                                                    </div>
+                                                                </template>
+                                                                <template x-if="line.classification === 'PARTIAL_REMAINDER' || line.unmatched_reason === 'PARTIAL_REMAINDER'">
+                                                                    <div class="space-y-0.5">
+                                                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 inline-block">
+                                                                            PARTIAL REMAINDER
+                                                                        </span>
+                                                                        <span class="text-[11px] text-amber-700 block">Unmatched balance from partial allocation</span>
+                                                                    </div>
+                                                                </template>
+                                                            </td>
+                                                            <td class="px-3 py-2.5 text-center">
+                                                                <template x-if="line.classification === 'UNIT_DIFFERENCE' || line.unmatched_reason === 'UNIT_DIFFERENCE'">
+                                                                    <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'unit_differences', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId])) }}"
+                                                                       class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-black text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-200 transition">
+                                                                        <span>Resolve Unit</span>
+                                                                        <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                                                                    </a>
+                                                                </template>
+                                                                <template x-if="line.classification !== 'UNIT_DIFFERENCE' && line.unmatched_reason !== 'UNIT_DIFFERENCE'">
+                                                                    <span class="text-slate-300 font-mono">-</span>
+                                                                </template>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
-                                    <span class="text-[10px] font-bold text-slate-500 italic" x-text="bill.reason || 'No advance coverage'"></span>
-                                </div>
-                            </template>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Empty State when filtered count = 0 -->
+                        <div x-show="filteredReadyBills.length === 0 && filteredSkippedBills.length === 0" class="p-12 text-center bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                            <i data-lucide="inbox" class="w-8 h-8 text-slate-300 mx-auto"></i>
+                            <p class="text-xs font-black text-slate-700">No bills found in this filter category.</p>
                         </div>
                     </div>
 
-                    <div x-show="planData.summary.ready_bills === 0" class="p-6 text-center bg-slate-50 rounded-2xl border border-slate-200">
-                        <p class="text-xs font-black text-slate-700">No pending bills currently have matching open advance quantities available.</p>
-                    </div>
-
-                    <!-- Error Alert if any -->
-                    <div x-show="errorMessage" class="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800" x-text="errorMessage"></div>
-
-                    <!-- Action Buttons -->
-                    <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                        <button type="button"
-                                @click="autoClearModalOpen = false"
-                                :disabled="executingAutoClear"
-                                class="px-4 py-2 text-xs font-bold rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer">
-                            Cancel
-                        </button>
-                        <button type="button"
-                                @click="executeAutoClear()"
-                                :disabled="executingAutoClear || planData.summary.ready_bills === 0"
-                                class="inline-flex items-center gap-2 px-5 py-2 text-xs font-black rounded-xl bg-emerald-700 text-white hover:bg-emerald-800 transition shadow-xs disabled:opacity-50 cursor-pointer">
-                            <span x-show="!executingAutoClear">Confirm &amp; Clear <span x-text="planData.summary.ready_bills"></span> Bills</span>
-                            <span x-show="executingAutoClear" class="inline-flex items-center gap-2">
-                                <span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-r-transparent rounded-full"></span>
-                                <span>Executing Reconciliation...</span>
-                            </span>
-                        </button>
+                    <!-- Sticky Modal Footer -->
+                    <div class="px-6 py-3.5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 bg-white">
+                        <div class="text-xs text-slate-500 font-medium">
+                            <span>Ready to clear: <strong class="text-slate-900 font-mono" x-text="planData.summary.ready_bills"></strong> Bills</span>
+                            <span class="mx-1">&bull;</span>
+                            <span>Matched Base: <strong class="text-emerald-700 font-mono" x-text="Number(planData.summary.matched_base_qty || 0).toFixed(2) + ' KG'"></strong></span>
+                        </div>
+                        <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                            <button type="button"
+                                    @click="autoClearModalOpen = false"
+                                    :disabled="executingAutoClear"
+                                    class="px-4 py-2 text-xs font-bold rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer transition">
+                                Cancel
+                            </button>
+                            <button type="button"
+                                    @click="executeAutoClear()"
+                                    :disabled="executingAutoClear || planData.summary.ready_bills === 0 || !currentWarehouseId"
+                                    class="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl bg-emerald-700 text-white hover:bg-emerald-800 transition shadow-xs disabled:opacity-50 cursor-pointer">
+                                <span x-show="!executingAutoClear">Confirm &amp; Clear <span x-text="planData.summary.ready_bills"></span> Bills</span>
+                                <span x-show="executingAutoClear" class="inline-flex items-center gap-2">
+                                    <span class="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-r-transparent rounded-full"></span>
+                                    <span>Executing Reconciliation...</span>
+                                </span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Step 3: Execution Result Screen -->
-                <div x-show="autoClearCompleted" class="py-6 text-center space-y-4">
-                    <div class="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                <!-- Execution Result Screen -->
+                <div x-show="autoClearCompleted" class="py-12 px-6 text-center space-y-4 my-auto">
+                    <div class="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-xs">
                         <i data-lucide="check" class="w-8 h-8"></i>
                     </div>
                     <div>
@@ -952,7 +1254,7 @@
                     <div class="pt-2">
                         <button type="button"
                                 @click="window.location.reload()"
-                                class="px-6 py-2.5 text-xs font-black rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-md cursor-pointer">
+                                class="px-6 py-2.5 text-xs font-black rounded-xl bg-slate-900 text-white hover:bg-slate-800 shadow-xs cursor-pointer transition">
                             Refresh Page
                         </button>
                     </div>
@@ -1241,6 +1543,7 @@
                 // Unit Differences state
                 unitDiffModalOpen: false,
                 executingUnitDiff: false,
+                executingFixAdvanceUnits: false,
                 activeUnitDiff: null,
                 selectedCandidateId: null,
                 selectedCandidateObj: null,
@@ -1249,16 +1552,108 @@
                 unitDiffNotes: '',
                 unitDiffErrorMessage: '',
 
+                activeFilter: 'all',
+                expandedAllocations: {},
+
+                toggleAllocation(key) {
+                    this.expandedAllocations[key] = !this.expandedAllocations[key];
+                    this.$nextTick(() => {
+                        if (window.lucide) window.lucide.createIcons();
+                    });
+                },
+
+                lineKey(bill, line) {
+                    return (bill.purchase_order_id || bill.source_goods_received_id || 'b') + '_' + (line.goods_received_item_id || line.purchase_order_item_id || line.source_item_id || line.product_id);
+                },
+
+                get filteredReadyBills() {
+                    if (!this.planData || !this.planData.ready_bills) return [];
+                    if (['unit_diff', 'no_advance', 'exhausted', 'unconfirmed'].includes(this.activeFilter)) {
+                        return [];
+                    }
+                    return this.planData.ready_bills.filter(bill => {
+                        if (this.activeFilter === 'ready') return bill.match_type === 'full_match';
+                        if (this.activeFilter === 'partial') return bill.match_type === 'partial_match';
+                        return true;
+                    });
+                },
+
+                get filteredSkippedBills() {
+                    if (!this.planData || !this.planData.skipped_bills) return [];
+                    if (['ready', 'partial'].includes(this.activeFilter)) {
+                        return [];
+                    }
+                    if (this.activeFilter === 'all') return this.planData.skipped_bills;
+                    return this.planData.skipped_bills.filter(bill => {
+                        const lines = (bill.lines || []).filter(l => (parseFloat(l.quantity) || 0) > 0.0001 && l.classification !== 'NO_RECONCILABLE_QUANTITY');
+                        if (this.activeFilter === 'unit_diff') {
+                            return lines.some(l => l.classification === 'UNIT_DIFFERENCE' || l.unmatched_reason === 'UNIT_DIFFERENCE');
+                        }
+                        if (this.activeFilter === 'no_advance') {
+                            return lines.some(l => l.classification === 'NO_ADVANCE' || l.unmatched_reason === 'NO_ADVANCE');
+                        }
+                        if (this.activeFilter === 'exhausted') {
+                            return lines.some(l => l.classification === 'ADVANCE_EXHAUSTED' || l.unmatched_reason === 'ADVANCE_EXHAUSTED');
+                        }
+                        if (this.activeFilter === 'unconfirmed') {
+                            return lines.some(l => l.classification === 'UNCONFIRMED_ADVANCE' || l.unmatched_reason === 'UNCONFIRMED_ADVANCE');
+                        }
+                        return true;
+                    });
+                },
+
+                get modalCounts() {
+                    if (!this.planData) {
+                        return { all: 0, ready: 0, partial: 0, unit_diff: 0, no_advance: 0, exhausted: 0, unconfirmed: 0 };
+                    }
+                    let unitDiff = 0, noAdv = 0, exhausted = 0, unconfirmed = 0;
+                    const allSkipped = this.planData.skipped_bills || [];
+                    for (const b of allSkipped) {
+                        const lines = (b.lines || []).filter(l => (parseFloat(l.quantity) || 0) > 0.0001 && l.classification !== 'NO_RECONCILABLE_QUANTITY');
+                        for (const l of lines) {
+                            const c = l.classification || l.unmatched_reason || '';
+                            if (c === 'UNIT_DIFFERENCE') unitDiff++;
+                            else if (c === 'NO_ADVANCE') noAdv++;
+                            else if (c === 'ADVANCE_EXHAUSTED') exhausted++;
+                            else if (c === 'UNCONFIRMED_ADVANCE') unconfirmed++;
+                        }
+                    }
+                    return {
+                        all: (this.planData.ready_bills?.length || 0) + (this.planData.skipped_bills?.length || 0),
+                        ready: this.planData.summary?.full_bills || 0,
+                        partial: this.planData.summary?.partial_bills || 0,
+                        unit_diff: unitDiff,
+                        no_advance: noAdv,
+                        exhausted: exhausted,
+                        unconfirmed: unconfirmed
+                    };
+                },
+
                 // 1. Open Auto Clear Modal
-                async openAutoClear() {
+                openAutoClear() {
                     this.autoClearModalOpen = true;
-                    this.loadingPlan = true;
                     this.autoClearCompleted = false;
                     this.errorMessage = '';
-                    this.planData = null;
+                    this.activeFilter = 'all';
+                    this.expandedAllocations = {};
 
+                    if (!this.currentWarehouseId) {
+                        this.loadingPlan = false;
+                        this.planData = null;
+                        this.$nextTick(() => {
+                            if (window.lucide) window.lucide.createIcons();
+                        });
+                        return;
+                    }
+
+                    this.loadingPlan = true;
+                    this.planData = null;
+                    this.fetchAutoClearPlan();
+                },
+
+                async fetchAutoClearPlan() {
                     try {
-                        const url = `${config.autoPlanUrl}?warehouse_id=${this.currentWarehouseId || 1}`;
+                        const url = `${config.autoPlanUrl}?warehouse_id=${this.currentWarehouseId}`;
                         const res = await fetch(url, {
                             headers: {
                                 'Accept': 'application/json',
@@ -1268,6 +1663,9 @@
                         const json = await res.json();
                         if (json.status === 'success') {
                             this.planData = json.data;
+                            this.$nextTick(() => {
+                                if (window.lucide) window.lucide.createIcons();
+                            });
                         } else {
                             this.errorMessage = json.message || 'Could not load auto-clear plan.';
                         }
@@ -1280,7 +1678,7 @@
 
                 // 2. Execute Auto Clear
                 async executeAutoClear() {
-                    if (!this.planData || !this.planData.plan_hash) return;
+                    if (!this.planData || !this.planData.plan_hash || !this.currentWarehouseId) return;
 
                     this.executingAutoClear = true;
                     this.errorMessage = '';
@@ -1298,7 +1696,7 @@
                                 'X-CSRF-TOKEN': this.csrfToken
                             },
                             body: JSON.stringify({
-                                warehouse_id: parseInt(this.currentWarehouseId || 1, 10),
+                                warehouse_id: parseInt(this.currentWarehouseId, 10),
                                 plan_hash: this.planData.plan_hash,
                                 client_submission_id: clientSubmissionId
                             })
@@ -1309,6 +1707,9 @@
                             this.autoClearCompleted = true;
                             const d = json.data || {};
                             this.autoClearResultMsg = `Cleared ${d.bills_cleared ?? 0} bills (${d.matched_base_qty ?? 0} KG) across ${d.advances_fully_cleared ?? 0} full advances.`;
+                            this.$nextTick(() => {
+                                if (window.lucide) window.lucide.createIcons();
+                            });
                         } else {
                             this.errorMessage = json.message || 'Auto reconciliation failed during execution.';
                         }
@@ -1504,6 +1905,42 @@
                         this.unitDiffErrorMessage = 'Network error: ' + e.message;
                     } finally {
                         this.executingUnitDiff = false;
+                    }
+                },
+
+                // 6. Fix Advance Units Action
+                async fixAdvanceUnits() {
+                    const confirmation = confirm("This will change the Advance unit to each product's default unit for the selected date. Quantities will not be changed. Continue?");
+                    if (!confirmation) return;
+
+                    this.executingFixAdvanceUnits = true;
+                    try {
+                        const res = await fetch(config.fixAdvanceUnitsUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken
+                            },
+                            body: JSON.stringify({
+                                date: this.currentDate,
+                                warehouse_id: this.currentWarehouseId ? parseInt(this.currentWarehouseId, 10) : null,
+                                search: this.currentSearch
+                            })
+                        });
+
+                        const json = await res.json();
+                        if (res.ok && json.status === 'success') {
+                            const data = json.data || {};
+                            alert(`Advance units fixed: ${data.fixed_count ?? 0}\nAlready correct: ${data.already_correct_count ?? 0}\nSkipped: ${data.skipped_count ?? 0}`);
+                            window.location.reload();
+                        } else {
+                            alert(json.message || 'Failed to fix advance units.');
+                        }
+                    } catch (e) {
+                        alert('Network error while fixing advance units: ' + e.message);
+                    } finally {
+                        this.executingFixAdvanceUnits = false;
                     }
                 }
             };

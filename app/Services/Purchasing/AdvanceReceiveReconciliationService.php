@@ -1737,8 +1737,11 @@ class AdvanceReceiveReconciliationService
                     $candidateUnits[] = $candUnit;
                     $normCandUnit = ProductUnit::normalizeUnit($candUnit);
 
-                    if ($normBillUnit !== $normCandUnit && $strictConv === null) {
-                        $hasUnitMismatch = true;
+                    if ($normBillUnit !== $normCandUnit) {
+                        $candConv = app(AdvanceAvailableBalanceCalculator::class)->resolveStrictUnitConversion($product, $candUnit);
+                        if ($strictConv === null || $candConv === null) {
+                            $hasUnitMismatch = true;
+                        }
                     }
                 }
 
@@ -2080,5 +2083,111 @@ class AdvanceReceiveReconciliationService
         }
 
         return 0.00;
+    }
+
+    /**
+     * Fix advance units for records appearing in the Unit Differences list for the given context.
+     * Only changes the Advance unit field (GoodsReceivedItem->received_unit).
+     * Quantities, POs, bills, and conversion configs remain untouched.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array{fixed_count: int, already_correct_count: int, skipped_count: int}
+     */
+    public function fixAdvanceUnits(array $filters, User $user): array
+    {
+        $repairDate = (string) ($filters['date'] ?? now()->toDateString());
+
+        return DB::transaction(function () use ($filters, $repairDate, $user): array {
+            $diffPaginator = $this->paginateUnitDifferences($filters, perPage: 1000);
+            $diffRows = $diffPaginator->getCollection();
+
+            $fixedCount = 0;
+            $alreadyCorrectCount = 0;
+            $skippedCount = 0;
+
+            $processedItemIds = [];
+
+            foreach ($diffRows as $row) {
+                $candidates = $row['candidates'] ?? [];
+                foreach ($candidates as $cand) {
+                    $candItemId = isset($cand['advance_goods_received_item_id']) ? (int) $cand['advance_goods_received_item_id'] : null;
+                    $candGrnId = isset($cand['advance_goods_received_id']) ? (int) $cand['advance_goods_received_id'] : null;
+
+                    $itemKey = $candItemId !== null
+                        ? "item_{$candItemId}"
+                        : "grn_{$candGrnId}_prod_".($cand['product_id'] ?? 'none');
+
+                    if (isset($processedItemIds[$itemKey])) {
+                        continue;
+                    }
+                    $processedItemIds[$itemKey] = true;
+
+                    $grnItem = null;
+                    if ($candItemId !== null) {
+                        $grnItem = GoodsReceivedItem::with('product', 'goodsReceived')->find($candItemId);
+                    } elseif ($candGrnId !== null && isset($cand['product_id'])) {
+                        $grnItem = GoodsReceivedItem::with('product', 'goodsReceived')
+                            ->where('goods_received_id', $candGrnId)
+                            ->where('product_id', (int) $cand['product_id'])
+                            ->first();
+                    }
+
+                    if (! $grnItem || ! $grnItem->product) {
+                        $skippedCount++;
+
+                        continue;
+                    }
+
+                    $product = $grnItem->product;
+                    $defaultUnit = trim((string) $product->unit);
+
+                    if ($defaultUnit === '') {
+                        $skippedCount++;
+
+                        continue;
+                    }
+
+                    $currentAdvUnit = trim((string) $grnItem->received_unit);
+
+                    if (ProductUnit::normalizeUnit($currentAdvUnit) === ProductUnit::normalizeUnit($defaultUnit)) {
+                        $alreadyCorrectCount++;
+
+                        continue;
+                    }
+
+                    $oldUnit = $grnItem->received_unit;
+
+                    // Update ONLY the received_unit field on Advance record
+                    $grnItem->received_unit = $defaultUnit;
+                    $grnItem->save();
+
+                    $fixedCount++;
+
+                    activity()
+                        ->performedOn($grnItem)
+                        ->causedBy($user)
+                        ->withProperties([
+                            'action' => 'fix_advance_unit',
+                            'advance_id' => $grnItem->goods_received_id,
+                            'advance_goods_received_id' => $grnItem->goods_received_id,
+                            'advance_goods_received_item_id' => $grnItem->id,
+                            'product_id' => $product->id,
+                            'product_name' => $product->name,
+                            'old_unit' => $oldUnit,
+                            'new_unit' => $defaultUnit,
+                            'quantity' => (float) $grnItem->received_qty,
+                            'admin_user_id' => $user->id,
+                            'repair_date' => $repairDate,
+                        ])
+                        ->log("Fixed advance unit for product {$product->name} (ID: {$product->id}) from {$oldUnit} to {$defaultUnit}");
+                }
+            }
+
+            return [
+                'fixed_count' => $fixedCount,
+                'already_correct_count' => $alreadyCorrectCount,
+                'skipped_count' => $skippedCount,
+            ];
+        });
     }
 }

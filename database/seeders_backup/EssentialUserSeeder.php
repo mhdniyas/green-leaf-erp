@@ -14,7 +14,6 @@ use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopOwnerAssignment;
 use App\Models\ShopPriceGroup;
 use App\Models\User;
-use App\Services\HR\EmployeeSyncService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -40,7 +39,6 @@ class EssentialUserSeeder extends Seeder
             );
 
             $user->syncRoles([$account['role']]);
-            app(EmployeeSyncService::class)->ensureForUser($user->fresh());
         }
 
         foreach ($this->shops() as $shopSeed) {
@@ -76,8 +74,6 @@ class EssentialUserSeeder extends Seeder
                 'user_id' => $owner->id,
                 'shop_id' => $shop->id,
             ]);
-
-            app(EmployeeSyncService::class)->ensureForUser($owner->fresh());
 
             $this->ensureAssignedShopStaff($shop, $owner);
         }
