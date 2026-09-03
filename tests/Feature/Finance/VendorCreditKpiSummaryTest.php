@@ -6,6 +6,7 @@ namespace Tests\Feature\Finance;
 
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCart;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\VendorAdvance;
@@ -296,5 +297,75 @@ class VendorCreditKpiSummaryTest extends TestCase
         $this->assertEquals(20000.0, $kpi['total_invoiced']);
         $this->assertEquals(17500.0, $kpi['total_paid']);
         $this->assertEquals(2500.0, $kpi['total_outstanding']);
+    }
+
+    public function test_fully_settled_credit_invoice_with_overwritten_payment_fields_remains_in_kpi(): void
+    {
+        // Create an invoice for ₹8,500 where purchaser cart was GPay
+        $purchaserCart = PurchaserCart::query()->create([
+            'user_id' => $this->admin->id,
+            'shop_id' => 1,
+            'business_date' => now()->toDateString(),
+            'bill_number' => 'BILL-CART-001',
+            'cart_number' => 'CART-001',
+            'payment_method' => 'GPay',
+            'status' => 'completed',
+        ]);
+
+        $invoice = PurchaseInvoice::factory()->for($this->supplier)->create([
+            'invoice_number' => 'PENDING-BILL-VC-20260812-F2C5',
+            'purchaser_cart_id' => $purchaserCart->id,
+            'amount' => 8500.00,
+            'discount_amount' => 0.00,
+            'paid_amount' => 0.00,
+            'payment_method' => 'Credit',
+            'payment_status' => 'credit_pending_approval',
+            'payment_paid_by' => 'vendor_credit',
+            'status' => 'approved',
+        ]);
+
+        $companyAccount = CompanyAccount::query()->create([
+            'name' => 'Canara Bank',
+            'account_type' => 'bank',
+            'bank_name' => 'Canara Bank',
+            'enabled' => true,
+        ]);
+
+        // Settle the invoice via VendorSettlement (overwrites payment_method=Bank, payment_status=paid, payment_paid_by=company, paid_amount=8500)
+        $service = app(VendorSettlementService::class);
+        $service->create($this->supplier, [
+            'payment_date' => now()->toDateString(),
+            'company_account_id' => $companyAccount->id,
+            'payment_method' => 'Bank',
+            'actual_payment_amount' => 8500.00,
+            'settlement_discount_amount' => 0.00,
+            'vendor_advance_used_amount' => 0.00,
+            'allocations' => [
+                [
+                    'purchase_invoice_id' => $invoice->id,
+                    'cash_allocated' => 8500.00,
+                    'advance_allocated' => 0.00,
+                    'discount_allocated' => 0.00,
+                ],
+            ],
+        ], $this->admin->id);
+
+        $invoice->refresh();
+        $this->assertSame('Bank', $invoice->payment_method);
+        $this->assertSame('paid', $invoice->payment_status);
+        $this->assertSame('company', $invoice->payment_paid_by);
+        $this->assertEquals(0.0, (float) $invoice->amount - (float) $invoice->paid_amount);
+
+        // Fetch vendor credit page
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.finance.vendor-credit.show', $this->supplier));
+
+        $response->assertOk();
+        $kpi = $response->viewData('kpi');
+
+        // Invoice ₹8,500 must remain included in Total Credit Purchases and Total Settled
+        $this->assertEquals(8500.0, $kpi['total_invoiced']);
+        $this->assertEquals(8500.0, $kpi['total_paid']);
+        $this->assertEquals(0.0, $kpi['total_outstanding']);
     }
 }

@@ -299,6 +299,7 @@ class CashbookVendorCreditTest extends TestCase
             'payment_method' => 'Credit',
             'payment_status' => 'credit_pending_approval',
             'payment_paid_by' => 'vendor_credit',
+            'status' => 'approved',
             'created_at' => now(),
         ]);
 

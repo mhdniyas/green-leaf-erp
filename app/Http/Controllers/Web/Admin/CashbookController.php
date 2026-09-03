@@ -4979,6 +4979,7 @@ final class CashbookController extends Controller
                     ->orWhere('payment_status', 'credit_pending_approval')
                     ->orWhere('payment_paid_by', 'vendor_credit')
                     ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('payment_method', 'Credit'))
+                    ->orWhereHas('vendorSettlementAllocations')
                     ->orWhereRaw('(amount - discount_amount) > paid_amount');
             })
             ->get();
@@ -5015,6 +5016,7 @@ final class CashbookController extends Controller
                     ->orWhere('payment_status', 'credit_pending_approval')
                     ->orWhere('payment_paid_by', 'vendor_credit')
                     ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('payment_method', 'Credit'))
+                    ->orWhereHas('vendorSettlementAllocations')
                     ->orWhereRaw('(amount - discount_amount) > paid_amount');
             });
 
