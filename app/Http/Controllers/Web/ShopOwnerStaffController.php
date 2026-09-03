@@ -28,6 +28,7 @@ use App\Services\HR\PayrollService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -45,7 +46,42 @@ class ShopOwnerStaffController extends Controller
     {
         $this->ensureOwnerAccess($request);
 
-        $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $rawMonth = trim($request->string('month')->toString());
+        $calendarMonth = null;
+        if ($rawMonth !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $rawMonth)) {
+            try {
+                $calendarMonth = Carbon::createFromFormat('Y-m', $rawMonth)->startOfMonth();
+            } catch (\Throwable) {
+                $calendarMonth = null;
+            }
+        }
+
+        $rawDate = trim($request->string('date')->toString());
+        $selectedDate = null;
+        if ($rawDate !== '' && preg_match('/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/', $rawDate)) {
+            try {
+                $selectedDate = Carbon::createFromFormat('Y-m-d', $rawDate)->startOfDay();
+            } catch (\Throwable) {
+                $selectedDate = null;
+            }
+        }
+
+        if ($selectedDate === null) {
+            $selectedDate = today()->startOfDay();
+        }
+
+        if ($calendarMonth === null) {
+            $calendarMonth = $selectedDate->copy()->startOfMonth();
+        }
+
+        if ($selectedDate->format('Y-m') !== $calendarMonth->format('Y-m')) {
+            if (today()->format('Y-m') === $calendarMonth->format('Y-m')) {
+                $selectedDate = today()->startOfDay();
+            } else {
+                $selectedDate = $calendarMonth->copy()->startOfMonth();
+            }
+        }
+
         $ownedShops = Shop::query()
             ->whereIn('id', $request->user()->ownedShopAssignments()->pluck('shop_id'))
             ->orderBy('name')
@@ -68,12 +104,52 @@ class ShopOwnerStaffController extends Controller
         $advanceOptions = $advanceEmployees
             ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->advanceOptionForEmployee($employee, $selectedDate, $selectedShop?->id)])
             ->all();
-        $salaryOptions = $quickEmployees
-            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->salaryOptionForEmployee($employee, $selectedDate, $selectedShop?->id)])
-            ->all();
+
+        $salaryOptions = [];
+        $recentPayrollPayments = new LengthAwarePaginator([], 0, 8);
+
+        if ($selectedTab === 'salary') {
+            $salaryOptions = $quickEmployees
+                ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->salaryOptionForEmployee($employee, $selectedDate, $selectedShop?->id)])
+                ->all();
+
+            $recentPayrollPayments = ShopStaffPayment::query()
+                ->with(['employee', 'advanceRequest', 'cashbookLine.entry'])
+                ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
+                ->when($filterStartDate, fn ($query) => $query->whereDate('paid_on', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('paid_on', '<=', $filterEndDate))
+                ->latest('paid_on')
+                ->latest('id')
+                ->paginate(8, ['*'], 'staff_payments_page')
+                ->withQueryString();
+        }
+
+        $historyDatesWithAttendance = collect();
+        $historyDayAttendance = collect();
+
+        if ($selectedTab === 'history' && $selectedShop !== null) {
+            $startOfMonth = $calendarMonth->copy()->startOfMonth()->toDateString();
+            $endOfMonth = $calendarMonth->copy()->endOfMonth()->toDateString();
+
+            $historyDatesWithAttendance = EmployeeAttendance::query()
+                ->where('shop_id', $selectedShop->id)
+                ->whereBetween('attendance_date', [$startOfMonth, $endOfMonth])
+                ->pluck('attendance_date')
+                ->map(fn ($d): string => $d instanceof Carbon ? $d->format('Y-m-d') : substr((string) $d, 0, 10))
+                ->unique()
+                ->values();
+
+            $historyDayAttendance = EmployeeAttendance::query()
+                ->with(['employee.category', 'markedBy'])
+                ->where('shop_id', $selectedShop->id)
+                ->whereDate('attendance_date', $selectedDate->toDateString())
+                ->orderBy('id')
+                ->get();
+        }
 
         return view('shop-owner.staff.index', [
             'selectedDate' => $selectedDate,
+            'calendarMonth' => $calendarMonth,
             'selectedTab' => $selectedTab,
             'shops' => $ownedShops,
             'selectedShop' => $selectedShop,
@@ -83,15 +159,9 @@ class ShopOwnerStaffController extends Controller
             'advanceOptions' => $advanceOptions,
             'salaryOptions' => $salaryOptions,
             'attendanceRecords' => $attendanceRecords,
-            'recentPayrollPayments' => ShopStaffPayment::query()
-                ->with(['employee', 'advanceRequest', 'cashbookLine.entry'])
-                ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
-                ->when($filterStartDate, fn ($query) => $query->whereDate('paid_on', '>=', $filterStartDate))
-                ->when($filterEndDate, fn ($query) => $query->whereDate('paid_on', '<=', $filterEndDate))
-                ->latest('paid_on')
-                ->latest('id')
-                ->paginate(8, ['*'], 'staff_payments_page')
-                ->withQueryString(),
+            'historyDatesWithAttendance' => $historyDatesWithAttendance,
+            'historyDayAttendance' => $historyDayAttendance,
+            'recentPayrollPayments' => $recentPayrollPayments,
             'advanceRequests' => EmployeeAdvanceRequest::query()
                 ->with(['employee', 'reviewedBy', 'shopStaffPayment.cashbookLine.entry'])
                 ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))

@@ -25,6 +25,8 @@ class VendorCreditKpiSummaryTest extends TestCase
 
     private Supplier $supplier;
 
+    private CompanyAccount $companyAccount;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -40,6 +42,13 @@ class VendorCreditKpiSummaryTest extends TestCase
             'mobile_number' => '9988776655',
             'contact' => 'Kovai Manager',
             'credit_approved' => true,
+        ]);
+
+        $this->companyAccount = CompanyAccount::query()->create([
+            'name' => 'HDFC Bank',
+            'account_type' => 'bank',
+            'bank_name' => 'HDFC Bank',
+            'enabled' => true,
         ]);
     }
 
@@ -382,17 +391,10 @@ class VendorCreditKpiSummaryTest extends TestCase
             'status' => 'approved',
         ]);
 
-        $companyAccount = CompanyAccount::query()->create([
-            'name' => 'HDFC Bank',
-            'account_type' => 'bank',
-            'bank_name' => 'HDFC Bank',
-            'enabled' => true,
-        ]);
-
         $service = app(VendorSettlementService::class);
         $settlement = $service->create($this->supplier, [
             'payment_date' => now()->toDateString(),
-            'company_account_id' => $companyAccount->id,
+            'company_account_id' => $this->companyAccount->id,
             'payment_method' => 'Bank',
             'actual_payment_amount' => 12000.00,
             'settlement_discount_amount' => 0.00,
