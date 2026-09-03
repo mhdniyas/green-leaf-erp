@@ -79,4 +79,23 @@ class ShopEmployeeAssignmentService
             })
             ->exists();
     }
+
+    public function getAssignedShopOn(Employee $employee, Carbon $date): ?Shop
+    {
+        $assignment = ShopEmployeeAssignment::query()
+            ->with('shop')
+            ->where('employee_id', $employee->id)
+            ->where(function ($query) use ($date): void {
+                $query->whereNull('effective_from')
+                    ->orWhereDate('effective_from', '<=', $date->toDateString());
+            })
+            ->where(function ($query) use ($date): void {
+                $query->whereNull('effective_to')
+                    ->orWhereDate('effective_to', '>=', $date->toDateString());
+            })
+            ->orderByDesc('effective_from')
+            ->first();
+
+        return $assignment?->shop ?? $employee->defaultShop;
+    }
 }

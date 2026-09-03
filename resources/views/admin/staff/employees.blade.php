@@ -179,13 +179,13 @@
                 </div>
 
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Primary Phone</label>
-                    <input type="text" name="phone" placeholder="Phone number" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Primary Phone *</label>
+                    <input type="text" name="phone" placeholder="Phone number" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Alternate Phone</label>
-                    <input type="text" name="alternate_phone" placeholder="Alternate phone" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Emergency Contact Number *</label>
+                    <input type="text" name="alternate_phone" placeholder="Emergency contact number" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                 </div>
 
                 <div>

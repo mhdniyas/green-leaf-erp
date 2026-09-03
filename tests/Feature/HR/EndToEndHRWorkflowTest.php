@@ -35,7 +35,7 @@ class EndToEndHRWorkflowTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-09-03 09:15:00', 'Asia/Kolkata'));
 
         $this->admin = User::factory()->create(['email' => 'admin_hr@example.com']);
-        $this->admin->assignRole('admin');
+        $this->admin->assignRole(['admin', 'purchaser']);
         $this->admin->givePermissionTo('hr.employee.view');
         $this->admin->givePermissionTo('hr.employee.update');
 
@@ -69,9 +69,10 @@ class EndToEndHRWorkflowTest extends TestCase
             'shop_id' => $this->casioShop->id,
             'name' => 'Final HR Test Employee',
             'phone' => '9876543210',
+            'alternate_phone' => '9123456789',
             'joined_on' => '2026-09-01',
             'id_type' => 'aadhaar',
-            'id_number' => '9999-8888-7777',
+            'id_number' => '999988887777',
             'address' => 'Casio Street, Kochi',
             'photo_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
             'id_front_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -80,6 +81,7 @@ class EndToEndHRWorkflowTest extends TestCase
         $storeResponse = $this->actingAs($this->shopOwner)
             ->post(route('shop-owner.staff.employees.store'), $payload);
 
+        $storeResponse->assertSessionHasNoErrors();
         $storeResponse->assertRedirect(route('shop-owner.staff.index', ['shop' => $this->casioShop->code]));
 
         $employee = Employee::where('name', 'Final HR Test Employee')->firstOrFail();
@@ -185,6 +187,7 @@ class EndToEndHRWorkflowTest extends TestCase
             'shop_id' => $this->casioShop->id,
             'name' => 'Rejected Test Employee',
             'phone' => '9876543211',
+            'alternate_phone' => '9123456780',
             'joined_on' => '2026-09-01',
             'id_type' => 'aadhaar',
             'id_number' => '9999-8888-6666',

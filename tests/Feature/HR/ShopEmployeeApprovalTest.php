@@ -36,7 +36,7 @@ class ShopEmployeeApprovalTest extends TestCase
         $this->admin = User::factory()->create([
             'email' => 'admin@example.com',
         ]);
-        $this->admin->assignRole('admin');
+        $this->admin->assignRole(['admin', 'purchaser']);
         $this->admin->givePermissionTo('hr.employee.view');
         $this->admin->givePermissionTo('hr.employee.update');
 
@@ -354,6 +354,7 @@ class ShopEmployeeApprovalTest extends TestCase
         $payload = [
             'name' => 'Vikas Nair Corrected',
             'phone' => '9998887773',
+            'alternate_phone' => '9876543211',
             'joined_on' => '2026-09-01',
             'id_type' => 'aadhaar',
             'id_number' => '1111-2222-6666',

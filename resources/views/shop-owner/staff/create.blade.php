@@ -80,7 +80,7 @@
 
 
 
-                    <!-- 2 COLUMNS: PRIMARY PHONE / ALT PHONE -->
+                    <!-- 2 COLUMNS: PRIMARY PHONE / EMERGENCY CONTACT NUMBER -->
                     <div class="grid grid-cols-2 gap-2">
                         <div>
                             <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Primary Phone *</label>
@@ -88,8 +88,9 @@
                             @error('phone') <p class="mt-0.5 text-[11px] font-bold text-rose-600">{{ $message }}</p> @enderror
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Alt Phone</label>
-                            <input type="tel" name="alternate_phone" value="{{ old('alternate_phone', $employee?->alternate_phone) }}" placeholder="Optional phone" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600">
+                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Emergency Contact Number *</label>
+                            <input type="tel" name="alternate_phone" value="{{ old('alternate_phone', $employee?->alternate_phone) }}" placeholder="Emergency contact number" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
+                            @error('alternate_phone') <p class="mt-0.5 text-[11px] font-bold text-rose-600">{{ $message }}</p> @enderror
                         </div>
                     </div>
 

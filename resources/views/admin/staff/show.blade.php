@@ -406,7 +406,7 @@
                         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Phone Numbers</p>
                             <p class="mt-2 font-bold text-slate-900">Primary: {{ $employee->phone ?: 'N/A' }}</p>
-                            <p class="mt-1 font-semibold text-slate-600">Alternate: {{ $employee->alternate_phone ?: 'N/A' }}</p>
+                            <p class="mt-1 font-semibold text-slate-600">Emergency: {{ $employee->alternate_phone ?: 'N/A' }}</p>
                         </div>
                         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
                             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Address</p>
@@ -499,12 +499,12 @@
                             <input type="text" name="employee_code" value="{{ $employee->employee_code }}" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 mb-1">Primary Phone</label>
-                            <input type="text" name="phone" value="{{ $employee->phone }}" placeholder="Phone" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                            <label class="block text-xs font-bold text-slate-600 mb-1">Primary Phone *</label>
+                            <input type="text" name="phone" value="{{ $employee->phone }}" placeholder="Phone" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 mb-1">Alternate Phone</label>
-                            <input type="text" name="alternate_phone" value="{{ $employee->alternate_phone }}" placeholder="Alternate phone" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                            <label class="block text-xs font-bold text-slate-600 mb-1">Emergency Contact Number *</label>
+                            <input type="text" name="alternate_phone" value="{{ $employee->alternate_phone }}" placeholder="Emergency contact number" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-600 mb-1">Email</label>

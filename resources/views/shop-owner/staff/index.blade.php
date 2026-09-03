@@ -172,11 +172,11 @@
                                     <div class="flex items-center gap-1.5 truncate">
                                         <p class="text-xs font-black text-slate-950 truncate">{{ $employee->name }}</p>
                                         <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase border shrink-0 {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600' }}">
-                                            {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', $status) }}
+                                            {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', ucfirst((string) $status)) }}
                                         </span>
                                     </div>
                                     <p class="text-[11px] font-semibold text-slate-400 truncate">
-                                        {{ $employee->employee_code }} · {{ $employee->category?->name ?? 'Staff' }} · {{ $employee->phone ?: 'No phone' }}
+                                        {{ $employee->employee_code }} · Primary: {{ $employee->phone ?: 'N/A' }} · Emergency: {{ $employee->alternate_phone ?: 'N/A' }}
                                     </p>
                                 </div>
                             </div>
@@ -197,7 +197,7 @@
             </section>
         @endif
 
-        <!-- TAB 2: ATTENDANCE (COMPACT ROWS & ACTION CONTROLS) -->
+        <!-- TAB 2: ATTENDANCE (FAST ONE-TAP CHECK-IN & REASON MODAL) -->
         @if($selectedTab === 'attendance')
             <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-2" x-data="{ openReasonModal: false, targetForm: null, targetStatus: '', targetLabel: '', reasonInput: '' }">
                 <div class="flex items-center justify-between gap-2">
@@ -226,7 +226,13 @@
                         @php($status = $attendance?->status)
                         @php($selectedStatus = $attendance?->status ?? 'present')
 
-                        <form method="POST" action="{{ route('shop-owner.staff.attendance.store') }}" class="py-2.5 space-y-2" data-owned-shop-attendance-form id="attendance-form-emp-{{ $employee->id }}">
+                        <form method="POST" 
+                              action="{{ route('shop-owner.staff.attendance.store') }}" 
+                              class="py-2.5 space-y-1.5" 
+                              data-owned-shop-attendance-form 
+                              id="attendance-form-emp-{{ $employee->id }}"
+                              x-data="{ isMarked: {{ $isMarked ? 'true' : 'false' }}, editing: {{ $isMarked ? 'false' : 'true' }} }"
+                              @attendance-saved.window="if ($event.target === $el) { isMarked = true; editing = false; }">
                             @csrf
                             <input type="hidden" name="employee_id" value="{{ $employee->id }}">
                             <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
@@ -234,7 +240,7 @@
                             <input type="hidden" name="notes" value="{{ $attendance?->notes }}" data-attendance-notes-input>
 
                             <div class="flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-2 min-w-0">
+                                <div class="flex items-center gap-2.5 min-w-0">
                                     @if($employee->photo_url)
                                         <img src="{{ $employee->photo_url }}" class="h-9 w-9 rounded-full object-cover border border-slate-200 shrink-0" alt="{{ $employee->name }}">
                                     @else
@@ -245,66 +251,72 @@
                                     <div class="min-w-0">
                                         <p class="text-xs font-black text-slate-950 truncate">{{ $employee->name }}</p>
                                         <p class="text-[10px] font-semibold text-slate-400 truncate">
-                                            {{ $employee->employee_code }} · {{ $employee->category?->name ?? 'Staff' }}
+                                            {{ $employee->employee_code }}
                                         </p>
-                                        @if($attendance?->notes)
-                                            <p class="text-[10px] font-semibold text-slate-500 truncate mt-0.5" title="{{ $attendance->notes }}">
-                                                Reason: {{ $attendance->notes }}
-                                            </p>
-                                        @endif
                                     </div>
                                 </div>
 
                                 <div class="text-right shrink-0">
-                                    @if($isMarked)
-                                        <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600' }}" data-attendance-status-badge>
-                                            {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', $status) }}
-                                            @if($attendance?->marked_at)
-                                                · {{ $attendance->marked_at->timezone('Asia/Kolkata')->format('h:i A') }}
-                                            @endif
-                                        </span>
-                                    @else
+                                    <template x-if="isMarked && !editing">
+                                        <div class="flex flex-col items-end gap-0.5">
+                                            <div class="flex items-center gap-1">
+                                                <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600' }}" data-attendance-status-badge>
+                                                    {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', ucfirst((string) $status)) }}
+                                                </span>
+                                                <span class="text-[10px] font-extrabold text-slate-700" data-attendance-time>
+                                                    @if($attendance?->marked_at)
+                                                        · {{ $attendance->marked_at->timezone('Asia/Kolkata')->format('g:i A') }}
+                                                    @endif
+                                                </span>
+                                                @if($isAttendanceOpen)
+                                                    <button type="button" @click="editing = true" class="text-[10px] font-black text-cyan-700 hover:underline cursor-pointer ml-1">[Change]</button>
+                                                @endif
+                                            </div>
+                                            <p class="text-[10px] font-semibold text-slate-500 truncate max-w-[170px] {{ $attendance?->notes ? '' : 'hidden' }}" data-attendance-reason title="{{ $attendance?->notes }}">
+                                                @if($attendance?->notes)
+                                                    Reason: {{ $attendance->notes }}
+                                                @endif
+                                            </p>
+                                        </div>
+                                    </template>
+                                    <template x-if="!isMarked && !editing">
                                         <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border border-slate-200 bg-slate-100 text-slate-500 inline-block">
                                             Not Marked
                                         </span>
-                                    @endif
+                                    </template>
                                 </div>
                             </div>
 
-                            <!-- COMPACT STATUS ACTION BUTTONS -->
+                            <!-- COMPACT 4 ACTION BUTTONS GRID -->
                             @if($isAttendanceOpen)
-                                <div class="grid grid-cols-4 gap-1.5">
+                                <div x-show="editing || !isMarked" class="grid grid-cols-4 gap-1.5 pt-0.5">
                                     <button type="button" 
-                                            onclick="submitAttendanceStatus(this.form, 'present', '')"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer {{ $selectedStatus === 'present' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
+                                            onclick="submitAttendanceStatus(this.form, 'present', '', this)"
+                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-600 hover:text-white">
                                         ✓ Present
                                     </button>
 
                                     <button type="button" 
                                             @click="targetForm = document.getElementById('attendance-form-emp-{{ $employee->id }}'); targetStatus = 'half_day'; targetLabel = 'Half Day'; reasonInput = '{{ e($attendance?->notes ?? '') }}'; openReasonModal = true"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer {{ $selectedStatus === 'half_day' ? 'border-amber-500 bg-amber-500 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
+                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-amber-50 text-amber-800 hover:bg-amber-500 hover:text-white">
                                         ◐ Half
                                     </button>
 
                                     <button type="button" 
                                             @click="targetForm = document.getElementById('attendance-form-emp-{{ $employee->id }}'); targetStatus = 'leave'; targetLabel = 'Leave'; reasonInput = '{{ e($attendance?->notes ?? '') }}'; openReasonModal = true"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer {{ $selectedStatus === 'leave' ? 'border-cyan-600 bg-cyan-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
+                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-600 hover:text-white">
                                         L Leave
                                     </button>
 
                                     <button type="button" 
                                             @click="targetForm = document.getElementById('attendance-form-emp-{{ $employee->id }}'); targetStatus = 'absent'; targetLabel = 'Absent'; reasonInput = '{{ e($attendance?->notes ?? '') }}'; openReasonModal = true"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer {{ $selectedStatus === 'absent' ? 'border-rose-600 bg-rose-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
+                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-rose-50 text-rose-800 hover:bg-rose-600 hover:text-white">
                                         × Absent
                                     </button>
                                 </div>
                             @else
-                                <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 text-center text-[11px] font-bold text-slate-500">
-                                    @if($isMarked)
-                                        Attendance locked at {{ $cutoffFormatted }}. Contact HR for corrections.
-                                    @else
-                                        Not marked · Marking closed at {{ $cutoffFormatted }}. Contact HR for corrections.
-                                    @endif
+                                <div x-show="!isMarked" class="rounded-lg border border-slate-200 bg-slate-50 p-2 text-center text-[11px] font-bold text-slate-500">
+                                    Not marked · Marking closed at {{ $cutoffFormatted }}. Contact HR for corrections.
                                 </div>
                             @endif
                         </form>
@@ -325,15 +337,15 @@
                             <button type="button" @click="openReasonModal = false" class="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer">✕</button>
                         </div>
                         <div>
-                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Reason / Note *</label>
-                            <textarea x-model="reasonInput" rows="2" placeholder="e.g. Medical appointment / Family emergency / No show" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold focus:border-emerald-600 focus:ring-emerald-600" required></textarea>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Reason *</label>
+                            <textarea x-model="reasonInput" rows="2" placeholder="e.g. Medical appointment / Family function / No show" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold focus:border-emerald-600 focus:ring-emerald-600" required></textarea>
                         </div>
                         <div class="flex justify-end gap-2 pt-1">
                             <button type="button" @click="openReasonModal = false" class="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 cursor-pointer">Cancel</button>
                             <button type="button" 
                                     @click="if (reasonInput.trim().length >= 3) { submitAttendanceStatus(targetForm, targetStatus, reasonInput.trim()); openReasonModal = false; } else { window.showAppAlert?.('Please enter a reason (minimum 3 characters)'); }" 
                                     class="rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-black text-white hover:bg-emerald-700 cursor-pointer">
-                                Save Attendance
+                                Save
                             </button>
                         </div>
                     </div>

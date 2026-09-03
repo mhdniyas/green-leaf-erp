@@ -168,46 +168,149 @@ class StaffManagementController extends Controller
         Gate::authorize('viewAny', Employee::class);
 
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
-        $shops = Shop::query()
-            ->ownedForStaff()
-            ->with([
-                'ownerAssignments.user.roles',
-                'assignedEmployees' => fn ($query) => $query
-                    ->with('category')
-                    ->wherePivot('status', 'active')
-                    ->orderBy('name'),
-            ])
-            ->withCount([
-                'employeeAttendances as today_present_count' => fn ($query) => $query
-                    ->whereDate('attendance_date', $selectedDate->toDateString())
-                    ->where('status', 'present'),
-                'employeeAttendances as today_half_day_count' => fn ($query) => $query
-                    ->whereDate('attendance_date', $selectedDate->toDateString())
-                    ->where('status', 'half_day'),
-                'employeeAttendances as today_absent_count' => fn ($query) => $query
-                    ->whereDate('attendance_date', $selectedDate->toDateString())
-                    ->where('status', 'absent'),
-                'employeeAttendances as today_leave_count' => fn ($query) => $query
-                    ->whereDate('attendance_date', $selectedDate->toDateString())
-                    ->where('status', 'leave'),
-            ])
-            ->orderBy('name')
-            ->get();
+        $search = trim((string) $request->input('search', ''));
+        $categoryCode = trim((string) $request->input('category', 'all'));
+        $allocationFilter = trim((string) $request->input('allocation', 'all'));
+        $filterShopId = $request->integer('shop_id');
+
+        $categories = EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get();
+        $selectedCategory = $categoryCode !== 'all' && $categoryCode !== ''
+            ? $categories->firstWhere('code', $categoryCode)
+            : null;
+
+        // Base query for counts: approved active employees
+        $approvedActiveBaseQuery = Employee::query()->approved()->where('employment_status', 'active');
+
+        $totalStaffCount = (clone $approvedActiveBaseQuery)->count();
+        $allocatedCount = (clone $approvedActiveBaseQuery)->whereNotNull('default_shop_id')->count();
+        $unallocatedCount = max(0, $totalStaffCount - $allocatedCount);
+        $pendingCount = Employee::query()->pending()->count();
+
+        $categoryTabs = $categories->map(function (EmployeeCategory $category) use ($approvedActiveBaseQuery): array {
+            return [
+                'code' => $category->code,
+                'name' => $category->name,
+                'count' => (clone $approvedActiveBaseQuery)->where('employee_category_id', $category->id)->count(),
+            ];
+        });
+
+        // Employee directory list
+        $employeesQuery = Employee::query()
+            ->approved()
+            ->where('employment_status', 'active')
+            ->with(['category', 'defaultShop', 'shopAssignments.shop'])
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($q) use ($search): void {
+                    $q->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('employee_code', 'like', '%'.$search.'%')
+                        ->orWhere('phone', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($selectedCategory !== null, fn ($query) => $query->where('employee_category_id', $selectedCategory->id))
+            ->when($allocationFilter === 'allocated', fn ($query) => $query->whereNotNull('default_shop_id'))
+            ->when($allocationFilter === 'unallocated', fn ($query) => $query->whereNull('default_shop_id'))
+            ->orderBy('name');
+
+        $employees = $employeesQuery->paginate(25)->withQueryString();
+
+        $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
+        $selectedFilterShop = $filterShopId > 0 ? $ownedShops->firstWhere('id', $filterShopId) : null;
+
+        $dateShopStaff = collect();
+        if ($selectedFilterShop !== null) {
+            $dateShopStaff = EmployeeAttendance::query()
+                ->with(['employee.category', 'markedBy'])
+                ->where('shop_id', $selectedFilterShop->id)
+                ->whereDate('attendance_date', $selectedDate)
+                ->orderBy('marked_at')
+                ->get();
+        }
 
         return view('admin.staff.assignments', [
             'selectedDate' => $selectedDate,
-            'shops' => $shops,
+            'search' => $search,
+            'selectedCategory' => $selectedCategory,
+            'categoryCode' => $categoryCode,
+            'allocationFilter' => $allocationFilter,
+            'categories' => $categories,
+            'categoryTabs' => $categoryTabs,
+            'totalStaffCount' => $totalStaffCount,
+            'allocatedCount' => $allocatedCount,
+            'unallocatedCount' => $unallocatedCount,
+            'pendingCount' => $pendingCount,
+            'employees' => $employees,
             'employeesForAssignment' => Employee::query()
-                ->with(['category', 'defaultShop'])
+                ->approved()
                 ->where('employment_status', 'active')
+                ->with(['category', 'defaultShop'])
                 ->orderBy('name')
                 ->get(),
-            'activeAssignments' => ShopEmployeeAssignment::query()
-                ->with(['employee.category', 'shop.ownerAssignments.user', 'assignedBy'])
-                ->where('status', 'active')
-                ->latest('effective_from')
-                ->limit(20)
-                ->get(),
+            'shops' => $ownedShops,
+            'selectedFilterShop' => $selectedFilterShop,
+            'dateShopStaff' => $dateShopStaff,
+        ]);
+    }
+
+    public function assignmentShow(Employee $employee, Request $request): View
+    {
+        Gate::authorize('view', $employee);
+
+        $employee->load(['category', 'defaultShop', 'assignedShops']);
+
+        $selectedMonth = $request->filled('month')
+            ? Carbon::createFromFormat('Y-m', $request->string('month')->toString())->startOfMonth()
+            : today()->startOfMonth();
+
+        $monthEnd = $selectedMonth->copy()->endOfMonth();
+
+        $attendanceRecords = EmployeeAttendance::query()
+            ->with(['shop', 'markedBy'])
+            ->where('employee_id', $employee->id)
+            ->whereBetween('attendance_date', [$selectedMonth->toDateString(), $monthEnd->toDateString()])
+            ->get()
+            ->keyBy(fn (EmployeeAttendance $att): string => $att->attendance_date->toDateString());
+
+        $assignmentHistory = ShopEmployeeAssignment::query()
+            ->with('shop')
+            ->where('employee_id', $employee->id)
+            ->orderByDesc('effective_from')
+            ->get();
+
+        $calendarDays = [];
+        $currentDay = $selectedMonth->copy();
+        while ($currentDay->lte($monthEnd)) {
+            $dateStr = $currentDay->toDateString();
+            $att = $attendanceRecords->get($dateStr);
+
+            $assignedShop = $assignmentHistory->first(function (ShopEmployeeAssignment $asgn) use ($currentDay): bool {
+                $from = $asgn->effective_from?->toDateString();
+                $to = $asgn->effective_to?->toDateString();
+                $d = $currentDay->toDateString();
+
+                return ($from === null || $from <= $d) && ($to === null || $to >= $d);
+            })?->shop ?? $att?->shop ?? $employee->defaultShop;
+
+            $calendarDays[] = [
+                'date' => $currentDay->copy(),
+                'date_string' => $dateStr,
+                'day_number' => $currentDay->day,
+                'attendance' => $att,
+                'assigned_shop' => $assignedShop,
+            ];
+
+            $currentDay->addDay();
+        }
+
+        $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
+
+        return view('admin.staff.assignment-detail', [
+            'employee' => $employee,
+            'selectedMonth' => $selectedMonth,
+            'prevMonth' => $selectedMonth->copy()->subMonth(),
+            'nextMonth' => $selectedMonth->copy()->addMonth(),
+            'calendarDays' => $calendarDays,
+            'attendanceRecords' => $attendanceRecords,
+            'shops' => $ownedShops,
         ]);
     }
 

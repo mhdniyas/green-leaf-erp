@@ -22,7 +22,7 @@ class StoreShopOwnerEmployeeRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:20'],
-            'alternate_phone' => ['nullable', 'string', 'max:20'],
+            'alternate_phone' => ['required', 'string', 'max:20'],
             'email' => ['nullable', 'email', 'max:255'],
             'joined_on' => ['required', 'date'],
             'id_type' => ['required', Rule::in(['aadhaar', 'passport', 'driving_licence', 'voter_id', 'pan', 'other'])],
@@ -33,6 +33,14 @@ class StoreShopOwnerEmployeeRequest extends FormRequest
             'photo_data_url' => ['required', 'string'],
             'id_front_data_url' => ['required', 'string'],
             'id_back_data_url' => ['nullable', 'string'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'phone.required' => 'Primary phone number is required.',
+            'alternate_phone.required' => 'Emergency contact number is required.',
         ];
     }
 }

@@ -97,7 +97,7 @@ class EmployeeRegistrationTest extends TestCase
         Storage::fake('public');
 
         $admin = User::factory()->create();
-        $admin->assignRole('admin');
+        $admin->assignRole(['admin', 'purchaser']);
 
         $category = EmployeeCategory::factory()->create();
 
@@ -108,6 +108,7 @@ class EmployeeRegistrationTest extends TestCase
                 'employee_category_id' => $category->id,
                 'staff_area' => 'office',
                 'phone' => '9888877776',
+                'alternate_phone' => '9123456789',
                 'id_type' => 'other',
                 'other_id_type' => 'State Ration Card',
                 'id_number' => 'RC-987654321',
@@ -145,7 +146,7 @@ class EmployeeRegistrationTest extends TestCase
     public function test_employee_code_is_auto_generated_when_left_blank(): void
     {
         $admin = User::factory()->create();
-        $admin->assignRole('admin');
+        $admin->assignRole(['admin', 'purchaser']);
         $category = EmployeeCategory::factory()->create();
 
         $response = $this->actingAs($admin)
@@ -154,6 +155,8 @@ class EmployeeRegistrationTest extends TestCase
                 'employee_code' => '',
                 'employee_category_id' => $category->id,
                 'staff_area' => 'office',
+                'phone' => '9876543210',
+                'alternate_phone' => '9123456789',
                 'id_type' => 'aadhaar',
                 'id_number' => '999911112222',
                 'monthly_salary' => 25000,
@@ -172,7 +175,7 @@ class EmployeeRegistrationTest extends TestCase
         Storage::fake('public');
 
         $admin = User::factory()->create();
-        $admin->assignRole('admin');
+        $admin->assignRole(['admin', 'purchaser']);
         $category = EmployeeCategory::factory()->create();
 
         // 1x1 white pixel JPEG base64 data URL
@@ -184,6 +187,8 @@ class EmployeeRegistrationTest extends TestCase
                 'employee_code' => 'EMP-CROP-101',
                 'employee_category_id' => $category->id,
                 'staff_area' => 'office',
+                'phone' => '9876543210',
+                'alternate_phone' => '9123456789',
                 'id_type' => 'aadhaar',
                 'id_number' => '222233334444',
                 'monthly_salary' => 40000,
@@ -213,7 +218,7 @@ class EmployeeRegistrationTest extends TestCase
     public function test_admin_can_register_employee_with_daily_wage_salary_type(): void
     {
         $admin = User::factory()->create();
-        $admin->assignRole('admin');
+        $admin->assignRole(['admin', 'purchaser']);
         $category = EmployeeCategory::factory()->create();
 
         $response = $this->actingAs($admin)
@@ -222,6 +227,8 @@ class EmployeeRegistrationTest extends TestCase
                 'employee_code' => 'EMP-DAILY-505',
                 'employee_category_id' => $category->id,
                 'staff_area' => 'office',
+                'phone' => '9876543210',
+                'alternate_phone' => '9123456789',
                 'id_type' => 'aadhaar',
                 'id_number' => '555566667777',
                 'salary_type' => 'daily_wage',
@@ -239,7 +246,7 @@ class EmployeeRegistrationTest extends TestCase
     public function test_other_id_type_name_required_only_when_id_type_is_other(): void
     {
         $admin = User::factory()->create();
-        $admin->assignRole('admin');
+        $admin->assignRole(['admin', 'purchaser']);
         $category = EmployeeCategory::factory()->create();
 
         // 1. Submit id_type = other without other_id_type -> should fail validation
@@ -248,6 +255,8 @@ class EmployeeRegistrationTest extends TestCase
                 'name' => 'Test Fail Worker',
                 'employee_category_id' => $category->id,
                 'staff_area' => 'office',
+                'phone' => '9876543210',
+                'alternate_phone' => '9123456789',
                 'id_type' => 'other',
                 'other_id_type' => '',
                 'id_number' => 'ANY-1234',
@@ -264,6 +273,8 @@ class EmployeeRegistrationTest extends TestCase
                 'name' => 'Aadhaar Valid Worker',
                 'employee_category_id' => $category->id,
                 'staff_area' => 'office',
+                'phone' => '9876543210',
+                'alternate_phone' => '9123456789',
                 'id_type' => 'aadhaar',
                 'other_id_type' => '',
                 'id_number' => '333344445555',

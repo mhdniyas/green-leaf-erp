@@ -23,8 +23,8 @@ class UpdateEmployeeRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'min:2', 'max:255'],
             'employee_code' => ['required', 'string', 'max:50', Rule::unique('employees', 'employee_code')->ignore($employee->id)],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'alternate_phone' => ['nullable', 'string', 'max:30'],
+            'phone' => ['required', 'string', 'max:30'],
+            'alternate_phone' => ['required', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:255'],
             'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'photo_data_url' => ['nullable', 'string'],
@@ -63,6 +63,14 @@ class UpdateEmployeeRequest extends FormRequest
             'monthly_salary' => ['nullable', 'required_if:salary_type,monthly', 'numeric', 'min:0'],
             'daily_wage' => ['nullable', 'required_if:salary_type,daily_wage', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'phone.required' => 'Primary phone number is required.',
+            'alternate_phone.required' => 'Emergency contact number is required.',
         ];
     }
 }

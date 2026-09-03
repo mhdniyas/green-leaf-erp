@@ -59,6 +59,11 @@ class Employee extends Model
         ];
     }
 
+    public function getEmergencyContactNumberAttribute(): ?string
+    {
+        return $this->alternate_phone;
+    }
+
     public function getRouteKeyName(): string
     {
         return 'employee_code';

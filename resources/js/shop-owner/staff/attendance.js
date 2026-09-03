@@ -1,11 +1,9 @@
 const statusClasses = {
-    present: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    half_day: 'border-amber-200 bg-amber-50 text-amber-700',
-    leave: 'border-cyan-200 bg-cyan-50 text-cyan-700',
-    absent: 'border-rose-200 bg-rose-50 text-rose-700',
+    present: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    half_day: 'border-amber-200 bg-amber-50 text-amber-800',
+    leave: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+    absent: 'border-rose-200 bg-rose-50 text-rose-800',
 };
-
-const baseBadgeClasses = 'rounded-full border px-2 py-1 text-[10px] font-black uppercase';
 
 const firstError = (payload) => {
     const errors = payload.errors ?? {};
@@ -13,66 +11,51 @@ const firstError = (payload) => {
     return Object.values(errors).flat()[0] ?? payload.message ?? 'Unable to update attendance.';
 };
 
-const marker = (text, classes) => {
-    const element = document.createElement('span');
-    element.className = `rounded-full border px-3 py-1 ${classes}`;
-    element.textContent = text;
-
-    return element;
-};
-
-const updateMarkers = (form, attendance) => {
-    const markers = form.querySelector('[data-attendance-markers]');
-
-    if (!markers) {
-        return;
-    }
-
-    markers.replaceChildren();
-
-    if (attendance.checked_in_at) {
-        markers.appendChild(marker(`Checked in ${attendance.checked_in_at}`, 'border-emerald-200 bg-emerald-50 text-emerald-800'));
-    }
-
-    if (attendance.latest_mark_at) {
-        markers.appendChild(marker(`Latest mark ${attendance.latest_mark_at}`, 'border-slate-200 bg-white'));
-    }
-
-    if (attendance.changed_at) {
-        markers.appendChild(marker(`Changed ${attendance.changed_at}`, 'border-amber-200 bg-amber-50 text-amber-800'));
-    }
-
-    markers.classList.toggle('hidden', markers.children.length === 0);
-};
-
 const updateForm = (form, payload) => {
     const attendance = payload.attendance ?? {};
     const badge = form.querySelector('[data-attendance-status-badge]');
-    const button = form.querySelector('[data-attendance-submit]');
+    const timeElem = form.querySelector('[data-attendance-time]');
+    const reasonElem = form.querySelector('[data-attendance-reason]');
+    const notesInput = form.querySelector('[data-attendance-notes-input]');
 
     if (badge) {
-        badge.textContent = attendance.status_label ?? 'checked in';
-        badge.className = `${baseBadgeClasses} ${statusClasses[attendance.status] ?? 'border-slate-200 bg-slate-100 text-slate-700'}`;
+        badge.textContent = attendance.status_label ?? '✓ Present';
+        badge.className = `rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block ${statusClasses[attendance.status] ?? 'border-slate-200 bg-slate-100 text-slate-600'}`;
     }
 
-    updateMarkers(form, attendance);
-
-    if (button) {
-        button.textContent = attendance.button_label ?? 'Update Check-In';
+    if (timeElem && attendance.marked_at) {
+        timeElem.textContent = `· ${attendance.marked_at}`;
+        timeElem.classList.remove('hidden');
     }
+
+    if (reasonElem) {
+        if (attendance.notes) {
+            reasonElem.textContent = `Reason: ${attendance.notes}`;
+            reasonElem.classList.remove('hidden');
+        } else {
+            reasonElem.textContent = '';
+            reasonElem.classList.add('hidden');
+        }
+    }
+
+    if (notesInput) {
+        notesInput.value = attendance.notes ?? '';
+    }
+
+    form.dispatchEvent(new CustomEvent('attendance-saved', { detail: attendance, bubbles: true }));
 };
 
-const submitAttendance = async (form) => {
+const submitAttendance = async (form, triggerButton = null) => {
     if (!form.reportValidity()) {
         return;
     }
 
-    const button = form.querySelector('[data-attendance-submit]');
-    const originalText = button?.textContent ?? 'Check In';
+    const activeBtn = triggerButton || form.querySelector('[data-attendance-submit]');
+    const originalText = activeBtn?.textContent ?? '';
 
-    button?.setAttribute('disabled', 'disabled');
-    if (button) {
-        button.textContent = 'Saving';
+    if (activeBtn) {
+        activeBtn.setAttribute('disabled', 'disabled');
+        activeBtn.textContent = 'Saving...';
     }
 
     try {
@@ -96,14 +79,16 @@ const submitAttendance = async (form) => {
     } catch (error) {
         window.showAppAlert?.('Unable to update attendance. Check the connection and try again.');
     } finally {
-        button?.removeAttribute('disabled');
-        if (button && button.textContent === 'Saving') {
-            button.textContent = originalText;
+        if (activeBtn) {
+            activeBtn.removeAttribute('disabled');
+            if (activeBtn.textContent === 'Saving...') {
+                activeBtn.textContent = originalText;
+            }
         }
     }
 };
 
-window.submitAttendanceStatus = (form, status, notes = '') => {
+window.submitAttendanceStatus = (form, status, notes = '', triggerButton = null) => {
     if (!form) {
         return;
     }
@@ -126,7 +111,7 @@ window.submitAttendanceStatus = (form, status, notes = '') => {
     }
     notesInput.value = notes;
 
-    submitAttendance(form);
+    submitAttendance(form, triggerButton);
 };
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -74,7 +74,7 @@
                             <p class="font-bold text-slate-900">{{ $employee->phone }}</p>
                         </div>
                         <div>
-                            <p class="text-[10px] font-bold text-slate-400 uppercase">Alt Phone</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Emergency Contact</p>
                             <p class="font-semibold text-slate-700">{{ $employee->alternate_phone ?: 'None' }}</p>
                         </div>
                     </div>

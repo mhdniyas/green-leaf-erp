@@ -1,266 +1,313 @@
-<x-layouts.staff title="Assign Employees">
+<x-layouts.staff title="Staff Allocations & Assignments">
     <div class="mx-auto max-w-7xl space-y-6">
+        <!-- PAGE HEADER -->
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-                <h1 class="text-2xl font-black text-slate-950">Assign Employees</h1>
-                <p class="text-sm font-semibold text-slate-500">Manage shop staff assignment from a shop-first view with incharge and daily attendance details.</p>
+                <h1 class="text-2xl font-black text-slate-950">Staff Allocations</h1>
+                <p class="text-sm font-semibold text-slate-500">Overview of client shop placements, unallocated staff, and shop assignments.</p>
             </div>
-            <form method="GET" class="flex flex-wrap gap-2">
-                <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                <button type="submit" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white">Refresh</button>
-            </form>
+            <div class="flex items-center gap-2">
+                <button type="button" id="btn-assign-header" 
+                        class="js-open-assignment-modal inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 shadow-xs cursor-pointer"
+                        data-employee-id="" data-employee-name="" data-shop-id="">
+                    <span>+</span> Assign Staff
+                </button>
+            </div>
         </div>
 
-        <section class="grid gap-4 lg:grid-cols-2">
-            @forelse($shops as $shop)
-                <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div class="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                            <h2 class="text-xl font-black text-slate-950">{{ $shop->name }}</h2>
-                            <p class="text-xs font-bold uppercase tracking-wide text-slate-400">{{ $shop->code }} · {{ ucfirst((string) $shop->accounting_mode) }}</p>
-                        </div>
-                        <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                            {{ $shop->assignedEmployees->count() }} assigned
-                        </span>
-                    </div>
+        <!-- TOP COMPACT SUMMARY CARDS -->
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+                <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Staff</p>
+                <p class="mt-1 text-2xl font-black text-slate-950">{{ $totalStaffCount }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+                <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Allocated</p>
+                <p class="mt-1 text-2xl font-black text-emerald-700">{{ $allocatedCount }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+                <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Unallocated</p>
+                <p class="mt-1 text-2xl font-black text-amber-700">{{ $unallocatedCount }}</p>
+            </div>
+            <a href="{{ route('admin.staff.approvals.index') }}" class="block rounded-2xl border border-slate-200 bg-white p-4 shadow-xs hover:border-slate-300 transition">
+                <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Pending HR</p>
+                <p class="mt-1 text-2xl font-black text-cyan-700">{{ $pendingCount }}</p>
+            </a>
+        </div>
 
-                    <div class="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                        <p class="text-xs font-black uppercase text-slate-400">Incharge Details</p>
-                        <div class="mt-2 space-y-2">
-                            @forelse($shop->ownerAssignments as $ownerAssignment)
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div>
-                                        <p class="text-sm font-black text-slate-900">{{ $ownerAssignment->user?->name ?? 'Unknown incharge' }}</p>
-                                        <p class="text-xs font-semibold text-slate-500">{{ $ownerAssignment->user?->email ?? 'No email' }}</p>
-                                    </div>
-                                    @if($ownerAssignment->user?->roles?->isNotEmpty())
-                                        <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase text-slate-500">
-                                            {{ $ownerAssignment->user->roles->pluck('name')->implode(', ') }}
-                                        </span>
+        <!-- DYNAMIC CATEGORY TABS -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+            <a href="{{ route('admin.staff.assignments.index', array_merge(request()->query(), ['category' => 'all'])) }}"
+               class="rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap transition cursor-pointer {{ $categoryCode === 'all' ? 'bg-slate-950 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50' }}">
+                All ({{ $totalStaffCount }})
+            </a>
+            @foreach($categoryTabs as $tab)
+                <a href="{{ route('admin.staff.assignments.index', array_merge(request()->query(), ['category' => $tab['code']])) }}"
+                   class="rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap transition cursor-pointer {{ $categoryCode === $tab['code'] ? 'bg-slate-950 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50' }}">
+                    {{ $tab['name'] }} ({{ $tab['count'] }})
+                </a>
+            @endforeach
+        </div>
+
+        <!-- FILTERS & SEARCH ROW -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-3">
+            <form method="GET" action="{{ route('admin.staff.assignments.index') }}" class="flex flex-wrap items-center justify-between gap-3">
+                <input type="hidden" name="category" value="{{ $categoryCode }}">
+
+                <!-- Allocation Toggle -->
+                <div class="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    <a href="{{ route('admin.staff.assignments.index', array_merge(request()->query(), ['allocation' => 'all'])) }}" 
+                       class="rounded-lg px-3 py-1.5 text-xs font-bold transition {{ $allocationFilter === 'all' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-500 hover:text-slate-950' }}">
+                        All Staff
+                    </a>
+                    <a href="{{ route('admin.staff.assignments.index', array_merge(request()->query(), ['allocation' => 'allocated'])) }}" 
+                       class="rounded-lg px-3 py-1.5 text-xs font-bold transition {{ $allocationFilter === 'allocated' ? 'bg-white text-emerald-800 shadow-xs' : 'text-slate-500 hover:text-slate-950' }}">
+                        Allocated
+                    </a>
+                    <a href="{{ route('admin.staff.assignments.index', array_merge(request()->query(), ['allocation' => 'unallocated'])) }}" 
+                       class="rounded-lg px-3 py-1.5 text-xs font-bold transition {{ $allocationFilter === 'unallocated' ? 'bg-white text-amber-800 shadow-xs' : 'text-slate-500 hover:text-slate-950' }}">
+                        Unallocated
+                    </a>
+                </div>
+
+                <!-- Search & Date/Shop Filter -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <input type="search" name="search" value="{{ $search }}" placeholder="Search name, code, phone..." class="h-9 w-48 sm:w-64 rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-600 focus:ring-emerald-600">
+
+                    <!-- Optional Date + Shop View Filter -->
+                    <select name="shop_id" class="h-9 rounded-xl border border-slate-200 px-3 text-xs font-semibold" onchange="this.form.submit()">
+                        <option value="">-- Shop Filter --</option>
+                        @foreach($shops as $s)
+                            <option value="{{ $s->id }}" @selected($selectedFilterShop?->id === $s->id)>{{ $s->name }}</option>
+                        @endforeach
+                    </select>
+
+                    @if($selectedFilterShop)
+                        <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="h-9 rounded-xl border border-slate-200 px-2 text-xs font-semibold" onchange="this.form.submit()">
+                    @endif
+
+                    <button type="submit" class="h-9 rounded-xl bg-slate-950 px-4 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer">Filter</button>
+                    @if($search || $allocationFilter !== 'all' || $categoryCode !== 'all' || $selectedFilterShop)
+                        <a href="{{ route('admin.staff.assignments.index') }}" class="h-9 rounded-xl border border-slate-200 px-3 flex items-center text-xs font-bold text-slate-600 hover:bg-slate-50">Reset</a>
+                    @endif
+                </div>
+            </form>
+
+            <!-- DATE + SHOP VIEW PANEL (If Date & Shop selected) -->
+            @if($selectedFilterShop)
+                <div class="rounded-xl border border-cyan-200 bg-cyan-50/60 p-3 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-black uppercase text-cyan-950">
+                            Staff Working at {{ $selectedFilterShop->name }} on {{ $selectedDate->format('d M Y') }} ({{ $dateShopStaff->count() }})
+                        </h3>
+                        <a href="{{ route('admin.staff.assignments.index') }}" class="text-[10px] font-extrabold text-cyan-800 hover:underline">✕ Close Shop View</a>
+                    </div>
+                    <div class="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+                        @forelse($dateShopStaff as $att)
+                            <div class="rounded-lg border border-white bg-white p-2.5 shadow-2xs flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <p class="text-xs font-black text-slate-900 truncate">{{ $att->employee?->name }}</p>
+                                    <p class="text-[10px] font-semibold text-slate-400">{{ $att->employee?->employee_code }} · {{ $att->employee?->category?->name ?? 'Staff' }}</p>
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase border inline-block {{ $att->status === 'present' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-700' }}">
+                                        {{ $att->status === 'present' ? '✓ Present' : str_replace('_', ' ', ucfirst($att->status)) }}
+                                    </span>
+                                    @if($att->marked_at)
+                                        <p class="text-[9px] font-extrabold text-slate-500 mt-0.5">{{ $att->marked_at->timezone('Asia/Kolkata')->format('g:i A') }}</p>
                                     @endif
                                 </div>
-                            @empty
-                                <p class="text-sm font-semibold text-rose-600">No incharge assigned to this shop.</p>
-                            @endforelse
-                        </div>
+                            </div>
+                        @empty
+                            <p class="text-xs font-semibold text-slate-500 py-2 col-span-full">No attendance records recorded for this shop on {{ $selectedDate->format('d M Y') }}.</p>
+                        @endforelse
                     </div>
+                </div>
+            @endif
+        </div>
 
-                    <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <div class="rounded-2xl border border-slate-100 p-3">
-                            <p class="text-[10px] font-black uppercase text-slate-400">Present</p>
-                            <p class="mt-1 text-xl font-black text-emerald-700">{{ $shop->today_present_count }}</p>
-                        </div>
-                        <div class="rounded-2xl border border-slate-100 p-3">
-                            <p class="text-[10px] font-black uppercase text-slate-400">Half Day</p>
-                            <p class="mt-1 text-xl font-black text-amber-700">{{ $shop->today_half_day_count }}</p>
-                        </div>
-                        <div class="rounded-2xl border border-slate-100 p-3">
-                            <p class="text-[10px] font-black uppercase text-slate-400">Absent</p>
-                            <p class="mt-1 text-xl font-black text-rose-700">{{ $shop->today_absent_count }}</p>
-                        </div>
-                        <div class="rounded-2xl border border-slate-100 p-3">
-                            <p class="text-[10px] font-black uppercase text-slate-400">Leave</p>
-                            <p class="mt-1 text-xl font-black text-sky-700">{{ $shop->today_leave_count }}</p>
-                        </div>
-                    </div>
-
-                    <form method="POST" action="{{ route('admin.staff.shop-assignments.store') }}" class="mt-4 grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-2">
-                        @csrf
-                        <input type="hidden" name="shop_id" value="{{ $shop->id }}">
-                        <div class="relative sm:col-span-2" data-employee-dropdown>
-                            <input type="hidden" name="employee_id" data-employee-value>
-                            <button type="button" data-employee-toggle class="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm font-bold text-slate-700 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50/40">
-                                <span data-employee-label>Select employee</span>
-                                <svg class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-                                </svg>
-                            </button>
-
-                            <div data-employee-menu class="absolute left-0 right-0 top-full z-30 mt-2 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-                                <div class="border-b border-slate-100 p-3">
-                                    <input type="search" data-employee-search placeholder="Search employee, code, shop" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100">
-
-                                    <div class="mt-3 flex flex-wrap gap-2">
-                                        <label class="inline-flex cursor-pointer items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-black text-cyan-800">
-                                            <input type="radio" name="employee_category_{{ $shop->id }}" value="shop" class="h-3.5 w-3.5 accent-cyan-600" data-employee-category checked>
-                                            Shop Employees
-                                        </label>
-                                        <label class="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-600">
-                                            <input type="radio" name="employee_category_{{ $shop->id }}" value="office" class="h-3.5 w-3.5 accent-cyan-600" data-employee-category>
-                                            Office
-                                        </label>
-                                        <label class="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-600">
-                                            <input type="radio" name="employee_category_{{ $shop->id }}" value="all" class="h-3.5 w-3.5 accent-cyan-600" data-employee-category>
-                                            All
-                                        </label>
-                                    </div>
+        <!-- STAFF DIRECTORY TABLE -->
+        <section class="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+            <div class="divide-y divide-slate-100">
+                @forelse($employees as $emp)
+                    @php($isAllocated = $emp->defaultShop !== null)
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 gap-3 hover:bg-slate-50/80 transition">
+                        <div class="flex items-center gap-3 min-w-0">
+                            @if($emp->photo_url)
+                                <img src="{{ $emp->photo_url }}" class="h-10 w-10 rounded-full object-cover border border-slate-200 shrink-0" alt="{{ $emp->name }}">
+                            @else
+                                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 font-bold text-white text-xs shrink-0">
+                                    {{ Illuminate\Support\Str::upper(substr($emp->name, 0, 2)) }}
                                 </div>
-
-                                <div class="max-h-72 overflow-y-auto p-2" data-employee-options>
-                                    @foreach($employeesForAssignment as $employee)
-                                        @php
-                                            $employeeLabel = $employee->name.' · '.$employee->employee_code.($employee->defaultShop ? ' · '.$employee->defaultShop->name : '');
-                                        @endphp
-                                        <button
-                                            type="button"
-                                            data-employee-option
-                                            data-employee-id="{{ $employee->id }}"
-                                            data-employee-label="{{ $employeeLabel }}"
-                                            data-employee-area="{{ $employee->staff_area }}"
-                                            data-employee-search-text="{{ \Illuminate\Support\Str::lower($employeeLabel.' '.$employee->staff_area.' '.($employee->category?->name ?? '')) }}"
-                                            class="flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-bold text-slate-700 transition hover:bg-cyan-50 hover:text-cyan-800"
-                                        >
-                                            <span>
-                                                <span class="block">{{ $employee->name }}</span>
-                                                <span class="mt-0.5 block text-xs font-semibold text-slate-500">
-                                                    {{ $employee->employee_code }}{{ $employee->defaultShop ? ' · '.$employee->defaultShop->name : '' }}
-                                                </span>
-                                            </span>
-                                            <span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase text-slate-500">{{ $employee->staff_area }}</span>
-                                        </button>
-                                    @endforeach
-
-                                    <p data-employee-empty class="hidden px-3 py-6 text-center text-sm font-semibold text-slate-500">No employees match this search.</p>
+                            @endif
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <a href="{{ route('admin.staff.assignments.show', $emp) }}" class="text-sm font-black text-slate-950 hover:text-emerald-700 hover:underline truncate">
+                                        {{ $emp->name }}
+                                    </a>
+                                    <span class="rounded px-2 py-0.5 text-[9px] font-black uppercase tracking-wider border {{ $isAllocated ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800' }}">
+                                        {{ $isAllocated ? 'Allocated' : 'Unallocated' }}
+                                    </span>
                                 </div>
+                                <p class="text-xs font-semibold text-slate-400 truncate mt-0.5">
+                                    {{ $emp->employee_code }} · {{ $emp->category?->name ?? 'Unassigned Category' }} · Primary: {{ $emp->phone ?: 'N/A' }} · Emergency: {{ $emp->alternate_phone ?: 'N/A' }}
+                                </p>
                             </div>
                         </div>
-                        <input type="date" name="effective_from" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
-                        <input type="text" name="notes" placeholder="Note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                        <button type="submit" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white sm:col-span-2">Assign to {{ $shop->name }}</button>
-                    </form>
 
-                    <div class="mt-4">
-                        <p class="text-xs font-black uppercase text-slate-400">Current Employees</p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            @forelse($shop->assignedEmployees as $employee)
-                                <a href="{{ route('admin.staff.show', $employee) }}" class="rounded-full border border-slate-200 px-3 py-1 text-xs font-black text-slate-700 hover:border-cyan-300 hover:text-cyan-700">
-                                    {{ $employee->name }}
+                        <div class="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                            <div class="text-left sm:text-right">
+                                <p class="text-[10px] font-bold text-slate-400 uppercase">Current Shop</p>
+                                <p class="text-xs font-black text-slate-900">{{ $emp->defaultShop?->name ?? '—' }}</p>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <a href="{{ route('admin.staff.assignments.show', $emp) }}" class="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100">
+                                    View
                                 </a>
-                            @empty
-                                <span class="text-sm font-semibold text-slate-500">No employees assigned.</span>
-                            @endforelse
-                        </div>
-                    </div>
-                </article>
-            @empty
-                <div class="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center">
-                    <p class="text-lg font-black text-slate-950">No owned staff shops found.</p>
-                    <p class="mt-2 text-sm font-semibold text-slate-500">Only active client shops with accounting enabled appear here.</p>
-                </div>
-            @endforelse
-        </section>
 
-        <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h2 class="text-xl font-black text-slate-950">Recent Active Assignments</h2>
-                    <p class="text-sm font-semibold text-slate-500">Latest active shop placements across client shops.</p>
-                </div>
-                <a href="{{ route('admin.staff.employees.index') }}" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700">Open Employees</a>
-            </div>
-
-            <div class="mt-5 grid gap-3 md:grid-cols-2">
-                @forelse($activeAssignments as $assignment)
-                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <p class="font-black text-slate-950">{{ $assignment->employee?->name }}</p>
-                                <p class="text-xs font-semibold text-slate-500">
-                                    {{ $assignment->shop?->name }} · from {{ $assignment->effective_from?->format('d M Y') ?? 'not set' }}
-                                </p>
-                                <p class="mt-1 text-xs font-semibold text-slate-400">
-                                    Assigned by {{ $assignment->assignedBy?->name ?? 'System' }}
-                                </p>
+                                <button type="button" 
+                                        class="js-open-assignment-modal rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer"
+                                        data-employee-id="{{ $emp->id }}" 
+                                        data-employee-name="{{ e($emp->name) }}" 
+                                        data-shop-id="{{ $emp->default_shop_id ?? '' }}">
+                                    {{ $isAllocated ? 'Manage Assignment' : 'Assign' }}
+                                </button>
                             </div>
-                            <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">{{ $assignment->status }}</span>
                         </div>
                     </div>
                 @empty
-                    <p class="text-sm font-semibold text-slate-500">No active shop assignments yet.</p>
+                    <div class="py-12 text-center text-xs font-semibold text-slate-400">
+                        No employees found matching the specified filters.
+                    </div>
                 @endforelse
             </div>
+
+            @if($employees->hasPages())
+                <div class="border-t border-slate-100 p-3 bg-slate-50/50">
+                    {{ $employees->links() }}
+                </div>
+            @endif
         </section>
+
+        <!-- ASSIGNMENT MODAL (REUSING CANONICAL ROUTE admin.staff.shop-assignments.store) -->
+        <div id="admin-assignment-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <div id="admin-assignment-modal-backdrop" class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"></div>
+            <div class="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 space-y-4 z-10">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900 uppercase">Shop Assignment</h3>
+                        <p id="assignment-modal-subtitle" class="text-xs font-semibold text-slate-400">Assign employee to shop</p>
+                    </div>
+                    <button type="button" id="btn-close-assignment-modal" class="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer">✕</button>
+                </div>
+
+                <form method="POST" action="{{ route('admin.staff.shop-assignments.store') }}" class="space-y-3">
+                    @csrf
+
+                    <!-- Employee Select -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Employee *</label>
+                        <select id="assignment-modal-employee-id" name="employee_id" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
+                            <option value="">-- Select Employee --</option>
+                            @foreach($employeesForAssignment as $empOpt)
+                                <option value="{{ $empOpt->id }}">{{ $empOpt->name }} ({{ $empOpt->employee_code }}) {{ $empOpt->defaultShop ? '· Current: '.$empOpt->defaultShop->name : '' }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <!-- Target Shop Select -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Assign to Shop *</label>
+                        <select id="assignment-modal-shop-id" name="shop_id" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
+                            <option value="">-- Select Target Shop --</option>
+                            @foreach($shops as $shopOpt)
+                                <option value="{{ $shopOpt->id }}">{{ $shopOpt->name }} ({{ $shopOpt->code }})</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <!-- Effective From Date -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Effective Date *</label>
+                        <input type="date" name="effective_from" value="{{ today()->format('Y-m-d') }}" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
+                    </div>
+
+                    <!-- Note / Remarks -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Notes / Remarks (optional)</label>
+                        <input type="text" name="notes" placeholder="e.g. Temporary transfer / New placement" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold text-slate-900">
+                    </div>
+
+                    <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                        <button type="button" id="btn-cancel-assignment-modal" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 cursor-pointer">Cancel</button>
+                        <button type="submit" class="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-black text-white hover:bg-emerald-700 cursor-pointer">Save Assignment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <script>
-        (() => {
-            const dropdowns = document.querySelectorAll('[data-employee-dropdown]');
+        document.addEventListener('DOMContentLoaded', function () {
+            const modal = document.getElementById('admin-assignment-modal');
+            const backdrop = document.getElementById('admin-assignment-modal-backdrop');
+            const closeBtn = document.getElementById('btn-close-assignment-modal');
+            const cancelBtn = document.getElementById('btn-cancel-assignment-modal');
+            const subtitleEl = document.getElementById('assignment-modal-subtitle');
+            const employeeSelect = document.getElementById('assignment-modal-employee-id');
+            const shopSelect = document.getElementById('assignment-modal-shop-id');
 
-            dropdowns.forEach((dropdown) => {
-                const toggle = dropdown.querySelector('[data-employee-toggle]');
-                const menu = dropdown.querySelector('[data-employee-menu]');
-                const search = dropdown.querySelector('[data-employee-search]');
-                const valueInput = dropdown.querySelector('[data-employee-value]');
-                const label = dropdown.querySelector('[data-employee-label]');
-                const options = Array.from(dropdown.querySelectorAll('[data-employee-option]'));
-                const categories = Array.from(dropdown.querySelectorAll('[data-employee-category]'));
-                const empty = dropdown.querySelector('[data-employee-empty]');
+            function openModal(employeeId, employeeName, shopId) {
+                if (!modal) return;
 
-                const activeCategory = () => categories.find((category) => category.checked)?.value ?? 'shop';
+                if (employeeSelect && employeeId) {
+                    employeeSelect.value = employeeId;
+                } else if (employeeSelect) {
+                    employeeSelect.value = '';
+                }
 
-                const setMenuOpen = (isOpen) => {
-                    menu.classList.toggle('hidden', !isOpen);
+                if (shopSelect && shopId) {
+                    shopSelect.value = shopId;
+                } else if (shopSelect) {
+                    shopSelect.value = '';
+                }
 
-                    if (isOpen) {
-                        search.focus();
-                    }
-                };
+                if (subtitleEl) {
+                    subtitleEl.textContent = employeeName ? 'Assign ' + employeeName : 'Assign employee to shop';
+                }
 
-                const filterOptions = () => {
-                    const category = activeCategory();
-                    const query = search.value.trim().toLowerCase();
-                    let visibleCount = 0;
+                modal.classList.remove('hidden');
+            }
 
-                    options.forEach((option) => {
-                        const matchesCategory = category === 'all' || option.dataset.employeeArea === category;
-                        const matchesSearch = query === '' || (option.dataset.employeeSearchText ?? '').includes(query);
-                        const isVisible = matchesCategory && matchesSearch;
+            function closeModal() {
+                if (modal) {
+                    modal.classList.add('hidden');
+                }
+            }
 
-                        option.classList.toggle('hidden', !isVisible);
+            document.querySelectorAll('.js-open-assignment-modal').forEach(function (button) {
+                button.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
 
-                        if (isVisible) {
-                            visibleCount += 1;
-                        }
-                    });
+                    const empId = button.getAttribute('data-employee-id') || '';
+                    const empName = button.getAttribute('data-employee-name') || '';
+                    const shopId = button.getAttribute('data-shop-id') || '';
 
-                    empty.classList.toggle('hidden', visibleCount > 0);
-                };
-
-                toggle.addEventListener('click', () => {
-                    setMenuOpen(menu.classList.contains('hidden'));
-                    filterOptions();
+                    openModal(empId, empName, shopId);
                 });
-
-                search.addEventListener('input', filterOptions);
-                categories.forEach((category) => category.addEventListener('change', filterOptions));
-
-                options.forEach((option) => {
-                    option.addEventListener('click', () => {
-                        valueInput.value = option.dataset.employeeId ?? '';
-                        label.textContent = option.dataset.employeeLabel ?? 'Select employee';
-                        setMenuOpen(false);
-                    });
-                });
-
-                dropdown.closest('form')?.addEventListener('submit', (event) => {
-                    if (valueInput.value !== '') {
-                        return;
-                    }
-
-                    event.preventDefault();
-                    setMenuOpen(true);
-                    filterOptions();
-                    search.focus();
-                });
-
-                document.addEventListener('click', (event) => {
-                    if (!dropdown.contains(event.target)) {
-                        setMenuOpen(false);
-                    }
-                });
-
-                filterOptions();
             });
-        })();
+
+            if (closeBtn) closeBtn.addEventListener('click', closeModal);
+            if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+            if (backdrop) backdrop.addEventListener('click', closeModal);
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+                    closeModal();
+                }
+            });
+        });
     </script>
 </x-layouts.staff>

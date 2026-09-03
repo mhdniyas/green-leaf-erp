@@ -983,6 +983,7 @@ Route::middleware('auth')->group(function () {
             Route::get('staff/employees', [StaffManagementController::class, 'employeesIndex'])->name('staff.employees.index');
             Route::get('staff/create', fn () => redirect()->route('admin.staff.employees.index'))->name('staff.create');
             Route::get('staff/assignments', [StaffManagementController::class, 'assignmentsIndex'])->name('staff.assignments.index');
+            Route::get('staff/assignments/{employee:employee_code}', [StaffManagementController::class, 'assignmentShow'])->name('staff.assignments.show');
             Route::post('staff', [StaffManagementController::class, 'store'])->name('staff.store');
             Route::post('staff/shop-assignments', [StaffManagementController::class, 'storeShopEmployeeAssignment'])->name('staff.shop-assignments.store');
             Route::put('staff/{employee:employee_code}', [StaffManagementController::class, 'update'])->name('staff.update');

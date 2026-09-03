@@ -51,7 +51,7 @@ class ShopOwnerStaffController extends Controller
             ->orderBy('name')
             ->get();
         $selectedShop = $this->selectedShop($ownedShops, $request->string('shop')->toString());
-        $selectedTab = in_array($request->string('tab', 'attendance')->toString(), ['attendance', 'advance', 'salary', 'leave', 'history'], true)
+        $selectedTab = in_array($request->string('tab', 'attendance')->toString(), ['attendance', 'staff', 'advance', 'salary', 'leave', 'history'], true)
             ? $request->string('tab', 'attendance')->toString()
             : 'attendance';
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
@@ -387,19 +387,26 @@ class ShopOwnerStaffController extends Controller
             );
         }
 
-        if ($request->expectsJson()) {
+        if ($request->expectsJson() || $request->wantsJson()) {
+            $markedAtStr = $attendance->marked_at?->timezone('Asia/Kolkata')->format('g:i A') ?? now('Asia/Kolkata')->format('g:i A');
+            $statusLabel = match ($attendance->status) {
+                'present' => '✓ Present',
+                'half_day' => 'Half Day',
+                'leave' => 'Leave',
+                'absent' => 'Absent',
+                default => str_replace('_', ' ', ucfirst($attendance->status)),
+            };
+
             return response()->json([
                 'message' => 'Attendance updated for today.',
                 'attendance' => [
                     'employee_id' => $employee->id,
                     'status' => $attendance->status,
-                    'status_label' => $attendance->status === 'present' ? 'checked in' : str_replace('_', ' ', $attendance->status),
-                    'checked_in_at' => ($attendance->created_at ?? $attendance->marked_at)?->format('h:i A'),
-                    'latest_mark_at' => $attendance->marked_at?->format('h:i A'),
-                    'changed_at' => $attendance->updated_at?->gt(($attendance->created_at ?? $attendance->updated_at)->copy()->addSecond())
-                        ? $attendance->updated_at->format('h:i A')
-                        : null,
-                    'button_label' => 'Update Check-In',
+                    'status_label' => $statusLabel,
+                    'marked_at' => $markedAtStr,
+                    'notes' => $attendance->notes,
+                    'checked_in_at' => $markedAtStr,
+                    'latest_mark_at' => $markedAtStr,
                 ],
             ]);
         }
