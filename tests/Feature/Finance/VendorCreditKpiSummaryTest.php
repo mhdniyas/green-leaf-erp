@@ -368,4 +368,213 @@ class VendorCreditKpiSummaryTest extends TestCase
         $this->assertEquals(8500.0, $kpi['total_paid']);
         $this->assertEquals(0.0, $kpi['total_outstanding']);
     }
+
+    public function test_vendor_settlement_delete_route_uses_public_uuid_and_reverses_financial_state(): void
+    {
+        $invoice = PurchaseInvoice::factory()->for($this->supplier)->create([
+            'invoice_number' => 'BILL-DEL-UUID-001',
+            'amount' => 12000.00,
+            'discount_amount' => 0.00,
+            'paid_amount' => 0.00,
+            'payment_method' => 'Credit',
+            'payment_status' => 'credit_pending_approval',
+            'payment_paid_by' => 'vendor_credit',
+            'status' => 'approved',
+        ]);
+
+        $companyAccount = CompanyAccount::query()->create([
+            'name' => 'HDFC Bank',
+            'account_type' => 'bank',
+            'bank_name' => 'HDFC Bank',
+            'enabled' => true,
+        ]);
+
+        $service = app(VendorSettlementService::class);
+        $settlement = $service->create($this->supplier, [
+            'payment_date' => now()->toDateString(),
+            'company_account_id' => $companyAccount->id,
+            'payment_method' => 'Bank',
+            'actual_payment_amount' => 12000.00,
+            'settlement_discount_amount' => 0.00,
+            'vendor_advance_used_amount' => 0.00,
+            'allocations' => [
+                [
+                    'purchase_invoice_id' => $invoice->id,
+                    'cash_allocated' => 12000.00,
+                    'advance_allocated' => 0.00,
+                    'discount_allocated' => 0.00,
+                ],
+            ],
+        ], $this->admin->id);
+
+        // 1. Verify VendorSettlement has numeric DB ID and public_uuid
+        $this->assertIsInt($settlement->id);
+        $this->assertNotEmpty($settlement->public_uuid);
+        $this->assertNotEquals((string) $settlement->id, $settlement->public_uuid);
+
+        // 2. Fetch page and verify generated delete button passes public_uuid and NOT supplier uuid
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.finance.vendor-credit.show', $this->supplier));
+
+        $response->assertOk();
+        $response->assertSee($settlement->public_uuid);
+        $response->assertSee('settlements/${deleteTarget.uuid}/delete', false);
+
+        // 3. Numeric internal ID delete endpoint returns 404
+        $this->actingAs($this->admin)
+            ->post("/admin/cashbook/finance/vendor-credit/settlements/{$settlement->id}/delete", [
+                'reason' => 'Wrong Payment Amount',
+            ])
+            ->assertNotFound();
+
+        // 4. Invalid UUID returns 404
+        $this->actingAs($this->admin)
+            ->post('/admin/cashbook/finance/vendor-credit/settlements/00000000-0000-0000-0000-000000000000/delete', [
+                'reason' => 'Wrong Payment Amount',
+            ])
+            ->assertNotFound();
+
+        // 5. Authorized admin executes reversal using public_uuid delete endpoint
+        $delResponse = $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.finance.vendor-credit.settlements.delete', $settlement->public_uuid), [
+                'reason' => 'Duplicate Entry',
+                'notes' => 'Testing UUID delete reversal',
+            ]);
+
+        $delResponse->assertRedirect();
+
+        // 6. Verify reversal restored correct financial state and deleted settlement
+        $invoice->refresh();
+        $this->assertEquals(0.0, (float) $invoice->paid_amount);
+        $this->assertDatabaseMissing('vendor_settlements', ['id' => $settlement->id]);
+    }
+
+    public function test_vendor_credit_settlement_with_discount_reduces_bill_outstanding_and_displays_in_history(): void
+    {
+        $bill = PurchaseInvoice::factory()->for($this->supplier)->create([
+            'invoice_number' => 'BILL-DISC-TEST-001',
+            'amount' => 45000.00,
+            'discount_amount' => 0.00,
+            'paid_amount' => 0.00,
+            'payment_method' => 'Credit',
+            'payment_status' => 'credit_pending_approval',
+            'payment_paid_by' => 'vendor_credit',
+            'status' => 'approved',
+        ]);
+
+        $response = $this->actingAs($this->admin)->post(
+            route('admin.cashbook.finance.vendor-credit.settle', $this->supplier),
+            [
+                'invoice_ids' => [$bill->id],
+                'actual_payment_amount' => 40000.00,
+                'difference_treatment' => 'discount',
+                'settlement_discount_amount' => 5000.00,
+                'payment_date' => now()->toDateString(),
+                'payment_method' => 'Bank',
+                'company_account_id' => $this->companyAccount->id,
+                'allocation_order' => 'oldest',
+            ]
+        );
+
+        $response->assertRedirect();
+
+        $settlement = VendorSettlement::query()
+            ->where('supplier_id', $this->supplier->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $this->assertEquals(40000.00, (float) $settlement->actual_payment_amount);
+        $this->assertEquals(5000.00, (float) $settlement->settlement_discount_amount);
+
+        $allocation = VendorSettlementAllocation::query()
+            ->where('vendor_settlement_id', $settlement->id)
+            ->where('purchase_invoice_id', $bill->id)
+            ->firstOrFail();
+
+        $this->assertEquals(40000.00, (float) $allocation->cash_allocated);
+        $this->assertEquals(5000.00, (float) $allocation->discount_allocated);
+        $this->assertEquals(45000.00, (float) $allocation->total_settled);
+
+        $bill->refresh();
+        $this->assertEquals(40000.00, (float) $bill->paid_amount);
+        $this->assertSame('paid', $bill->payment_status);
+
+        $net = (float) $bill->amount - (float) $bill->discount_amount;
+        $allSettled = (float) $bill->vendorSettlementAllocations()->sum('total_settled');
+        $this->assertEquals(0.00, round(max(0, $net - $allSettled), 2));
+
+        $showResponse = $this->actingAs($this->admin)->get(
+            route('admin.cashbook.finance.vendor-credit.show', $this->supplier)
+        );
+
+        $showResponse->assertOk();
+        $showResponse->assertSee('40,000.00');
+        $showResponse->assertSee('5,000.00');
+        $showResponse->assertSee('Settlement Discount');
+        $showResponse->assertSee('Fully Settled');
+        $showResponse->assertDontSee('5,000.00 Outstanding');
+    }
+
+    public function test_vendor_credit_partial_settlement_with_discount_and_remaining_balance(): void
+    {
+        $bill = PurchaseInvoice::factory()->for($this->supplier)->create([
+            'invoice_number' => 'BILL-DISC-PARTIAL-001',
+            'amount' => 45000.00,
+            'discount_amount' => 0.00,
+            'paid_amount' => 0.00,
+            'payment_method' => 'Credit',
+            'payment_status' => 'credit_pending_approval',
+            'payment_paid_by' => 'vendor_credit',
+            'status' => 'approved',
+        ]);
+
+        $response = $this->actingAs($this->admin)->post(
+            route('admin.cashbook.finance.vendor-credit.settle', $this->supplier),
+            [
+                'invoice_ids' => [$bill->id],
+                'actual_payment_amount' => 30000.00,
+                'difference_treatment' => 'discount',
+                'settlement_discount_amount' => 5000.00,
+                'payment_date' => now()->toDateString(),
+                'payment_method' => 'Bank',
+                'company_account_id' => $this->companyAccount->id,
+                'allocation_order' => 'oldest',
+            ]
+        );
+
+        $response->assertRedirect();
+
+        $settlement = VendorSettlement::query()
+            ->where('supplier_id', $this->supplier->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $this->assertEquals(30000.00, (float) $settlement->actual_payment_amount);
+        $this->assertEquals(5000.00, (float) $settlement->settlement_discount_amount);
+
+        $allocation = VendorSettlementAllocation::query()
+            ->where('vendor_settlement_id', $settlement->id)
+            ->where('purchase_invoice_id', $bill->id)
+            ->firstOrFail();
+
+        $this->assertEquals(30000.00, (float) $allocation->cash_allocated);
+        $this->assertEquals(5000.00, (float) $allocation->discount_allocated);
+        $this->assertEquals(35000.00, (float) $allocation->total_settled);
+
+        $bill->refresh();
+        $this->assertSame('partial', $bill->payment_status);
+
+        $net = (float) $bill->amount - (float) $bill->discount_amount;
+        $allSettled = (float) $bill->vendorSettlementAllocations()->sum('total_settled');
+        $this->assertEquals(10000.00, round(max(0, $net - $allSettled), 2));
+
+        $showResponse = $this->actingAs($this->admin)->get(
+            route('admin.cashbook.finance.vendor-credit.show', $this->supplier)
+        );
+
+        $showResponse->assertOk();
+        $showResponse->assertSee('30,000.00');
+        $showResponse->assertSee('5,000.00');
+        $showResponse->assertSee('10,000.00 Outstanding');
+    }
 }

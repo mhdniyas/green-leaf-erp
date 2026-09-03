@@ -147,7 +147,7 @@ class VendorSettlementService
     }
 
     /**
-     * @param  array{invoice_ids:array<int,int>,actual_payment_amount:float,use_vendor_advance:bool,difference_treatment:string,allocation_order:string,payment_date:string,payment_method:?string,company_account_id:?int,reference:?string,note:?string}  $payload
+     * @param  array{invoice_ids:array<int,int>,actual_payment_amount:float,use_vendor_advance:bool,difference_treatment:string,allocation_order:string,payment_date:string,payment_method:?string,company_account_id:?int,reference:?string,note:?string,settlement_discount_amount?:float}  $payload
      */
     public function createAutomatic(Supplier $supplier, array $payload, int $userId): VendorSettlement
     {
@@ -207,7 +207,10 @@ class VendorSettlementService
             $advance = $payload['use_vendor_advance'] ? min($advanceAvailable, $selectedTotal) : 0.0;
             $cashForInvoices = min($cash, round($selectedTotal - $advance, 2));
             $difference = round(max(0, $selectedTotal - $advance - $cashForInvoices), 2);
-            $discount = $payload['difference_treatment'] === 'discount' ? $difference : 0.0;
+            $requestedDiscount = round((float) ($payload['settlement_discount_amount'] ?? 0), 2);
+            $discount = ($payload['difference_treatment'] ?? 'outstanding') === 'discount' || $requestedDiscount > 0
+                ? min($difference, $requestedDiscount > 0 ? $requestedDiscount : $difference)
+                : 0.0;
 
             $cashRemaining = $cashForInvoices;
             $advanceRemaining = $advance;

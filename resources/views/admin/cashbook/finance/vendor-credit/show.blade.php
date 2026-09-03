@@ -168,10 +168,10 @@
                             <span class="block text-xs font-bold text-slate-800">How should this difference be treated?</span>
                             <div class="flex flex-wrap gap-4 text-xs font-bold">
                                 <label class="flex items-center gap-2 cursor-pointer text-slate-900">
-                                    <input x-model="differenceTreatment" name="difference_treatment" value="outstanding" type="radio" class="text-amber-700 focus:ring-amber-600"> Keep as Vendor Outstanding
+                                    <input x-model="differenceTreatment" type="radio" value="outstanding" class="text-amber-700 focus:ring-amber-600"> Keep as Vendor Outstanding
                                 </label>
                                 <label class="flex items-center gap-2 cursor-pointer text-slate-900">
-                                    <input x-model="differenceTreatment" name="difference_treatment" value="discount" type="radio" class="text-amber-700 focus:ring-amber-600"> Apply as Settlement Discount
+                                    <input x-model="differenceTreatment" type="radio" value="discount" class="text-amber-700 focus:ring-amber-600"> Apply as Settlement Discount
                                 </label>
                             </div>
                         </div>
@@ -206,7 +206,8 @@
                     </div>
                 </div>
 
-                <input x-show="difference <= 0.01" type="hidden" name="difference_treatment" value="outstanding">
+                <input type="hidden" name="difference_treatment" :value="differenceTreatment">
+                <input type="hidden" name="settlement_discount_amount" :value="discount">
                 <template x-for="row in selectedRows" :key="row.id">
                     <input type="hidden" name="invoice_ids[]" :value="row.id">
                 </template>
@@ -349,13 +350,13 @@
                                 <td class="p-2.5 text-right">
                                     <div class="flex items-center justify-end gap-2 text-xs">
                                         @unless($history->is_finalized)
-                                            <a class="font-bold text-emerald-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $history) }}#reconcile">Reconcile</a>
+                                            <a class="font-bold text-emerald-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $history) }}#reconcile">Reconcile Now</a>
                                         @endunless
                                         <a class="font-bold text-slate-700 hover:text-emerald-700 hover:underline" href="{{ route('admin.cashbook.finance.vendor-credit.settlements.show', $history) }}">View</a>
-                                        <button type="button" @click="openEditSettlementModal({{ $history->id }}, '{{ $history->reference }}', '{{ $history->note }}', {{ (float) $history->actual_payment_amount }}, '{{ $history->payment_date?->format('Y-m-d') }}')" class="font-bold text-amber-700 hover:text-amber-900 hover:underline">
+                                        <button type="button" @click="openEditSettlementModal({{ $history->id }}, '{{ $history->public_uuid }}', '{{ $history->reference }}', '{{ $history->note }}', {{ (float) $history->actual_payment_amount }}, '{{ $history->payment_date?->format('Y-m-d') }}')" class="font-bold text-amber-700 hover:text-amber-900 hover:underline">
                                             Edit
                                         </button>
-                                        <button type="button" @click="openDeleteSettlementModal({{ $history->id }}, '{{ $supplier->public_uuid }}', '{{ $history->payment_date?->format('Y-m-d') }}', {{ (float) $history->actual_payment_amount }}, {{ (float) $history->settlement_discount_amount }})" class="font-bold text-rose-700 hover:text-rose-900 hover:underline">
+                                        <button type="button" @click="openDeleteSettlementModal({{ $history->id }}, '{{ $history->public_uuid }}', '{{ $history->payment_date?->format('Y-m-d') }}', {{ (float) $history->actual_payment_amount }}, {{ (float) $history->settlement_discount_amount }})" class="font-bold text-rose-700 hover:text-rose-900 hover:underline">
                                             Delete
                                         </button>
                                     </div>
@@ -570,6 +571,7 @@
                 </form>
             </div>
         </div>
+        
         {{-- EDIT SETTLEMENT REVERSAL MODAL --}}
         <div x-show="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs" style="display: none;" x-cloak>
             <div @click.away="showEditModal = false" class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200">
@@ -584,7 +586,7 @@
                 </div>
 
                 <template x-if="editTarget">
-                    <form :action="`/admin/cashbook/finance/vendor-credit/settlements/${editTarget.id}/update`" method="POST" class="mt-4 space-y-4">
+                    <form :action="`/admin/cashbook/finance/vendor-credit/settlements/${editTarget.uuid}/update`" method="POST" class="mt-4 space-y-4">
                         @csrf
                         <div class="rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 font-medium">
                             <span class="block font-black text-amber-950 uppercase text-[10px]">Financial Correction Notice</span>
@@ -639,7 +641,7 @@
                 </div>
 
                 <template x-if="deleteTarget">
-                    <form :action="`/admin/cashbook/finance/vendor-credit/settlements/${deleteTarget.id}/delete`" method="POST" class="mt-4 space-y-4">
+                    <form :action="`/admin/cashbook/finance/vendor-credit/settlements/${deleteTarget.uuid}/delete`" method="POST" class="mt-4 space-y-4">
                         @csrf
                         <div class="rounded-xl border border-rose-200 bg-rose-50/70 p-3.5 text-xs text-rose-900 font-medium">
                             <span class="block font-black text-rose-950 uppercase text-[10px]">Reversal Summary</span>
@@ -732,8 +734,8 @@
                 selectVisible() { this.rows.forEach(row => { row.selected = true }) },
                 clearSelection() { this.rows.forEach(row => { row.selected = false }) },
                 selectStatement(event) { const option = event.target.options[event.target.selectedIndex]; if (!option || !option.value) return; this.cash = Number(option.dataset.amount); this.companyAccountId = option.dataset.account; this.paymentDate = option.dataset.date; this.reference = option.dataset.reference; this.autoSelectByAmount(); },
-                openEditSettlementModal(id, reference, note, cash, date) {
-                    this.editTarget = { id, reference: reference || '', note: note || '', cash, date };
+                openEditSettlementModal(id, uuid, reference, note, cash, date) {
+                    this.editTarget = { id, uuid, reference: reference || '', note: note || '', cash, date };
                     this.editReason = '';
                     this.showEditModal = true;
                 },

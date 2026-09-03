@@ -4814,7 +4814,12 @@ final class CashbookController extends Controller
                 $creditQuery
                     ->whereRaw("LOWER(COALESCE(purchase_invoices.payment_method, purchaser_carts.payment_method, '')) = 'credit'")
                     ->orWhere('purchase_invoices.payment_paid_by', 'vendor_credit')
-                    ->orWhere('purchase_invoices.payment_status', 'credit_pending_approval');
+                    ->orWhere('purchase_invoices.payment_status', 'credit_pending_approval')
+                    ->orWhereExists(function (QueryBuilder $allocQuery): void {
+                        $allocQuery->selectRaw('1')
+                            ->from('vendor_settlement_allocations')
+                            ->whereColumn('vendor_settlement_allocations.purchase_invoice_id', 'purchase_invoices.id');
+                    });
             });
 
         if ($legacyAsOfDate !== null) {
@@ -5281,6 +5286,7 @@ final class CashbookController extends Controller
             $vendorSettlementService->createAutomatic($supplier, [
                 'invoice_ids' => $validated['invoice_ids'],
                 'actual_payment_amount' => (float) $validated['actual_payment_amount'],
+                'settlement_discount_amount' => (float) ($validated['settlement_discount_amount'] ?? 0),
                 'use_vendor_advance' => (bool) ($validated['use_vendor_advance'] ?? false),
                 'difference_treatment' => $validated['difference_treatment'] ?? 'outstanding',
                 'allocation_order' => $validated['allocation_order'] ?? 'oldest',

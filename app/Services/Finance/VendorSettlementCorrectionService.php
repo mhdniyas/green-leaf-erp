@@ -230,6 +230,7 @@ final class VendorSettlementCorrectionService
             $this->vendorSettlementService->createAutomatic($supplier, [
                 'invoice_ids' => $data['invoice_ids'],
                 'actual_payment_amount' => (float) ($data['actual_payment_amount'] ?? 0),
+                'settlement_discount_amount' => (float) ($data['settlement_discount_amount'] ?? 0),
                 'use_vendor_advance' => (bool) ($data['use_vendor_advance'] ?? false),
                 'difference_treatment' => $data['difference_treatment'] ?? 'outstanding',
                 'allocation_order' => $data['allocation_order'] ?? 'oldest',
