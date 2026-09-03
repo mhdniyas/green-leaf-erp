@@ -4967,14 +4967,53 @@ final class CashbookController extends Controller
         $company = config('greenleaf');
         $currentShop = $shops->first();
 
-        $query = PurchaseInvoice::query()
-            ->with(['purchaserCart:id,business_date,bill_number,cart_number', 'supplier:id,name,mobile_number,contact'])
-            ->withSum('vendorSettlementAllocations', 'total_settled')
+        $supplierBaseInvoices = PurchaseInvoice::query()
+            ->withSum('vendorSettlementAllocations', 'advance_allocated')
+            ->withSum('vendorSettlementAllocations', 'discount_allocated')
             ->where('supplier_id', $supplier->id)
+            ->whereNull('deleted_at')
+            ->where('status', '!=', 'cancelled')
             ->where(function (Builder $creditQuery): void {
                 $creditQuery
                     ->where('payment_method', 'Credit')
                     ->orWhere('payment_status', 'credit_pending_approval')
+                    ->orWhere('payment_paid_by', 'vendor_credit')
+                    ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('payment_method', 'Credit'))
+                    ->orWhereRaw('(amount - discount_amount) > paid_amount');
+            })
+            ->get();
+
+        $totalGross = (float) $supplierBaseInvoices->sum('amount');
+        $totalDiscount = (float) $supplierBaseInvoices->sum('discount_amount');
+        $totalNet = max(0, $totalGross - $totalDiscount);
+        $totalPaid = (float) $supplierBaseInvoices->sum(function (PurchaseInvoice $invoice): float {
+            $net = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
+            $settled = (float) $invoice->paid_amount
+                + (float) ($invoice->vendor_settlement_allocations_sum_advance_allocated ?? 0)
+                + (float) ($invoice->vendor_settlement_allocations_sum_discount_allocated ?? 0);
+
+            return min($net, $settled);
+        });
+        $totalOutstanding = max(0, $totalNet - $totalPaid);
+
+        $kpi = [
+            'total_invoiced' => round($totalNet, 2),
+            'total_paid' => round($totalPaid, 2),
+            'total_outstanding' => round($totalOutstanding, 2),
+            'invoice_count' => $supplierBaseInvoices->count(),
+        ];
+
+        $query = PurchaseInvoice::query()
+            ->with(['purchaserCart:id,business_date,bill_number,cart_number', 'supplier:id,name,mobile_number,contact'])
+            ->withSum('vendorSettlementAllocations', 'total_settled')
+            ->where('supplier_id', $supplier->id)
+            ->whereNull('deleted_at')
+            ->where('status', '!=', 'cancelled')
+            ->where(function (Builder $creditQuery): void {
+                $creditQuery
+                    ->where('payment_method', 'Credit')
+                    ->orWhere('payment_status', 'credit_pending_approval')
+                    ->orWhere('payment_paid_by', 'vendor_credit')
                     ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('payment_method', 'Credit'))
                     ->orWhereRaw('(amount - discount_amount) > paid_amount');
             });
@@ -5008,20 +5047,6 @@ final class CashbookController extends Controller
         } elseif ($status === 'paid') {
             $query->whereRaw('(amount - discount_amount) <= paid_amount');
         }
-
-        $allInvoices = (clone $query)->get();
-        $totalGross = (float) $allInvoices->sum('amount');
-        $totalDiscount = (float) $allInvoices->sum('discount_amount');
-        $totalNet = max(0, $totalGross - $totalDiscount);
-        $totalPaid = (float) $allInvoices->sum(fn (PurchaseInvoice $invoice): float => (float) ($invoice->vendor_settlement_allocations_sum_total_settled ?? $invoice->paid_amount));
-        $totalOutstanding = max(0, $totalNet - $totalPaid);
-
-        $kpi = [
-            'total_invoiced' => round($totalNet, 2),
-            'total_paid' => round($totalPaid, 2),
-            'total_outstanding' => round($totalOutstanding, 2),
-            'invoice_count' => $allInvoices->count(),
-        ];
 
         $invoices = $query->orderByDesc('created_at')->paginate(25)->withQueryString();
 

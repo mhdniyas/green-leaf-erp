@@ -26,3 +26,12 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 /graphify-out/
+
+# UI/UX Pro Max local skills
+.agents/skills/banner-design/
+.agents/skills/brand/
+.agents/skills/design/
+.agents/skills/design-system/
+.agents/skills/slides/
+.agents/skills/ui-styling/
+.agents/skills/ui-ux-pro-max/

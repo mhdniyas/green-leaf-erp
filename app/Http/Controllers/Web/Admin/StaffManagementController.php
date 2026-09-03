@@ -684,13 +684,15 @@ class StaffManagementController extends Controller
         $selectedStatus = trim($request->string('status')->toString());
         $shopId = $request->integer('shop_id');
         $categories = EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get();
-        $selectedCategory = $categoryCode !== ''
+        $selectedCategory = $categoryCode !== '' && $categoryCode !== 'all'
             ? $categories->firstWhere('code', $categoryCode)
             : null;
         $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
 
         $employeeBaseQuery = Employee::query()
-            ->with(['category', 'defaultShop'])
+            ->approved()
+            ->where('employment_status', 'active')
+            ->with(['category', 'defaultShop', 'shopAssignments.shop'])
             ->when($staffArea !== '', fn ($query) => $query->where('staff_area', $staffArea))
             ->when($selectedCategory !== null, fn ($query) => $query->where('employee_category_id', $selectedCategory->id))
             ->when($search !== '', function ($query) use ($search): void {
@@ -736,58 +738,144 @@ class StaffManagementController extends Controller
             })
             ->get();
 
+        $totalStaff = (clone $employeeBaseQuery)->count();
+        $presentCount = $statusAttendanceRecords->where('status', 'present')->count();
+        $halfDayCount = $statusAttendanceRecords->where('status', 'half_day')->count();
+        $leaveCount = $statusAttendanceRecords->where('status', 'leave')->count();
+        $absentCount = $statusAttendanceRecords->where('status', 'absent')->count();
+        $markedTotal = $statusAttendanceRecords->whereIn('status', ['present', 'half_day', 'leave', 'absent'])->count();
+        $notMarkedCount = max(0, $totalStaff - $markedTotal);
+
         $statusCounts = [
-            'present' => $statusAttendanceRecords->where('status', 'present')->count(),
-            'half_day' => $statusAttendanceRecords->where('status', 'half_day')->count(),
-            'leave' => $statusAttendanceRecords->where('status', 'leave')->count(),
-            'absent' => max(0, (clone $employeeBaseQuery)->count() - $statusAttendanceRecords->whereIn('status', ['present', 'half_day', 'leave'])->count()),
+            'total' => $totalStaff,
+            'present' => $presentCount,
+            'half_day' => $halfDayCount,
+            'leave' => $leaveCount,
+            'absent' => $absentCount,
+            'not_marked' => $notMarkedCount,
         ];
 
         $employeesQuery = clone $employeeBaseQuery;
 
-        if (in_array($selectedStatus, ['present', 'half_day', 'leave'], true)) {
+        if (in_array($selectedStatus, ['present', 'half_day', 'leave', 'absent'], true)) {
             $employeesQuery->whereHas('attendances', function (Builder $query) use ($selectedDate, $shopId, $selectedStatus): void {
                 $this->applyAttendanceDateScope($query, $selectedDate, $shopId);
                 $query->where('status', $selectedStatus);
             });
-        }
-
-        if ($selectedStatus === 'absent') {
-            $employeesQuery->where(function (Builder $query) use ($selectedDate, $shopId): void {
-                $query
-                    ->whereHas('attendances', function (Builder $attendanceQuery) use ($selectedDate, $shopId): void {
-                        $this->applyAttendanceDateScope($attendanceQuery, $selectedDate, $shopId);
-                        $attendanceQuery->where('status', 'absent');
-                    })
-                    ->orWhereDoesntHave('attendances', function (Builder $attendanceQuery) use ($selectedDate, $shopId): void {
-                        $this->applyAttendanceDateScope($attendanceQuery, $selectedDate, $shopId);
-                    });
+        } elseif ($selectedStatus === 'not_marked') {
+            $employeesQuery->whereDoesntHave('attendances', function (Builder $query) use ($selectedDate, $shopId): void {
+                $this->applyAttendanceDateScope($query, $selectedDate, $shopId);
             });
         }
 
-        $employees = $employeesQuery
-            ->paginate(self::PAGE_SIZE)
-            ->withQueryString();
+        $employees = $employeesQuery->get();
 
         $attendanceRecords = EmployeeAttendance::query()
             ->with(['employee.category', 'shop', 'markedBy'])
             ->whereDate('attendance_date', $selectedDate)
-            ->whereIn('employee_id', $employees->getCollection()->pluck('id'))
+            ->whereIn('employee_id', $employees->pluck('id'))
             ->when($shopId > 0, fn ($query) => $query->where('shop_id', $shopId))
             ->get()
             ->keyBy('employee_id');
 
+        $assignmentsMap = ShopEmployeeAssignment::query()
+            ->with('shop')
+            ->whereIn('employee_id', $employees->pluck('id'))
+            ->where(function ($query) use ($selectedDate): void {
+                $query->whereNull('effective_from')
+                    ->orWhereDate('effective_from', '<=', $selectedDate->toDateString());
+            })
+            ->where(function ($query) use ($selectedDate): void {
+                $query->whereNull('effective_to')
+                    ->orWhereDate('effective_to', '>=', $selectedDate->toDateString());
+            })
+            ->orderByDesc('effective_from')
+            ->get()
+            ->groupBy('employee_id');
+
+        $shopGroupsRaw = [];
+
+        foreach ($employees as $employee) {
+            $att = $attendanceRecords->get($employee->id);
+            $assignmentShop = $assignmentsMap->get($employee->id)?->first()?->shop;
+            $resolvedShop = $att?->shop ?? $assignmentShop ?? $employee->defaultShop;
+
+            $shopKey = $resolvedShop !== null ? 'shop_'.$resolvedShop->id : 'unallocated';
+            $shopName = $resolvedShop !== null ? $resolvedShop->name : 'UNALLOCATED STAFF';
+
+            if (! isset($shopGroupsRaw[$shopKey])) {
+                $shopGroupsRaw[$shopKey] = [
+                    'key' => $shopKey,
+                    'shop_id' => $resolvedShop?->id,
+                    'shop_name' => $shopName,
+                    'shop' => $resolvedShop,
+                    'is_unallocated' => $resolvedShop === null,
+                    'employees' => [],
+                    'total' => 0,
+                    'present' => 0,
+                    'half_day' => 0,
+                    'leave' => 0,
+                    'absent' => 0,
+                    'not_marked' => 0,
+                ];
+            }
+
+            $status = $att?->status;
+            if ($status === 'present') {
+                $shopGroupsRaw[$shopKey]['present']++;
+            } elseif ($status === 'half_day') {
+                $shopGroupsRaw[$shopKey]['half_day']++;
+            } elseif ($status === 'leave') {
+                $shopGroupsRaw[$shopKey]['leave']++;
+            } elseif ($status === 'absent') {
+                $shopGroupsRaw[$shopKey]['absent']++;
+            } else {
+                $shopGroupsRaw[$shopKey]['not_marked']++;
+            }
+            $shopGroupsRaw[$shopKey]['total']++;
+
+            $shopGroupsRaw[$shopKey]['employees'][] = [
+                'employee' => $employee,
+                'attendance' => $att,
+                'status' => $status,
+                'assigned_shop' => $resolvedShop,
+            ];
+        }
+
+        $unallocatedGroup = $shopGroupsRaw['unallocated'] ?? null;
+        unset($shopGroupsRaw['unallocated']);
+
+        uasort($shopGroupsRaw, fn ($a, $b) => strcasecmp((string) $a['shop_name'], (string) $b['shop_name']));
+
+        if ($unallocatedGroup !== null) {
+            $shopGroupsRaw['unallocated'] = $unallocatedGroup;
+        }
+
+        $shopGroups = collect($shopGroupsRaw);
+
+        $allActiveEmployees = Employee::query()
+            ->approved()
+            ->where('employment_status', 'active')
+            ->with(['category', 'defaultShop'])
+            ->orderBy('name')
+            ->get();
+
         return view('admin.staff.attendance', [
             'selectedDate' => $selectedDate,
+            'prevDate' => $selectedDate->copy()->subDay(),
+            'nextDate' => $selectedDate->copy()->addDay(),
             'search' => $search,
             'selectedStatus' => $selectedStatus,
             'statusCounts' => $statusCounts,
             'selectedShopId' => $shopId > 0 ? $shopId : null,
             'selectedStaffArea' => $staffArea,
             'selectedCategory' => $selectedCategory,
+            'categoryCode' => $categoryCode,
             'categories' => $categories,
             'employees' => $employees,
+            'shopGroups' => $shopGroups,
             'attendanceRecords' => $attendanceRecords,
+            'allActiveEmployees' => $allActiveEmployees,
             'shops' => $ownedShops,
         ]);
     }

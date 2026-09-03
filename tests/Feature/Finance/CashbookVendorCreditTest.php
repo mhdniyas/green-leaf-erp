@@ -177,6 +177,7 @@ class CashbookVendorCreditTest extends TestCase
                 'payment_method' => 'Credit',
                 'payment_status' => 'credit_pending_approval',
                 'payment_paid_by' => 'vendor_credit',
+                'purchaser_cart_id' => null,
                 'created_at' => $createdAt,
             ]);
         }
