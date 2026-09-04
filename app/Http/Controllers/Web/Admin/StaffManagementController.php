@@ -22,7 +22,9 @@ use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeStatusRequest;
 use App\Http\Requests\Web\Admin\UpdatePayrollRunItemRequest;
+use App\Http\Requests\Web\Admin\UpdateStaffCheckInTimeRequest;
 use App\Http\Requests\Web\Admin\UpsertEmployeeAttendanceRequest;
+use App\Models\BusinessSetting;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\ContractWorkerPayment;
 use App\Models\Employee;
@@ -318,9 +320,26 @@ class StaffManagementController extends Controller
     {
         Gate::authorize('viewAny', Employee::class);
 
+        $checkInTime = BusinessSetting::query()
+            ->where('key', 'shop_attendance_cutoff_time')
+            ->value('value') ?: '10:00';
+
         return view('admin.staff.payroll-settings', [
             'allCategories' => EmployeeCategory::query()->with('leaveRules.leaveType')->orderBy('name')->get(),
+            'checkInTime' => $checkInTime,
         ]);
+    }
+
+    public function updateCheckInTime(UpdateStaffCheckInTimeRequest $request): RedirectResponse
+    {
+        BusinessSetting::query()->updateOrCreate(
+            ['key' => 'shop_attendance_cutoff_time'],
+            ['value' => $request->validated('shop_attendance_cutoff_time')],
+        );
+
+        return redirect()
+            ->route('admin.staff.categories.index')
+            ->with('success', 'Staff check-in time updated successfully.');
     }
 
     public function show(Employee $employee, Request $request): View

@@ -9,7 +9,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\BusinessSetting;
+use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
@@ -1048,11 +1052,34 @@ class ShopOwnerController extends Controller
         $this->cashbookShopSyncService->syncAndGetProfiles();
 
         $settings = ShopLedgerEntrySetting::query()
-            ->with('entryType:id,name,code,category')
+            ->with(['entryType:id,name,code,category', 'companyAccount:id,name,bank_name,account_number', 'headerGroup:id,name,type,cash_flow_mode,company_account_id,note_enabled,show_both_sides,product_tagging_enabled'])
             ->where('shop_id', (int) $shop->id)
             ->where('enabled', true)
             ->orderBy('display_order')
             ->get();
+
+        $headerGroups = ShopLedgerHeaderGroup::query()
+            ->where('shop_id', (int) $shop->id)
+            ->where('enabled', true)
+            ->orderBy('display_order')
+            ->get();
+
+        $relations = ShopCashbookRelation::query()
+            ->with(['items.setting.entryType'])
+            ->where('shop_id', (int) $shop->id)
+            ->where('enabled', true)
+            ->get();
+
+        $companyAccounts = CompanyAccount::query()
+            ->where('enabled', true)
+            ->get();
+
+        $todayTransactions = ShopLedgerTransaction::query()
+            ->with('entryType')
+            ->where('shop_id', (int) $shop->id)
+            ->where('business_date', $date)
+            ->get();
+
         $entryTypes = $settings
             ->pluck('entryType')
             ->filter()
@@ -1075,6 +1102,10 @@ class ShopOwnerController extends Controller
             'selectedDate' => Carbon::parse($date),
             'entryTypes' => $entryTypes,
             'settings' => $settings,
+            'headerGroups' => $headerGroups,
+            'relations' => $relations,
+            'companyAccounts' => $companyAccounts,
+            'todayTransactions' => $todayTransactions,
             'collectionGroups' => $collectionGroups,
             'snapshot' => $snapshot,
             'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
@@ -1359,6 +1390,27 @@ class ShopOwnerController extends Controller
         }
     }
 
+    public function cashbookSearchProducts(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $q = trim((string) $request->input('q', ''));
+        $query = Product::query()->active();
+
+        if ($q !== '') {
+            $query->where(function ($sub) use ($q): void {
+                $sub->where('name', 'LIKE', "%{$q}%")
+                    ->orWhere('sku', 'LIKE', "%{$q}%");
+            });
+        }
+
+        $products = $query->orderBy('name')->limit(50)->get(['id', 'name', 'sku', 'unit', 'base_price']);
+
+        return response()->json([
+            'success' => true,
+            'products' => $products,
+        ]);
+    }
+
     public function cashbookBulkRecordEntries(Request $request): JsonResponse
     {
         $shop = $this->ownedAccountingShop($request);
@@ -1366,13 +1418,26 @@ class ShopOwnerController extends Controller
             'business_date' => ['required', 'date_format:Y-m-d'],
             'entries' => ['required', 'array', 'min:1'],
             'entries.*.entry_type_code' => ['required', 'string', 'exists:ledger_entry_types,code'],
-            'entries.*.amount' => ['required', 'numeric', 'min:0.01'],
+            'entries.*.amount' => ['required', 'numeric', 'min:0'],
             'entries.*.funding_source' => ['nullable', 'string', 'in:sales,petty,company,bank,external,company_later,none'],
             'entries.*.notes' => ['nullable', 'string', 'max:255'],
         ]);
 
         $created = [];
         $userId = (int) ($request->user()?->id ?? 1);
+
+        $entryTypes = LedgerEntryType::query()
+            ->whereIn('code', array_column($validated['entries'], 'entry_type_code'))
+            ->get()
+            ->keyBy('code');
+
+        $existingTxMap = ShopLedgerTransaction::query()
+            ->where('shop_id', (int) $shop->id)
+            ->where('business_date', $validated['business_date'])
+            ->where('generated_by_rule', false)
+            ->whereNull('reference_type')
+            ->get()
+            ->keyBy(fn ($t) => (int) $t->entry_type_id);
 
         foreach ($validated['entries'] as $item) {
             $code = (string) $item['entry_type_code'];
@@ -1381,22 +1446,52 @@ class ShopOwnerController extends Controller
                 continue;
             }
 
-            $payload = [
-                'shop_id' => (int) $shop->id,
-                'business_date' => $validated['business_date'],
-                'entry_type_code' => $code,
-                'amount' => (float) $item['amount'],
-                'entered_by' => $userId,
-                'notes' => $item['notes'] ?? null,
-            ];
-
-            if (! empty($item['funding_source']) && $item['funding_source'] !== 'none') {
-                $payload['funding_source'] = $item['funding_source'];
+            $entryType = $entryTypes->get($code);
+            if (! $entryType) {
+                continue;
             }
 
-            $result = $this->dailyLedgerService->recordEntry($payload);
-            if (! empty($result['transaction'])) {
-                $created[] = $result['transaction'];
+            $amount = (float) $item['amount'];
+            $fundingSource = (! empty($item['funding_source']) && $item['funding_source'] !== 'none') ? (string) $item['funding_source'] : null;
+            $notes = $item['notes'] ?? null;
+
+            $existingTx = $existingTxMap->get((int) $entryType->id);
+
+            if ($existingTx) {
+                if (! $existingTx->isReconciled()) {
+                    if ($amount > 0) {
+                        $result = $this->dailyLedgerService->updateEntry(
+                            $existingTx->id,
+                            $amount,
+                            $fundingSource,
+                            $notes,
+                            $userId
+                        );
+                        if (! empty($result['transaction'])) {
+                            $created[] = $result['transaction'];
+                        }
+                    } else {
+                        $this->dailyLedgerService->deleteEntry($existingTx->id);
+                    }
+                }
+            } else {
+                if ($amount > 0) {
+                    $payload = [
+                        'shop_id' => (int) $shop->id,
+                        'business_date' => $validated['business_date'],
+                        'entry_type_code' => $code,
+                        'amount' => $amount,
+                        'entered_by' => $userId,
+                        'notes' => $notes,
+                    ];
+                    if ($fundingSource) {
+                        $payload['funding_source'] = $fundingSource;
+                    }
+                    $result = $this->dailyLedgerService->recordEntry($payload);
+                    if (! empty($result['transaction'])) {
+                        $created[] = $result['transaction'];
+                    }
+                }
             }
         }
 
@@ -1404,7 +1499,7 @@ class ShopOwnerController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => count($created).' entries created successfully.',
+            'message' => count($created).' entries saved successfully.',
             'count' => count($created),
             'snapshot' => $snapshot,
         ]);

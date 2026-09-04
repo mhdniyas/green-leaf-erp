@@ -2764,6 +2764,7 @@ final class CashbookController extends Controller
             'id' => -101,
             'name' => 'SALES',
             'type' => 'income',
+            'cash_flow_mode' => 'entry_decides',
             'display_order' => 1,
             'enabled' => true,
         ]);
@@ -2772,6 +2773,7 @@ final class CashbookController extends Controller
             'id' => -102,
             'name' => 'EXPENSE',
             'type' => 'expense',
+            'cash_flow_mode' => 'shop_cash',
             'display_order' => 2,
             'enabled' => true,
         ]);
@@ -2780,6 +2782,8 @@ final class CashbookController extends Controller
             'id' => -103,
             'name' => 'CASH PURCHASE',
             'type' => 'expense',
+            'cash_flow_mode' => 'shop_cash',
+            'product_tagging_enabled' => true,
             'display_order' => 3,
             'enabled' => true,
         ]);
@@ -7969,6 +7973,7 @@ final class CashbookController extends Controller
 
         $validated = $request->validate([
             'setting_id' => ['required', 'integer', 'exists:shop_ledger_entry_settings,id'],
+            'display_name' => ['nullable', 'string', 'max:255'],
             'header_group_id' => ['nullable', 'integer', 'exists:shop_ledger_header_groups,id'],
             'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
             'enabled' => ['required', 'boolean'],
@@ -7993,6 +7998,9 @@ final class CashbookController extends Controller
             $setting = ShopLedgerEntrySetting::query()->findOrFail((int) $validated['setting_id']);
             $createsChild = (bool) $validated['generates_secondary_entry'];
             $setting->update([
+                'display_name' => array_key_exists('display_name', $validated)
+                    ? (filled($validated['display_name']) ? trim((string) $validated['display_name']) : null)
+                    : $setting->display_name,
                 'enabled' => (bool) $validated['enabled'],
                 'note_enabled' => (bool) ($validated['note_enabled'] ?? false),
                 'header_group_id' => array_key_exists('header_group_id', $validated) && $validated['header_group_id'] ? (int) $validated['header_group_id'] : null,
@@ -8248,8 +8256,15 @@ final class CashbookController extends Controller
         $validated = $request->validate([
             'shop_id' => ['required', 'integer', 'exists:shop_ledger_profiles,shop_id'],
             'name' => ['required', 'string', 'max:80'],
-            'type' => ['required', 'string', 'in:income,expense'],
+            'type' => ['required', 'string', 'in:income,expense,other'],
+            'cash_flow_mode' => ['nullable', 'string', 'in:shop_cash,petty,company,company_account,entry_decides,none'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'from_balance' => ['nullable', 'string', 'in:shop_cash,petty,company,company_account,vendor,none'],
+            'to_balance' => ['nullable', 'string', 'in:shop_cash,petty,company,company_account,vendor,none'],
+            'enabled' => ['nullable', 'boolean'],
+            'note_enabled' => ['nullable', 'boolean'],
             'product_tagging_enabled' => ['nullable', 'boolean'],
+            'show_both_sides' => ['nullable', 'boolean'],
             'allowed_product_ids' => ['nullable', 'array'],
             'allowed_product_ids.*' => ['integer', 'exists:products,id'],
         ]);
@@ -8258,7 +8273,6 @@ final class CashbookController extends Controller
             $shopId = (int) $validated['shop_id'];
             $name = trim($validated['name']);
             $type = $validated['type'];
-            $productTagging = (bool) ($validated['product_tagging_enabled'] ?? false);
 
             $maxOrder = (int) ShopLedgerHeaderGroup::query()
                 ->where('shop_id', $shopId)
@@ -8269,9 +8283,15 @@ final class CashbookController extends Controller
                 'shop_id' => $shopId,
                 'name' => $name,
                 'type' => $type,
+                'cash_flow_mode' => $validated['cash_flow_mode'] ?? null,
+                'company_account_id' => ! empty($validated['company_account_id']) ? (int) $validated['company_account_id'] : null,
+                'from_balance' => $validated['from_balance'] ?? null,
+                'to_balance' => $validated['to_balance'] ?? null,
                 'display_order' => $maxOrder + 1,
-                'enabled' => true,
-                'product_tagging_enabled' => $productTagging,
+                'enabled' => (bool) ($validated['enabled'] ?? true),
+                'note_enabled' => (bool) ($validated['note_enabled'] ?? false),
+                'product_tagging_enabled' => (bool) ($validated['product_tagging_enabled'] ?? false),
+                'show_both_sides' => (bool) ($validated['show_both_sides'] ?? false),
             ]);
 
             if (array_key_exists('allowed_product_ids', $validated)) {
@@ -8281,7 +8301,7 @@ final class CashbookController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => "Header group '{$header->name}' created.",
-                'header' => $header->load('allowedProducts'),
+                'header' => $header->load(['allowedProducts', 'companyAccount']),
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
@@ -8295,7 +8315,14 @@ final class CashbookController extends Controller
         $validated = $request->validate([
             'id' => ['required', 'integer', 'exists:shop_ledger_header_groups,id'],
             'name' => ['sometimes', 'required', 'string', 'max:80'],
+            'cash_flow_mode' => ['nullable', 'string', 'in:shop_cash,petty,company,company_account,entry_decides,none'],
+            'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'from_balance' => ['nullable', 'string', 'in:shop_cash,petty,company,company_account,vendor,none'],
+            'to_balance' => ['nullable', 'string', 'in:shop_cash,petty,company,company_account,vendor,none'],
+            'enabled' => ['nullable', 'boolean'],
+            'note_enabled' => ['nullable', 'boolean'],
             'product_tagging_enabled' => ['nullable', 'boolean'],
+            'show_both_sides' => ['nullable', 'boolean'],
             'allowed_product_ids' => ['nullable', 'array'],
             'allowed_product_ids.*' => ['integer', 'exists:products,id'],
         ]);
@@ -8307,8 +8334,29 @@ final class CashbookController extends Controller
             if (! empty($validated['name'])) {
                 $updateData['name'] = trim($validated['name']);
             }
+            if (array_key_exists('cash_flow_mode', $validated)) {
+                $updateData['cash_flow_mode'] = $validated['cash_flow_mode'];
+            }
+            if (array_key_exists('company_account_id', $validated)) {
+                $updateData['company_account_id'] = ! empty($validated['company_account_id']) ? (int) $validated['company_account_id'] : null;
+            }
+            if (array_key_exists('from_balance', $validated)) {
+                $updateData['from_balance'] = $validated['from_balance'];
+            }
+            if (array_key_exists('to_balance', $validated)) {
+                $updateData['to_balance'] = $validated['to_balance'];
+            }
+            if (array_key_exists('enabled', $validated)) {
+                $updateData['enabled'] = (bool) $validated['enabled'];
+            }
+            if (array_key_exists('note_enabled', $validated)) {
+                $updateData['note_enabled'] = (bool) $validated['note_enabled'];
+            }
             if (array_key_exists('product_tagging_enabled', $validated)) {
                 $updateData['product_tagging_enabled'] = (bool) $validated['product_tagging_enabled'];
+            }
+            if (array_key_exists('show_both_sides', $validated)) {
+                $updateData['show_both_sides'] = (bool) $validated['show_both_sides'];
             }
 
             if (! empty($updateData)) {
@@ -8322,7 +8370,7 @@ final class CashbookController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => "Header '{$header->name}' updated.",
-                'header' => $header->load('allowedProducts'),
+                'header' => $header->load(['allowedProducts', 'companyAccount']),
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);

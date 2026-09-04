@@ -179,24 +179,62 @@
                             <span class="header-drag-handle cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700" title="Drag to reorder header">
                                 <i data-lucide="grip-vertical" class="h-4 w-4"></i>
                             </span>
-                            <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2">
-                                <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
-                                <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
-                                    {{ $headerSettings->where('enabled', true)->count() }} entries
-                                </span>
-                                @if($header->product_tagging_enabled)
-                                    <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-black text-indigo-700 inline-flex items-center gap-1">
-                                        <i data-lucide="tag" class="h-3 w-3"></i> Tagging ON
+                            <div class="flex flex-col gap-1">
+                                <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2 flex-wrap">
+                                    <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
+                                    <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
+                                        {{ $headerSettings->where('enabled', true)->count() }} entries
                                     </span>
+                                    @php
+                                        $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
+                                        $headerSummary = $resolver->resolveHeaderSummaryLabel($header);
+                                        $childDests = $header->cash_flow_mode === 'entry_decides' ? $resolver->resolveHeaderChildDestinations($header) : [];
+                                    @endphp
+                                    <span class="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">
+                                        {{ $headerSummary }}
+                                    </span>
+                                    @if($header->product_tagging_enabled)
+                                        <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-black text-indigo-700 inline-flex items-center gap-1">
+                                            <i data-lucide="tag" class="h-3 w-3"></i> Tagging ON
+                                        </span>
+                                    @endif
+                                    @if($header->show_both_sides)
+                                        <span class="rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-black text-purple-700 inline-flex items-center gap-1">
+                                            <i data-lucide="arrow-right-left" class="h-3 w-3"></i> Both Sides ON
+                                        </span>
+                                    @endif
+                                </h3>
+                                @if(!empty($childDests))
+                                    <div class="mt-1 flex flex-wrap gap-1.5">
+                                        @foreach($childDests as $dest)
+                                            <span class="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-extrabold text-slate-700 shadow-2xs">
+                                                {{ $dest }}
+                                            </span>
+                                        @endforeach
+                                    </div>
                                 @endif
-                            </h3>
+                            </div>
+
                         </div>
 
                         <div class="flex items-center gap-2">
                             <button type="button" onclick="openSearchModal('income', {{ $header->id }})" class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 hover:text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
                                 <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Income Source
                             </button>
-                            <button type="button" onclick="openEditHeaderModal({{ $header->id }}, '{{ addslashes($header->name) }}', {{ $header->product_tagging_enabled ? 1 : 0 }})" class="p-1 text-slate-400 hover:text-slate-700" title="Edit Header Settings">
+                            <button type="button" onclick="openEditHeaderModal({{ json_encode([
+                                'id' => $header->id,
+                                'name' => $header->name,
+                                'type' => $header->type,
+                                'cash_flow_mode' => $header->cash_flow_mode,
+                                'company_account_id' => $header->company_account_id,
+                                'from_balance' => $header->from_balance,
+                                'to_balance' => $header->to_balance,
+                                'enabled' => $header->enabled ? 1 : 0,
+                                'note_enabled' => $header->note_enabled ? 1 : 0,
+                                'product_tagging_enabled' => $header->product_tagging_enabled ? 1 : 0,
+                                'show_both_sides' => $header->show_both_sides ? 1 : 0,
+                            ]) }})" class="p-1 text-slate-400 hover:text-slate-700" title="Configure Header Settings">
+
                                 <i data-lucide="pencil" class="h-3.5 w-3.5"></i>
                             </button>
                             <button type="button" onclick="deleteHeaderGroup({{ $header->id }}, '{{ addslashes($header->name) }}')" class="p-1 text-slate-400 hover:text-rose-600" title="Delete Header">
@@ -309,24 +347,62 @@
                             <span class="header-drag-handle cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700" title="Drag to reorder header">
                                 <i data-lucide="grip-vertical" class="h-4 w-4"></i>
                             </span>
-                            <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2">
-                                <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
-                                <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
-                                    {{ $headerSettings->where('enabled', true)->count() }} entries
-                                </span>
-                                @if($header->product_tagging_enabled)
-                                    <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-black text-indigo-700 inline-flex items-center gap-1">
-                                        <i data-lucide="tag" class="h-3 w-3"></i> Tagging ON
+                            <div class="flex flex-col gap-1">
+                                <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2 flex-wrap">
+                                    <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
+                                    <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
+                                        {{ $headerSettings->where('enabled', true)->count() }} entries
                                     </span>
+                                    @php
+                                        $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
+                                        $headerSummary = $resolver->resolveHeaderSummaryLabel($header);
+                                        $childSources = $header->cash_flow_mode === 'entry_decides' ? $resolver->resolveHeaderChildDestinations($header) : [];
+                                    @endphp
+                                    <span class="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-extrabold text-rose-800">
+                                        {{ $headerSummary }}
+                                    </span>
+                                    @if($header->product_tagging_enabled)
+                                        <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-black text-indigo-700 inline-flex items-center gap-1">
+                                            <i data-lucide="tag" class="h-3 w-3"></i> Tagging ON
+                                        </span>
+                                    @endif
+                                    @if($header->show_both_sides)
+                                        <span class="rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-black text-purple-700 inline-flex items-center gap-1">
+                                            <i data-lucide="arrow-right-left" class="h-3 w-3"></i> Both Sides ON
+                                        </span>
+                                    @endif
+                                </h3>
+                                @if(!empty($childSources))
+                                    <div class="mt-1 flex flex-wrap gap-1.5">
+                                        @foreach($childSources as $src)
+                                            <span class="rounded-md bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-extrabold text-slate-700 shadow-2xs">
+                                                {{ $src }}
+                                            </span>
+                                        @endforeach
+                                    </div>
                                 @endif
-                            </h3>
+                            </div>
+
                         </div>
 
                         <div class="flex items-center gap-2">
                             <button type="button" onclick="openSearchModal('expense', {{ $header->id }})" class="inline-flex items-center gap-1 text-[11px] font-black text-rose-700 hover:text-rose-900 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
                                 <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Expense Source
                             </button>
-                            <button type="button" onclick="openEditHeaderModal({{ $header->id }}, '{{ addslashes($header->name) }}', {{ $header->product_tagging_enabled ? 1 : 0 }})" class="p-1 text-slate-400 hover:text-slate-700" title="Edit Header Settings">
+                            <button type="button" onclick="openEditHeaderModal({{ json_encode([
+                                'id' => $header->id,
+                                'name' => $header->name,
+                                'type' => $header->type,
+                                'cash_flow_mode' => $header->cash_flow_mode,
+                                'company_account_id' => $header->company_account_id,
+                                'from_balance' => $header->from_balance,
+                                'to_balance' => $header->to_balance,
+                                'enabled' => $header->enabled ? 1 : 0,
+                                'note_enabled' => $header->note_enabled ? 1 : 0,
+                                'product_tagging_enabled' => $header->product_tagging_enabled ? 1 : 0,
+                                'show_both_sides' => $header->show_both_sides ? 1 : 0,
+                            ]) }})" class="p-1 text-slate-400 hover:text-slate-700" title="Configure Header Settings">
+
                                 <i data-lucide="pencil" class="h-3.5 w-3.5"></i>
                             </button>
                             <button type="button" onclick="deleteHeaderGroup({{ $header->id }}, '{{ addslashes($header->name) }}')" class="p-1 text-slate-400 hover:text-rose-600" title="Delete Header">
@@ -570,7 +646,7 @@
                     <div class="mt-3 grid grid-cols-1 gap-2">
                         @foreach($settingsByCategory->get($category, collect())->where('enabled', true) as $setting)
                             <label class="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-xs">
-                                <span>{{ $setting->entryType->name }}</span>
+                                <span>{{ $setting->displayName() }}</span>
                                 <input type="checkbox"
                                        name="{{ $category === 'income' ? 'income_entry_type_ids[]' : 'expense_entry_type_ids[]' }}"
                                        value="{{ $setting->entry_type_id }}"
@@ -613,7 +689,7 @@
                     <select id="hist-entry-type-id" name="entry_type_id" onchange="onHistoricalCategoryChange()" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
                         @foreach($settingsByCategory->get('income', collect())->where('enabled', true) as $setting)
                             <option value="{{ $setting->entry_type_id }}" data-bank-id="{{ $setting->company_account_id ?: '' }}">
-                                {{ $setting->entryType->name }} ({{ $setting->entryType->code }})
+                                {{ $setting->displayName() }} ({{ $setting->entryType->code }})
                             </option>
                         @endforeach
                     </select>
@@ -676,10 +752,13 @@
                 <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                     <div>
                         <div class="flex items-center gap-2">
-                            <h3 class="text-base font-extrabold text-slate-950">{{ $setting->entryType->name }}</h3>
+                            <h3 class="text-base font-extrabold text-slate-950">{{ $setting->displayName() }}</h3>
+                            @if($setting->display_name && $setting->display_name !== $setting->entryType?->name)
+                                <span class="rounded-md bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">Custom Name</span>
+                            @endif
                             <span class="font-mono text-xs font-bold text-slate-400">({{ $setting->entryType->code }})</span>
                         </div>
-                        <p class="text-xs font-semibold text-slate-500">Configure funding, account routing, header group, and accounting flags.</p>
+                        <p class="text-xs font-semibold text-slate-500">Configure category name, funding, account routing, header group, and accounting flags.</p>
                     </div>
                     <button type="button" onclick="closeConfigModal({{ $setting->id }})" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                         <i data-lucide="x" class="h-5 w-5"></i>
@@ -687,6 +766,32 @@
                 </div>
 
                 <form id="setting-{{ $setting->id }}" onsubmit="saveShopSetting(event, {{ $setting->id }})" class="mt-5 space-y-5">
+                    <!-- Category Display Name (Shop-specific override) -->
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label for="setting-display-name-{{ $setting->id }}" class="block text-xs font-black uppercase tracking-wider text-slate-700">Category Name</label>
+                            @if($setting->display_name)
+                                <button type="button"
+                                        onclick="resetCategoryDisplayName({{ $setting->id }})"
+                                        class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1 cursor-pointer">
+                                    <i data-lucide="rotate-ccw" class="h-3 w-3"></i>
+                                    Reset to Default
+                                </button>
+                            @endif
+                        </div>
+                        <input type="text"
+                               id="setting-display-name-{{ $setting->id }}"
+                               name="display_name"
+                               value="{{ $setting->display_name ?? '' }}"
+                               placeholder="{{ $setting->entryType->name }}"
+                               maxlength="255"
+                               class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none shadow-2xs">
+                        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                            <span>Default: <strong class="text-slate-700">{{ $setting->entryType->name }}</strong></span>
+                            <span class="font-mono text-[10px] text-slate-400">Code: {{ $setting->entryType->code }}</span>
+                        </div>
+                    </div>
+
                     <!-- Header Group Assignment Dropdown -->
                     <div>
                         <label class="block text-xs font-extrabold text-slate-900 mb-1.5">Header Group</label>
@@ -842,7 +947,7 @@
                                             @foreach($allShopRows as $childSetting)
                                                 @if($childSetting->entry_type_id !== $setting->entry_type_id)
                                                     <option value="{{ $childSetting->entry_type_id }}" @selected((int) $setting->secondary_entry_type_id === (int) $childSetting->entry_type_id)>
-                                                        {{ $childSetting->entryType->name }}
+                                                        {{ $childSetting->displayName() }}
                                                     </option>
                                                 @endif
                                             @endforeach
@@ -921,15 +1026,15 @@
         </div>
     </div>
 
-    <!-- EDIT HEADER MODAL -->
+    <!-- EDIT / CONFIGURE HEADER MODAL -->
     <div id="edit-header-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
-        <div class="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+        <div class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
             <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div>
                     <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5" id="edit-header-modal-title">
-                        <i data-lucide="pencil" class="h-4 w-4 text-slate-700"></i> Edit Header
+                        <i data-lucide="sliders-horizontal" class="h-4 w-4 text-indigo-600"></i> Configure Header
                     </h3>
-                    <p class="text-xs font-semibold text-slate-500">Configure header details and optional product tagging.</p>
+                    <p class="text-xs font-semibold text-slate-500">Define default cash-flow behavior for all entries in this header.</p>
                 </div>
                 <button type="button" onclick="closeEditHeaderModal()" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                     <i data-lucide="x" class="h-5 w-5"></i>
@@ -938,21 +1043,137 @@
 
             <form onsubmit="submitEditHeaderGroup(event)" class="mt-5 space-y-4">
                 <input type="hidden" id="edit-header-id" name="id">
+                <input type="hidden" id="edit-header-type" name="type" value="income">
 
                 <div>
                     <label class="block text-xs font-extrabold text-slate-900 mb-1">Header Name</label>
-                    <input type="text" id="edit-header-name" name="name" required placeholder="e.g. Cash Purchase, Other Sales"
+                    <input type="text" id="edit-header-name" name="name" required placeholder="e.g. Sales, Cash Purchase, Shop Operating Expenses"
                            class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
                 </div>
 
-                <div>
-                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Product Tagging</label>
-                    <select id="edit-header-product-tagging" name="product_tagging_enabled" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
-                        <option value="0">OFF</option>
-                        <option value="1">ON</option>
-                    </select>
-                    <p class="mt-1 text-[11px] font-semibold text-slate-500">When enabled, daily Cashbook entries can be tagged with Products from the existing Product catalog (reference only, zero accounting effect).</p>
+                <!-- INCOME CASH FLOW QUESTION -->
+                <div id="header-income-cash-flow-box" class="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
+                    <label class="block text-xs font-extrabold text-emerald-950 flex items-center gap-1.5">
+                        <i data-lucide="arrow-down-left" class="h-4 w-4 text-emerald-600"></i>
+                        <span>MONEY DESTINATION</span>
+                    </label>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1">Header Cash Flow Mode</label>
+                        <select id="edit-header-income-rule-mode" onchange="onIncomeRuleModeChange(this.value)" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            <option value="same_for_all">Same destination for all entries</option>
+                            <option value="entry_decides">Each entry chooses destination</option>
+                        </select>
+                    </div>
+
+                    <div id="income-same-destination-container" class="space-y-1.5">
+                        <label class="block text-[11px] font-bold text-slate-700">Destination</label>
+                        <select id="edit-header-income-single-dest" onchange="onIncomeSingleDestChange(this.value)" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            <option value="shop_cash">Shop Cash</option>
+                            <option value="company_account">Company Account</option>
+                            <option value="none">No cash movement</option>
+                        </select>
+                    </div>
                 </div>
+
+                <!-- EXPENSE CASH FLOW QUESTION -->
+                <div id="header-expense-cash-flow-box" class="rounded-2xl border border-rose-200 bg-rose-50/40 p-4 space-y-3">
+                    <label class="block text-xs font-extrabold text-rose-950 flex items-center gap-1.5">
+                        <i data-lucide="arrow-up-right" class="h-4 w-4 text-rose-600"></i>
+                        <span>PAID FROM</span>
+                    </label>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1">Header Cash Flow Mode</label>
+                        <select id="edit-header-expense-rule-mode" onchange="onExpenseRuleModeChange(this.value)" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-rose-500 focus:outline-none">
+                            <option value="same_for_all">Same source for all entries</option>
+                            <option value="entry_decides">Each entry chooses source</option>
+                        </select>
+                    </div>
+
+                    <div id="expense-same-source-container" class="space-y-1.5">
+                        <label class="block text-[11px] font-bold text-slate-700">Source</label>
+                        <select id="edit-header-expense-single-source" onchange="onExpenseSingleSourceChange(this.value)" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-rose-500 focus:outline-none">
+                            <option value="shop_cash">Shop Cash</option>
+                            <option value="petty">Petty</option>
+                            <option value="company">Company</option>
+                            <option value="company_account">Company Account</option>
+                            <option value="none">No cash movement</option>
+                        </select>
+                    </div>
+                </div>
+
+
+                <!-- COMPANY ACCOUNT SELECTOR -->
+                <div id="header-company-account-box" class="hidden rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-2">
+                    <label class="block text-xs font-extrabold text-indigo-950">Company Bank Account</label>
+                    <select id="edit-header-company-account-id" name="company_account_id"
+                            class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-indigo-500 focus:outline-none">
+                        <option value="">Select Company Account...</option>
+                        @foreach($companyAccounts as $acc)
+                            <option value="{{ $acc->id }}">{{ $acc->name }} ({{ $acc->bank_name ?: $acc->account_type }})</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <!-- OTHERS / TRANSFERS MOVEMENT -->
+                <div id="header-others-cash-flow-box" class="hidden rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-3">
+                    <label class="block text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
+                        <i data-lucide="arrow-right-left" class="h-4 w-4 text-indigo-600"></i>
+                        <span>Money Movement</span>
+                    </label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">From</label>
+                            <select id="edit-header-from-balance" name="from_balance"
+                                    class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:outline-none">
+                                <option value="shop_cash">Shop Cash</option>
+                                <option value="petty">Petty</option>
+                                <option value="company">Company</option>
+                                <option value="company_account">Company Account</option>
+                                <option value="vendor">Vendor</option>
+                                <option value="none">No Balance</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">To</label>
+                            <select id="edit-header-to-balance" name="to_balance"
+                                    class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:outline-none">
+                                <option value="shop_cash">Shop Cash</option>
+                                <option value="petty">Petty</option>
+                                <option value="company">Company</option>
+                                <option value="company_account">Company Account</option>
+                                <option value="vendor">Vendor</option>
+                                <option value="none">No Balance</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-extrabold text-slate-900 mb-1">Show Both Sides</label>
+                        <select id="edit-header-show-both-sides" name="show_both_sides" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:outline-none">
+                            <option value="0">OFF</option>
+                            <option value="1">ON</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-extrabold text-slate-900 mb-1">Note Field</label>
+                        <select id="edit-header-note-enabled" name="note_enabled" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:outline-none">
+                            <option value="0">OFF</option>
+                            <option value="1">ON</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-extrabold text-slate-900 mb-1">Product Tagging</label>
+                        <select id="edit-header-product-tagging" name="product_tagging_enabled" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:outline-none">
+                            <option value="0">OFF</option>
+                            <option value="1">ON</option>
+                        </select>
+                    </div>
+                </div>
+
 
                 <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
                     <button type="button" onclick="closeEditHeaderModal()" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50">Cancel</button>
@@ -989,12 +1210,12 @@
                 <!-- Disabled Income Settings (Re-enable) -->
                 @foreach($incomeRows->where('enabled', false) as $disabledSetting)
                     <div class="search-item flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/50 p-3 hover:bg-amber-100/60 transition"
-                         data-name="{{ strtolower($disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
+                         data-name="{{ strtolower($disabledSetting->displayName().' '.$disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
                         <div>
-                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->entryType->name }}</div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->displayName() }}</div>
                             <div class="text-[10px] font-bold text-amber-800">Previously configured • Disabled</div>
                         </div>
-                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->entryType->name) }}')"
+                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->displayName()) }}')"
                                 class="rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white hover:bg-emerald-800 shadow-xs inline-flex items-center gap-1">
                             <i data-lucide="circle-check" class="h-3.5 w-3.5"></i> Re-enable
                         </button>
@@ -1059,12 +1280,12 @@
                 <!-- Disabled Expense Settings (Re-enable) -->
                 @foreach($expenseRows->where('enabled', false) as $disabledSetting)
                     <div class="search-item flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/50 p-3 hover:bg-amber-100/60 transition"
-                         data-name="{{ strtolower($disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
+                         data-name="{{ strtolower($disabledSetting->displayName().' '.$disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
                         <div>
-                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->entryType->name }}</div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->displayName() }}</div>
                             <div class="text-[10px] font-bold text-amber-800">Previously configured • Disabled</div>
                         </div>
-                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->entryType->name) }}')"
+                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->displayName()) }}')"
                                 class="rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white hover:bg-emerald-800 shadow-xs inline-flex items-center gap-1">
                             <i data-lucide="circle-check" class="h-3.5 w-3.5"></i> Re-enable
                         </button>
@@ -1129,12 +1350,12 @@
                 <!-- Disabled Transfer Settings (Re-enable) -->
                 @foreach($transferRows->where('enabled', false) as $disabledSetting)
                     <div class="search-item flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/50 p-3 hover:bg-amber-100/60 transition"
-                         data-name="{{ strtolower($disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
+                         data-name="{{ strtolower($disabledSetting->displayName().' '.$disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
                         <div>
-                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->entryType->name }}</div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->displayName() }}</div>
                             <div class="text-[10px] font-bold text-amber-800">Previously configured • Disabled</div>
                         </div>
-                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->entryType->name) }}')"
+                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->displayName()) }}')"
                                 class="rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white hover:bg-emerald-800 shadow-xs inline-flex items-center gap-1">
                             <i data-lucide="circle-check" class="h-3.5 w-3.5"></i> Re-enable
                         </button>
@@ -1503,6 +1724,17 @@ function closeConfigModal(settingId) {
     }
 }
 
+function resetCategoryDisplayName(settingId) {
+    const input = document.getElementById('setting-display-name-' + settingId);
+    if (input) {
+        input.value = '';
+        input.focus();
+        if (window.showToast) {
+            showToast('Category name reset to default. Click Save Configuration to apply.', 'info');
+        }
+    }
+}
+
 function openSearchModal(category, headerId = null) {
     currentTargetHeaderId = headerId;
     const modal = document.getElementById('search-' + category + '-modal');
@@ -1602,13 +1834,135 @@ async function submitCreateHeaderGroup(event) {
     }
 }
 
-function openEditHeaderModal(headerId, currentName, taggingEnabled) {
-    document.getElementById('edit-header-id').value = headerId;
-    document.getElementById('edit-header-name').value = currentName;
-    document.getElementById('edit-header-product-tagging').value = taggingEnabled ? '1' : '0';
+function onIncomeRuleModeChange(mode) {
+    const destContainer = document.getElementById('income-same-destination-container');
+    const accBox = document.getElementById('header-company-account-box');
+    if (destContainer) destContainer.classList.toggle('hidden', mode === 'entry_decides');
+
+    if (mode === 'entry_decides') {
+        if (accBox) accBox.classList.add('hidden');
+    } else {
+        const destVal = document.getElementById('edit-header-income-single-dest')?.value || 'shop_cash';
+        if (accBox) accBox.classList.toggle('hidden', destVal !== 'company_account');
+    }
+}
+
+function onIncomeSingleDestChange(dest) {
+    const accBox = document.getElementById('header-company-account-box');
+    if (accBox) accBox.classList.toggle('hidden', dest !== 'company_account');
+}
+
+function onExpenseRuleModeChange(mode) {
+    const srcContainer = document.getElementById('expense-same-source-container');
+    const accBox = document.getElementById('header-company-account-box');
+    if (srcContainer) srcContainer.classList.toggle('hidden', mode === 'entry_decides');
+
+    if (mode === 'entry_decides') {
+        if (accBox) accBox.classList.add('hidden');
+    } else {
+        const srcVal = document.getElementById('edit-header-expense-single-source')?.value || 'shop_cash';
+        if (accBox) accBox.classList.toggle('hidden', srcVal !== 'company_account');
+    }
+}
+
+function onExpenseSingleSourceChange(src) {
+    const accBox = document.getElementById('header-company-account-box');
+    if (accBox) accBox.classList.toggle('hidden', src !== 'company_account');
+}
+
+function onHeaderTypeOrModeChange(type) {
+    const incBox = document.getElementById('header-income-cash-flow-box');
+    const expBox = document.getElementById('header-expense-cash-flow-box');
+    const othBox = document.getElementById('header-others-cash-flow-box');
+
+    if (incBox) incBox.classList.toggle('hidden', type !== 'income');
+    if (expBox) expBox.classList.toggle('hidden', type !== 'expense');
+    if (othBox) othBox.classList.toggle('hidden', type !== 'other');
+
+    if (type === 'income') {
+        const ruleMode = document.getElementById('edit-header-income-rule-mode')?.value || 'same_for_all';
+        onIncomeRuleModeChange(ruleMode);
+    } else if (type === 'expense') {
+        const ruleMode = document.getElementById('edit-header-expense-rule-mode')?.value || 'same_for_all';
+        onExpenseRuleModeChange(ruleMode);
+    } else {
+        const accBox = document.getElementById('header-company-account-box');
+        if (accBox) accBox.classList.add('hidden');
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function openEditHeaderModal(headerData, currentName, taggingEnabled) {
+
+    let data = {};
+    if (typeof headerData === 'object' && headerData !== null) {
+        data = headerData;
+    } else {
+        data = {
+            id: headerData,
+            name: currentName || '',
+            product_tagging_enabled: taggingEnabled ? 1 : 0
+        };
+    }
+
+    document.getElementById('edit-header-id').value = data.id || '';
+    document.getElementById('edit-header-name').value = data.name || '';
+
+    const type = data.type || 'expense';
+    document.getElementById('edit-header-type').value = type;
+    document.getElementById('edit-header-product-tagging').value = data.product_tagging_enabled ? '1' : '0';
+
+    const showBothSidesEl = document.getElementById('edit-header-show-both-sides');
+    if (showBothSidesEl) showBothSidesEl.value = data.show_both_sides ? '1' : '0';
+
+    const noteEl = document.getElementById('edit-header-note-enabled');
+    if (noteEl) noteEl.value = data.note_enabled ? '1' : '0';
+
+
+    const mode = data.cash_flow_mode || 'shop_cash';
+    if (type === 'income') {
+        const incRuleMode = document.getElementById('edit-header-income-rule-mode');
+        const incSingleDest = document.getElementById('edit-header-income-single-dest');
+        if (mode === 'entry_decides') {
+            if (incRuleMode) incRuleMode.value = 'entry_decides';
+        } else {
+            if (incRuleMode) incRuleMode.value = 'same_for_all';
+            if (incSingleDest) incSingleDest.value = mode;
+        }
+    } else if (type === 'expense') {
+        const expRuleMode = document.getElementById('edit-header-expense-rule-mode');
+        const expSingleSource = document.getElementById('edit-header-expense-single-source');
+        if (mode === 'entry_decides') {
+            if (expRuleMode) expRuleMode.value = 'entry_decides';
+        } else {
+            if (expRuleMode) expRuleMode.value = 'same_for_all';
+            if (expSingleSource) expSingleSource.value = mode;
+        }
+    }
+
+    const accId = document.getElementById('edit-header-company-account-id');
+    if (accId) accId.value = data.company_account_id || '';
+
+    const fromBal = document.getElementById('edit-header-from-balance');
+    if (fromBal) fromBal.value = data.from_balance || 'shop_cash';
+
+    const toBal = document.getElementById('edit-header-to-balance');
+    if (toBal) toBal.value = data.to_balance || 'petty';
+
+    onHeaderTypeOrModeChange(type);
+
     document.getElementById('edit-header-modal-title').innerHTML = `
-        <i data-lucide="pencil" class="h-4 w-4 text-slate-700"></i>
-        <span>Edit Header</span>
+        <i data-lucide="sliders-horizontal" class="h-4 w-4 text-indigo-600"></i>
+        <span>Configure Header — ${escapeHtml(data.name || '')}</span>
     `;
     document.getElementById('edit-header-modal').classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
@@ -1625,7 +1979,38 @@ async function submitEditHeaderGroup(event) {
 
     const id = parseInt(form.id.value, 10);
     const name = form.name.value.trim();
-    const productTaggingEnabled = form.product_tagging_enabled.value === '1';
+    const type = form.type.value;
+
+    let cashFlowMode = 'shop_cash';
+    let companyAccountId = null;
+
+    if (type === 'income') {
+        const ruleMode = form.querySelector('#edit-header-income-rule-mode')?.value || 'same_for_all';
+        if (ruleMode === 'entry_decides') {
+            cashFlowMode = 'entry_decides';
+        } else {
+            cashFlowMode = form.querySelector('#edit-header-income-single-dest')?.value || 'shop_cash';
+            if (cashFlowMode === 'company_account') {
+                companyAccountId = form.company_account_id?.value ? parseInt(form.company_account_id.value, 10) : null;
+            }
+        }
+    } else if (type === 'expense') {
+        const ruleMode = form.querySelector('#edit-header-expense-rule-mode')?.value || 'same_for_all';
+        if (ruleMode === 'entry_decides') {
+            cashFlowMode = 'entry_decides';
+        } else {
+            cashFlowMode = form.querySelector('#edit-header-expense-single-source')?.value || 'shop_cash';
+            if (cashFlowMode === 'company_account') {
+                companyAccountId = form.company_account_id?.value ? parseInt(form.company_account_id.value, 10) : null;
+            }
+        }
+    }
+
+    const fromBalance = form.from_balance?.value || null;
+    const toBalance = form.to_balance?.value || null;
+    const noteEnabled = form.note_enabled?.value === '1';
+    const productTaggingEnabled = form.product_tagging_enabled?.value === '1';
+    const showBothSides = form.show_both_sides?.value === '1';
 
     if (!name) return;
 
@@ -1644,9 +2029,16 @@ async function submitEditHeaderGroup(event) {
             body: JSON.stringify({
                 id: id,
                 name: name,
+                cash_flow_mode: cashFlowMode,
+                company_account_id: companyAccountId,
+                from_balance: fromBalance,
+                to_balance: toBalance,
+                note_enabled: noteEnabled,
                 product_tagging_enabled: productTaggingEnabled,
+                show_both_sides: showBothSides,
             }),
         });
+
         const data = await response.json();
         if (data.success) {
             if (window.showToast) showToast(data.message || 'Header updated', 'success');
@@ -1654,6 +2046,7 @@ async function submitEditHeaderGroup(event) {
         } else {
             if (window.showToast) showToast(data.message || 'Update failed', 'error');
         }
+
     } catch (err) {
         if (window.showToast) showToast('Update failed', 'error');
     } finally {

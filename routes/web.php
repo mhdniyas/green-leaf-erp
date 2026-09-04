@@ -257,6 +257,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/cashbook/reports', [ShopOwnerController::class, 'cashbookReports'])->name('cashbook.reports');
         Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
             Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
+            Route::get('/products/search', [ShopOwnerController::class, 'cashbookSearchProducts'])->name('products.search');
             Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
             Route::post('/bulk-record-entries', [ShopOwnerController::class, 'cashbookBulkRecordEntries'])->name('bulk-record-entries');
             Route::post('/update-entry', [ShopOwnerController::class, 'cashbookUpdateEntry'])->name('update-entry');
@@ -1007,6 +1008,7 @@ Route::middleware('auth')->group(function () {
             Route::post('staff/{employee:employee_code}/reject', [StaffManagementController::class, 'rejectEmployee'])->name('staff.reject');
             Route::patch('staff/{employee:employee_code}/employment-status', [StaffManagementController::class, 'updateEmploymentStatus'])->name('staff.employment-status.update');
             Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
+            Route::patch('staff/settings/check-in-time', [StaffManagementController::class, 'updateCheckInTime'])->name('staff.settings.check-in-time.update');
             Route::post('staff/categories', [StaffManagementController::class, 'storeCategory'])->name('staff.categories.store');
             Route::put('staff/categories/{employeeCategory}', [StaffManagementController::class, 'updateCategory'])->name('staff.categories.update');
             Route::put('staff/categories/{employeeCategory}/leave-rules', [StaffManagementController::class, 'updateCategoryLeaveRules'])->name('staff.categories.leave-rules.update');

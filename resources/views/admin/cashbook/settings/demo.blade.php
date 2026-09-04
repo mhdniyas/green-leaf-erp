@@ -28,9 +28,11 @@
                 'type' => strtolower((string) ($hg->type ?? 'income')),
                 'display_order' => (int) ($hg->display_order ?? 0),
                 'product_tagging_enabled' => (bool) ($hg->product_tagging_enabled ?? false),
+                'show_both_sides' => (bool) ($hg->show_both_sides ?? false),
                 'settings' => $headerSettings,
             ]);
         }
+
     }
 
     // 2. Process unassigned settings (header_group_id == 0 or not matching any saved header)
@@ -132,14 +134,24 @@
         $name = strtolower((string) ($s->entryType?->name ?? ''));
         $isCashPurchase = str_contains($code, 'cash_purchase') || str_contains($name, 'cash purchase');
 
-        $fundingSource = $s->default_funding_source ?: 'sales';
+        $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
+        $fundingSource = $resolver->resolveFundingSource($s);
+        $companyAccountId = $resolver->resolveCompanyAccountId($s);
+        $noteEnabled = $resolver->resolveNoteEnabled($s);
         $requiresNote = $s->requiresNote() || in_array($code, ['other_income', 'other_expense'], true);
-        $noteEnabled = (bool) $s->note_enabled;
         $showNoteField = $noteEnabled || $requiresNote;
+
+        $compAccName = null;
+        if ($companyAccountId) {
+            $compAcc = \App\Models\Cashbook\CompanyAccount::find($companyAccountId);
+            $compAccName = $compAcc?->name ?? $compAcc?->bank_name;
+        } else {
+            $compAccName = $s->companyAccount?->name ?? $s->companyAccount?->bank_name;
+        }
 
         return [
             'id' => (int) $s->id,
-            'name' => $s->entryType?->name ?? 'Entry #'.$s->id,
+            'name' => $s->displayName(),
             'category' => $isIncome ? 'income' : 'expense',
             'is_income' => $isIncome,
             'is_expense' => !$isIncome,
@@ -147,8 +159,8 @@
             'requires_note' => $requiresNote,
             'note_enabled' => $noteEnabled,
             'show_note_field' => $showNoteField,
-            'company_account_id' => $s->company_account_id ? (int) $s->company_account_id : null,
-            'company_account_name' => $s->companyAccount?->name ?? $s->companyAccount?->bank_name,
+            'company_account_id' => $companyAccountId,
+            'company_account_name' => $compAccName,
             'funding_source' => $fundingSource,
             'settlement_behavior' => $s->settlement_behavior ?? 'none',
             'petty_behavior' => $s->petty_behavior ?? 'none',
@@ -176,7 +188,7 @@
                 return [
                     'setting_id' => (int) $i->shop_ledger_entry_setting_id,
                     'role' => strtolower((string) ($i->role ?? 'add')),
-                    'name' => $i->setting?->entryType?->name ?? 'Unknown',
+                    'name' => $i->setting?->displayName() ?? 'Unknown',
                 ];
             })->values()->all(),
         ];
@@ -188,9 +200,11 @@
             'name' => $hs['name'],
             'type' => $hs['type'],
             'product_tagging_enabled' => (bool) ($hs['product_tagging_enabled'] ?? false),
+            'show_both_sides' => (bool) ($hs['show_both_sides'] ?? false),
             'setting_ids' => $hs['settings']->pluck('id')->map(fn($id) => (int)$id)->all(),
         ];
     })->values()->all();
+
 @endphp
 
 <div class="space-y-6 max-w-7xl mx-auto">
@@ -210,23 +224,36 @@
                         Daily Cashbook Demo
                     </span>
                 </div>
-                <p class="mt-1 text-xs font-semibold text-slate-500">
-                    Simulation Only · No financial data will be saved
-                </p>
+                <div class="mt-1 flex flex-wrap items-center gap-2.5">
+                    <p class="text-xs font-semibold text-slate-500">
+                        Simulation Only · Saved to browser localStorage
+                    </p>
+                    <span id="demo-storage-status" class="inline-flex items-center gap-1 text-[11px] font-extrabold text-slate-400 border border-slate-200 bg-slate-50 px-2 py-0.5 rounded-full">
+                        Not saved yet
+                    </span>
+                </div>
             </div>
 
             <!-- Top Actions -->
             <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="saveDemoToLocalStorage()"
+                        class="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3.5 py-2 text-xs font-extrabold text-white hover:bg-emerald-700 transition shadow-xs cursor-pointer"
+                        title="Save 3-day Demo simulation to browser localStorage">
+                    <i data-lucide="save" class="h-3.5 w-3.5"></i>
+                    <span>Save Demo</span>
+                </button>
+
+                <button type="button" onclick="clearSavedDemoData()"
+                        class="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-extrabold text-rose-800 hover:bg-rose-100 transition shadow-xs cursor-pointer"
+                        title="Clear saved Demo simulation from this browser">
+                    <i data-lucide="trash-2" class="h-3.5 w-3.5 text-rose-600"></i>
+                    <span>Clear Demo</span>
+                </button>
+
                 <button type="button" onclick="autoFill3Days()"
                         class="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-3.5 py-2 text-xs font-extrabold text-white hover:bg-indigo-700 transition shadow-xs cursor-pointer">
                     <i data-lucide="sparkles" class="h-3.5 w-3.5"></i>
                     <span>Auto Fill 3 Days</span>
-                </button>
-
-                <button type="button" onclick="clearAllDemo()"
-                        class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
-                    <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>
-                    <span>Clear</span>
                 </button>
 
                 <button type="button" onclick="downloadDayTxt()"
@@ -411,7 +438,7 @@
                                     <div class="py-2 flex items-center justify-between gap-3">
                                         <div class="min-w-0 flex-1 space-y-0.5">
                                             <label for="input-s-{{ $s->id }}" class="text-xs font-bold text-slate-900 block truncate cursor-pointer">
-                                                {{ $s->entryType?->name }}
+                                                {{ $s->displayName() }}
                                             </label>
                                             <div class="text-[11px] font-medium text-slate-500 truncate flex items-center gap-1">
                                                 @if($s->companyAccount)
@@ -462,7 +489,7 @@
                                                    class="demo-note-input h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10 focus:outline-none shadow-2xs">
                                             <div id="note-error-{{ $s->id }}" class="text-[11px] font-black text-rose-600 flex items-center gap-1 hidden">
                                                 <i data-lucide="alert-circle" class="h-3.5 w-3.5"></i>
-                                                <span>Please add a note for {{ $s->entryType?->name ?? 'Income' }}.</span>
+                                                <span>Please add a note for {{ $s->displayName() }}.</span>
                                             </div>
                                         </div>
                                     @endif
@@ -477,6 +504,9 @@
                             </div>
                         </div>
                     @endforeach
+
+                    <!-- Single-line Mirrored Headers on Income Side -->
+                    <div id="income-mirrored-headers-container" class="space-y-3"></div>
                 </div>
             </div>
 
@@ -537,7 +567,7 @@
                                     <div class="py-2 flex items-center justify-between gap-3">
                                         <div class="min-w-0 flex-1 space-y-0.5">
                                             <label for="input-s-{{ $s->id }}" class="text-xs font-bold text-slate-900 block truncate cursor-pointer">
-                                                {{ $s->entryType?->name }}
+                                                {{ $s->displayName() }}
                                             </label>
                                             <div class="text-[11px] font-medium text-slate-500 truncate flex items-center gap-1">
                                                 @if($src === 'petty')
@@ -591,7 +621,7 @@
                                                    class="demo-note-input h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10 focus:outline-none shadow-2xs">
                                             <div id="note-error-{{ $s->id }}" class="text-[11px] font-black text-rose-600 flex items-center gap-1 hidden">
                                                 <i data-lucide="alert-circle" class="h-3.5 w-3.5"></i>
-                                                <span>Please add a note for {{ $s->entryType?->name ?? 'Other' }}.</span>
+                                                <span>Please add a note for {{ $s->displayName() }}.</span>
                                             </div>
                                         </div>
                                     @endif
@@ -606,6 +636,9 @@
                             </div>
                         </div>
                     @endforeach
+
+                    <!-- Single-line Mirrored Headers on Expense Side -->
+                    <div id="expense-mirrored-headers-container" class="space-y-3"></div>
                 </div>
             </div>
 
@@ -678,7 +711,7 @@
                                     <div class="py-2 flex items-center justify-between gap-3">
                                         <div class="min-w-0 flex-1 space-y-0.5">
                                             <label for="input-s-{{ $tSetting->id }}" class="text-xs font-bold text-slate-900 block truncate cursor-pointer">
-                                                {{ $tSetting->entryType?->name }}
+                                                {{ $tSetting->displayName() }}
                                             </label>
                                             <div class="text-[11px] font-semibold text-indigo-700 truncate flex items-center gap-1">
                                                 <i data-lucide="arrow-right-left" class="h-3 w-3 inline text-indigo-600"></i>
@@ -726,7 +759,7 @@
                                             <div class="py-2 flex items-center justify-between gap-3">
                                                 <div class="min-w-0 flex-1 space-y-0.5">
                                                     <label for="input-s-{{ $setting->id }}" class="text-xs font-bold text-slate-900 block truncate cursor-pointer">
-                                                        {{ $setting->entryType?->name }}
+                                                        {{ $setting->displayName() }}
                                                     </label>
                                                     <div class="text-[11px] font-semibold {{ $isSub ? 'text-rose-600' : 'text-purple-700' }} truncate">
                                                         {{ $isSub ? 'Subtract from Settlement' : 'Add to Settlement' }}
@@ -772,7 +805,7 @@
                                                            class="demo-note-input h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10 focus:outline-none shadow-2xs">
                                                     <div id="note-error-{{ $setting->id }}" class="text-[11px] font-black text-rose-600 flex items-center gap-1 hidden">
                                                         <i data-lucide="alert-circle" class="h-3.5 w-3.5"></i>
-                                                        <span>Please add a note for {{ $setting->entryType?->name ?? 'this item' }}.</span>
+                                                        <span>Please add a note for {{ $setting->displayName() }}.</span>
                                                     </div>
                                                 </div>
                                             @endif
@@ -897,27 +930,12 @@
                             </span>
                         </div>
 
-                        <div class="space-y-1.5 text-xs font-semibold text-slate-700">
-                            <div class="flex justify-between">
-                                <span>Total Sales / Income</span>
-                                <span class="font-mono text-emerald-700 font-bold" id="bill-sales">₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-rose-700">
-                                <span>Total Expenses</span>
-                                <span class="font-mono font-bold" id="bill-expenses">-₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-amber-700">
-                                <span>Cash Purchase</span>
-                                <span class="font-mono font-bold" id="bill-cash-purchase">-₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-purple-700">
-                                <span>Settlement Paid</span>
-                                <span class="font-mono font-bold" id="bill-settlement">-₹0.00</span>
-                            </div>
+                        <div id="dynamic-net-position-content" class="space-y-3 text-xs font-semibold text-slate-700">
+                            <!-- Dynamic Header-based summary rendered by JS -->
                         </div>
 
                         <div class="pt-2.5 border-t border-slate-200/80 flex items-center justify-between">
-                            <span class="text-xs font-black uppercase tracking-wider text-slate-900">Net Activity</span>
+                            <span class="text-xs font-black uppercase tracking-wider text-slate-900">Today Net Activity</span>
                             <span class="text-base font-black font-mono text-emerald-700" id="bill-net-activity">₹0.00</span>
                         </div>
                     </div>
@@ -940,7 +958,10 @@
                                 <span class="font-mono text-slate-900 font-bold" id="sb-opening">₹0.00</span>
                             </div>
                             <div class="flex justify-between text-rose-700">
-                                <span>Settlement Paid</span>
+                                <div>
+                                    <span class="block">Settlement Paid</span>
+                                    <span class="text-[10px] text-slate-400 font-medium block" id="sb-settlement-sub">From Previous Shop Balance</span>
+                                </div>
                                 <span class="font-mono font-bold" id="sb-settlement">-₹0.00</span>
                             </div>
                             <div class="flex justify-between text-emerald-700">
@@ -1320,6 +1341,13 @@
     const relations = @json($relationJson);
     const headers = @json($headersJson);
 
+    const DEMO_STORAGE_VERSION = 1;
+    const shopKey = @json($currentShop->public_uuid ?? $currentShop->code ?? $currentShop->shop_id ?? ('shop_' . $currentShop->id));
+    const demoStorageKey = 'greenleaf_cashbook_demo_' + shopKey;
+    const shopName = @json($currentShop->name);
+    const shopSlug = @json(\Illuminate\Support\Str::slug($currentShop->name));
+    let isDemoDirty = false;
+
     document.addEventListener('DOMContentLoaded', function () {
         accounts.forEach((acc, idx) => {
             const input = document.getElementById('input-open-account-' + acc.id);
@@ -1331,8 +1359,173 @@
         });
 
         applySectionCollapseState();
-        recalculateDemo();
+
+        const restored = restoreDemoFromLocalStorage();
+        if (!restored) {
+            recalculateDemo();
+        }
     });
+
+    function markDemoDirty() {
+        isDemoDirty = true;
+        updateStorageStatusText('Unsaved changes', 'dirty');
+    }
+
+    function updateStorageStatusText(text, statusType = 'neutral') {
+        const el = document.getElementById('demo-storage-status');
+        if (!el) return;
+
+        if (statusType === 'saved') {
+            el.className = 'inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full';
+            el.innerHTML = `<i data-lucide="check" class="h-3 w-3 text-emerald-600"></i> <span>${escapeHtml(text)}</span>`;
+        } else if (statusType === 'dirty') {
+            el.className = 'inline-flex items-center gap-1 text-[11px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full';
+            el.innerHTML = `<span class="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span> <span>${escapeHtml(text)}</span>`;
+        } else {
+            el.className = 'inline-flex items-center gap-1 text-[11px] font-extrabold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full';
+            el.innerHTML = `<span>${escapeHtml(text)}</span>`;
+        }
+
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function saveDemoToLocalStorage() {
+        try {
+            const now = new Date();
+            const displayTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            document.querySelectorAll('.demo-note-input').forEach(input => {
+                const sId = parseInt(input.getAttribute('data-setting-id'));
+                if (sId) {
+                    demoState[activeDay] = demoState[activeDay] || {};
+                    demoState[activeDay].notes = demoState[activeDay].notes || {};
+                    demoState[activeDay].notes[sId] = input.value;
+                }
+            });
+
+            const payload = {
+                version: DEMO_STORAGE_VERSION,
+                savedAt: now.toISOString(),
+                savedAtDisplay: displayTime,
+                shopKey: shopKey,
+                activeDay: activeDay,
+                openingBalances: openingBalances,
+                demoState: demoState,
+                isPettySectionVisible: typeof isPettySectionVisible !== 'undefined' ? isPettySectionVisible : true
+            };
+
+            localStorage.setItem(demoStorageKey, JSON.stringify(payload));
+            isDemoDirty = false;
+            updateStorageStatusText('Saved on this browser (' + displayTime + ')', 'saved');
+        } catch (err) {
+            console.error('Failed to save demo to localStorage:', err);
+        }
+    }
+
+    function restoreDemoFromLocalStorage() {
+        try {
+            const raw = localStorage.getItem(demoStorageKey);
+            if (!raw) {
+                updateStorageStatusText('Not saved yet', 'neutral');
+                return false;
+            }
+
+            const data = JSON.parse(raw);
+            if (!data || data.version !== DEMO_STORAGE_VERSION || data.shopKey !== shopKey) {
+                updateStorageStatusText('Not saved yet', 'neutral');
+                return false;
+            }
+
+            if (data.activeDay && [1, 2, 3].includes(parseInt(data.activeDay))) {
+                activeDay = parseInt(data.activeDay);
+            }
+
+            if (data.openingBalances) {
+                if (data.openingBalances.shopBalance !== undefined) {
+                    openingBalances.shopBalance = parseFloat(data.openingBalances.shopBalance) || 0;
+                    const sbEl = document.getElementById('input-open-shop-balance');
+                    if (sbEl) sbEl.value = openingBalances.shopBalance;
+                }
+                if (data.openingBalances.petty !== undefined) {
+                    openingBalances.petty = parseFloat(data.openingBalances.petty) || 0;
+                    const pettyEl = document.getElementById('input-open-petty');
+                    if (pettyEl) pettyEl.value = openingBalances.petty;
+                }
+                if (data.openingBalances.accounts && typeof data.openingBalances.accounts === 'object') {
+                    accounts.forEach(acc => {
+                        if (data.openingBalances.accounts[acc.id] !== undefined) {
+                            const val = parseFloat(data.openingBalances.accounts[acc.id]) || 0;
+                            openingBalances.accounts[acc.id] = val;
+                            const accEl = document.getElementById('input-open-account-' + acc.id);
+                            if (accEl) accEl.value = val;
+                        }
+                    });
+                }
+            }
+
+            if (data.demoState && typeof data.demoState === 'object') {
+                [1, 2, 3].forEach(d => {
+                    const daySaved = data.demoState[d] || {};
+                    demoState[d] = demoState[d] || { notes: {}, productRows: {} };
+
+                    settings.forEach(s => {
+                        if (daySaved[s.id] !== undefined) {
+                            demoState[d][s.id] = parseFloat(daySaved[s.id]) || 0;
+                        }
+                        if (daySaved.notes && daySaved.notes[s.id] !== undefined) {
+                            demoState[d].notes = demoState[d].notes || {};
+                            demoState[d].notes[s.id] = String(daySaved.notes[s.id] || '');
+                        }
+                    });
+
+                    if (daySaved.productRows && typeof daySaved.productRows === 'object') {
+                        demoState[d].productRows = {};
+                        headers.forEach(h => {
+                            if (h.product_tagging_enabled && Array.isArray(daySaved.productRows[h.id])) {
+                                demoState[d].productRows[h.id] = daySaved.productRows[h.id].map(r => ({
+                                    productId: r.productId,
+                                    productName: String(r.productName || ''),
+                                    sku: String(r.sku || ''),
+                                    amount: parseFloat(r.amount) || 0
+                                }));
+                            }
+                        });
+                    }
+                });
+            }
+
+            if (data.isPettySectionVisible !== undefined && typeof togglePettySectionVisibility === 'function') {
+                const currentVis = typeof isPettySectionVisible !== 'undefined' ? isPettySectionVisible : true;
+                if (currentVis !== data.isPettySectionVisible) {
+                    togglePettySectionVisibility();
+                }
+            }
+
+            switchDay(activeDay);
+
+            const savedTime = data.savedAtDisplay || (data.savedAt ? new Date(data.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+            updateStorageStatusText('Saved on this browser' + (savedTime ? ' (' + savedTime + ')' : ''), 'saved');
+            isDemoDirty = false;
+            return true;
+        } catch (err) {
+            console.error('Error restoring demo from localStorage:', err);
+            return false;
+        }
+    }
+
+    function clearSavedDemoData() {
+        if (!confirm('Clear saved Demo simulation data for ' + shopName + ' from this browser?')) {
+            return;
+        }
+
+        try {
+            localStorage.removeItem(demoStorageKey);
+        } catch (err) {}
+
+        clearAllDemo();
+        updateStorageStatusText('Cleared local save', 'neutral');
+        isDemoDirty = false;
+    }
 
     function toggleOpeningBalances() {
         const content = document.getElementById('opening-balances-content');
@@ -1360,6 +1553,7 @@
             }
         });
 
+        markDemoDirty();
         recalculateDemo();
     }
 
@@ -1418,6 +1612,7 @@
         }
 
         demoState[activeDay][settingId] = val;
+        markDemoDirty();
         recalculateDemo();
     }
 
@@ -1425,6 +1620,7 @@
         demoState[activeDay] = demoState[activeDay] || {};
         demoState[activeDay].notes = demoState[activeDay].notes || {};
         demoState[activeDay].notes[settingId] = inputElement.value;
+        markDemoDirty();
         validateDemoNotes();
     }
 
@@ -1534,6 +1730,7 @@
         });
 
         renderAllProductRowsForActiveDay();
+        markDemoDirty();
         recalculateDemo();
     }
 
@@ -1736,6 +1933,67 @@
                 dayClosingAccountPositions[acc.id] = openPos + inflow;
             });
 
+            // Header Totals & Both-Sides Add-Backs
+            let headerAddBacks = [];
+            let totalAddBacks = 0;
+            let totalIncomeAddBacks = 0;
+            let totalExpenseAddBacks = 0;
+
+            let incomeHeaderSummary = [];
+            let expenseHeaderSummary = [];
+
+            headers.forEach(h => {
+                let hTotal = 0;
+
+                (h.setting_ids || []).forEach(sId => {
+                    hTotal += (parseFloat(dayAmounts[sId]) || 0);
+                });
+
+                const pRows = (dayAmounts.productRows && dayAmounts.productRows[h.id]) || [];
+                pRows.forEach(pr => {
+                    hTotal += (parseFloat(pr.amount) || 0);
+                });
+
+                if (hTotal > 0) {
+                    if (h.type === 'income') {
+                        incomeHeaderSummary.push({ id: h.id, name: h.name, amount: hTotal, isMirrored: false });
+                    } else {
+                        expenseHeaderSummary.push({ id: h.id, name: h.name, amount: hTotal, isMirrored: false });
+                    }
+                }
+
+                const isLegacyCashPurchase = h.type === 'expense' && (h.name || '').toLowerCase().includes('cash purchase');
+                const showsBoth = (h.show_both_sides === true) || isLegacyCashPurchase;
+
+                if (showsBoth && hTotal > 0) {
+                    const isExpenseHeader = h.type === 'expense';
+                    const oppositeSide = isExpenseHeader ? 'income' : 'expense';
+
+                    headerAddBacks.push({
+                        header_id: h.id,
+                        header_name: h.name,
+                        header_type: h.type,
+                        opposite_side: oppositeSide,
+                        label: h.name,
+                        amount: hTotal
+                    });
+
+                    totalAddBacks += hTotal;
+                    if (isExpenseHeader) {
+                        totalIncomeAddBacks += hTotal;
+                        incomeHeaderSummary.push({ id: 'mirror_' + h.id, name: h.name, amount: hTotal, isMirrored: true });
+                    } else {
+                        totalExpenseAddBacks += hTotal;
+                        expenseHeaderSummary.push({ id: 'mirror_' + h.id, name: h.name, amount: hTotal, isMirrored: true });
+                    }
+                }
+            });
+
+            const displayTotalIncome = daySales + totalIncomeAddBacks;
+            const displayTotalExpense = dayExpenses + dayCashPurchase + totalExpenseAddBacks;
+            const todayNetActivity = displayTotalIncome - displayTotalExpense;
+            const netActivity = todayNetActivity;
+
             dayResults[d] = {
                 openingPayable: dayOpenPayable,
                 openingPetty: dayOpenPetty,
@@ -1743,6 +2001,18 @@
                 totalSales: daySales,
                 totalExpenses: dayExpenses,
                 totalCashPurchase: dayCashPurchase,
+                headerAddBacks: headerAddBacks,
+                totalAddBacks: totalAddBacks,
+                totalIncomeAddBacks: totalIncomeAddBacks,
+                totalExpenseAddBacks: totalExpenseAddBacks,
+                displayTotalIncome: displayTotalIncome,
+                displayTotalExpense: displayTotalExpense,
+                todayNetActivity: todayNetActivity,
+                netActivity: netActivity,
+                incomeHeaderSummary: incomeHeaderSummary,
+                expenseHeaderSummary: expenseHeaderSummary,
+                relationSummaryName: relations.length > 0 ? (relations[0].name || 'Supermarket Settlement') : null,
+                relationRule: relations.length > 0 ? (relations[0].eligibility_rule || 'previous_day_balance') : 'previous_day_balance',
                 cashCollectedAtShop: cashCollectedAtShop,
                 shopHeldSalesEntries: shopHeldSalesEntries,
                 directCompanyBankTotal: directCompanyBankTotal,
@@ -1765,6 +2035,7 @@
                 closingPetty: dayClosingPetty,
                 closingAccountPositions: dayClosingAccountPositions
             };
+
 
             currentShopPayable = dayClosingPayable;
             currentPetty = dayClosingPetty;
@@ -1975,6 +2246,7 @@
 
         closeDemoProductModal();
         renderProductRowsForHeader(headerId);
+        markDemoDirty();
         recalculateDemo();
     }
 
@@ -1983,6 +2255,7 @@
 
         demoState[activeDay].productRows[headerId] = demoState[activeDay].productRows[headerId].filter(r => r.productId !== productId);
         renderProductRowsForHeader(headerId);
+        markDemoDirty();
         recalculateDemo();
     }
 
@@ -1995,6 +2268,7 @@
         if (row) {
             row.amount = val;
         }
+        markDemoDirty();
         recalculateDemo();
     }
 
@@ -2075,10 +2349,10 @@
 
         // Update Major Section Header Totals
         const secInc = document.getElementById('demo-section-total-income');
-        if (secInc) secInc.textContent = formatCurrency(res.totalSales);
+        if (secInc) secInc.textContent = formatCurrency(res.displayTotalIncome);
 
         const secExp = document.getElementById('demo-section-total-expense');
-        if (secExp) secExp.textContent = '-' + formatCurrency(res.totalExpenses + res.totalCashPurchase);
+        if (secExp) secExp.textContent = '-' + formatCurrency(res.displayTotalExpense);
 
         const secOth = document.getElementById('demo-section-total-others');
         if (secOth) secOth.textContent = formatCurrency(res.relationNet);
@@ -2088,8 +2362,56 @@
 
         const secSum = document.getElementById('demo-section-total-summary');
         if (secSum) {
-            const netAct = res.totalSales - (res.totalExpenses + res.totalCashPurchase + res.relationSettled);
-            secSum.textContent = formatCurrency(netAct);
+            secSum.textContent = formatCurrency(res.netActivity);
+        }
+
+        // Render Single-Line Mirrored Headers on Opposite Side
+        const incMirrorContainer = document.getElementById('income-mirrored-headers-container');
+        if (incMirrorContainer) {
+            const incMirrors = (res.headerAddBacks || []).filter(ab => ab.opposite_side === 'income');
+            if (incMirrors.length === 0) {
+                incMirrorContainer.innerHTML = '';
+            } else {
+                incMirrorContainer.innerHTML = incMirrors.map(ab => `
+                    <div class="rounded-2xl border border-emerald-200/80 bg-white p-4 space-y-2">
+                        <div class="flex items-center justify-between border-b border-emerald-100 pb-2">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-xs font-black uppercase tracking-wider text-slate-900">${escapeHtml(ab.header_name)}</h3>
+                                <span class="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Mirrored</span>
+                            </div>
+                            <span class="text-[10px] font-semibold text-slate-400">Header Total Only</span>
+                        </div>
+                        <div class="pt-1 flex items-center justify-between text-xs font-black uppercase text-slate-950">
+                            <span>${escapeHtml(ab.header_name)}</span>
+                            <span class="font-mono text-emerald-700 text-xs font-black">${formatCurrency(ab.amount)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        const expMirrorContainer = document.getElementById('expense-mirrored-headers-container');
+        if (expMirrorContainer) {
+            const expMirrors = (res.headerAddBacks || []).filter(ab => ab.opposite_side === 'expense');
+            if (expMirrors.length === 0) {
+                expMirrorContainer.innerHTML = '';
+            } else {
+                expMirrorContainer.innerHTML = expMirrors.map(ab => `
+                    <div class="rounded-2xl border border-rose-200/80 bg-white p-4 space-y-2">
+                        <div class="flex items-center justify-between border-b border-rose-100 pb-2">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-xs font-black uppercase tracking-wider text-slate-900">${escapeHtml(ab.header_name)}</h3>
+                                <span class="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-700">Mirrored</span>
+                            </div>
+                            <span class="text-[10px] font-semibold text-slate-400">Header Total Only</span>
+                        </div>
+                        <div class="pt-1 flex items-center justify-between text-xs font-black uppercase text-slate-950">
+                            <span>${escapeHtml(ab.header_name)}</span>
+                            <span class="font-mono text-rose-700 text-xs font-black">-${formatCurrency(ab.amount)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
         }
 
         renderAllProductRowsForActiveDay();
@@ -2154,17 +2476,105 @@
             }
         }
 
-        // Daily Net Position Box (Invoice Footer)
-        document.getElementById('bill-sales').textContent = formatCurrency(res.totalSales);
-        document.getElementById('bill-expenses').textContent = '-' + formatCurrency(res.totalExpenses);
-        document.getElementById('bill-cash-purchase').textContent = '-' + formatCurrency(res.totalCashPurchase);
-        document.getElementById('bill-settlement').textContent = '-' + formatCurrency(res.relationSettled);
-        const netAct = res.totalSales - (res.totalExpenses + res.totalCashPurchase + res.relationSettled);
-        document.getElementById('bill-net-activity').textContent = formatCurrency(netAct);
+        // Daily Net Position Box (Dynamic Header Summary)
+        const dynNetContent = document.getElementById('dynamic-net-position-content');
+        if (dynNetContent) {
+            let incRowsHtml = '';
+            const incList = res.incomeHeaderSummary || [];
+            if (incList.length > 0) {
+                incRowsHtml = incList.map(item => `
+                    <div class="flex justify-between items-center py-0.5">
+                        <span class="truncate pr-2">${escapeHtml(item.name)}</span>
+                        <span class="font-mono text-emerald-700 font-bold">${formatCurrency(item.amount)}</span>
+                    </div>
+                `).join('');
+            } else {
+                incRowsHtml = '<div class="text-[11px] text-slate-400 font-normal py-0.5">No income entries</div>';
+            }
+
+            let expRowsHtml = '';
+            const expList = res.expenseHeaderSummary || [];
+            if (expList.length > 0) {
+                expRowsHtml = expList.map(item => `
+                    <div class="flex justify-between items-center py-0.5">
+                        <span class="truncate pr-2">${escapeHtml(item.name)}</span>
+                        <span class="font-mono text-rose-700 font-bold">-${formatCurrency(item.amount)}</span>
+                    </div>
+                `).join('');
+            } else {
+                expRowsHtml = '<div class="text-[11px] text-slate-400 font-normal py-0.5">No expense entries</div>';
+            }
+
+            let settlementBlockHtml = '';
+            if (res.relationSettled && res.relationSettled !== 0) {
+                const settleName = res.relationSummaryName || 'Supermarket Settlement';
+                const isPrev = (res.relationRule || 'previous_day_balance') === 'previous_day_balance';
+                const subLabel = isPrev ? 'From: Previous Shop Balance' : 'From: Current-Day Balance';
+                settlementBlockHtml = `
+                    <div class="pt-2 border-t border-slate-200/60 space-y-1">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-purple-800 flex justify-between">
+                            <span>BALANCE MOVEMENTS</span>
+                        </div>
+                        <div class="flex justify-between items-center py-0.5 text-xs font-semibold text-slate-700">
+                            <div>
+                                <span class="truncate block font-bold text-slate-900">${escapeHtml(settleName)}</span>
+                                <span class="text-[10px] text-slate-400 font-medium block">${escapeHtml(subLabel)}</span>
+                            </div>
+                            <span class="font-mono text-purple-700 font-bold">-${formatCurrency(res.relationSettled)}</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            dynNetContent.innerHTML = `
+                <div class="space-y-3">
+                    <div class="space-y-1">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-emerald-800 border-b border-slate-200/60 pb-1">
+                            INCOME
+                        </div>
+                        <div class="space-y-0.5 text-xs font-semibold text-slate-700">
+                            ${incRowsHtml}
+                        </div>
+                        <div class="pt-1.5 flex justify-between text-xs font-black text-slate-900 border-t border-slate-200/60">
+                            <span>Total Income</span>
+                            <span class="font-mono text-emerald-700">${formatCurrency(res.displayTotalIncome)}</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <div class="text-[10px] font-black uppercase tracking-wider text-rose-800 border-b border-slate-200/60 pb-1">
+                            EXPENSE
+                        </div>
+                        <div class="space-y-0.5 text-xs font-semibold text-slate-700">
+                            ${expRowsHtml}
+                        </div>
+                        <div class="pt-1.5 flex justify-between text-xs font-black text-slate-900 border-t border-slate-200/60">
+                            <span>Total Expense</span>
+                            <span class="font-mono text-rose-700">-${formatCurrency(res.displayTotalExpense)}</span>
+                        </div>
+                    </div>
+
+                    <div class="pt-1.5 flex justify-between text-xs font-black text-slate-900 border-t-2 border-slate-300">
+                        <span>TODAY NET ACTIVITY</span>
+                        <span class="font-mono ${res.todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700'}">${formatCurrency(res.todayNetActivity)}</span>
+                    </div>
+
+                    ${settlementBlockHtml}
+                </div>
+            `;
+        }
+
+        const netActEl = document.getElementById('bill-net-activity');
+        if (netActEl) netActEl.textContent = formatCurrency(res.todayNetActivity || res.netActivity);
 
         // Shop Balance Footer
         document.getElementById('sb-opening').textContent = formatCurrency(res.openingPayable);
         document.getElementById('sb-settlement').textContent = '-' + formatCurrency(res.relationSettled);
+        const sbSub = document.getElementById('sb-settlement-sub');
+        if (sbSub) {
+            const isPrev = (res.relationRule || 'previous_day_balance') === 'previous_day_balance';
+            sbSub.textContent = isPrev ? 'From Previous Shop Balance' : 'From Current-Day Balance';
+        }
         document.getElementById('sb-shop-held').textContent = '+' + formatCurrency(res.cashCollectedAtShop - res.expensesPaidFromShopCash);
         document.getElementById('sb-closing').textContent = formatCurrency(res.closingPayable);
 
@@ -2291,7 +2701,7 @@
 
         for (let d = 1; d <= 3; d++) {
             const r = dayResults[d] || {};
-            sumSales += (r.totalSales || 0);
+            sumSales += (r.displayTotalIncome !== undefined ? r.displayTotalIncome : (r.totalSales || 0));
             sumExpenses += (r.totalExpenses || 0);
             sumCashPurchase += (r.totalCashPurchase || 0);
             sumSettlementCalc += (r.relationNet || 0);
@@ -2440,9 +2850,6 @@
     }
 
     // DEMO TXT EXPORT ENGINE
-    const shopName = @json($currentShop->name);
-    const shopSlug = @json(\Illuminate\Support\Str::slug($currentShop->name));
-
     function formatTxtMoney(amount) {
         const val = parseFloat(amount) || 0;
         return '₹' + Math.abs(val).toLocaleString('en-IN', {
@@ -2509,6 +2916,13 @@
             lines.push('');
         });
 
+        // Mirrored Single-Line Headers under INCOME
+        const incomeMirrors = (res.headerAddBacks || []).filter(ab => ab.opposite_side === 'income');
+        incomeMirrors.forEach(ab => {
+            lines.push(`${ab.header_name}: ${formatTxtMoney(ab.amount)}`);
+            lines.push('');
+        });
+
         // 2. EXPENSE
         lines.push('EXPENSE');
         lines.push('');
@@ -2556,6 +2970,13 @@
 
             lines.push(`Total ${h.name}: ${formatTxtMoney(headerTotal)}`);
             lines.push('');
+            lines.push('');
+        });
+
+        // Mirrored Single-Line Headers under EXPENSE
+        const expenseMirrors = (res.headerAddBacks || []).filter(ab => ab.opposite_side === 'expense');
+        expenseMirrors.forEach(ab => {
+            lines.push(`${ab.header_name}: -${formatTxtMoney(ab.amount)}`);
             lines.push('');
         });
 
@@ -2633,13 +3054,37 @@
         lines.push('');
         lines.push('');
 
-        // 5. SUMMARY
+        // 5. BOTH-SIDE MOVEMENT (if any)
+        const addBacks = res.headerAddBacks || [];
+        if (addBacks.length > 0) {
+            lines.push('BOTH-SIDE MOVEMENT');
+            lines.push('--------------------------------');
+            addBacks.forEach(ab => {
+                const primSide = ab.header_type === 'expense' ? 'Expense' : 'Income';
+                const oppSide = ab.opposite_side === 'income' ? 'Income Add-back' : 'Expense Add-back';
+                lines.push(ab.header_name);
+                lines.push(`${primSide}: -${formatTxtMoney(ab.amount)}`);
+                lines.push(`${oppSide}: +${formatTxtMoney(ab.amount)}`);
+                lines.push('');
+            });
+        }
+
+        // 6. SUMMARY
         lines.push('SUMMARY');
         lines.push('================================');
         lines.push('');
-        lines.push(`Total Income: ${formatTxtMoney(res.totalSales || 0)}`);
-        lines.push(`Total Expense: ${formatTxtMoney((res.totalExpenses || 0) + (res.totalCashPurchase || 0))}`);
+        lines.push(`Total Income: ${formatTxtMoney(res.displayTotalIncome || 0)}`);
+        lines.push(`Total Expense: -${formatTxtMoney(res.displayTotalExpense || 0)}`);
+        lines.push(`Today Net Activity: ${formatTxtMoney(res.todayNetActivity || res.netActivity || 0)}`);
         lines.push('');
+        if (res.relationSettled && res.relationSettled !== 0) {
+            const isPrev = (res.relationRule || 'previous_day_balance') === 'previous_day_balance';
+            const sourceLabel = isPrev ? 'From: Previous Shop Balance' : 'From: Current-Day Balance';
+            lines.push('SETTLEMENT / BALANCE MOVEMENT');
+            lines.push(`${res.relationSummaryName || 'Supermarket Settlement'}: -${formatTxtMoney(res.relationSettled)}`);
+            lines.push(sourceLabel);
+            lines.push('');
+        }
 
         lines.push('DIRECT TO COMPANY');
         lines.push('');
@@ -2678,8 +3123,31 @@
         lines.push(`Closing Petty: ${formatTxtMoney(res.closingPetty || 0)}`);
         lines.push('');
         lines.push(`TOTAL CASH AT SHOP: ${formatTxtMoney((res.closingPayable || 0) + (res.closingPetty || 0))}`);
+        lines.push('');
+
+        if (addBacks.length > 0 || (res.totalCashPurchase || 0) > 0) {
+            lines.push('CASH RECONSTRUCTION');
+            lines.push('--------------------------------');
+            lines.push(`Cash Remaining: ${formatTxtMoney(res.closingPayable || 0)}`);
+
+            let totalReconstructionAddBack = 0;
+            if (addBacks.length > 0) {
+                addBacks.forEach(ab => {
+                    lines.push(`${ab.label}: +${formatTxtMoney(ab.amount)}`);
+                    totalReconstructionAddBack += ab.amount;
+                });
+            } else if ((res.totalCashPurchase || 0) > 0) {
+                lines.push(`Cash Purchase Add-back: +${formatTxtMoney(res.totalCashPurchase)}`);
+                totalReconstructionAddBack += res.totalCashPurchase;
+            }
+
+            const reconstructedCash = (res.closingPayable || 0) + totalReconstructionAddBack;
+            lines.push(`Reconstructed Cash: ${formatTxtMoney(reconstructedCash)}`);
+            lines.push('');
+        }
 
         return lines.join('\n');
+
     }
 
     function generate3DaysReportText() {
@@ -2701,7 +3169,6 @@
 
         let sumSales = 0;
         let sumExpenses = 0;
-        let sumCashPurchase = 0;
         let sumSettlement = 0;
         let sumDirectCompany = 0;
         let sumShopCollections = 0;
@@ -2709,9 +3176,8 @@
 
         for (let d = 1; d <= 3; d++) {
             const r = dayResults[d] || {};
-            sumSales += (r.totalSales || 0);
-            sumExpenses += (r.totalExpenses || 0);
-            sumCashPurchase += (r.totalCashPurchase || 0);
+            sumSales += (r.displayTotalIncome !== undefined ? r.displayTotalIncome : (r.totalSales || 0));
+            sumExpenses += (r.displayTotalExpense !== undefined ? r.displayTotalExpense : ((r.totalExpenses || 0) + (r.totalCashPurchase || 0)));
             sumSettlement += (r.relationSettled || 0);
             sumDirectCompany += (r.directCompanyBankTotal || 0);
             sumShopCollections += (r.cashCollectedAtShop || 0);
@@ -2725,8 +3191,8 @@
         lines.push('');
         lines.push(`Total Income: ${formatTxtMoney(sumSales)}`);
         lines.push(`Total Expense: ${formatTxtMoney(sumExpenses)}`);
-        lines.push(`Total Cash Purchase: ${formatTxtMoney(sumCashPurchase)}`);
         lines.push(`Total Settlement: ${formatTxtMoney(sumSettlement)}`);
+        lines.push(`Net Activity: ${formatTxtMoney(sumSales - sumExpenses - sumSettlement)}`);
         lines.push('');
         lines.push(`Direct to Company: ${formatTxtMoney(sumDirectCompany)}`);
         lines.push(`Shop-Held Collections: ${formatTxtMoney(sumShopCollections)}`);

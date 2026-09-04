@@ -182,13 +182,6 @@
                                     </p>
                                 </div>
                             </div>
-
-                            <div class="text-right shrink-0">
-                                <span class="text-xs font-black text-slate-900">
-                                    ₹{{ number_format((float) ($employee->salary_type === 'daily_wage' ? $employee->daily_wage : $employee->monthly_salary), 0) }}
-                                </span>
-                                <p class="text-[10px] font-semibold text-slate-400 capitalize">{{ $employee->salary_type }}</p>
-                            </div>
                         </div>
                     @empty
                         <div class="py-6 text-center text-xs font-semibold text-slate-400">

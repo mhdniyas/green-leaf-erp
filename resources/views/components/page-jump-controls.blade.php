@@ -2,10 +2,26 @@
     'bottomClass' => 'bottom-24 lg:bottom-6',
 ])
 
-<div class="fixed right-4 z-[60] flex flex-col gap-2 {{ $bottomClass }}">
+<style>
+    #page-jump-controls {
+        opacity: 0.25;
+        transition: opacity 0.2s ease;
+    }
+    #page-jump-controls:hover,
+    #page-jump-controls:focus-within,
+    #page-jump-controls:active {
+        opacity: 1;
+    }
+    body.cashbook-modal-open #page-jump-controls,
+    .cashbook-modal-open #page-jump-controls {
+        display: none !important;
+    }
+</style>
+
+<div id="page-jump-controls" class="page-jump-controls fixed right-4 z-30 flex flex-col gap-2 {{ $bottomClass }}">
     <button type="button"
             onclick="jumpAppPageTop()"
-            class="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-sm transition hover:bg-slate-50 cursor-pointer"
+            class="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/95 text-slate-700 shadow-md backdrop-blur-sm transition hover:bg-slate-50 cursor-pointer active:scale-95"
             title="Go to top"
             aria-label="Go to top">
         <span class="sr-only">Go to top</span>
@@ -15,7 +31,7 @@
     </button>
     <button type="button"
             onclick="jumpAppPageBottom()"
-            class="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-sm transition hover:bg-slate-50 cursor-pointer"
+            class="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/95 text-slate-700 shadow-md backdrop-blur-sm transition hover:bg-slate-50 cursor-pointer active:scale-95"
             title="Go to bottom"
             aria-label="Go to bottom">
         <span class="sr-only">Go to bottom</span>

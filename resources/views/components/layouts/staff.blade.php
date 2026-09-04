@@ -112,10 +112,10 @@
 
     if ($canViewStaffCategories) {
         $sidebarItems[] = [
-            'label' => 'Categories',
-            'href' => route('admin.staff.categories.index'),
+            'label' => 'Settings',
+            'href' => route('admin.staff.categories.index').'#check-in-settings',
             'active' => request()->routeIs('admin.staff.categories.*'),
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15" /></svg>',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h3m-7.2 1.8 2.1 2.1m7.2 0 2.1-2.1M12 9.75v3.75l2.25 1.5M12 21a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15Z" /></svg>',
         ];
     }
 
@@ -145,6 +145,10 @@
 
     if ($canViewStaffAdvancePayments) {
         $mobileItems[] = ['label' => 'Advance', 'href' => route('admin.staff.advance-payments.index', ['payroll_month' => today()->format('Y-m')]), 'active' => request()->routeIs('admin.staff.advance-payments.*')];
+    }
+
+    if ($canViewStaffCategories) {
+        $mobileItems[] = ['label' => 'Settings', 'href' => route('admin.staff.categories.index').'#check-in-settings', 'active' => request()->routeIs('admin.staff.categories.*')];
     }
 
     $mobileItems = array_slice($mobileItems, 0, 5);

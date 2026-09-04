@@ -180,11 +180,9 @@ class ShopOwnerCashbookPettyDisplayTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Petty Balance');
-        $response->assertSee('Petty cash remaining');
-        $response->assertSee('Funded from: Petty');
-        $response->assertSee('Total Sales');
-        $response->assertSee('Total Expense');
-        $response->assertSee('Closing Balance');
+        $response->assertSee('Cash on Hand');
+        $response->assertSee('Direct to Company');
+        $response->assertSee('Shop Balance');
 
         // 2. Check API endpoint returning serialized transactions and snapshot
         $apiResponse = $this->actingAs($this->shopUser)->getJson(route('shop-owner.cashbook.api.shop-data', [

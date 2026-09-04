@@ -119,6 +119,22 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
         $this->assertSame([], $response->viewData('salaryOptions'));
     }
 
+    public function test_staff_tab_does_not_show_salary_amounts(): void
+    {
+        $response = $this->actingAs($this->shopOwner)
+            ->get(route('shop-owner.staff.index', [
+                'shop' => $this->shop->code,
+                'date' => '2026-09-04',
+                'tab' => 'staff',
+            ]));
+
+        $response->assertOk();
+        $response->assertSee('Ahmed Ali');
+        $response->assertDontSee('₹25,000');
+        $response->assertDontSee('Monthly');
+        $this->assertSame([], $response->viewData('salaryOptions'));
+    }
+
     public function test_salary_content_appears_on_salary_tab(): void
     {
         $response = $this->actingAs($this->shopOwner)

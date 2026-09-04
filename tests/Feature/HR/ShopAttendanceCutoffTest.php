@@ -92,6 +92,17 @@ class ShopAttendanceCutoffTest extends TestCase
         $response->assertSee('value="10:00"', false);
     }
 
+    public function test_staff_settings_page_shows_check_in_time_settings(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.staff.categories.index'));
+
+        $response->assertOk();
+        $response->assertSee('Settings');
+        $response->assertSee('Check-in Time Settings');
+        $response->assertSee('value="10:00"', false);
+    }
+
     public function test_admin_can_update_cutoff_time_setting(): void
     {
         $response = $this->actingAs($this->admin)
@@ -105,6 +116,20 @@ class ShopAttendanceCutoffTest extends TestCase
         $this->assertDatabaseHas('business_settings', [
             'key' => 'shop_attendance_cutoff_time',
             'value' => '09:30',
+        ]);
+    }
+
+    public function test_admin_can_update_check_in_time_from_staff_settings(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.staff.settings.check-in-time.update'), [
+                'shop_attendance_cutoff_time' => '08:45',
+            ]);
+
+        $response->assertRedirect(route('admin.staff.categories.index'));
+        $this->assertDatabaseHas('business_settings', [
+            'key' => 'shop_attendance_cutoff_time',
+            'value' => '08:45',
         ]);
     }
 

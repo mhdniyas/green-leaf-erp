@@ -1,1884 +1,1522 @@
 @extends('shop-owner.layouts.app')
 
-@section('title', 'Cashbook')
-@section('page_title', 'Cashbook Dashboard')
-@section('page_description', 'Post daily income/expense entries using the new cashbook rules and review ledger updates.')
-@section('page_back_url', route('shop-owner.dashboard'))
-@php($breadcrumbs = [['label' => 'Dashboard', 'url' => route('shop-owner.dashboard')], ['label' => 'Cashbook']])
-
-@section('page_actions')
-    <div class="flex flex-wrap items-center gap-2">
-        <a href="{{ route('shop-owner.cashbook.create', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
-            Create Entry
-        </a>
-        <a href="{{ route('shop-owner.cashbook.show', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
-            Cashbook
-        </a>
-        <a href="{{ route('shop-owner.cashbook.reports', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
-            Reports
-        </a>
-        <button type="button" @click="reloadPage()" class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-xs transition hover:bg-slate-50 hover:text-slate-900" title="Reload Cashbook Data">
-            <svg class="h-4 w-4" :class="{ 'animate-spin': loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-            </svg>
-        </button>
-    </div>
-@endsection
+@section('title', 'Daily Cashbook — '.$shop->name)
+@section('page_title', 'Daily Cashbook')
+@section('page_description', 'Record daily collections, store expenses, settlements, and closing cash balance.')
 
 @section('content')
-    <div class="mx-auto w-full max-w-7xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" x-data="cashbookPage()" x-init="init()">
-        <header class="flex flex-wrap items-center justify-between gap-3 bg-slate-950 px-4 py-3 text-white sm:px-5">
-            <div>
-                <p class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Shop Cashbook — {{ $shop->name }}</p>
-                <h1 class="text-lg font-black text-white sm:text-xl" x-text="activeTab === 'reports' ? 'Cashbook Reports' : 'Cashbook Dashboard'"></h1>
-                <p class="mt-0.5 text-xs font-semibold text-slate-400">Date: {{ $selectedDate->format('d M Y') }}</p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-                <button type="button" @click="openCreateModal()" class="rounded-lg border border-emerald-500/60 bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-400">
-                    + Create Entry
-                </button>
-                <button
-                    type="button"
-                    @click="activeTab = 'cashbook'"
-                    class="rounded-lg border px-3 py-1.5 text-xs font-bold transition"
-                    :class="activeTab === 'cashbook' ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'"
-                >
-                    Cashbook
-                </button>
-                <button
-                    type="button"
-                    @click="activeTab = 'reports'"
-                    class="rounded-lg border px-3 py-1.5 text-xs font-bold transition"
-                    :class="activeTab === 'reports' ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'"
-                >
-                    Reports
-                </button>
-                <button
-                    type="button"
-                    @click="reloadPage()"
-                    class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 transition hover:bg-slate-800 hover:text-white"
-                    title="Reload Cashbook Data"
-                >
-                    <svg class="h-4 w-4" :class="{ 'animate-spin': loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                        <path d="M21 3v5h-5" />
-                    </svg>
-                </button>
-            </div>
-        </header>
+@php
+    $breadcrumbs = [['label' => 'Cashbook']];
+    $relationList = $relations ?? collect();
+    $accountsList = $companyAccounts ?? collect();
+    $headerGroupList = $headerGroups ?? collect();
 
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 sm:px-5">
-            <!-- Quick Access Timeframe Presets: Today | Yesterday | Week | Month | Custom Range -->
-            <div class="flex flex-wrap items-center gap-1.5">
-                <span class="text-[10px] font-black uppercase text-slate-500 mr-1">Timeframe:</span>
-                <button
-                    type="button"
-                    @click="setPreset('today')"
-                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
-                    :class="activePreset === 'today' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
-                >
+    // Sort settings by header_display_order or display_order
+    $sortedSettings = $settings->sortBy(fn ($s) => (int) ($s->header_display_order ?? $s->entryType?->display_order ?? $s->display_order))->values();
+
+    // Group settings by header_group_id
+    $settingsByHeader = $sortedSettings->groupBy(fn ($s) => (int) ($s->header_group_id ?? 0));
+
+    $ownerHeaderSections = collect();
+
+    // 1. Process explicit saved headers in display_order
+    foreach ($headerGroupList->sortBy('display_order') as $hg) {
+        $hgId = (int) $hg->id;
+        $headerSettings = $settingsByHeader->get($hgId, collect())->values();
+
+        if ($headerSettings->isNotEmpty() || $hg->product_tagging_enabled) {
+            $ownerHeaderSections->push([
+                'id' => (string) $hgId,
+                'name' => $hg->name,
+                'type' => strtolower((string) ($hg->type ?? 'income')),
+                'display_order' => (int) ($hg->display_order ?? 0),
+                'product_tagging_enabled' => (bool) ($hg->product_tagging_enabled ?? false),
+                'show_both_sides' => (bool) ($hg->show_both_sides ?? false),
+                'settings' => $headerSettings,
+            ]);
+        }
+    }
+
+    // 2. Process unassigned settings (header_group_id == 0 or not matching any saved header)
+    $assignedHeaderIds = $headerGroupList->pluck('id')->map(fn($id) => (int) $id)->all();
+    $unassignedSettings = $sortedSettings->reject(function ($s) use ($assignedHeaderIds) {
+        return $s->header_group_id && in_array((int) $s->header_group_id, $assignedHeaderIds, true);
+    })->values();
+
+    if ($unassignedSettings->isNotEmpty()) {
+        $unassignedTransfers = $unassignedSettings->filter(function ($s) {
+            $cat = strtolower((string) ($s->entryType?->category ?? ''));
+            return $cat === 'transfer' || $cat === 'settlement' || (! $s->include_in_sales && ! $s->include_in_income && ! $s->include_in_expense);
+        })->values();
+
+        $unassignedIncome = $unassignedSettings->filter(function ($s) use ($unassignedTransfers) {
+            if ($unassignedTransfers->contains('id', $s->id)) return false;
+            $cat = strtolower((string) ($s->entryType?->category ?? ''));
+            return $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+        })->values();
+
+        $unassignedExpense = $unassignedSettings->reject(function ($s) use ($unassignedIncome, $unassignedTransfers) {
+            return $unassignedIncome->contains('id', $s->id) || $unassignedTransfers->contains('id', $s->id);
+        })->values();
+
+        if ($unassignedIncome->isNotEmpty()) {
+            $ownerHeaderSections->push([
+                'id' => 'unassigned_income',
+                'name' => 'OTHER INCOME',
+                'type' => 'income',
+                'display_order' => 9998,
+                'product_tagging_enabled' => false,
+                'show_both_sides' => false,
+                'settings' => $unassignedIncome,
+            ]);
+        }
+
+        if ($unassignedExpense->isNotEmpty()) {
+            $ownerHeaderSections->push([
+                'id' => 'unassigned_expense',
+                'name' => 'OTHER EXPENSES',
+                'type' => 'expense',
+                'display_order' => 9999,
+                'product_tagging_enabled' => false,
+                'show_both_sides' => false,
+                'settings' => $unassignedExpense,
+            ]);
+        }
+    }
+
+    // Fallback: If no headers produced, wrap all settings in default headers
+    if ($ownerHeaderSections->isEmpty() && $sortedSettings->isNotEmpty()) {
+        $incomeSet = $sortedSettings->filter(function ($s) {
+            $cat = strtolower((string) ($s->entryType?->category ?? ''));
+            return $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+        })->values();
+        $expenseSet = $sortedSettings->reject(fn($s) => $incomeSet->contains('id', $s->id))->values();
+
+        if ($incomeSet->isNotEmpty()) {
+            $ownerHeaderSections->push([
+                'id' => 'default_sales',
+                'name' => 'SALES',
+                'type' => 'income',
+                'display_order' => 1,
+                'product_tagging_enabled' => false,
+                'show_both_sides' => false,
+                'settings' => $incomeSet,
+            ]);
+        }
+        if ($expenseSet->isNotEmpty()) {
+            $ownerHeaderSections->push([
+                'id' => 'default_expense',
+                'name' => 'SHOP EXPENSES',
+                'type' => 'expense',
+                'display_order' => 2,
+                'product_tagging_enabled' => false,
+                'show_both_sides' => false,
+                'settings' => $expenseSet,
+            ]);
+        }
+    }
+
+    // Priority Sort: Income headers first, then Expense headers
+    $incomeHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'income')->sortBy('display_order')->values();
+    $expenseHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'expense')->sortBy('display_order')->values();
+
+    // Serialize metadata for JS calculation engine
+    $settingsJson = $settings->map(function ($s) {
+        $cat = strtolower((string) ($s->entryType?->category ?? ''));
+        $isIncome = $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+        $code = strtolower((string) ($s->entryType?->code ?? ''));
+        $name = strtolower((string) ($s->entryType?->name ?? ''));
+        $isCashPurchase = str_contains($code, 'cash_purchase') || str_contains($name, 'cash purchase');
+
+        $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
+        $fundingSource = $resolver->resolveFundingSource($s);
+        $companyAccountId = $resolver->resolveCompanyAccountId($s);
+        $noteEnabled = $resolver->resolveNoteEnabled($s);
+        $requiresNote = (bool) ($s->requires_note ?? false);
+        $showNoteField = $noteEnabled || $requiresNote;
+
+        $compAccName = null;
+        if ($companyAccountId) {
+            $acc = \App\Models\Cashbook\CompanyAccount::find($companyAccountId);
+            $compAccName = $acc?->name;
+        }
+
+        return [
+            'id' => (int) $s->id,
+            'header_id' => (string) ($s->header_group_id ?? 'unassigned_' . ($isIncome ? 'income' : 'expense')),
+            'name' => $s->displayName(),
+            'code' => $s->entryType?->code ?? '',
+            'category' => $isIncome ? 'income' : 'expense',
+            'is_income' => $isIncome,
+            'is_expense' => !$isIncome,
+            'is_cash_purchase' => $isCashPurchase,
+            'requires_note' => $requiresNote,
+            'note_enabled' => $noteEnabled,
+            'show_note_field' => $showNoteField,
+            'company_account_id' => $companyAccountId,
+            'company_account_name' => $compAccName,
+            'funding_source' => $fundingSource,
+            'destination_label' => $resolver->resolveDestinationLabel($s),
+        ];
+    })->values()->all();
+
+    $accountsJson = $accountsList->map(function ($a) {
+        return [
+            'id' => (int) $a->id,
+            'name' => $a->name,
+            'bank_name' => $a->bank_name,
+            'account_number' => $a->account_number,
+        ];
+    })->values()->all();
+
+    $relationJson = $relationList->map(function ($r) {
+        return [
+            'id' => (int) $r->id,
+            'name' => $r->name,
+            'settlement_source' => $r->settlement_source ?? 'shop_balance',
+            'eligibility_rule' => $r->eligibility_rule ?? 'previous_day_balance',
+            'enabled' => (bool) $r->enabled,
+            'items' => $r->items->map(function ($i) {
+                return [
+                    'setting_id' => (int) $i->shop_ledger_entry_setting_id,
+                    'role' => strtolower((string) ($i->role ?? 'add')),
+                    'name' => $i->setting?->displayName() ?? 'Unknown',
+                ];
+            })->values()->all(),
+        ];
+    })->values()->all();
+
+    $headersJson = $ownerHeaderSections->map(function ($hs) {
+        return [
+            'id' => (string) $hs['id'],
+            'name' => $hs['name'],
+            'type' => $hs['type'],
+            'product_tagging_enabled' => (bool) ($hs['product_tagging_enabled'] ?? false),
+            'show_both_sides' => (bool) ($hs['show_both_sides'] ?? false),
+            'setting_ids' => $hs['settings']->pluck('id')->map(fn($id) => (int)$id)->all(),
+        ];
+    })->values()->all();
+
+    // Map today's existing transactions to initial JS state
+    $initialTxAmounts = [];
+    $initialTxNotes = [];
+    if (isset($todayTransactions) && $todayTransactions->isNotEmpty()) {
+        foreach ($todayTransactions as $tx) {
+            if ($tx->entry_type_id) {
+                $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+                if ($setting) {
+                    $initialTxAmounts[$setting->id] = (float) $tx->amount;
+                    if ($tx->notes) {
+                        $initialTxNotes[$setting->id] = $tx->notes;
+                    }
+                }
+            }
+        }
+    }
+
+    $isReportTab = ($activeTab ?? 'cashbook') === 'reports';
+@endphp
+
+<style>
+    /* Hide global mobile bottom nav specifically on Cashbook page */
+    #layout-mobile-nav {
+        display: none !important;
+    }
+</style>
+
+<div class="max-w-xl mx-auto pb-10 sm:pb-12 space-y-3 sm:space-y-4">
+
+    {{-- MAIN CASHBOOK DASHBOARD VIEW --}}
+    <div id="cashbook-dashboard-view" @class(['space-y-3 sm:space-y-4', 'hidden' => $isReportTab])>
+        
+        {{-- Deliveries-Style Date Navigator --}}
+        <div class="flex items-center justify-between gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 sm:p-2 shadow-xs">
+            <a href="{{ route('shop-owner.cashbook.show', ['date' => $selectedDate->copy()->subDay()->toDateString()]) }}"
+               class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition shrink-0"
+               title="Previous Day">
+                <i data-lucide="chevron-left" class="h-4 w-4"></i>
+            </a>
+
+            <form method="GET" action="{{ route('shop-owner.cashbook.show') }}" class="flex items-center gap-1.5 min-w-0">
+                <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" onchange="this.form.submit()"
+                       class="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-center text-xs sm:text-sm font-black text-slate-900 focus:bg-white focus:border-emerald-600 focus:outline-none cursor-pointer">
+            </form>
+
+            <div class="flex items-center gap-1.5 shrink-0">
+                <a href="{{ route('shop-owner.cashbook.show', ['date' => today()->toDateString()]) }}"
+                   @class([
+                       'inline-flex h-9 items-center justify-center rounded-lg px-3 text-xs font-black transition',
+                       'bg-emerald-600 text-white shadow-xs' => $selectedDate->isToday(),
+                       'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' => ! $selectedDate->isToday(),
+                   ])>
                     Today
-                </button>
-                <button
-                    type="button"
-                    @click="setPreset('yesterday')"
-                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
-                    :class="activePreset === 'yesterday' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
-                >
-                    Yesterday
-                </button>
-                <button
-                    type="button"
-                    @click="setPreset('weekly')"
-                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
-                    :class="activePreset === 'weekly' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
-                >
-                    Week
-                </button>
-                <button
-                    type="button"
-                    @click="setPreset('monthly')"
-                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
-                    :class="activePreset === 'monthly' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
-                >
-                    Month
-                </button>
-                <button
-                    type="button"
-                    @click="setPreset('custom')"
-                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
-                    :class="activePreset === 'custom' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
-                >
-                    Custom Range
-                </button>
+                </a>
+                <a href="{{ route('shop-owner.cashbook.show', ['date' => $selectedDate->copy()->addDay()->toDateString()]) }}"
+                   class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition shrink-0"
+                   title="Next Day">
+                    <i data-lucide="chevron-right" class="h-4 w-4"></i>
+                </a>
+            </div>
+        </div>
+
+        {{-- TOP SUMMARY CARD (CASHBOOK POSITION) --}}
+        <div class="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-xs space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <span class="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-500">
+                    CASHBOOK POSITION
+                </span>
+                <span class="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse"></span> Live
+                </span>
             </div>
 
-            <!-- Date Pickers -->
-            <div class="flex items-center gap-2">
-                <template x-if="timeframe !== 'custom'">
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-black uppercase text-slate-500">Business Date</span>
-                        <input
-                            type="date"
-                            x-model="selectedDate"
-                            @change="startDate = selectedDate; endDate = selectedDate; activePreset = ''; form.business_date = selectedDate; loadData()"
-                            class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
-                        >
+            {{-- 2 Primary Metrics Side-by-Side --}}
+            <div class="grid grid-cols-2 gap-3 py-1">
+                <div>
+                    <div class="text-[10px] sm:text-[11px] font-bold text-slate-400">Shop Balance</div>
+                    <div class="font-mono text-lg sm:text-2xl font-black text-slate-950 mt-0.5" id="kpi-shop-balance">
+                        ₹0.00
                     </div>
-                </template>
-
-                <template x-if="timeframe === 'custom'">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-[10px] font-black uppercase text-slate-500">From</span>
-                        <input
-                            type="date"
-                            x-model="startDate"
-                            class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
-                        >
-                        <span class="text-[10px] font-black uppercase text-slate-500">To</span>
-                        <input
-                            type="date"
-                            x-model="endDate"
-                            class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
-                        >
-                        <button
-                            type="button"
-                            @click="selectedDate = startDate; loadData()"
-                            class="h-8 rounded-lg bg-slate-900 px-3 text-xs font-bold text-white transition hover:bg-slate-800"
-                        >
-                            Apply Range
-                        </button>
+                </div>
+                <div>
+                    <div class="text-[10px] sm:text-[11px] font-bold text-slate-400">Today's Net Activity</div>
+                    <div class="font-mono text-lg sm:text-2xl font-black text-emerald-700 mt-0.5" id="kpi-today-net-activity">
+                        ₹0.00
                     </div>
-                </template>
+                </div>
+            </div>
 
-                <button
-                    type="button"
-                    @click="reloadPage()"
-                    class="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900"
-                    title="Reload Data"
-                >
-                    <svg class="h-3.5 w-3.5 text-slate-600" :class="{ 'animate-spin': loading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                        <path d="M21 3v5h-5" />
-                    </svg>
-                    <span>Reload</span>
+            {{-- Smaller Breakdown --}}
+            <div class="pt-2.5 border-t border-slate-100 space-y-1.5 text-xs font-semibold">
+                <div class="flex items-center justify-between text-slate-600">
+                    <span class="text-slate-500">Cash on Hand</span>
+                    <span class="font-mono font-bold text-slate-900" id="kpi-cash-held">₹0.00</span>
+                </div>
+                <div class="flex items-center justify-between text-slate-600">
+                    <span class="text-slate-500">Direct to Company</span>
+                    <span class="font-mono font-bold text-slate-900" id="kpi-reached-company">₹0.00</span>
+                </div>
+                <div class="flex items-center justify-between text-slate-600">
+                    <span class="text-slate-500">Petty Balance</span>
+                    <span class="font-mono font-bold text-slate-900" id="kpi-petty-closing">₹0.00</span>
+                </div>
+            </div>
+
+            {{-- VIEW CASHBOOK REPORT BUTTON --}}
+            <div class="pt-2 border-t border-slate-100">
+                <button type="button" onclick="showReportView()"
+                        class="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 py-2 px-3 text-xs font-bold text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer">
+                    <i data-lucide="clipboard-list" class="h-3.5 w-3.5 text-emerald-600"></i>
+                    <span>View Cashbook Report</span>
+                    <i data-lucide="arrow-right" class="h-3 w-3 text-slate-400 ml-auto"></i>
                 </button>
             </div>
         </div>
 
-        <section class="grid grid-cols-2 sm:grid-cols-4 border-b border-slate-200">
-            <div class="border-r border-b sm:border-b-0 border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('sales')" title="Click for details">
-                <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Total Sales</p>
-                <p class="mt-0.5 truncate text-xs font-black tracking-tight text-emerald-700 sm:text-sm whitespace-nowrap" x-text="currency(displaySales())"></p>
-            </div>
-            <div class="border-b sm:border-b-0 sm:border-r border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('expense')" title="Click for details">
-                <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Total Expense</p>
-                <p class="mt-0.5 truncate text-xs font-black tracking-tight text-rose-700 sm:text-sm whitespace-nowrap" x-text="currency(displayExpense())"></p>
-            </div>
-            <div class="border-r border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('closing_balance')" title="Click for details">
-                <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Closing Balance</p>
-                <p class="mt-0.5 truncate text-xs font-black tracking-tight sm:text-sm whitespace-nowrap" :class="displayClosingBalance() >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(displayClosingBalance())"></p>
-            </div>
-            <div class="px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('petty')" title="Click for details">
-                <p class="text-[9px] font-black uppercase text-slate-400 sm:text-[10px]">Petty Balance</p>
-                <p class="mt-0.5 truncate text-xs font-black tracking-tight sm:text-sm whitespace-nowrap" :class="(snapshot?.closing_petty ?? 0) < 0 ? 'text-rose-700' : 'text-sky-700'" x-text="snapshot ? currency(snapshot.closing_petty ?? 0) : '—'"></p>
-                <span class="text-[8px] sm:text-[9px] font-bold block truncate" :class="(snapshot?.closing_petty ?? 0) < 0 ? 'text-rose-500' : 'text-sky-600'">Petty cash remaining</span>
-            </div>
-        </section>
-
-        <div x-show="activeTab === 'cashbook'">
-            <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2 sm:px-5">
-                <h2 class="text-xs font-black uppercase tracking-wider text-slate-700">Daily Ledger Entries</h2>
-                <div class="flex items-center gap-1.5">
-                    <button type="button" @click="openCopyYesterday()" :disabled="copyLoading" class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50">
-                        <svg class="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        <span x-text="copyLoading ? 'Loading...' : 'Copy Yesterday'"></span>
-                    </button>
-                    <button type="button" @click="openCreateModal()" class="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white transition hover:bg-emerald-500">
-                        + Add Entry
-                    </button>
+        {{-- TODAY'S ACTIVITY ROW (Compact tappable day summary) --}}
+        <div onclick="showReportView()" class="group rounded-xl border border-slate-200 bg-white p-3 shadow-xs hover:border-slate-300 hover:bg-slate-50/70 transition cursor-pointer flex items-center justify-between gap-3 select-none">
+            <div class="min-w-0">
+                <div class="text-xs sm:text-sm font-black text-slate-900 uppercase">
+                    {{ $selectedDate->format('d M') }}
+                </div>
+                <div class="text-[10px] sm:text-[11px] font-bold text-slate-400" id="today-entry-count">
+                    0 Entries
                 </div>
             </div>
 
-            <div x-show="collectionSummaries.length > 0" class="border-b border-slate-100 bg-cyan-50/60 px-4 py-2 sm:px-5">
-                <template x-for="group in collectionSummaries" :key="group.reference_id">
-                    <button type="button" @click="showCollectionDetails(group)" class="mb-1 mr-1 inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-white px-2.5 py-1 text-[11px] font-black text-cyan-800 shadow-sm">
-                        <span x-text="group.name"></span>
-                        <span class="text-emerald-700" x-text="'+' + currency(group.income)"></span>
-                        <span class="text-rose-700" x-text="'-' + currency(group.expense)"></span>
-                        <span class="rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-900" x-text="currency(group.net)"></span>
-                    </button>
-                </template>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
-                        <tr>
-                            <th class="px-3 py-2">Date</th>
-                            <th class="px-2 py-2 text-center">Status</th>
-                            <th class="px-2 py-2">Entry Type</th>
-                            <th class="px-3 py-2 text-right">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        <template x-for="tx in transactions" :key="tx.id">
-                            <tr class="cursor-pointer transition hover:bg-slate-100/70" :class="tx.status === 'approved' ? 'bg-emerald-50/40' : ''" @click="openDetails(tx)">
-                                <td class="px-3 py-1.5 font-black" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'">
-                                    <div class="flex items-center gap-2">
-                                        <span x-text="tx.business_date ? tx.business_date.slice(8, 10) + '-' + tx.business_date.slice(5, 7) : formatDayNumber(tx.business_date)"></span>
-                                    </div>
-                                </td>
-                                <td class="px-2 py-1.5 text-center">
-                                    <span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-full border" :class="tx.status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'" title="Approval Status">
-                                        <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
-                                            <path x-show="tx.status === 'approved'" d="m4.2 10.4 3.2 3.2 8-8" />
-                                            <path x-show="tx.status !== 'approved'" d="M10 4v8" />
-                                            <path x-show="tx.status !== 'approved'" d="M10 14h.01" />
-                                        </svg>
-                                    </span>
-                                </td>
-                                <td class="px-2 py-1.5 font-semibold" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'">
-                                    <span x-text="entryTypeName(tx)"></span>
-                                    <span x-show="tx.funding_source === 'petty'" class="block text-[10px] font-semibold text-rose-500">Funded from: Petty</span>
-                                </td>
-                                <td class="px-3 py-1.5 text-right font-bold text-xs whitespace-nowrap" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(tx.amount)"></td>
-                            </tr>
-                        </template>
-                        <tr x-show="transactions.length === 0">
-                            <td colspan="4" class="px-4 py-8 text-center text-xs font-semibold text-slate-400">No entries found for this period. Click "+ Add Entry" or "Copy Yesterday" to record transactions.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            {{-- Inline Quick Entry: Copy from Yesterday --}}
-            <div x-show="showCopyYesterday" x-cloak class="border-t border-slate-200 bg-slate-50/80 p-3 sm:p-4 space-y-3">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                        </span>
-                        <div>
-                            <h3 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                                Quick Fill from <span x-text="yesterdayDateLabel">Yesterday</span>
-                            </h3>
-                            <p class="text-[10px] font-semibold text-slate-500">Review amounts for today (<span x-text="selectedDate"></span>) and click Save All.</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button type="button" @click="clearCopyRows()" class="text-xs font-bold text-rose-600 hover:text-rose-800 transition" title="Clear all input amounts">
-                            Clear All
-                        </button>
-                        <span class="text-slate-300">|</span>
-                        <button type="button" @click="showCopyYesterday = false" class="text-xs font-bold text-slate-400 hover:text-slate-600">
-                            ✕ Cancel
-                        </button>
-                    </div>
+            <div class="flex items-center gap-4 sm:gap-6 text-right shrink-0">
+                <div>
+                    <div class="text-[9px] sm:text-[10px] font-black uppercase text-rose-500 tracking-wider">OUT</div>
+                    <div class="font-mono text-xs sm:text-sm font-black text-rose-700" id="today-row-out">₹0.00</div>
                 </div>
-
-                <div x-show="copyError" class="rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-xs font-bold text-rose-700" x-text="copyError"></div>
-
-                <div class="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-100/70 text-[9px] font-black uppercase text-slate-500 border-b border-slate-200">
-                            <tr>
-                                <th class="px-3 py-2">Entry Type</th>
-                                <th class="px-3 py-2 text-right">Amount (₹)</th>
-                                <th class="px-2 py-2 text-center w-10"></th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            <template x-for="(row, index) in copyRows" :key="index">
-                                <tr class="hover:bg-slate-50/50">
-                                    <td class="px-3 py-2">
-                                        <div class="font-bold" :class="row.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="row.name"></div>
-                                        <div class="text-[9px] text-slate-400 font-medium" x-text="row.funding_source && row.funding_source !== 'none' ? row.funding_source : 'default'"></div>
-                                    </td>
-                                    <td class="px-3 py-2 text-right">
-                                        <div class="relative inline-block w-32 sm:w-44">
-                                            <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">₹</span>
-                                            <input type="number" step="0.01" min="0.01" x-model="row.amount"
-                                                class="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-1 pl-6 pr-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                placeholder="0" />
-                                        </div>
-                                    </td>
-                                    <td class="px-2 py-2 text-center">
-                                        <button type="button" @click="copyRows.splice(index, 1)" class="text-slate-300 hover:text-rose-600 transition" title="Remove row">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        </button>
-                                    </td>
-                                </tr>
-                            </template>
-                            <tr x-show="copyRows.length === 0">
-                                <td colspan="3" class="px-4 py-6 text-center text-xs font-semibold text-slate-400">No eligible entries found to copy from yesterday.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div>
+                    <div class="text-[9px] sm:text-[10px] font-black uppercase text-emerald-600 tracking-wider">IN</div>
+                    <div class="font-mono text-xs sm:text-sm font-black text-emerald-700" id="today-row-in">₹0.00</div>
                 </div>
-
-                <div class="flex items-center justify-between pt-1" x-show="copyRows.length > 0">
-                    <span class="text-xs font-bold text-slate-500">
-                        <span x-text="copyRows.length"></span> entries ready for <strong class="text-slate-800" x-text="selectedDate"></strong>
-                    </span>
-                    <div class="flex items-center gap-2">
-                        <button type="button" @click="clearCopyRows()" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-2xs">
-                            Clear All
-                        </button>
-                        <button type="button" @click="showCopyYesterday = false" class="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200/60 transition">
-                            Cancel
-                        </button>
-                        <button type="button" @click="saveCopyRows()" :disabled="copySaving" class="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 transition disabled:opacity-50 inline-flex items-center gap-1.5">
-                            <svg x-show="copySaving" class="h-3.5 w-3.5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                            </svg>
-                            <span x-text="copySaving ? 'Saving...' : 'Save All (' + copyRows.length + ')'"></span>
-                        </button>
-                    </div>
-                </div>
+                <i data-lucide="chevron-right" class="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition shrink-0"></i>
             </div>
         </div>
 
-        <div x-show="activeTab === 'reports'" class="p-3 sm:p-4 space-y-3.5">
-            <div>
-                <div class="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-wider text-emerald-600">Admin Cashbook Metrics</p>
-                        <h3 class="text-sm font-black text-slate-950">Shop Snapshot Overview</h3>
-                    </div>
-                    <span class="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 border border-emerald-200" x-text="timeframeLabel() + ' View'"></span>
-                </div>
-
-                <!-- 6 Metric Cards from Admin Cashbook -->
-                <div class="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-emerald-400 transition-all" @click="showCardDetails('sales')" title="Click for details">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Total Sales</span>
-                        <div class="text-xs font-black text-emerald-700 truncate whitespace-nowrap" x-text="currency(displaySales())"></div>
-                        <span class="text-[9px] text-emerald-600 font-bold block truncate">Gross Inflow</span>
-                    </div>
-
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-rose-400 transition-all" @click="showCardDetails('expense')" title="Click for details">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Total Expense</span>
-                        <div class="text-xs font-black text-rose-700 truncate whitespace-nowrap" x-text="currency(displayExpense())"></div>
-                        <span class="text-[9px] text-rose-600 font-bold block truncate">P/L Chargeable</span>
-                    </div>
-
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-emerald-400 transition-all" @click="showCardDetails('net')" title="Click for details">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Net P/L</span>
-                        <div class="text-xs font-black truncate whitespace-nowrap" :class="(displaySales() - displayExpense()) >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(displaySales() - displayExpense())"></div>
-                        <span class="text-[9px] text-slate-500 font-medium block truncate">Income - Expense</span>
-                    </div>
-
-                    <div
-                        class="rounded-lg border p-2 space-y-0.5 cursor-pointer transition-all"
-                        :class="(snapshot.closing_petty || 0) < 0 ? 'border-rose-300 bg-rose-50 hover:border-rose-400' : 'border-slate-200 bg-slate-50 hover:border-sky-400'"
-                        @click="showCardDetails('petty')" title="Click for details"
-                    >
-                        <span class="text-[9px] font-black uppercase tracking-wider block truncate" :class="(snapshot.closing_petty || 0) < 0 ? 'text-rose-500' : 'text-slate-400'">Petty Float</span>
-                        <div class="text-xs font-black truncate whitespace-nowrap" :class="(snapshot.closing_petty || 0) < 0 ? 'text-rose-700' : 'text-sky-700'" x-text="currency(snapshot.closing_petty ?? 0)"></div>
-                        <span class="text-[9px] font-bold block truncate" :class="(snapshot.closing_petty || 0) < 0 ? 'text-rose-500' : 'text-sky-600'" x-text="(snapshot.closing_petty || 0) < 0 ? '⚠ Deficit — top-up needed' : 'Petty Float'"></span>
-                    </div>
-
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-amber-400 transition-all" @click="showCardDetails('shop_position')" title="Click for details">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Shop Position</span>
-                        <div class="text-xs font-black text-amber-700 truncate whitespace-nowrap" x-text="currency(displayClosingBalance())"></div>
-                        <span class="text-[9px] text-amber-600 font-bold block truncate">Company Payable</span>
-                    </div>
-
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-cyan-400 transition-all" @click="showCardDetails('company_payable')" title="Click for details">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Payable</span>
-                        <div class="text-xs font-black text-cyan-700 truncate whitespace-nowrap" x-text="currency(payableTotal())"></div>
-                        <span class="text-[9px] text-cyan-600 font-bold block truncate">Configured Income Rows</span>
-                    </div>
-
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-purple-400 transition-all" @click="showCardDetails('company_pending')" title="Click for details">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Company Pending</span>
-                        <div class="text-xs font-black text-purple-700 truncate whitespace-nowrap" x-text="currency(snapshot.closing_company_pending || 0)"></div>
-                        <span class="text-[9px] text-purple-600 font-bold block truncate">Reimbursements</span>
-                    </div>
-                </div>
+        {{-- BILL-STYLE CASHBOOK HEADERS LIST --}}
+        <div class="space-y-2">
+            <div class="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-400 px-1">
+                Daily Entries & Headers
             </div>
 
-            <!-- Date Period Summary Cards -->
-            <div>
-                <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                    <h4 class="text-xs font-black uppercase tracking-wider text-slate-800">Date Period Summary</h4>
-                    <span class="text-[10px] font-semibold text-slate-400">Date: {{ $selectedDate->format('d M Y') }}</span>
-                </div>
+            <div id="today-headers-summary-container" class="space-y-3">
+                <!-- Dynamically rendered bill sections by JS -->
+            </div>
 
-                <div class="mt-2 grid grid-cols-3 gap-2">
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 text-center cursor-pointer hover:border-slate-400 transition-all" @click="showCardDetails('net')" title="Click for details">
-                        <p class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Today (Daily)</p>
-                        <p class="mt-0.5 text-xs font-black truncate whitespace-nowrap" :class="displayClosingBalance() >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(displayClosingBalance())"></p>
-                        <span class="text-[9px] font-bold text-slate-500 block mt-0.5" x-text="selectedDate"></span>
-                    </div>
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 text-center cursor-pointer hover:border-emerald-400 transition-all" @click="showCardDetails('month_sales')" title="Click for details">
-                        <p class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Month Sales</p>
-                        <p class="mt-0.5 text-xs font-black text-emerald-700 truncate whitespace-nowrap" x-text="currency(reporting.sales)"></p>
-                        <span class="text-[9px] font-bold text-emerald-600 block mt-0.5">Gross Month</span>
-                    </div>
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 text-center cursor-pointer hover:border-slate-400 transition-all" @click="showCardDetails('month_net')" title="Click for details">
-                        <p class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Month Net</p>
-                        <p class="mt-0.5 text-xs font-black truncate whitespace-nowrap" :class="reporting.net >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(reporting.net)"></p>
-                        <span class="text-[9px] font-bold text-slate-500 block mt-0.5">Month Net Total</span>
-                    </div>
+            {{-- Empty State (if no headers configured) --}}
+            <div id="today-empty-state" class="rounded-xl sm:rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center space-y-2 hidden">
+                <div class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-50 text-slate-400 border border-slate-100">
+                    <i data-lucide="receipt" class="h-5 w-5"></i>
                 </div>
+                <h3 class="text-xs sm:text-sm font-black text-slate-800">No cashbook headers configured</h3>
+                <p class="text-[11px] font-medium text-slate-400 max-w-xs mx-auto">
+                    Configure cashbook headers in Shop Settings.
+                </p>
             </div>
         </div>
+    </div>
 
-        <!-- Create Entry Modal / Popup -->
-        <div
-            x-cloak
-            x-show="openCreate"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-4 backdrop-blur-xs"
-            @keydown.escape.window="openCreate = false"
-        >
-            <div class="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl" @click.away="openCreate = false">
-                <div class="flex items-center justify-between bg-slate-950 px-4 py-2.5 text-white">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Shop Cashbook</p>
-                        <h3 class="text-sm font-black text-white" x-text="editingTxId ? 'Edit Cashbook Entry' : 'Create Cashbook Entry'"></h3>
-                    </div>
-                    <button type="button" @click="openCreate = false" class="rounded-lg border border-slate-700 bg-slate-900 p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white" aria-label="Close">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M18 6 6 18" />
-                            <path d="m6 6 12 12" />
-                        </svg>
-                    </button>
-                </div>
+    {{-- DETAILED REPORT VIEW (Hidden by default or shown when tab=reports) --}}
+    <div id="cashbook-report-view" @class(['space-y-3 sm:space-y-4', 'hidden' => !$isReportTab])>
+        <div class="flex items-center justify-between">
+            <button type="button" onclick="hideReportView()"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
+                <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>
+                <span>Back to Cashbook</span>
+            </button>
 
-                <form class="p-4 space-y-3" @submit.prevent="submitEntry()">
-                    <div x-show="collectionGroups.length > 0 && !editingTxId" class="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
-                        <button type="button" @click="entryMode = 'normal'" class="h-8 rounded-md text-xs font-black" :class="entryMode === 'normal' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500'">Normal Entry</button>
-                        <button type="button" @click="entryMode = 'collection'; selectDefaultCollectionGroup()" class="h-8 rounded-md text-xs font-black" :class="entryMode === 'collection' ? 'bg-white text-cyan-800 shadow-sm' : 'text-slate-500'">Collection</button>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-2.5">
-                        <div>
-                            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Business Date</label>
-                            <input type="date" x-model="form.business_date" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none" required>
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Entry Category</label>
-                            <div class="relative mt-1" x-data="{ open: false }">
-                                <button
-                                    type="button"
-                                    @click="open = !open"
-                                    @click.away="open = false"
-                                    class="flex h-8 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold capitalize text-slate-900 transition focus:border-emerald-500 focus:bg-white focus:outline-none"
-                                >
-                                    <span x-text="form.entry_category ? (form.entry_category.charAt(0).toUpperCase() + form.entry_category.slice(1)) : 'Select category'"></span>
-                                    <svg class="h-3.5 w-3.5 text-slate-500 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-                                    </svg>
-                                </button>
-                                <div
-                                    x-show="open"
-                                    x-cloak
-                                    x-transition:enter="transition ease-out duration-100"
-                                    x-transition:enter-start="opacity-0 scale-95"
-                                    x-transition:enter-end="opacity-100 scale-100"
-                                    x-transition:leave="transition ease-in duration-75"
-                                    x-transition:leave-start="opacity-100 scale-100"
-                                    x-transition:leave-end="opacity-0 scale-95"
-                                    class="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
-                                >
-                                    <template x-for="cat in availableCategories()" :key="cat">
-                                        <button
-                                            type="button"
-                                            @click="form.entry_category = cat; onEntryCategoryChange(); open = false"
-                                            class="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs font-semibold capitalize transition"
-                                            :class="form.entry_category === cat ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'"
-                                        >
-                                            <span x-text="cat"></span>
-                                            <svg x-show="form.entry_category === cat" class="h-3.5 w-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                                            </svg>
-                                        </button>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-2.5">
-                        <div>
-                            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Entry Type</label>
-                            <div class="relative mt-1" x-data="{ open: false }">
-                                <button
-                                    type="button"
-                                    @click="open = !open"
-                                    @click.away="open = false"
-                                    class="flex h-8 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 transition focus:border-emerald-500 focus:bg-white focus:outline-none"
-                                >
-                                    <span class="truncate" x-text="selectedEntryTypeName() || 'Select entry type'"></span>
-                                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-                                    </svg>
-                                </button>
-                                <div
-                                    x-show="open"
-                                    x-cloak
-                                    x-transition:enter="transition ease-out duration-100"
-                                    x-transition:enter-start="opacity-0 scale-95"
-                                    x-transition:enter-end="opacity-100 scale-100"
-                                    x-transition:leave="transition ease-in duration-75"
-                                    x-transition:leave-start="opacity-100 scale-100"
-                                    x-transition:leave-end="opacity-0 scale-95"
-                                    class="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
-                                >
-                                    <template x-for="entryType in filteredEntryTypes()" :key="entryType.code">
-                                        <button
-                                            type="button"
-                                            @click="form.entry_type_code = entryType.code; onEntryTypeChange(); open = false"
-                                            class="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition"
-                                            :class="form.entry_type_code === entryType.code ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'"
-                                        >
-                                            <span class="truncate" x-text="entryType.name"></span>
-                                            <svg x-show="form.entry_type_code === entryType.code" class="h-3.5 w-3.5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                                            </svg>
-                                        </button>
-                                    </template>
-                                    <div x-show="filteredEntryTypes().length === 0" class="px-2.5 py-2 text-xs font-semibold text-slate-400">
-                                        No rows enabled. Contact admin.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Funding Source</label>
-                            <div class="relative mt-1" x-data="{ open: false }">
-                                <button
-                                    type="button"
-                                    @click="open = !open"
-                                    @click.away="open = false"
-                                    class="flex h-8 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 transition focus:border-emerald-500 focus:bg-white focus:outline-none"
-                                >
-                                    <span class="truncate" x-text="fundingSourceLabel(form.funding_source)"></span>
-                                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-                                    </svg>
-                                </button>
-                                <div
-                                    x-show="open"
-                                    x-cloak
-                                    x-transition:enter="transition ease-out duration-100"
-                                    x-transition:enter-start="opacity-0 scale-95"
-                                    x-transition:enter-end="opacity-100 scale-100"
-                                    x-transition:leave="transition ease-in duration-75"
-                                    x-transition:leave-start="opacity-100 scale-100"
-                                    x-transition:leave-end="opacity-0 scale-95"
-                                    class="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
-                                >
-                                    <template x-for="item in fundingOptions" :key="item.value">
-                                        <button
-                                            type="button"
-                                            @click="form.funding_source = item.value; open = false"
-                                            class="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition"
-                                            :class="form.funding_source === item.value ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'"
-                                        >
-                                            <span x-text="item.label"></span>
-                                            <svg x-show="form.funding_source === item.value" class="h-3.5 w-3.5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                                            </svg>
-                                        </button>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div x-show="entryMode === 'normal'">
-                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Amount (₹)</label>
-                        <input type="number" step="0.01" min="0.01" x-model="form.amount" placeholder="0.00" class="mt-1 h-8.5 w-full rounded-lg border border-emerald-300 bg-white px-3 text-sm font-black text-slate-950 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" :required="entryMode === 'normal'">
-                    </div>
-
-                    <div x-show="entryMode === 'collection'" class="space-y-2 rounded-lg border border-cyan-200 bg-cyan-50/70 p-3">
-                        <div>
-                            <label class="block text-[10px] font-black uppercase tracking-wider text-cyan-700">Collection Type</label>
-                            <select x-model="form.collection_group_id" @change="resetCollectionAmounts()" class="mt-1 h-8 w-full rounded-lg border border-cyan-200 bg-white px-2 text-xs font-bold text-slate-900">
-                                <template x-for="group in collectionGroups" :key="group.id">
-                                    <option :value="group.id" x-text="group.name"></option>
-                                </template>
-                            </select>
-                        </div>
-                        <template x-for="line in selectedCollectionLines()" :key="line.entry_type_id">
-                            <div class="grid grid-cols-[1fr_8rem] items-center gap-2">
-                                <label class="text-xs font-bold" :class="line.role === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="line.entry_type.name"></label>
-                                <input type="number" step="0.01" min="0" x-model="form.collection_amounts[line.entry_type_id]" class="h-8 rounded-lg border border-cyan-200 bg-white px-2 text-right text-xs font-black text-slate-950">
-                            </div>
-                        </template>
-                        <div class="flex items-center justify-between border-t border-cyan-200 pt-2">
-                            <span class="text-[10px] font-black uppercase tracking-wider text-cyan-700">Net Collection</span>
-                            <strong class="text-sm font-black text-cyan-900" x-text="currency(collectionNet())"></strong>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Notes</label>
-                        <textarea x-model="form.notes" rows="2" class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none" placeholder="Optional memo"></textarea>
-                    </div>
-
-                    <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                        <button type="button" @click="openCreate = false" class="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">Cancel</button>
-                        <button type="submit" class="h-8 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white transition hover:bg-emerald-500" :disabled="submitting">
-                            <span x-show="!submitting" x-text="editingTxId ? 'Update Entry' : 'Save Entry'"></span>
-                            <span x-show="submitting">Saving...</span>
-                        </button>
-                    </div>
-                </form>
-            </div>
+            <a href="{{ route('shop-owner.accounting.cashbook.pdf', ['date' => $selectedDate->toDateString()]) }}" target="_blank"
+               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">
+                <i data-lucide="download" class="h-3.5 w-3.5 text-emerald-600"></i>
+                <span>PDF Report</span>
+            </a>
         </div>
 
-        <!-- Transaction Details Modal / Popup -->
-        <div
-            x-cloak
-            x-show="openDetailsModal"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-4 backdrop-blur-xs"
-            @keydown.escape.window="openDetailsModal = false"
-        >
-            <div class="w-full max-w-sm overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl" @click.away="openDetailsModal = false">
-                <div class="flex items-center justify-between bg-slate-950 px-4 py-2.5 text-white">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Transaction Details</p>
-                        <h3 class="text-sm font-black text-white" x-text="selectedTx?.entry_type ? selectedTx.entry_type.name : selectedTx?.entry_type_code"></h3>
-                    </div>
-                    <button type="button" @click="openDetailsModal = false" class="rounded-lg border border-slate-700 bg-slate-900 p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white" aria-label="Close">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M18 6 6 18" />
-                            <path d="m6 6 12 12" />
-                        </svg>
-                    </button>
+        <div class="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div>
+                    <h2 class="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900">CASHBOOK REPORT</h2>
+                    <p class="text-[11px] font-bold text-slate-400">{{ $selectedDate->format('d M Y') }}</p>
                 </div>
-
-                <div class="p-4 space-y-2.5 text-xs">
-                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                        <span class="text-[10px] font-black uppercase text-slate-400">Business Date</span>
-                        <span class="font-bold text-slate-900" x-text="selectedTx?.business_date"></span>
-                    </div>
-                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                        <span class="text-[10px] font-black uppercase text-slate-400">Entry Type</span>
-                        <span class="font-bold text-slate-900" x-text="selectedTx?.entry_type ? selectedTx.entry_type.name : selectedTx?.entry_type_code"></span>
-                    </div>
-                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                        <span class="text-[10px] font-black uppercase text-slate-400">Category / Direction</span>
-                        <span class="font-bold uppercase text-xs" :class="selectedTx?.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="selectedTx?.direction || selectedTx?.entry_type?.category || 'entry'"></span>
-                    </div>
-                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                        <span class="text-[10px] font-black uppercase text-slate-400">Funding Source</span>
-                        <span class="font-bold text-slate-800 capitalize" x-text="fundingSourceLabel(selectedTx?.funding_source)"></span>
-                    </div>
-                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                        <span class="text-[10px] font-black uppercase text-slate-400">Approval Status</span>
-                        <template x-if="selectedTx && (selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice')">
-                            <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600">
-                                Read-Only (Auto Invoice Bill)
-                            </span>
-                        </template>
-                        <template x-if="!selectedTx || !(selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice')">
-                            <span
-                                class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider"
-                                :class="selectedTx?.status === 'approved'
-                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                    : (selectedTx?.status === 'void' ? 'border-slate-200 bg-slate-100 text-slate-500' : 'border-amber-200 bg-amber-50 text-amber-700')"
-                                x-text="selectedTx?.status === 'approved' ? 'Approved' : (selectedTx?.status_label || selectedTx?.status || 'Posted')"
-                            ></span>
-                        </template>
-                    </div>
-                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                        <span class="text-[10px] font-black uppercase text-slate-400">Amount</span>
-                        <span class="font-black text-sm text-slate-950" x-text="currency(selectedTx?.amount)"></span>
-                    </div>
-                    <div>
-                        <span class="block text-[10px] font-black uppercase text-slate-400 mb-1">Notes / Memo</span>
-                        <p class="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800 font-medium break-words leading-relaxed" x-text="selectedTx?.notes || 'No notes provided.'"></p>
-                    </div>
-                </div>
-
-                <div class="flex flex-wrap justify-end gap-2 p-3 border-t border-slate-100 bg-slate-50">
-                    <template x-if="selectedTx && selectedTx.reference_type === 'collection_group' && selectedTx.reference_id && canMutate(selectedTx)">
-                        <button
-                            type="button"
-                            @click="submitDeleteCollection(selectedTx.reference_id)"
-                            class="h-8 px-3 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition"
-                        >
-                            Delete Collection
-                        </button>
-                    </template>
-                    <button
-                        type="button"
-                        x-show="selectedTx && canMutate(selectedTx)"
-                        @click="openEdit(selectedTx)"
-                        class="h-8 px-4 text-xs font-bold rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition"
-                    >
-                        Edit
-                    </button>
-                    <button
-                        type="button"
-                        x-show="selectedTx && canMutate(selectedTx)"
-                        @click="deleteEntry(selectedTx)"
-                        class="h-8 px-4 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition"
-                    >
-                        Delete
-                    </button>
-                    <button type="button" @click="openDetailsModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">
-                        Close
-                    </button>
+                <div class="text-right">
+                    <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Net Activity</span>
+                    <span class="font-mono text-xs sm:text-sm font-black text-slate-900" id="report-net-activity">₹0.00</span>
                 </div>
             </div>
-        </div>
 
-        <!-- Metric Card Details Popup / Modal -->
-        <div
-            x-cloak
-            x-show="openCardModal"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-4 backdrop-blur-xs"
-            @keydown.escape.window="openCardModal = false"
-        >
-            <div class="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl" @click.away="openCardModal = false">
-                <div class="flex items-center justify-between bg-slate-950 px-4 py-2.5 text-white">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Metric Card Details</p>
-                        <h3 class="text-sm font-black text-white" x-text="cardModalData.title"></h3>
-                    </div>
-                    <button type="button" @click="openCardModal = false" class="rounded-lg border border-slate-700 bg-slate-900 p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white" aria-label="Close">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M18 6 6 18" />
-                            <path d="m6 6 12 12" />
-                        </svg>
-                    </button>
+            {{-- Bill-Style Headers Breakdown Container --}}
+            <div id="report-headers-breakdown" class="space-y-4">
+                <!-- Dynamically rendered by renderReportBreakdown() -->
+            </div>
+
+            {{-- Balance Movements Section (Only rendered when active) --}}
+            <div id="report-relations-container" class="space-y-2 pt-2 border-t border-slate-200 hidden">
+                <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    BALANCE MOVEMENTS
                 </div>
-
-                <div class="p-4 space-y-3 text-xs">
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center">
-                        <p class="text-[10px] font-black uppercase text-slate-400" x-text="cardModalData.subtitle"></p>
-                        <p class="mt-1 text-lg font-black" :class="toneClass(cardModalData.tone)" x-text="cardModalData.value"></p>
-                        <p class="mt-1 text-[11px] font-semibold text-slate-500" x-text="cardModalData.description"></p>
-                    </div>
-
-                    <template x-if="getModalBreakdown() && getModalBreakdown().length > 0">
-                        <div>
-                            <div class="flex items-center justify-between mb-1.5" x-show="cardModalData.rawBreakdown && cardModalData.rawBreakdown.length > 0">
-                                <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-500">Itemized Transactions</h4>
-                                <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 cursor-pointer">
-                                    <input type="checkbox" x-model="showTotalsOnly" class="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5">
-                                    <span>Totals only</span>
-                                </label>
-                            </div>
-                            <div class="max-h-48 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
-                                <template x-for="(item, idx) in getModalBreakdown()" :key="idx">
-                                    <div class="flex items-center justify-between p-2 hover:bg-slate-50">
-                                        <div>
-                                            <p class="font-bold text-slate-900" x-text="item.name"></p>
-                                            <p class="text-[10px] font-semibold text-slate-400"><span x-text="formatDayNumber(item.date)"></span> · <span class="capitalize" x-text="item.source"></span></p>
-                                        </div>
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-black text-xs text-slate-950" x-text="currency(item.amount)"></span>
-                                            <template x-if="item.tx && canMutate(item.tx)">
-                                                <div class="flex items-center gap-1">
-                                                    <button type="button" @click="openEdit(item.tx); openCardModal = false" class="px-2 py-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100">Edit</button>
-                                                    <button type="button" @click="openDelete(item.tx); openCardModal = false" class="px-2 py-0.5 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded hover:bg-rose-100">Delete</button>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-
-                <div class="flex justify-between items-center p-3 border-t border-slate-100 bg-slate-50">
-                    <template x-if="cardModalData.isCollection && cardModalData.reference_id">
-                        <button type="button" @click="submitDeleteCollection(cardModalData.reference_id)" class="h-8 px-3 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
-                            Delete Collection
-                        </button>
-                    </template>
-                    <button type="button" @click="openCardModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition ml-auto">
-                        Close
-                    </button>
+                <div id="report-relations-breakdown" class="space-y-1.5 text-xs font-semibold text-slate-700">
+                    <!-- Rendered by JS -->
                 </div>
             </div>
-        </div>
 
-        <div
-            x-cloak
-            x-show="openDeleteModal"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-4 backdrop-blur-xs"
-            @keydown.escape.window="openDeleteModal = false"
-        >
-            <div class="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl" @click.away="openDeleteModal = false">
-                <div class="flex items-center justify-between bg-slate-950 px-4 py-2.5 text-white">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-wider text-rose-400">Delete Entry</p>
-                        <h3 class="text-sm font-black text-white">Confirm removal</h3>
-                    </div>
-                    <button type="button" @click="openDeleteModal = false" class="rounded-lg border border-slate-700 bg-slate-900 p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white" aria-label="Close">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M18 6 6 18" />
-                            <path d="m6 6 12 12" />
-                        </svg>
-                    </button>
+            {{-- Money Position --}}
+            <div class="space-y-2 pt-2 border-t border-slate-200">
+                <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    MONEY POSITION
                 </div>
-
-                <div class="p-4 space-y-3">
-                    <p class="text-sm font-semibold text-slate-700">Delete this entry?</p>
-                    <p class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600" x-text="deletingTx ? (deletingTx.entry_type ? deletingTx.entry_type.name : deletingTx.entry_type_code) + ' · ₹' + parseFloat(deletingTx.amount || 0).toFixed(2) : ''"></p>
-                    <div class="flex justify-end gap-2 pt-2">
-                        <button type="button" @click="openDeleteModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">
-                            Cancel
-                        </button>
-                        <button type="button" @click="submitDelete()" class="h-8 px-4 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
-                            Delete
-                        </button>
+                <div class="space-y-1.5 text-xs font-semibold text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Cash on Hand</span>
+                        <span class="font-mono font-bold text-slate-900" id="report-pos-held">₹0.00</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Direct to Company</span>
+                        <span class="font-mono font-bold text-slate-900" id="report-pos-company">₹0.00</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Petty Balance</span>
+                        <span class="font-mono font-bold text-slate-900" id="report-pos-petty">₹0.00</span>
+                    </div>
+                    <div class="flex justify-between pt-1 border-t border-slate-200 font-black text-slate-950">
+                        <span>Closing Shop Balance</span>
+                        <span class="font-mono" id="report-pos-shop-bal">₹0.00</span>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-@endsection
-
-@push('scripts')
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <script>
-        function cashbookPage() {
-            return {
-                selectedDate: '{{ $selectedDate->toDateString() }}',
-                activeTab: '{{ $activeTab }}',
-                openCreate: {{ $openModal ? 'true' : 'false' }},
-                openDetailsModal: false,
-                openDeleteModal: false,
-                openCardModal: false,
-                selectedTx: null,
-                deletingTx: null,
-                editingTxId: null,
-                cardModalData: {
-                    title: '',
-                    subtitle: '',
-                    value: '',
-                    tone: 'emerald',
-                    description: '',
-                    breakdown: []
-                },
-                submitting: false,
-                loading: false,
-                showTotalsOnly: false,
-                showCopyYesterday: false,
-                copyRows: [],
-                copyLoading: false,
-                copySaving: false,
-                copyError: '',
-                yesterdayDateLabel: '',
-                timeframe: '{{ $timeframe ?? request('timeframe', 'daily') }}',
-                activePreset: '{{ ($timeframe ?? request('timeframe')) === 'weekly' ? 'weekly' : (($timeframe ?? request('timeframe')) === 'monthly' ? 'monthly' : (($timeframe ?? request('timeframe')) === 'custom' ? 'custom' : ($selectedDate->toDateString() === today()->subDay()->toDateString() ? 'yesterday' : 'today'))) }}',
-                startDate: '{{ $startDate ?? request('start_date', $selectedDate->toDateString()) }}',
-                endDate: '{{ $endDate ?? request('end_date', $selectedDate->toDateString()) }}',
-                transactions: [],
-                companyPendingEntries: [],
-                collectionGroups: @json($collectionGroups ?? []),
-                collectionSummaries: [],
-                snapshot: @json($snapshot),
-                entryTypes: @json($entryTypes),
-                settings: @json($settings),
-                defaultEntryCategory: @json($entryTypes->first()?->category ?? ''),
-                defaultEntryTypeCode: @json($entryTypes->first()?->code ?? ''),
-                form: {
-                    business_date: '{{ $selectedDate->toDateString() }}',
-                    entry_category: '{{ $entryTypes->first()?->category ?? '' }}',
-                    entry_type_code: '{{ $entryTypes->first()?->code ?? '' }}',
-                    amount: '',
-                    funding_source: 'none',
-                    notes: '',
-                    collection_group_id: '',
-                    collection_amounts: {},
-                },
-                entryMode: 'normal',
-                fundingOptions: [
-                    { value: 'none', label: 'Default' },
-                    { value: 'sales', label: 'Sales' },
-                    { value: 'petty', label: 'Petty' },
-                    { value: 'company', label: 'Company' },
-                    { value: 'bank', label: 'Bank / Transfer' },
-                    { value: 'external', label: 'External Transfer' },
-                    { value: 'company_later', label: 'Company Later' },
-                ],
-                reporting: {
-                    sales: 0,
-                    expense: 0,
-                    net: 0,
-                },
-
-                init() {
-                    this.ensureValidEntrySelection();
-                    this.onEntryTypeChange();
-                    this.loadData();
-                },
-
-                displaySales() {
-                    const txSales = this.transactions
-                        .filter((tx) => tx.direction === 'income' || (tx.entry_type && tx.entry_type.category === 'income'))
-                        .reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
-                    if (txSales > 0 || this.transactions.length > 0) {
-                        return txSales;
-                    }
-                    return parseFloat(this.snapshot?.total_sales || 0);
-                },
-
-                displayExpense() {
-                    const txExpense = this.transactions
-                        .filter((tx) => tx.direction === 'expense' || (tx.entry_type && tx.entry_type.category === 'expense'))
-                        .reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
-                    if (txExpense > 0 || this.transactions.length > 0) {
-                        return txExpense;
-                    }
-                    return parseFloat(this.snapshot?.total_expense || 0);
-                },
-
-                displayClosingBalance() {
-                    const sales = parseFloat(this.displaySales() || 0);
-                    const expense = parseFloat(this.displayExpense() || 0);
-                    if (sales > 0 || expense > 0) {
-                        return sales - expense;
-                    }
-                    if (this.snapshot && typeof this.snapshot.closing_shop_position !== 'undefined' && parseFloat(this.snapshot.closing_shop_position) !== 0) {
-                        return parseFloat(this.snapshot.closing_shop_position);
-                    }
-                    return sales - expense;
-                },
-
-                payableRowCodes() {
-                    return this.settings
-                        .filter((setting) => setting.include_in_payable && setting.entry_type)
-                        .map((setting) => setting.entry_type.code);
-                },
-
-                payableTransactions() {
-                    const codes = new Set(this.payableRowCodes());
-                    return this.transactions.filter((tx) => codes.has(tx.entry_type?.code || tx.entry_type_code) || tx.reference_type === 'collection_group');
-                },
-
-                payableTotal() {
-                    return this.payableTransactions().reduce((sum, tx) => {
-                        const code = tx.entry_type?.code || tx.entry_type_code;
-                        const dir = tx.direction || tx.entry_type?.category || 'income';
-                        const setting = this.settings.find((s) => s.entry_type_id === tx.entry_type_id || s.entry_type?.code === code);
-                        const isDeduction = setting?.payable_direction
-                            ? setting.payable_direction === 'minus'
-                            : (dir === 'expense' || ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'].includes(code));
-                        return sum + (isDeduction ? -parseFloat(tx.amount || 0) : parseFloat(tx.amount || 0));
-                    }, 0);
-                },
-
-                companyPayablesLedger() {
-                    if (!this.companyPendingEntries || !Array.isArray(this.companyPendingEntries) || this.companyPendingEntries.length === 0) {
-                        return [];
-                    }
-
-                    const dateGroups = {};
-                    this.companyPendingEntries.forEach(tx => {
-                        const d = tx.business_date || 'Unknown';
-                        if (!dateGroups[d]) {
-                            dateGroups[d] = {
-                                date: d,
-                                items: [],
-                                out_amount: 0,
-                                in_amount: 0,
-                            };
-                        }
-
-                        const amt = parseFloat(tx.amount || 0);
-                        const delta = parseFloat(tx.company_pending_delta || 0);
-                        const code = tx.entry_type ? (tx.entry_type.code || '') : (tx.entry_type_code || '');
-                        const category = tx.entry_type ? (tx.entry_type.category || '') : '';
-                        const direction = tx.direction || category || 'expense';
-
-                        const setting = (this.settings || []).find(s => s.entry_type_id === tx.entry_type_id || (s.entry_type && s.entry_type.code === code));
-                        const payableDir = setting ? setting.payable_direction : null;
-
-                        let isOut = false;
-                        let isIn = false;
-
-                        if (payableDir === 'add') {
-                            isOut = true;
-                        } else if (payableDir === 'minus') {
-                            isIn = true;
-                        } else if (delta > 0) {
-                            isOut = true;
-                        } else if (delta < 0) {
-                            isIn = true;
-                        } else if (direction === 'expense' || category === 'expense' || tx.funding_source === 'company' || code === 'vehicle') {
-                            isOut = true;
-                        } else if (direction === 'income' || category === 'settlement' || code.includes('paid_shop') || code.includes('reimburse')) {
-                            isIn = true;
-                        } else {
-                            isOut = true;
-                        }
-
-                        const itemOut = isOut ? amt : 0;
-                        const itemIn = isIn ? amt : 0;
-
-                        dateGroups[d].items.push({
-                            ...tx,
-                            item_out: itemOut,
-                            item_in: itemIn,
-                            is_out: isOut,
-                            is_in: isIn,
-                            type_name: tx.entry_type ? tx.entry_type.name : (tx.entry_type_code || 'Expense'),
-                        });
-
-                        dateGroups[d].out_amount += itemOut;
-                        dateGroups[d].in_amount += itemIn;
-                    });
-
-                    const sortedDates = Object.keys(dateGroups).sort((a, b) => a.localeCompare(b));
-                    let runningBalance = 0;
-                    const ledgerRows = [];
-
-                    sortedDates.forEach(dateStr => {
-                        const g = dateGroups[dateStr];
-                        runningBalance = runningBalance + g.out_amount - g.in_amount;
-
-                        ledgerRows.push({
-                            date: dateStr,
-                            items: g.items,
-                            count: g.items.length,
-                            out_amount: g.out_amount,
-                            in_amount: g.in_amount,
-                            net_change: g.out_amount - g.in_amount,
-                            running_balance: runningBalance,
-                        });
-                    });
-
-                    return ledgerRows;
-                },
-
-                companyPayablesTotalOut() {
-                    return this.companyPayablesLedger().reduce((sum, r) => sum + r.out_amount, 0);
-                },
-
-                companyPayablesTotalIn() {
-                    return this.companyPayablesLedger().reduce((sum, r) => sum + r.in_amount, 0);
-                },
-
-                companyPayablesFinalBalance() {
-                    return this.companyPayablesTotalOut() - this.companyPayablesTotalIn();
-                },
-
-                toneClass(tone) {
-                    return {
-                        rose: 'text-rose-700',
-                        emerald: 'text-emerald-700',
-                        cyan: 'text-cyan-700',
-                    }[tone] || 'text-slate-900';
-                },
-
-                formatDayNumber(dateStr) {
-                    if (!dateStr) return '-';
-                    const parts = dateStr.split('-');
-                    return parts.length === 3 ? parts[2] : dateStr;
-                },
-
-                openDetails(tx) {
-                    this.selectedTx = tx;
-                    this.openDetailsModal = true;
-                },
-
-                openCreateModal(category = null) {
-                    this.editingTxId = null;
-                    this.entryMode = 'normal';
-                    this.form = {
-                        business_date: this.selectedDate || '{{ $selectedDate->toDateString() }}',
-                        entry_category: category || this.form.entry_category || this.defaultEntryCategory,
-                        entry_type_code: this.form.entry_type_code || this.defaultEntryTypeCode,
-                        amount: '',
-                        funding_source: 'none',
-                        notes: '',
-                        collection_group_id: '',
-                        collection_amounts: {},
-                    };
-                    if (category) {
-                        this.form.entry_category = category;
-                    }
-                    this.ensureValidEntrySelection();
-                    this.onEntryTypeChange();
-                    this.openCreate = true;
-                },
-
-                openEdit(tx) {
-                    this.editingTxId = tx.id;
-                    this.form = {
-                        business_date: tx.business_date,
-                        entry_category: tx.entry_type?.category || this.form.entry_category,
-                        entry_type_code: tx.entry_type?.code || tx.entry_type_code || '',
-                        amount: tx.amount,
-                        funding_source: tx.funding_source || 'none',
-                        notes: tx.notes || '',
-                    };
-                    this.onEntryTypeChange();
-                    this.openCreate = true;
-                    this.openDetailsModal = false;
-                },
-
-                openDelete(tx) {
-                    this.deletingTx = tx;
-                    this.openDeleteModal = true;
-                    this.openDetailsModal = false;
-                },
-
-                closeCreateModal() {
-                    this.openCreate = false;
-                    this.editingTxId = null;
-                    this.entryMode = 'normal';
-                    this.form = {
-                        business_date: this.selectedDate,
-                        entry_category: this.defaultEntryCategory,
-                        entry_type_code: this.defaultEntryTypeCode,
-                        amount: '',
-                        funding_source: 'none',
-                        notes: '',
-                        collection_group_id: '',
-                        collection_amounts: {},
-                    };
-                    this.onEntryTypeChange();
-                },
-
-                canMutate(tx) {
-                    if (!tx) return false;
-                    if (
-                        tx.reference_type === 'App\\Models\\ShopInvoice' ||
-                        tx.reference_type === 'ShopInvoice'
-                    ) {
-                        return false;
-                    }
-                    return tx.status !== 'approved' && tx.status !== 'void';
-                },
-
-                showCardDetails(cardType) {
-                    this.showTotalsOnly = (this.timeframe !== 'daily');
-                    this.cardModalData = {
-                        title: '',
-                        subtitle: '',
-                        value: '',
-                        tone: 'emerald',
-                        description: '',
-                        rawBreakdown: [],
-                        staticBreakdown: null,
-                        breakdown: []
-                    };
-
-                    if (cardType === 'sales') {
-                        const items = this.transactions.filter(tx => tx.direction === 'income' || (tx.entry_type && tx.entry_type.category === 'income'));
-                        this.cardModalData = {
-                            title: 'Total Sales / Gross Inflow',
-                            subtitle: 'Gross revenue and income entries recorded for this timeframe.',
-                            value: this.currency(this.displaySales()),
-                            tone: 'emerald',
-                            description: `Total sales for ${this.timeframe} view as of ${this.selectedDate}.`,
-                            rawBreakdown: items,
-                            breakdown: items
-                        };
-                    } else if (cardType === 'expense') {
-                        const items = this.transactions.filter(tx => tx.direction === 'expense' || (tx.entry_type && tx.entry_type.category === 'expense'));
-                        this.cardModalData = {
-                            title: 'Total Expense / P/L Chargeable',
-                            subtitle: 'Direct expenses, supplier bills, and operating costs recorded for this period.',
-                            value: this.currency(this.displayExpense()),
-                            tone: 'rose',
-                            description: `Total expenses for ${this.timeframe} view as of ${this.selectedDate}.`,
-                            rawBreakdown: items,
-                            breakdown: items
-                        };
-                    } else if (cardType === 'closing_balance' || cardType === 'net') {
-                        const net = this.displayClosingBalance();
-                        const staticItems = [
-                            { date: this.selectedDate, name: 'Gross Sales / Income', source: 'Total Inflow', amount: this.displaySales(), notes: 'Sales and income entries' },
-                            { date: this.selectedDate, name: 'Total Expense / Debit', source: 'Total Outflow', amount: this.displayExpense(), notes: 'Operating & bill expenses' },
-                        ];
-                        this.cardModalData = {
-                            title: 'Closing Balance / Net Position',
-                            subtitle: 'Net position calculated as (Total Sales − Total Expenses).',
-                            value: this.currency(net),
-                            tone: net >= 0 ? 'emerald' : 'rose',
-                            description: `Net summary position for ${this.timeframe} view.`,
-                            staticBreakdown: staticItems,
-                            breakdown: staticItems
-                        };
-                    } else if (cardType === 'petty') {
-                        this.cardModalData = {
-                            title: 'Closing Petty Float',
-                            subtitle: 'Cash float held at shop for petty expenses.',
-                            value: this.currency(this.snapshot?.closing_petty || 0),
-                            tone: 'emerald',
-                            description: `Opening: ${this.currency(this.snapshot?.opening_petty || 0)} | In: ${this.currency(this.snapshot?.petty_in || 0)} | Out: ${this.currency(this.snapshot?.petty_out || 0)}`,
-                            breakdown: []
-                        };
-                    } else if (cardType === 'shop_position') {
-                        const pos = this.displayClosingBalance();
-                        this.cardModalData = {
-                            title: 'Shop Position (Company Payable)',
-                            subtitle: 'Net accumulated shop balance payable to company.',
-                            value: this.currency(pos),
-                            tone: pos >= 0 ? 'emerald' : 'rose',
-                            description: `Net balance generated by shop sales and expenses.`,
-                            breakdown: []
-                        };
-                    } else if (cardType === 'company_payable') {
-                        const rows = this.payableTransactions();
-                        const total = this.payableTotal();
-                        this.cardModalData = {
-                            title: 'Payable to Company',
-                            subtitle: 'Only the rows enabled in shop settings are counted.',
-                            value: this.currency(total),
-                            tone: 'cyan',
-                            description: `Configured payable rows for ${this.selectedDate}.`,
-                            rawBreakdown: rows,
-                            breakdown: rows
-                        };
-                    } else if (cardType === 'company_pending') {
-                        const ledger = this.companyPayablesLedger();
-                        const finalBalance = this.companyPayablesFinalBalance();
-                        const totalOut = this.companyPayablesTotalOut();
-                        const totalIn = this.companyPayablesTotalIn();
-                        const val = (finalBalance !== 0 || ledger.length > 0) ? finalBalance : (parseFloat(this.snapshot?.closing_company_pending || 0));
-
-                        const breakdownItems = [];
-                        ledger.forEach(group => {
-                            group.items.forEach(item => {
-                                breakdownItems.push({
-                                    date: item.business_date,
-                                    entry_type_name: item.type_name,
-                                    amount: item.amount,
-                                    is_out: item.is_out,
-                                    status: item.company_payable_status ? item.company_payable_status.replace('_', ' ') : null,
-                                    notes: item.notes || (item.is_out ? 'Expense Owed by Company' : 'Reimbursement Paid'),
-                                });
-                            });
-                        });
-
-                        this.cardModalData = {
-                            title: 'Company Pending Reimbursements',
-                            subtitle: 'Vehicle expenses, company-funded claims, and reimbursements.',
-                            value: this.currency(val),
-                            tone: val >= 0 ? 'emerald' : 'rose',
-                            description: `Total Out: ${this.currency(totalOut)} | Total In: ${this.currency(totalIn)}`,
-                            rawBreakdown: breakdownItems,
-                            breakdown: breakdownItems
-                        };
-                    } else if (cardType === 'month_sales') {
-                        this.cardModalData = {
-                            title: 'Month Gross Sales',
-                            subtitle: 'Accumulated gross sales for the current month.',
-                            value: this.currency(this.reporting.sales),
-                            tone: 'emerald',
-                            description: `Monthly total sales accumulated from daily receipts.`,
-                            breakdown: []
-                        };
-                    } else if (cardType === 'month_net') {
-                        this.cardModalData = {
-                            title: 'Month Net Position',
-                            subtitle: 'Monthly net result (Month Sales − Month Expenses).',
-                            value: this.currency(this.reporting.net),
-                            tone: this.reporting.net >= 0 ? 'emerald' : 'rose',
-                            description: `Monthly net position snapshot.`,
-                            breakdown: []
-                        };
-                    }
-
-                    this.openCardModal = true;
-                },
-
-                getModalBreakdown() {
-                    if (this.cardModalData.staticBreakdown) {
-                        return this.cardModalData.staticBreakdown;
-                    }
-                    const list = this.cardModalData.rawBreakdown || [];
-                    if (this.showTotalsOnly) {
-                        const grouped = {};
-                        list.forEach(tx => {
-                            const entryTypeName = tx.entry_type ? tx.entry_type.name : (tx.entry_type_code || 'Other');
-                            const source = tx.funding_source || 'default';
-                            const key = entryTypeName + '||' + source + '||' + (tx.direction || 'expense');
-                            if (!grouped[key]) {
-                                grouped[key] = {
-                                    min_date: tx.business_date,
-                                    max_date: tx.business_date,
-                                    name: entryTypeName,
-                                    source: source,
-                                    amount: 0,
-                                    notes: 'Grouped totals'
-                                };
-                            }
-                            grouped[key].amount += parseFloat(tx.amount) || 0;
-                            if (tx.business_date < grouped[key].min_date) grouped[key].min_date = tx.business_date;
-                            if (tx.business_date > grouped[key].max_date) grouped[key].max_date = tx.business_date;
-                        });
-                        return Object.values(grouped).map(g => {
-                            let dateStr = g.min_date;
-                            if (g.min_date !== g.max_date) {
-                                dateStr = `${g.min_date} to ${g.max_date}`;
-                            }
-                            return {
-                                date: dateStr,
-                                name: g.name,
-                                source: g.source,
-                                amount: g.amount,
-                                notes: g.notes
-                            };
-                        });
-                    }
-                    return list.map(tx => ({
-                        date: tx.business_date,
-                        name: tx.entry_type ? tx.entry_type.name : tx.entry_type_code,
-                        source: tx.funding_source || 'default',
-                        amount: tx.amount,
-                        notes: tx.notes || '-'
-                    }));
-                },
-
-                entryTypeName(tx) {
-                    if (!tx) return '-';
-                    if (tx.entry_type && tx.entry_type.name) {
-                        return tx.entry_type.name;
-                    }
-                    const code = tx.entry_type_code || (tx.entry_type ? tx.entry_type.code : null);
-                    if (code) {
-                        const found = (this.entryTypes || []).find((row) => row.code === code);
-                        if (found && found.name) {
-                            return found.name;
-                        }
-                        return code.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-                    }
-                    return '-';
-                },
-
-                selectedEntryTypeName() {
-                    const entry = this.entryTypes.find((row) => row.code === this.form.entry_type_code);
-                    return entry ? entry.name : '';
-                },
-
-                fundingSourceLabel(value) {
-                    const found = this.fundingOptions.find((opt) => opt.value === value);
-                    return found ? found.label : 'Default';
-                },
-
-                filteredEntryTypes() {
-                    return this.entryTypes.filter((entryType) => entryType.category === this.form.entry_category);
-                },
-
-                availableCategories() {
-                    return [...new Set(this.entryTypes.map((entryType) => entryType.category).filter(Boolean))];
-                },
-
-                ensureValidEntrySelection() {
-                    const categories = this.availableCategories();
-                    if (!categories.length) {
-                        this.form.entry_category = '';
-                        this.form.entry_type_code = '';
-                        return;
-                    }
-
-                    if (!categories.includes(this.form.entry_category)) {
-                        this.form.entry_category = categories[0];
-                    }
-
-                    this.onEntryCategoryChange();
-                },
-
-                onEntryCategoryChange() {
-                    const options = this.filteredEntryTypes();
-                    if (!options.length) {
-                        this.form.entry_type_code = '';
-                        return;
-                    }
-
-                    if (!options.some((option) => option.code === this.form.entry_type_code)) {
-                        this.form.entry_type_code = options[0].code;
-                    }
-                },
-
-                onEntryTypeChange() {
-                    const entry = this.entryTypes.find((row) => row.code === this.form.entry_type_code);
-                    if (entry && entry.category) {
-                        this.form.entry_category = entry.category;
-                    }
-                },
-
-                selectDefaultCollectionGroup() {
-                    if (!this.form.collection_group_id && this.collectionGroups.length > 0) {
-                        this.form.collection_group_id = this.collectionGroups[0].id;
-                    }
-                    this.resetCollectionAmounts();
-                },
-
-                selectedCollectionGroup() {
-                    return this.collectionGroups.find((group) => Number(group.id) === Number(this.form.collection_group_id)) || null;
-                },
-
-                selectedCollectionLines() {
-                    return this.selectedCollectionGroup()?.entry_types || [];
-                },
-
-                resetCollectionAmounts() {
-                    const amounts = {};
-                    this.selectedCollectionLines().forEach((line) => {
-                        amounts[line.entry_type_id] = this.form.collection_amounts[line.entry_type_id] || '';
-                    });
-                    this.form.collection_amounts = amounts;
-                },
-
-                collectionNet() {
-                    return this.selectedCollectionLines().reduce((sum, line) => {
-                        const amount = parseFloat(this.form.collection_amounts[line.entry_type_id] || 0);
-                        return line.role === 'income' ? sum + amount : sum - amount;
-                    }, 0);
-                },
-
-                showCollectionDetails(group) {
-                    this.cardModalData = {
-                        title: group.name,
-                        subtitle: 'Collection income, debit lines, and net amount.',
-                        value: this.currency(group.net),
-                        tone: group.net >= 0 ? 'emerald' : 'rose',
-                        description: `Income ${this.currency(group.income)} - expense ${this.currency(group.expense)}`,
-                        isCollection: true,
-                        reference_id: group.reference_id,
-                        breakdown: (group.lines || []).map((tx) => ({
-                            date: tx.business_date,
-                            name: tx.entry_type ? tx.entry_type.name : tx.entry_type_id,
-                            source: tx.direction,
-                            amount: tx.direction === 'expense' ? -Math.abs(parseFloat(tx.amount || 0)) : tx.amount,
-                            notes: tx.notes || '-',
-                            tx: tx,
-                        })),
-                    };
-                    this.openCardModal = true;
-                },
-
-                async reloadPage(fullPage = false) {
-                    if (fullPage) {
-                        window.location.reload();
-                        return;
-                    }
-                    this.loading = true;
-                    try {
-                        await this.loadData();
-                    } finally {
-                        setTimeout(() => { this.loading = false; }, 300);
-                    }
-                },
-
-                setPreset(preset) {
-                    this.activePreset = preset;
-                    const todayStr = '{{ today()->toDateString() }}';
-                    const yesterdayStr = '{{ today()->subDay()->toDateString() }}';
-
-                    if (preset === 'today') {
-                        this.selectedDate = todayStr;
-                        this.startDate = todayStr;
-                        this.endDate = todayStr;
-                        this.form.business_date = todayStr;
-                        this.timeframe = 'daily';
-                    } else if (preset === 'yesterday') {
-                        this.selectedDate = yesterdayStr;
-                        this.startDate = yesterdayStr;
-                        this.endDate = yesterdayStr;
-                        this.form.business_date = yesterdayStr;
-                        this.timeframe = 'daily';
-                    } else if (preset === 'weekly') {
-                        this.selectedDate = todayStr;
-                        this.form.business_date = todayStr;
-                        this.timeframe = 'weekly';
-                    } else if (preset === 'monthly') {
-                        this.selectedDate = todayStr;
-                        this.form.business_date = todayStr;
-                        this.timeframe = 'monthly';
-                    } else if (preset === 'custom') {
-                        this.timeframe = 'custom';
-                        if (!this.startDate) this.startDate = todayStr;
-                        if (!this.endDate) this.endDate = todayStr;
-                        this.form.business_date = this.startDate;
-                        return;
-                    }
-                    this.loadData();
-                },
-
-                timeframeLabel() {
-                    if (this.timeframe === 'custom') {
-                        return (this.startDate || '') + ' to ' + (this.endDate || '');
-                    }
-                    return this.timeframe;
-                },
-
-                async loadData() {
-                    try {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set('date', this.selectedDate);
-                        url.searchParams.set('tab', this.activeTab);
-                        url.searchParams.set('timeframe', this.timeframe);
-                        if (this.startDate) url.searchParams.set('start_date', this.startDate);
-                        if (this.endDate) url.searchParams.set('end_date', this.endDate);
-                        window.history.replaceState({}, '', url);
-                    } catch (e) {}
-
-                    const params = new URLSearchParams({
-                        business_date: this.selectedDate,
-                        timeframe: this.timeframe,
-                        start_date: this.startDate || '',
-                        end_date: this.endDate || '',
-                    });
-
-                    const response = await fetch(`{{ route('shop-owner.cashbook.api.shop-data') }}?${params.toString()}`);
-                    const payload = await response.json();
-
-                    if (!payload.success) {
-                        return;
-                    }
-
-                    this.transactions = payload.transactions || [];
-                    this.companyPendingEntries = payload.company_pending_entries || [];
-                    this.entryTypes = (payload.settings || [])
-                        .map((setting) => setting.entry_type)
-                        .filter(Boolean);
-                    this.ensureValidEntrySelection();
-                    this.collectionGroups = payload.collection_groups || this.collectionGroups;
-                    this.collectionSummaries = payload.collection_summaries || [];
-                    this.snapshot = payload.snapshot || this.snapshot;
-
-                    const monthRows = payload.month_transactions || [];
-                    this.reporting.sales = monthRows
-                        .filter((row) => row.direction === 'income')
-                        .reduce((sum, row) => sum + parseFloat(row.amount || 0), 0);
-                    this.reporting.expense = monthRows
-                        .filter((row) => row.direction === 'expense')
-                        .reduce((sum, row) => sum + parseFloat(row.amount || 0), 0);
-                    this.reporting.net = this.reporting.sales - this.reporting.expense;
-                },
-
-                async submitEntry() {
-                    if (this.entryMode === 'normal') {
-                        if (!this.form.entry_type_code) {
-                            alert('Please select an entry type. If no entry types are available, contact admin.');
-                            return;
-                        }
-                        if (!this.form.amount || parseFloat(this.form.amount) <= 0) {
-                            alert('Please enter a valid amount greater than 0.');
-                            return;
-                        }
-                    }
-
-                    this.submitting = true;
-
-                    try {
-                        const url = this.editingTxId
-                            ? '{{ route('shop-owner.cashbook.api.update-entry') }}'
-                            : '{{ route('shop-owner.cashbook.api.record-entry') }}';
-                        const body = this.editingTxId
-                            ? {
-                                transaction_id: this.editingTxId,
-                                amount: this.form.amount,
-                                funding_source: this.form.funding_source,
-                                notes: this.form.notes,
-                            }
-                            : this.entryMode === 'collection'
-                                ? {
-                                    business_date: this.form.business_date,
-                                    collection_group_id: this.form.collection_group_id,
-                                    collection_lines: this.selectedCollectionLines().map((line) => ({
-                                        entry_type_id: line.entry_type_id,
-                                        amount: this.form.collection_amounts[line.entry_type_id] || 0,
-                                    })),
-                                    notes: this.form.notes,
-                                }
-                                : {
-                                    business_date: this.form.business_date,
-                                    entry_type_code: this.form.entry_type_code,
-                                    amount: this.form.amount,
-                                    funding_source: this.form.funding_source,
-                                    notes: this.form.notes,
-                                };
-
-                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-                        const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
-
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Accept': 'application/json',
-                                'X-CSRF-TOKEN': csrfToken,
-                            },
-                            body: JSON.stringify(body),
-                        });
-
-                        let payload;
-                        try {
-                            payload = await response.json();
-                        } catch (e) {
-                            alert('Server returned an invalid response (HTTP ' + response.status + '). Please reload the page.');
-                            return;
-                        }
-
-                        if (!response.ok || !payload.success) {
-                            let errorMsg = payload.message || 'Unable to save entry.';
-                            if (payload.errors) {
-                                const errorList = Object.values(payload.errors).flat().join('\n');
-                                if (errorList && errorList !== errorMsg) errorMsg += '\n' + errorList;
-                            }
-                            alert(errorMsg);
-                            return;
-                        }
-
-                        const targetDate = this.form.business_date || this.selectedDate;
-                        this.closeCreateModal();
-                        this.selectedDate = targetDate;
-                        this.startDate = targetDate;
-                        this.endDate = targetDate;
-                        this.form.business_date = targetDate;
-                        await this.loadData();
-                    } catch (err) {
-                        alert('Network or system error occurred: ' + (err.message || 'Please try again.'));
-                    } finally {
-                        this.submitting = false;
-                    }
-                },
-
-                async deleteEntry(tx) {
-                    this.openDelete(tx);
-                },
-
-                async submitDelete() {
-                    if (!this.deletingTx) {
-                        return;
-                    }
-
-                    this.submitting = true;
-                    try {
-                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-                        const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
-
-                        const response = await fetch('{{ route('shop-owner.cashbook.api.delete-entry') }}', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Accept': 'application/json',
-                                'X-CSRF-TOKEN': csrfToken,
-                            },
-                            body: JSON.stringify({ transaction_id: this.deletingTx.id }),
-                        });
-
-                        let payload;
-                        try {
-                            payload = await response.json();
-                        } catch (e) {
-                            alert('Server returned an invalid response (HTTP ' + response.status + '). Please reload the page.');
-                            return;
-                        }
-
-                        if (!response.ok || !payload.success) {
-                            alert(payload.message || 'Unable to delete entry.');
-                            return;
-                        }
-
-                        this.openDetailsModal = false;
-                        this.openDeleteModal = false;
-                        this.deletingTx = null;
-                        await this.loadData();
-                    } catch (err) {
-                        alert('Network error: ' + (err.message || 'Please try again.'));
-                    } finally {
-                        this.submitting = false;
-                    }
-                },
-
-                async submitDeleteCollection(referenceId) {
-                    if (!confirm('Are you sure you want to remove this collection and all its lines?')) {
-                        return;
-                    }
-
-                    this.submitting = true;
-                    try {
-                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-                        const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
-
-                        const response = await fetch('{{ route('shop-owner.cashbook.api.delete-collection') }}', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Accept': 'application/json',
-                                'X-CSRF-TOKEN': csrfToken,
-                            },
-                            body: JSON.stringify({ reference_id: referenceId }),
-                        });
-
-                        let payload;
-                        try {
-                            payload = await response.json();
-                        } catch (e) {
-                            alert('Server returned an invalid response (HTTP ' + response.status + '). Please reload the page.');
-                            return;
-                        }
-
-                        if (!response.ok || !payload.success) {
-                            alert(payload.message || 'Unable to delete collection.');
-                            return;
-                        }
-
-                        this.openCardModal = false;
-                        await this.loadData();
-                    } catch (err) {
-                        alert('Network error: ' + (err.message || 'Please try again.'));
-                    } finally {
-                        this.submitting = false;
-                    }
-                },
-
-                async openCopyYesterday() {
-                    this.copyError = '';
-                    this.copyLoading = true;
-                    try {
-                        const curDate = new Date(this.selectedDate || '{{ $selectedDate->toDateString() }}');
-                        curDate.setDate(curDate.getDate() - 1);
-                        const yDate = curDate.toISOString().split('T')[0];
-                        this.yesterdayDateLabel = yDate;
-
-                        const params = new URLSearchParams({
-                            business_date: yDate,
-                            timeframe: 'daily',
-                        });
-
-                        const response = await fetch(`{{ route('shop-owner.cashbook.api.shop-data') }}?${params.toString()}`);
-                        const payload = await response.json();
-
-                        if (!payload.success) {
-                            this.copyError = payload.message || 'Unable to fetch yesterday\'s entries.';
-                            this.showCopyYesterday = true;
-                            this.copyRows = [];
-                            return;
-                        }
-
-                        const rawTxs = payload.transactions || [];
-                        const filtered = rawTxs.filter((tx) => {
-                            if (tx.reference_type === 'App\\Models\\ShopInvoice' || tx.reference_type === 'ShopInvoice') {
-                                return false;
-                            }
-                            const code = tx.entry_type_code || tx.entry_type?.code;
-                            if (['gl_bill', 'purchase_bill'].includes(code)) {
-                                return false;
-                            }
-                            return true;
-                        });
-
-                        if (filtered.length === 0) {
-                            this.copyError = `No eligible entries found from yesterday (${yDate}).`;
-                            this.showCopyYesterday = true;
-                            this.copyRows = [];
-                            return;
-                        }
-
-                        this.copyRows = filtered.map((tx) => {
-                            const val = parseFloat(tx.amount || 0);
-                            return {
-                                entry_type_code: tx.entry_type_code || tx.entry_type?.code || '',
-                                name: this.entryTypeName(tx),
-                                amount: val > 0 ? (val % 1 === 0 ? val.toFixed(0) : val.toString()) : '',
-                                funding_source: tx.funding_source || 'none',
-                                direction: tx.direction || tx.entry_type?.category || 'expense',
-                                notes: '',
-                            };
-                        });
-
-                        this.showCopyYesterday = true;
-                    } catch (err) {
-                        this.copyError = 'Failed to load yesterday\'s data: ' + (err.message || 'Please try again.');
-                        this.showCopyYesterday = true;
-                    } finally {
-                        this.copyLoading = false;
-                    }
-                },
-
-                clearCopyRows() {
-                    (this.copyRows || []).forEach((row) => {
-                        row.amount = '';
-                    });
-                },
-
-                async saveCopyRows() {
-                    if (!this.copyRows.length) {
-                        this.copyError = 'No entries to save.';
-                        return;
-                    }
-
-                    const invalid = this.copyRows.some((r) => !r.amount || parseFloat(r.amount) <= 0);
-                    if (invalid) {
-                        this.copyError = 'All entries must have a valid amount greater than 0.';
-                        return;
-                    }
-
-                    this.copySaving = true;
-                    this.copyError = '';
-
-                    try {
-                        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-                        const csrfToken = csrfMeta ? csrfMeta.content : '{{ csrf_token() }}';
-
-                        const body = {
-                            business_date: this.selectedDate || '{{ $selectedDate->toDateString() }}',
-                            entries: this.copyRows.map((r) => ({
-                                entry_type_code: r.entry_type_code,
-                                amount: parseFloat(r.amount),
-                                funding_source: r.funding_source || 'none',
-                                notes: r.notes || null,
-                            })),
-                        };
-
-                        const response = await fetch('{{ route('shop-owner.cashbook.api.bulk-record-entries') }}', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Accept': 'application/json',
-                                'X-CSRF-TOKEN': csrfToken,
-                            },
-                            body: JSON.stringify(body),
-                        });
-
-                        let payload;
-                        try {
-                            payload = await response.json();
-                        } catch (e) {
-                            this.copyError = 'Server returned an invalid response (HTTP ' + response.status + ').';
-                            return;
-                        }
-
-                        if (!response.ok || !payload.success) {
-                            this.copyError = payload.message || 'Unable to save entries.';
-                            return;
-                        }
-
-                        this.showCopyYesterday = false;
-                        this.copyRows = [];
-                        await this.loadData();
-                    } catch (err) {
-                        this.copyError = 'Network error: ' + (err.message || 'Please try again.');
-                    } finally {
-                        this.copySaving = false;
-                    }
-                },
-
-                currency(value) {
-                    const num = Number(value || 0);
-                    const formatted = num % 1 === 0 ? num.toFixed(0) : num.toFixed(2);
-                    return `Rs. ${formatted}`;
-                },
-            };
+</div>
+
+
+
+{{-- IN HEADERS BOTTOM SHEET / MODAL --}}
+<div id="in-header-modal" onclick="handleModalBackdropClick(event, 'in-header-modal')" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-xs hidden transition-opacity">
+    <div onclick="event.stopPropagation()" class="w-full max-w-lg rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl space-y-3 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-3">
+            <div class="min-w-0 flex-1">
+                <h3 class="text-xs sm:text-sm font-black uppercase text-slate-900 flex items-center gap-1.5 truncate">
+                    <i data-lucide="arrow-down-circle" class="h-4 w-4 text-emerald-600 shrink-0"></i>
+                    <span>ADD INCOME</span>
+                </h3>
+                <p class="text-[10px] sm:text-[11px] font-bold text-slate-400">Choose what you want to record</p>
+            </div>
+            <button type="button" aria-label="Close" onclick="closeInHeaderModal()"
+                    class="h-11 w-11 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition cursor-pointer shrink-0 shadow-2xs">
+                <i data-lucide="x" class="h-5 w-5"></i>
+            </button>
+        </div>
+
+        <div class="space-y-1.5 divide-y divide-slate-100">
+            @forelse($incomeHeaders as $hSec)
+                <div onclick='selectHeaderForEntry(@json($hSec["id"]))'
+                     class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition cursor-pointer group">
+                    <div>
+                        <div class="text-xs sm:text-sm font-black text-slate-900 group-hover:text-emerald-700 transition">
+                            {{ $hSec['name'] }}
+                        </div>
+                        <div class="text-[10px] font-semibold text-slate-400" id="in-modal-sub-{{ $hSec['id'] }}">
+                            {{ count($hSec['settings']) }} categories
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono text-xs sm:text-sm font-black text-slate-900" id="in-modal-total-{{ $hSec['id'] }}">
+                            ₹0.00
+                        </span>
+                        <i data-lucide="chevron-right" class="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition"></i>
+                    </div>
+                </div>
+            @empty
+                <div class="p-4 text-center text-xs font-bold text-slate-400">
+                    No income headers configured.
+                </div>
+            @endforelse
+        </div>
+    </div>
+</div>
+
+{{-- OUT HEADERS BOTTOM SHEET / MODAL --}}
+<div id="out-header-modal" onclick="handleModalBackdropClick(event, 'out-header-modal')" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-xs hidden transition-opacity">
+    <div onclick="event.stopPropagation()" class="w-full max-w-lg rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl space-y-3 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-3">
+            <div class="min-w-0 flex-1">
+                <h3 class="text-xs sm:text-sm font-black uppercase text-slate-900 flex items-center gap-1.5 truncate">
+                    <i data-lucide="arrow-up-circle" class="h-4 w-4 text-rose-600 shrink-0"></i>
+                    <span>ADD EXPENSE</span>
+                </h3>
+                <p class="text-[10px] sm:text-[11px] font-bold text-slate-400">Choose what you want to record</p>
+            </div>
+            <button type="button" aria-label="Close" onclick="closeOutHeaderModal()"
+                    class="h-11 w-11 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition cursor-pointer shrink-0 shadow-2xs">
+                <i data-lucide="x" class="h-5 w-5"></i>
+            </button>
+        </div>
+
+        <div class="space-y-1.5 divide-y divide-slate-100">
+            @forelse($expenseHeaders as $hSec)
+                <div onclick='selectHeaderForEntry(@json($hSec["id"]))'
+                     class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition cursor-pointer group">
+                    <div>
+                        <div class="text-xs sm:text-sm font-black text-slate-900 group-hover:text-rose-700 transition">
+                            {{ $hSec['name'] }}
+                        </div>
+                        <div class="text-[10px] font-semibold text-slate-400" id="out-modal-sub-{{ $hSec['id'] }}">
+                            @if(!empty($hSec['product_tagging_enabled']))
+                                Product Tagging Enabled
+                            @else
+                                {{ count($hSec['settings']) }} categories
+                            @endif
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono text-xs sm:text-sm font-black text-slate-900" id="out-modal-total-{{ $hSec['id'] }}">
+                            ₹0.00
+                        </span>
+                        <i data-lucide="chevron-right" class="h-4 w-4 text-slate-400 group-hover:text-slate-600 transition"></i>
+                    </div>
+                </div>
+            @empty
+                <div class="p-4 text-center text-xs font-bold text-slate-400">
+                    No expense headers configured.
+                </div>
+            @endforelse
+        </div>
+    </div>
+</div>
+
+{{-- DEDICATED HEADER ENTRY DRAWER / MODAL --}}
+<div id="header-entry-sheet" onclick="handleModalBackdropClick(event, 'header-entry-sheet')" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-xs hidden transition-opacity">
+    <div onclick="event.stopPropagation()" class="w-full max-w-lg rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl space-y-3 max-h-[90vh] flex flex-col">
+        {{-- Header Top Bar --}}
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-2 shrink-0">
+            <div class="flex items-center gap-2 min-w-0 flex-1">
+                <button type="button" aria-label="Back" onclick="closeHeaderEntrySheet()"
+                        class="h-11 w-11 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition cursor-pointer shrink-0 sm:hidden">
+                    <i data-lucide="arrow-left" class="h-5 w-5"></i>
+                </button>
+                <h3 class="text-xs sm:text-sm font-black uppercase text-slate-900 truncate" id="entry-sheet-title">
+                    HEADER TITLE
+                </h3>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <span class="font-mono text-xs sm:text-sm font-black text-slate-950 px-2.5 py-1.5 bg-slate-50 rounded-xl border border-slate-200/80" id="entry-sheet-subtotal">
+                    ₹0.00
+                </span>
+                <button type="button" aria-label="Close" onclick="closeHeaderEntrySheet()"
+                        class="h-11 w-11 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition cursor-pointer shrink-0 shadow-2xs">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+        </div>
+
+        {{-- Entry Form Scrollable Body --}}
+        <div class="space-y-3 overflow-y-auto flex-1 pr-0.5 py-1" id="entry-sheet-body">
+            @foreach($ownerHeaderSections as $hSec)
+                <div id="header-form-section-{{ $hSec['id'] }}" class="space-y-2 divide-y divide-slate-100 hidden">
+                    @foreach($hSec['settings'] as $s)
+                        @php
+                            $cat = strtolower((string) ($s->entryType?->category ?? ''));
+                            $isIncome = $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+                            $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
+                            $destLabel = $resolver->resolveDestinationLabel($s);
+                            $requiresNote = (bool) ($s->requires_note ?? false);
+                            $noteEnabled = $resolver->resolveNoteEnabled($s);
+                            $showNote = $requiresNote || $noteEnabled;
+                            $rawName = $s->displayName();
+                            $displayName = $rawName;
+                            $displaySub = (strtolower($displayName) === 'cash' || strtolower($displayName) === 'cash sales') ? 'Remaining cash in shop' : $destLabel;
+                        @endphp
+
+                        <div class="pt-2 pb-1 space-y-1" data-entry-row="{{ $s->id }}">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="min-w-0 flex-1">
+                                    <span class="text-xs sm:text-sm font-bold text-slate-900 block truncate leading-tight">{{ $displayName }}</span>
+                                    <span class="text-[10px] sm:text-[11px] font-medium text-slate-400 block truncate leading-tight mt-0.5">{{ $displaySub }}</span>
+                                </div>
+
+                                {{-- Amount Input (16px font to avoid iOS zoom, min 44px touch height, ₹ prefix) --}}
+                                <div class="relative shrink-0 w-32 sm:w-36">
+                                    <span class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400 font-bold text-xs">₹</span>
+                                    <input type="number"
+                                           inputmode="decimal"
+                                           min="0"
+                                           step="0.01"
+                                           id="input-s-{{ $s->id }}"
+                                           data-setting-id="{{ $s->id }}"
+                                           oninput="onOwnerInputChange(this)"
+                                           onblur="formatInputOnBlur(this)"
+                                           placeholder="0.00"
+                                           class="h-10 sm:h-11 w-full rounded-lg border border-slate-200 bg-white pl-6 pr-2.5 text-right text-base font-black font-mono text-slate-950 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 focus:outline-none shadow-2xs">
+                                </div>
+                            </div>
+
+                            {{-- Optional or Required Note --}}
+                            @if($showNote)
+                                <div class="pt-0.5">
+                                    @if($requiresNote)
+                                        <div class="mt-1">
+                                            <input type="text"
+                                                   id="input-note-{{ $s->id }}"
+                                                   data-setting-id="{{ $s->id }}"
+                                                   oninput="onOwnerNoteInputChange(this, {{ $s->id }})"
+                                                   placeholder="Note (Required for this entry)..."
+                                                   class="h-8 w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none">
+                                            <span id="note-error-{{ $s->id }}" class="text-[10px] font-bold text-rose-600 hidden mt-0.5 block">Note required for this entry</span>
+                                        </div>
+                                    @else
+                                        <div id="note-wrapper-{{ $s->id }}" class="hidden mt-1">
+                                            <input type="text"
+                                                   id="input-note-{{ $s->id }}"
+                                                   data-setting-id="{{ $s->id }}"
+                                                   oninput="onOwnerNoteInputChange(this, {{ $s->id }})"
+                                                   placeholder="Add optional note..."
+                                                   class="h-8 w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none">
+                                        </div>
+                                        <button type="button"
+                                                onclick="toggleNoteInput({{ $s->id }})"
+                                                id="note-toggle-btn-{{ $s->id }}"
+                                                class="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-0.5 cursor-pointer">
+                                            <i data-lucide="plus" class="h-2.5 w-2.5"></i> Add Note
+                                        </button>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
+
+                    {{-- Product Tagged Rows (If enabled for this Header) --}}
+                    @if(!empty($hSec['product_tagging_enabled']))
+                        <div class="pt-3 border-t border-slate-100 space-y-2">
+                            <div class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Product Items</div>
+                            <div id="product-rows-container-{{ $hSec['id'] }}" class="space-y-1 divide-y divide-slate-100">
+                                <!-- Dynamic product rows rendered by JS -->
+                            </div>
+                            <button type="button" onclick='openOwnerProductModal(@json($hSec["id"]), @json($hSec["name"]))'
+                                    class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer">
+                                <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Product
+                            </button>
+                        </div>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+
+        {{-- Footer Save Button --}}
+        <div class="pt-3 border-t border-slate-100 shrink-0">
+            <button type="button"
+                    id="save-active-header-btn"
+                    onclick="saveActiveHeaderEntries()"
+                    class="w-full flex h-11 sm:h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white font-black text-sm sm:text-base hover:bg-emerald-700 active:scale-[0.98] transition shadow-md cursor-pointer">
+                <i data-lucide="check-circle" class="h-4 w-4"></i>
+                <span id="save-active-header-text">Save Header</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+{{-- DELIVERIES-STYLE PRODUCT SELECTION MODAL --}}
+<div id="owner-product-modal" onclick="handleModalBackdropClick(event, 'owner-product-modal')" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-3 sm:p-4 hidden transition-opacity">
+    <div onclick="event.stopPropagation()" class="w-full max-w-lg rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-3">
+            <h3 class="text-xs sm:text-sm font-black uppercase text-slate-900 flex items-center gap-1.5 min-w-0 flex-1 truncate" id="owner-product-modal-title">
+                <i data-lucide="tag" class="h-4 w-4 text-emerald-600 shrink-0"></i>
+                <span class="truncate">Select Product</span>
+            </h3>
+            <button type="button" aria-label="Close" onclick="closeOwnerProductModal()"
+                    class="h-11 w-11 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition cursor-pointer shrink-0 shadow-2xs">
+                <i data-lucide="x" class="h-5 w-5"></i>
+            </button>
+        </div>
+
+        <div class="space-y-2.5">
+            <input type="text" id="owner-product-search-input" oninput="onOwnerProductSearchInput()" placeholder="Search products by name or SKU..."
+                   class="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none shadow-2xs">
+
+            <div id="owner-product-list" class="max-h-60 overflow-y-auto space-y-1.5 divide-y divide-slate-100">
+                <div class="p-6 text-center text-xs font-bold text-slate-400">Search products...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let activeDayData = {};
+
+    const settings = @json($settingsJson);
+    const accounts = @json($accountsJson);
+    const relations = @json($relationJson);
+    const headers = @json($headersJson);
+    const initialTxAmounts = @json($initialTxAmounts);
+    const initialTxNotes = @json($initialTxNotes);
+    const shopName = @json($shop->name);
+
+    let isSubmitting = false;
+    let activeHeaderId = null;
+    let activeProductHeaderId = null;
+    let productQuery = '';
+    let productSearchDebounceTimer = null;
+    let productRowsState = {};
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Populate initial amounts and notes from existing transactions
+        settings.forEach(s => {
+            if (initialTxAmounts[s.id] !== undefined) {
+                activeDayData[s.id] = initialTxAmounts[s.id];
+                const inputEl = document.getElementById('input-s-' + s.id);
+                if (inputEl) inputEl.value = initialTxAmounts[s.id] > 0 ? initialTxAmounts[s.id] : '';
+            }
+            if (initialTxNotes[s.id] !== undefined) {
+                activeDayData.notes = activeDayData.notes || {};
+                activeDayData.notes[s.id] = initialTxNotes[s.id];
+                const noteEl = document.getElementById('input-note-' + s.id);
+                if (noteEl) {
+                    noteEl.value = initialTxNotes[s.id];
+                    const wrapper = document.getElementById('note-wrapper-' + s.id);
+                    if (wrapper) wrapper.classList.remove('hidden');
+                }
+            }
+        });
+
+        recalculateOwnerCashbook();
+        if (window.lucide) lucide.createIcons();
+    });
+
+    // NAVIGATION / VIEW TOGGLES
+    function showReportView() {
+        document.getElementById('cashbook-dashboard-view').classList.add('hidden');
+        document.getElementById('cashbook-report-view').classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function hideReportView() {
+        document.getElementById('cashbook-report-view').classList.add('hidden');
+        document.getElementById('cashbook-dashboard-view').classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+    }
+
+    // SYNC MODAL OPEN STATE FOR FLOATING CONTROLS
+    function syncModalOpenState() {
+        const inModal = document.getElementById('in-header-modal');
+        const outModal = document.getElementById('out-header-modal');
+        const entrySheet = document.getElementById('header-entry-sheet');
+        const productModal = document.getElementById('owner-product-modal');
+
+        const hasOpenModal = (inModal && !inModal.classList.contains('hidden')) ||
+                             (outModal && !outModal.classList.contains('hidden')) ||
+                             (entrySheet && !entrySheet.classList.contains('hidden')) ||
+                             (productModal && !productModal.classList.contains('hidden'));
+
+        const jumpControls = document.getElementById('page-jump-controls');
+        if (hasOpenModal) {
+            document.body.classList.add('cashbook-modal-open');
+            if (jumpControls) jumpControls.style.setProperty('display', 'none', 'important');
+        } else {
+            document.body.classList.remove('cashbook-modal-open');
+            if (jumpControls) jumpControls.style.removeProperty('display');
         }
-    </script>
-@endpush
+    }
+
+    // MODAL BACKDROP & ESCAPE HANDLERS
+    function handleModalBackdropClick(event, modalId) {
+        if (event.target && event.target.id === modalId) {
+            if (modalId === 'in-header-modal') {
+                closeInHeaderModal();
+            } else if (modalId === 'out-header-modal') {
+                closeOutHeaderModal();
+            } else if (modalId === 'header-entry-sheet') {
+                closeHeaderEntrySheet();
+            } else if (modalId === 'owner-product-modal') {
+                closeOwnerProductModal();
+            }
+        }
+    }
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            const productModal = document.getElementById('owner-product-modal');
+            const entrySheet = document.getElementById('header-entry-sheet');
+            const inModal = document.getElementById('in-header-modal');
+            const outModal = document.getElementById('out-header-modal');
+
+            if (productModal && !productModal.classList.contains('hidden')) {
+                closeOwnerProductModal();
+            } else if (entrySheet && !entrySheet.classList.contains('hidden')) {
+                closeHeaderEntrySheet();
+            } else if (inModal && !inModal.classList.contains('hidden')) {
+                closeInHeaderModal();
+            } else if (outModal && !outModal.classList.contains('hidden')) {
+                closeOutHeaderModal();
+            }
+        }
+    });
+
+    // IN / OUT MODALS
+    function openInHeaderModal() {
+        document.getElementById('in-header-modal').classList.remove('hidden');
+        syncModalOpenState();
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function closeInHeaderModal() {
+        document.getElementById('in-header-modal').classList.add('hidden');
+        syncModalOpenState();
+    }
+
+    function openOutHeaderModal() {
+        document.getElementById('out-header-modal').classList.remove('hidden');
+        syncModalOpenState();
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function closeOutHeaderModal() {
+        document.getElementById('out-header-modal').classList.add('hidden');
+        syncModalOpenState();
+    }
+
+    // HEADER ENTRY SHEET
+    function selectHeaderForEntry(headerId) {
+        closeInHeaderModal();
+        closeOutHeaderModal();
+
+        activeHeaderId = String(headerId);
+        const header = headers.find(h => String(h.id) === activeHeaderId);
+        if (!header) return;
+
+        // Hide all header form sections and show only the selected one
+        headers.forEach(h => {
+            const sec = document.getElementById('header-form-section-' + h.id);
+            if (sec) sec.classList.add('hidden');
+        });
+
+        const activeSec = document.getElementById('header-form-section-' + activeHeaderId);
+        if (activeSec) activeSec.classList.remove('hidden');
+
+        document.getElementById('entry-sheet-title').textContent = header.name;
+        document.getElementById('save-active-header-text').textContent = 'Save ' + header.name;
+
+        updateActiveHeaderSubtotal();
+        document.getElementById('header-entry-sheet').classList.remove('hidden');
+        syncModalOpenState();
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function closeHeaderEntrySheet() {
+        document.getElementById('header-entry-sheet').classList.add('hidden');
+        activeHeaderId = null;
+        syncModalOpenState();
+    }
+
+    function updateActiveHeaderSubtotal() {
+        if (!activeHeaderId) return;
+        const header = headers.find(h => String(h.id) === activeHeaderId);
+        if (!header) return;
+
+        let total = 0;
+        (header.setting_ids || []).forEach(sId => {
+            total += parseFloat(activeDayData[sId]) || 0;
+        });
+
+        const pRows = productRowsState[activeHeaderId] || [];
+        pRows.forEach(pr => {
+            total += parseFloat(pr.amount) || 0;
+        });
+
+        const subEl = document.getElementById('entry-sheet-subtotal');
+        if (subEl) subEl.textContent = formatCurrency(total);
+    }
+
+    function toggleNoteInput(settingId) {
+        const wrapper = document.getElementById('note-wrapper-' + settingId);
+        const btn = document.getElementById('note-toggle-btn-' + settingId);
+        if (!wrapper) return;
+
+        if (wrapper.classList.contains('hidden')) {
+            wrapper.classList.remove('hidden');
+            if (btn) btn.classList.add('hidden');
+            const input = document.getElementById('input-note-' + settingId);
+            if (input) input.focus();
+        }
+    }
+
+    function onOwnerInputChange(inputElement) {
+        const settingId = parseInt(inputElement.getAttribute('data-setting-id'));
+        let val = parseFloat(inputElement.value);
+        if (isNaN(val) || val < 0) val = 0;
+
+        activeDayData[settingId] = val;
+        updateActiveHeaderSubtotal();
+        recalculateOwnerCashbook();
+    }
+
+    function onOwnerNoteInputChange(inputElement, settingId) {
+        activeDayData.notes = activeDayData.notes || {};
+        activeDayData.notes[settingId] = inputElement.value;
+        validateOwnerNotes();
+    }
+
+    function validateOwnerNotes(targetSettingIds = null) {
+        let allValid = true;
+        const dayNotes = activeDayData.notes || {};
+
+        settings.forEach(s => {
+            if (targetSettingIds && !targetSettingIds.includes(s.id)) return;
+            if (!s.requires_note) return;
+
+            const amt = parseFloat(activeDayData[s.id]) || 0;
+            const noteVal = (dayNotes[s.id] || '').trim();
+
+            const inputEl = document.getElementById('input-note-' + s.id);
+            const errorEl = document.getElementById('note-error-' + s.id);
+
+            if (amt > 0 && noteVal.length === 0) {
+                allValid = false;
+                if (inputEl) {
+                    inputEl.classList.add('border-rose-500', 'bg-rose-50/20');
+                    inputEl.classList.remove('border-slate-200');
+                }
+                if (errorEl) errorEl.classList.remove('hidden');
+            } else {
+                if (inputEl) {
+                    inputEl.classList.remove('border-rose-500', 'bg-rose-50/20');
+                    inputEl.classList.add('border-slate-200');
+                }
+                if (errorEl) errorEl.classList.add('hidden');
+            }
+        });
+
+        return allValid;
+    }
+
+    function formatInputOnBlur(inputElement) {
+        let val = parseFloat(inputElement.value);
+        if (isNaN(val) || val <= 0) {
+            inputElement.value = '';
+        } else {
+            inputElement.value = val.toString();
+        }
+    }
+
+    // CORE RECALCULATION ENGINE
+    function recalculateOwnerCashbook() {
+        let totalIncome = 0;
+        let totalExpense = 0;
+        let cashCollectedAtShop = 0;
+        let expensesPaidFromShopCash = 0;
+        let expensesPaidFromPetty = 0;
+        let bankInflows = {};
+        let directCompanyTotal = 0;
+        let activeEntryCount = 0;
+
+        accounts.forEach(acc => bankInflows[acc.id] = 0);
+
+        const headerTotals = {};
+        const headerActiveCounts = {};
+
+        headers.forEach(h => {
+            let headerTotal = 0;
+            let headerCount = 0;
+
+            (h.setting_ids || []).forEach(sId => {
+                const amt = parseFloat(activeDayData[sId]) || 0;
+                headerTotal += amt;
+
+                const s = settings.find(item => item.id === sId);
+                if (s && amt > 0) {
+                    headerCount++;
+                    activeEntryCount++;
+                    if (s.is_income) {
+                        totalIncome += amt;
+                        if (s.company_account_id) {
+                            bankInflows[s.company_account_id] = (bankInflows[s.company_account_id] || 0) + amt;
+                            directCompanyTotal += amt;
+                        } else {
+                            cashCollectedAtShop += amt;
+                        }
+                    } else {
+                        totalExpense += amt;
+                        if (s.funding_source === 'sales' || s.funding_source === 'shop_cash') {
+                            expensesPaidFromShopCash += amt;
+                        } else if (s.funding_source === 'petty') {
+                            expensesPaidFromPetty += amt;
+                        }
+                    }
+                }
+            });
+
+            // Product tagged rows subtotal
+            const pRows = productRowsState[h.id] || [];
+            pRows.forEach(pr => {
+                const pAmt = parseFloat(pr.amount) || 0;
+                if (pAmt > 0) {
+                    headerTotal += pAmt;
+                    headerCount++;
+                    activeEntryCount++;
+                    if (h.type === 'expense') {
+                        totalExpense += pAmt;
+                        expensesPaidFromShopCash += pAmt;
+                    }
+                }
+            });
+
+            headerTotals[h.id] = headerTotal;
+            headerActiveCounts[h.id] = headerCount;
+
+            // Update modal badges
+            const inTotalEl = document.getElementById('in-modal-total-' + h.id);
+            if (inTotalEl) inTotalEl.textContent = formatCurrency(headerTotal);
+            const outTotalEl = document.getElementById('out-modal-total-' + h.id);
+            if (outTotalEl) outTotalEl.textContent = formatCurrency(headerTotal);
+        });
+
+        const todayNetActivity = totalIncome - totalExpense;
+
+        // Relations settlement
+        let relationSettled = 0;
+        let relationRule = 'previous_day_balance';
+        let relHtml = '';
+
+        if (relations.length > 0) {
+            const rel = relations[0];
+            relationRule = rel.eligibility_rule || 'previous_day_balance';
+            let grossAdd = 0;
+            let grossSub = 0;
+
+            (rel.items || []).forEach(item => {
+                const itemAmt = parseFloat(activeDayData[item.setting_id]) || 0;
+                if (item.role === 'subtract') grossSub += itemAmt;
+                else grossAdd += itemAmt;
+            });
+
+            const netRel = grossAdd - grossSub;
+            const openingPayable = {{ (float) ($snapshot->closing_shop_position ?? 15000) }};
+            const eligible = relationRule === 'previous_day_balance' ? Math.max(0, openingPayable) : Math.max(0, openingPayable + cashCollectedAtShop - expensesPaidFromShopCash);
+
+            let pendingAmount = 0;
+            if (netRel > 0) {
+                relationSettled = Math.min(netRel, eligible);
+                pendingAmount = netRel - relationSettled;
+            } else {
+                relationSettled = netRel;
+                pendingAmount = 0;
+            }
+
+            if (relationSettled > 0 || Math.abs(netRel) > 0) {
+                relHtml = `
+                    <div class="flex justify-between py-1 text-xs">
+                        <div>
+                            <span class="block font-bold text-slate-900">${escapeHtml(rel.name || 'Supermarket Settlement')}</span>
+                            <span class="text-[10px] text-slate-400 font-medium block">From: Previous Shop Balance</span>
+                        </div>
+                        <span class="font-mono text-slate-950 font-black">-${formatCurrency(relationSettled)}</span>
+                    </div>
+                `;
+            }
+        }
+
+        const repRelContainer = document.getElementById('report-relations-container');
+        const repRelEl = document.getElementById('report-relations-breakdown');
+        if (repRelEl) repRelEl.innerHTML = relHtml;
+        if (repRelContainer) {
+            if (relHtml.trim().length > 0) {
+                repRelContainer.classList.remove('hidden');
+            } else {
+                repRelContainer.classList.add('hidden');
+            }
+        }
+
+        // Top KPIs
+        const shopHeldNet = Math.max(0, cashCollectedAtShop - expensesPaidFromShopCash);
+        const openShopBal = {{ (float) ($snapshot->closing_shop_position ?? 15000) }};
+        const closingShopBal = openShopBal - relationSettled + shopHeldNet;
+        const openingPetty = {{ (float) ($snapshot->petty_balance ?? 5440) }};
+        const closingPetty = Math.max(0, openingPetty - expensesPaidFromPetty);
+
+        // Update Dashboard Elements
+        const kpiShopBal = document.getElementById('kpi-shop-balance');
+        if (kpiShopBal) kpiShopBal.textContent = formatCurrency(closingShopBal);
+
+        const kpiNet = document.getElementById('kpi-today-net-activity');
+        if (kpiNet) {
+            kpiNet.textContent = formatCurrency(todayNetActivity);
+            kpiNet.className = 'font-mono text-lg sm:text-2xl font-black mt-0.5 ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
+        }
+
+        const kpiCashHeld = document.getElementById('kpi-cash-held');
+        if (kpiCashHeld) kpiCashHeld.textContent = formatCurrency(shopHeldNet);
+
+        const kpiCompany = document.getElementById('kpi-reached-company');
+        if (kpiCompany) kpiCompany.textContent = formatCurrency(directCompanyTotal);
+
+        const kpiPetty = document.getElementById('kpi-petty-closing');
+        if (kpiPetty) kpiPetty.textContent = formatCurrency(closingPetty);
+
+        // Update Today's Row
+        const todayCountEl = document.getElementById('today-entry-count');
+        if (todayCountEl) todayCountEl.textContent = activeEntryCount + (activeEntryCount === 1 ? ' Entry' : ' Entries');
+
+        const todayRowOut = document.getElementById('today-row-out');
+        if (todayRowOut) todayRowOut.textContent = formatCurrency(totalExpense);
+
+        const todayRowIn = document.getElementById('today-row-in');
+        if (todayRowIn) todayRowIn.textContent = formatCurrency(totalIncome);
+
+        // Update Main Bill Sections & Report Breakdown Content
+        renderMainBillSections();
+        renderReportBreakdown();
+
+        // Update Report View Elements
+        const repNet = document.getElementById('report-net-activity');
+        if (repNet) repNet.textContent = formatCurrency(todayNetActivity);
+
+        const repHeld = document.getElementById('report-pos-held');
+        if (repHeld) repHeld.textContent = formatCurrency(shopHeldNet);
+
+        const repComp = document.getElementById('report-pos-company');
+        if (repComp) repComp.textContent = formatCurrency(directCompanyTotal);
+
+        const repPetty = document.getElementById('report-pos-petty');
+        if (repPetty) repPetty.textContent = formatCurrency(closingPetty);
+
+        const repShop = document.getElementById('report-pos-shop-bal');
+        if (repShop) repShop.textContent = formatCurrency(closingShopBal);
+
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function renderMainBillSections() {
+        const container = document.getElementById('today-headers-summary-container');
+        const emptyState = document.getElementById('today-empty-state');
+        if (!container) return;
+
+        if (headers.length === 0) {
+            if (emptyState) emptyState.classList.remove('hidden');
+            container.innerHTML = '';
+            return;
+        }
+
+        if (emptyState) emptyState.classList.add('hidden');
+
+        // Order: Income headers first, then Expense headers
+        const incomeHeaders = headers.filter(h => h.type === 'income');
+        const expenseHeaders = headers.filter(h => h.type === 'expense');
+        const orderedHeaders = [...incomeHeaders, ...expenseHeaders];
+
+        container.innerHTML = orderedHeaders.map(h => {
+            const isIncome = h.type === 'income';
+            let hTotal = 0;
+
+            const childLines = (h.setting_ids || []).map(sId => {
+                const amt = parseFloat(activeDayData[sId]) || 0;
+                hTotal += amt;
+                const s = settings.find(item => item.id === sId);
+                if (!s) return '';
+                const name = s.name || 'Item';
+                let sub = '';
+                if (name.toLowerCase() === 'cash' || name.toLowerCase() === 'cash sales') {
+                    sub = 'Remaining cash in shop';
+                } else if (s.company_account_name) {
+                    sub = s.company_account_name;
+                } else if (s.destination_label) {
+                    sub = s.destination_label;
+                }
+                const note = (activeDayData.notes && activeDayData.notes[sId]) ? activeDayData.notes[sId].trim() : '';
+
+                return `
+                    <div class="flex items-start justify-between gap-2 py-1">
+                        <div class="min-w-0 flex-1">
+                            <span class="text-xs font-bold text-slate-800 block leading-tight truncate">${escapeHtml(name)}</span>
+                            ${sub ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 truncate">${escapeHtml(sub)}</span>` : ''}
+                            ${note ? `<span class="text-[10px] text-emerald-600 font-medium block leading-tight mt-0.5 truncate">${escapeHtml(note)}</span>` : ''}
+                        </div>
+                        <span class="font-mono text-xs font-black text-slate-900 shrink-0 ${amt > 0 ? '' : 'text-slate-400'}">${formatCurrency(amt)}</span>
+                    </div>
+                `;
+            }).filter(Boolean).join('');
+
+            const pRows = productRowsState[h.id] || [];
+            const productLines = pRows.map(pr => {
+                const pAmt = parseFloat(pr.amount) || 0;
+                hTotal += pAmt;
+                return `
+                    <div class="flex items-start justify-between gap-2 py-1">
+                        <div class="min-w-0 flex-1">
+                            <span class="text-xs font-bold text-slate-800 block leading-tight truncate">${escapeHtml(pr.productName)}</span>
+                            ${pr.sku ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 truncate">${escapeHtml(pr.sku)}</span>` : ''}
+                        </div>
+                        <span class="font-mono text-xs font-black text-slate-900 shrink-0 ${pAmt > 0 ? '' : 'text-slate-400'}">${formatCurrency(pAmt)}</span>
+                    </div>
+                `;
+            }).join('');
+
+            const noProductsPrompt = (h.product_tagging_enabled && pRows.length === 0 && (h.setting_ids || []).length === 0)
+                ? `<div class="py-1 text-[11px] text-slate-400 italic">No products recorded yet (tap to add)</div>`
+                : '';
+
+            return `
+                <div onclick='selectHeaderForEntry(${JSON.stringify(h.id)})'
+                     class="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-xs hover:border-emerald-300 hover:shadow-sm transition cursor-pointer group space-y-2 select-none">
+                    
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="h-2 w-2 rounded-full ${isIncome ? 'bg-emerald-500' : 'bg-rose-500'} shrink-0"></span>
+                            <span class="text-xs sm:text-sm font-black uppercase text-slate-900 group-hover:text-emerald-700 transition truncate">${escapeHtml(h.name)}</span>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span class="font-mono text-xs sm:text-sm font-black ${isIncome ? 'text-emerald-700' : 'text-slate-900'}">
+                                ${formatCurrency(hTotal)}
+                            </span>
+                            <span class="inline-flex items-center text-[10px] font-bold text-slate-400 group-hover:text-emerald-700 transition">
+                                <span>Edit</span>
+                                <i data-lucide="chevron-right" class="h-3 w-3 ml-0.5"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-0.5 divide-y divide-slate-50">
+                        ${childLines}
+                        ${productLines}
+                        ${noProductsPrompt}
+                    </div>
+
+                    <div class="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
+                        <span>Total ${escapeHtml(h.name)}</span>
+                        <span class="font-mono font-bold text-slate-900">${formatCurrency(hTotal)}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderReportBreakdown() {
+        const container = document.getElementById('report-headers-breakdown');
+        if (!container) return;
+
+        const headerSections = headers.map(h => {
+            const settingLines = (h.setting_ids || []).map(sId => {
+                const amt = parseFloat(activeDayData[sId]) || 0;
+                if (amt <= 0) return '';
+                const s = settings.find(item => item.id === sId);
+                const name = s ? s.name : 'Item';
+                return `
+                    <div class="flex justify-between py-1 text-slate-700 font-medium">
+                        <span>${escapeHtml(name)}</span>
+                        <span class="font-mono font-bold text-slate-900">${formatCurrency(amt)}</span>
+                    </div>
+                `;
+            }).filter(Boolean).join('');
+
+            const pRows = productRowsState[h.id] || [];
+            const productLines = pRows.map(pr => {
+                const pAmt = parseFloat(pr.amount) || 0;
+                if (pAmt <= 0) return '';
+                return `
+                    <div class="flex justify-between py-1 text-slate-700 font-medium">
+                        <span>${escapeHtml(pr.productName)}</span>
+                        <span class="font-mono font-bold text-slate-900">${formatCurrency(pAmt)}</span>
+                    </div>
+                `;
+            }).filter(Boolean).join('');
+
+            if (!settingLines && !productLines) {
+                return '';
+            }
+
+            let hTotal = 0;
+            (h.setting_ids || []).forEach(sId => hTotal += (parseFloat(activeDayData[sId]) || 0));
+            pRows.forEach(pr => hTotal += (parseFloat(pr.amount) || 0));
+
+            return `
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                        <span class="text-xs font-black uppercase tracking-wide text-slate-900">${escapeHtml(h.name)}</span>
+                        <span class="font-mono text-xs font-black text-slate-900">${formatCurrency(hTotal)}</span>
+                    </div>
+                    <div class="space-y-0.5 text-xs">
+                        ${settingLines}
+                        ${productLines}
+                    </div>
+                    <div class="flex justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
+                        <span>Subtotal</span>
+                        <span class="font-mono font-bold text-slate-900">${formatCurrency(hTotal)}</span>
+                    </div>
+                </div>
+            `;
+        }).filter(Boolean);
+
+        if (headerSections.length > 0) {
+            container.innerHTML = headerSections.join('<div class="border-t border-dashed border-slate-200 my-4"></div>');
+        } else {
+            container.innerHTML = `
+                <div class="py-6 text-center text-xs font-medium text-slate-400">
+                    No cashbook transactions recorded for this date.
+                </div>
+            `;
+        }
+    }
+
+    // SAVE ACTIVE HEADER ENTRIES
+    async function saveActiveHeaderEntries() {
+        if (isSubmitting || !activeHeaderId) return;
+
+        const header = headers.find(h => String(h.id) === activeHeaderId);
+        if (!header) return;
+
+        if (!validateOwnerNotes(header.setting_ids)) {
+            alert('Please fill out all required notes for this header.');
+            return;
+        }
+
+        const entriesPayload = [];
+        // Include entries for all configured settings in active state (new/updated and zeroed out)
+        settings.forEach(s => {
+            const amt = parseFloat(activeDayData[s.id]) || 0;
+            const wasRecorded = initialTxAmounts[s.id] !== undefined && initialTxAmounts[s.id] > 0;
+            const isInActiveHeader = header.setting_ids && header.setting_ids.includes(s.id);
+
+            if (amt > 0 || wasRecorded || isInActiveHeader) {
+                const noteVal = (activeDayData.notes && activeDayData.notes[s.id]) ? activeDayData.notes[s.id].trim() : null;
+                entriesPayload.push({
+                    entry_type_code: s.code,
+                    amount: amt,
+                    funding_source: s.funding_source || 'none',
+                    notes: noteVal
+                });
+            }
+        });
+
+        const btn = document.getElementById('save-active-header-btn');
+        const textEl = document.getElementById('save-active-header-text');
+        if (btn) btn.disabled = true;
+        if (textEl) textEl.textContent = 'Saving...';
+        isSubmitting = true;
+
+        try {
+            const response = await fetch('{{ route('shop-owner.cashbook.api.bulk-record-entries') }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({
+                    business_date: '{{ $selectedDate->toDateString() }}',
+                    entries: entriesPayload
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                // Update baseline initial amounts to match active saved data
+                settings.forEach(s => {
+                    const amt = parseFloat(activeDayData[s.id]) || 0;
+                    if (amt > 0) {
+                        initialTxAmounts[s.id] = amt;
+                    } else {
+                        delete initialTxAmounts[s.id];
+                    }
+                });
+
+                closeHeaderEntrySheet();
+                recalculateOwnerCashbook();
+            } else {
+                alert(data.message || 'Error saving cashbook header.');
+            }
+        } catch (err) {
+            alert('Network error while saving cashbook. Please try again.');
+        } finally {
+            isSubmitting = false;
+            if (btn) btn.disabled = false;
+            if (textEl) textEl.textContent = 'Save ' + (header ? header.name : 'Header');
+            if (window.lucide) lucide.createIcons();
+        }
+    }
+
+    // PRODUCT TAGGING FUNCTIONS
+    function openOwnerProductModal(headerId, headerName) {
+        activeProductHeaderId = headerId;
+        const titleEl = document.getElementById('owner-product-modal-title');
+        if (titleEl) {
+            titleEl.innerHTML = `<i data-lucide="tag" class="h-4 w-4 text-emerald-600"></i> <span>Select Product for ${escapeHtml(headerName)}</span>`;
+        }
+        document.getElementById('owner-product-modal').classList.remove('hidden');
+        syncModalOpenState();
+        fetchOwnerProducts('', 1);
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function closeOwnerProductModal() {
+        document.getElementById('owner-product-modal').classList.add('hidden');
+        syncModalOpenState();
+    }
+
+    function onOwnerProductSearchInput() {
+        if (productSearchDebounceTimer) clearTimeout(productSearchDebounceTimer);
+        productSearchDebounceTimer = setTimeout(() => {
+            const input = document.getElementById('owner-product-search-input');
+            productQuery = input ? input.value.trim() : '';
+            fetchOwnerProducts(productQuery, 1);
+        }, 250);
+    }
+
+    async function fetchOwnerProducts(query = '', page = 1) {
+        const container = document.getElementById('owner-product-list');
+        if (!container) return;
+        container.innerHTML = `<div class="p-6 text-center text-xs font-bold text-slate-400">Searching products...</div>`;
+
+        try {
+            const url = new URL('{{ route('shop-owner.cashbook.api.products.search') }}', window.location.origin);
+            if (query) url.searchParams.set('q', query);
+            if (activeProductHeaderId) url.searchParams.set('header_id', activeProductHeaderId);
+            url.searchParams.set('page', page);
+
+            const res = await fetch(url.toString(), {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            const data = await res.json();
+
+            if (data.products && data.products.length > 0) {
+                const existing = productRowsState[activeProductHeaderId] || [];
+                container.innerHTML = data.products.map(p => {
+                    const isAdded = existing.some(r => r.productId === p.id);
+                    return `
+                        <div class="flex items-center justify-between gap-2 py-2">
+                            <div class="min-w-0 flex-1">
+                                <span class="text-xs font-bold text-slate-900 block truncate">${escapeHtml(p.name)}</span>
+                                <span class="text-[10px] font-semibold text-slate-400 block">${escapeHtml(p.sku || 'N/A')}</span>
+                            </div>
+                            ${isAdded ? '<span class="text-[10px] font-bold text-slate-400">Added</span>' : `
+                                <button type="button" onclick="selectOwnerProduct(${p.id}, '${escapeJsString(p.name)}', '${escapeJsString(p.sku || '')}')"
+                                        class="inline-flex items-center justify-center rounded-lg bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer">
+                                    Select
+                                </button>
+                            `}
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                container.innerHTML = `<div class="p-6 text-center text-xs font-bold text-slate-400">No products found.</div>`;
+            }
+        } catch (e) {
+            container.innerHTML = `<div class="p-6 text-center text-xs font-bold text-rose-500">Error loading catalog.</div>`;
+        }
+    }
+
+    function selectOwnerProduct(productId, productName, sku) {
+        const hId = activeProductHeaderId;
+        if (!hId) return;
+
+        productRowsState[hId] = productRowsState[hId] || [];
+        if (!productRowsState[hId].some(r => r.productId === productId)) {
+            productRowsState[hId].push({ productId, productName, sku, amount: 0 });
+        }
+        closeOwnerProductModal();
+        renderOwnerProductRows(hId);
+        updateActiveHeaderSubtotal();
+        recalculateOwnerCashbook();
+    }
+
+    function removeOwnerProductRow(hId, productId) {
+        if (!productRowsState[hId]) return;
+        productRowsState[hId] = productRowsState[hId].filter(r => r.productId !== productId);
+        renderOwnerProductRows(hId);
+        updateActiveHeaderSubtotal();
+        recalculateOwnerCashbook();
+    }
+
+    function renderOwnerProductRows(hId) {
+        const container = document.getElementById('product-rows-container-' + hId);
+        if (!container) return;
+
+        const rows = productRowsState[hId] || [];
+        if (rows.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+
+        container.innerHTML = rows.map(r => `
+            <div class="flex items-center justify-between gap-2 py-1.5">
+                <div class="min-w-0 flex-1">
+                    <span class="text-xs font-bold text-slate-900 block truncate">${escapeHtml(r.productName)}</span>
+                    <span class="text-[10px] text-slate-400 block">${escapeHtml(r.sku || 'Tag')}</span>
+                </div>
+                <div class="relative shrink-0 w-28 sm:w-32">
+                    <span class="absolute inset-y-0 left-0 pl-2 flex items-center text-slate-400 font-bold text-xs pointer-events-none">₹</span>
+                    <input type="number" inputmode="decimal" min="0" step="0.01" value="${r.amount || ''}"
+                           oninput="onOwnerProductAmountChange('${hId}', ${r.productId}, this)"
+                           placeholder="0.00"
+                           class="h-9 w-full rounded-lg border border-slate-200 bg-white pl-5 pr-2 text-right text-sm font-bold font-mono text-slate-950 focus:border-emerald-600 focus:outline-none">
+                </div>
+                <button type="button" onclick="removeOwnerProductRow('${hId}', ${r.productId})" class="p-1 text-slate-400 hover:text-rose-600">
+                    <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                </button>
+            </div>
+        `).join('');
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function onOwnerProductAmountChange(hId, productId, inputEl) {
+        const val = parseFloat(inputEl.value) || 0;
+        const rows = productRowsState[hId] || [];
+        const row = rows.find(r => r.productId === productId);
+        if (row) row.amount = val;
+        updateActiveHeaderSubtotal();
+        recalculateOwnerCashbook();
+    }
+
+    function formatCurrency(amount) {
+        const val = parseFloat(amount) || 0;
+        return '₹' + Math.abs(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function escapeHtml(str) {
+        return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeJsString(str) {
+        return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+</script>
+@endsection

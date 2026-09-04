@@ -25,6 +25,25 @@
             </div>
         </section>
 
+        <section id="check-in-settings" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <p class="text-sm font-black uppercase tracking-[0.18em] text-cyan-700">Attendance control</p>
+                    <h2 class="mt-2 text-xl font-black text-slate-950">Check-in Time Settings</h2>
+                    <p class="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">Set the time until shop owners can mark same-day staff attendance. HR/Admin can still correct attendance after this time.</p>
+                </div>
+                <form method="POST" action="{{ route('admin.staff.settings.check-in-time.update') }}" class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    @csrf
+                    @method('PATCH')
+                    <label class="block">
+                        <span class="mb-2 block text-sm font-black text-slate-700">Check-in closes at</span>
+                        <input type="time" name="shop_attendance_cutoff_time" value="{{ old('shop_attendance_cutoff_time', $checkInTime) }}" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-900 sm:w-48" required>
+                    </label>
+                    <button type="submit" class="h-11 rounded-xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">Save time</button>
+                </form>
+            </div>
+        </section>
+
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div class="flex flex-col gap-1">
                 <h2 class="text-xl font-black text-slate-950">Add a staff pay profile <span class="sr-only">(Add Payroll Category)</span></h2>

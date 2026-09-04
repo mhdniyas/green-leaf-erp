@@ -48,7 +48,7 @@
                 <span class="card-drag-handle cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 shrink-0" title="Drag card">
                     <i data-lucide="grip-vertical" class="h-4 w-4"></i>
                 </span>
-                <h3 class="font-extrabold text-sm leading-snug transition truncate {{ $isEnabled ? 'text-slate-950 group-hover:text-indigo-700' : 'text-slate-500' }}">{{ $setting->entryType->name }}</h3>
+                <h3 class="font-extrabold text-sm leading-snug transition truncate {{ $isEnabled ? 'text-slate-950 group-hover:text-indigo-700' : 'text-slate-500' }}">{{ $setting->displayName() }}</h3>
             </div>
             @if($isEnabled)
                 <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 shrink-0 border border-emerald-200">
