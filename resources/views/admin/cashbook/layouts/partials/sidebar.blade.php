@@ -86,6 +86,10 @@
                     <span>Company Money</span>
                     <span class="sr-only">Company Finance</span>
                 </a>
+                <a href="{{ route('admin.cashbook.finance.income-expense') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.income-expense*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="arrow-left-right" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Company Income &amp; Expense</span>
+                </a>
                 <a href="{{ route('admin.cashbook.finance.cheque-submission') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.cheque-submission') ? 'active-sidebar' : '' }}">
                     <i data-lucide="file-check-2" class="w-4 h-4"></i>
                     <span>Cheque Bank Submit</span>
@@ -134,7 +138,8 @@
                 </a>
                 <a href="{{ route('admin.cashbook.income-expenses') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.income-expenses') ? 'active-sidebar' : '' }}">
                     <i data-lucide="receipt" class="w-4 h-4"></i>
-                    <span>Income &amp; Expenses</span>
+                    <span>Shop Ledger CRUD</span>
+                    <span class="sr-only">Shop Income &amp; Expenses</span>
                 </a>
                 <a href="{{ route('admin.cashbook.post-entry') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.post-entry') || request()->routeIs('admin.cashbook.post-entry.shop') ? 'active-sidebar' : '' }}">
                     <i data-lucide="plus-circle" class="w-4 h-4"></i>

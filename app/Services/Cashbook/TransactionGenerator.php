@@ -59,6 +59,10 @@ class TransactionGenerator
             $direction = LedgerDirection::tryFrom((string) $entryType->category) ?? LedgerDirection::Expense;
             $amount = round((float) $input['amount'], 2);
 
+            if ($setting->requiresNote() && $amount > 0 && empty(trim((string) ($input['notes'] ?? '')))) {
+                throw new \InvalidArgumentException("Please add a note for {$entryType->name}.");
+            }
+
             $effect = $this->effectResolver->resolve($direction, $fundingSource, $amount, $setting);
 
             $transaction = ShopLedgerTransaction::create([

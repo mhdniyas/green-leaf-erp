@@ -168,10 +168,60 @@ class CompanyAccountingCashbookService
         }, attempts: 3);
     }
 
+    public function reverse(CompanyAccountingEntry $entry, int $userId, ?string $reason = null): CompanyAccountingEntry
+    {
+        return DB::transaction(function () use ($entry, $userId, $reason): CompanyAccountingEntry {
+            /** @var CompanyAccountingEntry $entry */
+            $entry = CompanyAccountingEntry::query()
+                ->with(['cashbookMovement.companyAccount', 'companyAccount'])
+                ->lockForUpdate()
+                ->findOrFail($entry->id);
+
+            if ($entry->status === CompanyAccountingEntry::StatusReversed) {
+                return $entry;
+            }
+
+            $movement = $entry->cashbookMovement;
+            if ($movement instanceof CompanyAccountStatementEntry) {
+                $companyAccount = $movement->companyAccount ?? $entry->companyAccount;
+                if ($companyAccount instanceof CompanyAccount) {
+                    $amount = round((float) $movement->amount, 2);
+                    if ($movement->direction === 'in') {
+                        $companyAccount->decrement('current_balance', $amount);
+                    } elseif ($movement->direction === 'out') {
+                        $companyAccount->increment('current_balance', $amount);
+                    }
+                }
+
+                $movement->update([
+                    'status' => 'cancelled',
+                    'notes' => trim(($movement->notes ?? '').' [Reversed: '.($reason ?: 'Cancelled').']'),
+                ]);
+            }
+
+            return $this->mainAccountService->reverseEntry($entry, $userId, $reason);
+        }, attempts: 3);
+    }
+
+    /** @param array{type:string, company_accounting_category_id:int, company_account_uuid:string, business_date:string, amount:float, reference?:string|null, description?:string|null, request_uuid:string} $input */
+    public function update(CompanyAccountingEntry $entry, array $input, int $userId): CompanyAccountingEntry
+    {
+        return DB::transaction(function () use ($entry, $input, $userId): CompanyAccountingEntry {
+            $entry = CompanyAccountingEntry::query()->lockForUpdate()->findOrFail($entry->id);
+
+            if ($entry->status === CompanyAccountingEntry::StatusReversed) {
+                throw ValidationException::withMessages(['entry' => 'Reversed transactions cannot be edited.']);
+            }
+
+            $this->reverse($entry, $userId, 'Superceded by edit (Request UUID: '.$input['request_uuid'].')');
+
+            return $this->create($input, $userId);
+        }, attempts: 3);
+    }
+
     private function validateOtherCategoryDescription(CompanyAccountingCategory $category, ?string $description): void
     {
-        if (mb_strtolower(trim($category->name)) === 'other' && blank($description)) {
-            throw ValidationException::withMessages(['description' => 'Notes / Description is required when category is Other.']);
-        }
+        // Description is optional even for 'Other' category.
+        // UI-layer inline validation handles user guidance without blocking submission.
     }
 }

@@ -111,8 +111,8 @@ class FundingSourceEffectResolver
     private function resolveIncome(float $amount, ShopLedgerEntrySetting $setting): LedgerEffect
     {
         // Ordinary sales income increases P/L, and increases what the shop
-        // owes the company on settlement.
-        $settlementDelta = $setting->include_in_sales ? $amount : 0.0;
+        // owes the company on settlement (unless it is a direct bank collection).
+        $settlementDelta = ($setting->include_in_sales && ! $setting->isDirectBankCollection()) ? $amount : 0.0;
 
         return new LedgerEffect(
             plDelta: $setting->include_in_pl ? $amount : 0.0,

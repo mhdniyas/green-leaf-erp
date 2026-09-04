@@ -108,9 +108,8 @@ class CompanyMainAccountService
                 throw new RuntimeException('Selected category does not match the entry type.');
             }
 
-            if (mb_strtolower(trim($category->name)) === 'other' && blank($payload['description'] ?? null)) {
-                throw new RuntimeException('Notes / Description is required when category is Other.');
-            }
+            // Description is optional even for 'Other' category.
+            // UI-layer inline validation handles user guidance without blocking submission.
 
             $entry = CompanyAccountingEntry::query()->create([
                 'company_accounting_category_id' => $category->id,

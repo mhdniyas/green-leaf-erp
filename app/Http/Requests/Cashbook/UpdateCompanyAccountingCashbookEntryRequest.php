@@ -8,7 +8,7 @@ use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
 
-class StoreCompanyAccountingCashbookEntryRequest extends FormRequest
+class UpdateCompanyAccountingCashbookEntryRequest extends FormRequest
 {
     public function authorize(): bool
     {

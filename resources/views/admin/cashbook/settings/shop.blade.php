@@ -4,265 +4,540 @@
 
 @section('content')
 @php
-    $sections = [
-        'income' => ['title' => 'Income', 'icon' => 'trending-up', 'icon_class' => 'bg-emerald-50 text-emerald-700'],
-        'expense' => ['title' => 'Expense', 'icon' => 'trending-down', 'icon_class' => 'bg-rose-50 text-rose-700'],
-        'transfer' => ['title' => 'Transfer', 'icon' => 'repeat-2', 'icon_class' => 'bg-sky-50 text-sky-700'],
+    $fundingSourceBusinessLabels = [
+        'sales' => 'Shop Cash / Deduct From Company Payable',
+        'petty' => 'Petty Cash',
+        'company' => 'Paid Directly by Company',
+        'company_later' => 'Company Reimbursement Pending',
+        'bank' => 'Company Bank Account',
+        'none' => 'No Funding Movement',
     ];
+
     $fundingSources = [
-        'none' => 'None',
-        'sales' => 'Sales',
-        'petty' => 'Petty',
-        'company' => 'Company',
-        'company_later' => 'Company Later',
-        'bank' => 'Bank',
+        'sales' => 'Shop Cash / Deduct From Company Payable',
+        'petty' => 'Petty Cash',
+        'company' => 'Paid Directly by Company',
+        'company_later' => 'Company Reimbursement Pending',
+        'bank' => 'Company Bank Account',
+        'none' => 'No Funding Movement',
     ];
+
     $effects = [
         'none' => 'No change',
         'increase' => 'Increase',
         'decrease' => 'Decrease',
     ];
+
     $allShopRows = $settingsByCategory
         ->flatten(1)
-        ->sortBy(fn ($setting) => $setting->entryType?->name)
+        ->sortBy(fn ($setting) => $setting->header_display_order ?: $setting->entryType?->name)
         ->values();
-    $collectionIncomeIds = $collectionGroup
+
+    $configuredTypeIds = $allShopRows->pluck('entry_type_id')->all();
+
+    $collectionIncomeIds = isset($collectionGroup) && $collectionGroup
         ? $collectionGroup->entryTypes->where('role', 'income')->pluck('entry_type_id')->map(fn ($id) => (int) $id)->all()
         : [];
-    $collectionExpenseIds = $collectionGroup
+    $collectionExpenseIds = isset($collectionGroup) && $collectionGroup
         ? $collectionGroup->entryTypes->where('role', 'expense')->pluck('entry_type_id')->map(fn ($id) => (int) $id)->all()
         : [];
+
+    $incomeRows = $allShopRows->filter(function ($setting) {
+        $cat = strtolower((string) ($setting->entryType?->category ?? ''));
+        return $cat === 'income' || $setting->include_in_sales || $setting->include_in_income;
+    });
+    $activeIncomeCount = $incomeRows->where('enabled', true)->count();
+    $disabledIncomeCount = $incomeRows->where('enabled', false)->count();
+
+    $expenseRows = $allShopRows->filter(function ($setting) {
+        $cat = strtolower((string) ($setting->entryType?->category ?? ''));
+        return $cat === 'expense' || $setting->include_in_expense;
+    });
+    $activeExpenseCount = $expenseRows->where('enabled', true)->count();
+    $disabledExpenseCount = $expenseRows->where('enabled', false)->count();
+
+    $transferRows = $allShopRows->filter(function ($setting) {
+        $cat = strtolower((string) ($setting->entryType?->category ?? ''));
+        return $cat === 'transfer' || $cat === 'settlement' || (! $setting->include_in_sales && ! $setting->include_in_income && ! $setting->include_in_expense);
+    });
+    $activeTransferCount = $transferRows->where('enabled', true)->count();
+    $disabledTransferCount = $transferRows->where('enabled', false)->count();
+
+    $incomeHeaders = $headerGroups->where('type', 'income')->sortBy('display_order')->values();
+    $expenseHeaders = $headerGroups->where('type', 'expense')->sortBy('display_order')->values();
+
+    $allEntryTypesList = isset($allEntryTypes) ? $allEntryTypes : collect();
+
+    $unconfiguredIncomeTypes = $allEntryTypesList->filter(function ($type) use ($configuredTypeIds) {
+        return strtolower((string) $type->category) === 'income' && ! in_array((int) $type->id, $configuredTypeIds, true);
+    });
+
+    $unconfiguredExpenseTypes = $allEntryTypesList->filter(function ($type) use ($configuredTypeIds) {
+        return strtolower((string) $type->category) === 'expense' && ! in_array((int) $type->id, $configuredTypeIds, true);
+    });
+
+    $unconfiguredTransferTypes = $allEntryTypesList->filter(function ($type) use ($configuredTypeIds) {
+        $cat = strtolower((string) $type->category);
+        return ($cat === 'transfer' || $cat === 'settlement') && ! in_array((int) $type->id, $configuredTypeIds, true);
+    });
+
+    $digitalEntryCodes = ['paytm', 'card', 'upi', 'gpay', 'bank_transfer', 'online'];
 @endphp
 
-<div class="space-y-5">
-    <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+<div class="space-y-8">
+    <!-- Header & Shop Selection -->
+    <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
                 <a href="{{ route('admin.cashbook.settings') }}" class="mb-2 inline-flex items-center gap-1 text-xs font-black text-slate-400 hover:text-slate-700">
                     <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>
                     All Shops
                 </a>
-                <h1 class="text-2xl font-extrabold tracking-tight text-slate-950">{{ $currentShop->name }}</h1>
+                <div class="flex items-center gap-3">
+                    <h1 class="text-2xl font-extrabold tracking-tight text-slate-950">{{ $currentShop->name }}</h1>
+                    <span class="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200">Active Shop</span>
+                </div>
                 <p class="mt-1 font-mono text-xs font-bold text-slate-400">{{ $currentShop->code ?: 'SHOP-'.$currentShop->shop_id }}</p>
             </div>
-            <div class="flex flex-wrap gap-2">
-                <a href="#income" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Income</a>
-                <a href="#expense" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700">Expense</a>
-                <a href="#transfer" class="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700">Transfer</a>
-                <a href="#collection" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">Collection</a>
+            
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Compact Show Disabled Toggle Switch -->
+                <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700">
+                    <label for="toggle-show-disabled" class="cursor-pointer select-none">Show Disabled Entries</label>
+                    <label class="relative inline-flex cursor-pointer items-center">
+                        <input type="checkbox" id="toggle-show-disabled" onchange="toggleShowDisabled(this.checked)" class="sr-only peer">
+                        <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-900"></div>
+                    </label>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <a href="#income-sales" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100">Income &amp; Sales</a>
+                    <a href="#expenses" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100">Expenses</a>
+                    <a href="#transfers-settlements" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100">Transfers &amp; Settlements</a>
+                    <a href="#collection" class="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 hover:bg-sky-100">Collection Form</a>
+                    <a href="#historical-fetch" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">Historical Fetch</a>
+                    <a href="{{ route('admin.cashbook.settings.shop.demo', ['shop' => $currentShop->shop_id]) }}" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100 inline-flex items-center gap-1">
+                        <i data-lucide="play-circle" class="h-3.5 w-3.5"></i>
+                        Demo Cashbook
+                    </a>
+                </div>
             </div>
         </div>
     </div>
 
-    @foreach($sections as $category => $section)
-        @php $rows = $settingsByCategory->get($category, collect()); @endphp
-        <section id="{{ $category }}" class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div class="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between">
-                <div class="flex items-center gap-3">
-                    <span class="flex h-10 w-10 items-center justify-center rounded-xl {{ $section['icon_class'] }}">
-                        <i data-lucide="{{ $section['icon'] }}" class="h-5 w-5"></i>
-                    </span>
-                    <div>
-                        <h2 class="text-lg font-extrabold text-slate-950">{{ $section['title'] }}</h2>
-                        <p class="text-xs font-semibold text-slate-500">{{ $rows->count() }} rows</p>
+    <!-- SECTION 1 — Income & Sales Section -->
+    <section id="income-sales" class="space-y-6">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-3">
+                <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                    <i data-lucide="trending-up" class="h-5 w-5"></i>
+                </span>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-lg font-extrabold text-slate-950">Income &amp; Sales</h2>
+                        <span id="income-count-badge" class="rounded-lg bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200"
+                              data-active="{{ $activeIncomeCount }}" data-disabled="{{ $disabledIncomeCount }}">
+                            {{ $activeIncomeCount }} Active
+                        </span>
+                    </div>
+                    <p class="text-xs font-semibold text-slate-500">Organize income sources into custom headers. Drag cards between headers or reorder headers.</p>
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="openCreateHeaderModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100 transition shadow-xs">
+                    <i data-lucide="plus" class="h-4 w-4"></i>
+                    Create Income Header
+                </button>
+                <button type="button" onclick="openSearchModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-extrabold text-slate-800 hover:bg-slate-50 transition shadow-xs">
+                    <i data-lucide="search" class="h-4 w-4"></i>
+                    Search &amp; Add Income
+                </button>
+                <button type="button" onclick="openCreateModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-600 px-3.5 py-2 text-xs font-black text-white hover:bg-emerald-700 transition shadow-xs">
+                    <i data-lucide="plus" class="h-4 w-4"></i>
+                    Create New Income
+                </button>
+            </div>
+        </div>
+
+        <!-- INCOME HEADERS CONTAINER (Draggable Headers) -->
+        <div id="income-headers-container" class="space-y-6">
+            @foreach($incomeHeaders as $header)
+                @php
+                    $headerSettings = $incomeRows->where('header_group_id', $header->id)->sortBy('header_display_order')->values();
+                @endphp
+                <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs transition"
+                     data-header-id="{{ $header->id }}"
+                     data-header-type="income"
+                     draggable="true"
+                     ondragstart="handleHeaderDragStart(event)"
+                     ondragover="handleHeaderDragOver(event)"
+                     ondrop="handleHeaderDrop(event)"
+                     ondragend="handleHeaderDragEnd(event)">
+                    <div class="flex items-center justify-between border-b border-slate-200/80 pb-3 mb-4">
+                        <div class="flex items-center gap-2.5">
+                            <span class="header-drag-handle cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700" title="Drag to reorder header">
+                                <i data-lucide="grip-vertical" class="h-4 w-4"></i>
+                            </span>
+                            <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2">
+                                <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
+                                <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
+                                    {{ $headerSettings->where('enabled', true)->count() }} entries
+                                </span>
+                                @if($header->product_tagging_enabled)
+                                    <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-black text-indigo-700 inline-flex items-center gap-1">
+                                        <i data-lucide="tag" class="h-3 w-3"></i> Tagging ON
+                                    </span>
+                                @endif
+                            </h3>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="openSearchModal('income', {{ $header->id }})" class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 hover:text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Income Source
+                            </button>
+                            <button type="button" onclick="openEditHeaderModal({{ $header->id }}, '{{ addslashes($header->name) }}', {{ $header->product_tagging_enabled ? 1 : 0 }})" class="p-1 text-slate-400 hover:text-slate-700" title="Edit Header Settings">
+                                <i data-lucide="pencil" class="h-3.5 w-3.5"></i>
+                            </button>
+                            <button type="button" onclick="deleteHeaderGroup({{ $header->id }}, '{{ addslashes($header->name) }}')" class="p-1 text-slate-400 hover:text-rose-600" title="Delete Header">
+                                <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Header Cards Dropzone Grid (4 columns) -->
+                    <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
+                         data-header-id="{{ $header->id }}"
+                         data-header-type="income"
+                         ondragover="handleCardDragOver(event)"
+                         ondrop="handleCardDrop(event)">
+                        @forelse($headerSettings as $setting)
+                            @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
+                        @empty
+                            <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
+                                No entries assigned yet. Drag cards here or click "+ Add Income Source".
+                            </div>
+                        @endforelse
                     </div>
                 </div>
-                <form onsubmit="createCustomRow(event, '{{ $category }}')" class="flex w-full gap-2 sm:w-auto">
-                    <input type="hidden" name="shop_id" value="{{ $currentShop->shop_id }}">
-                    <input type="text" name="name" placeholder="New {{ strtolower($section['title']) }} row"
-                           class="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-slate-400 focus:outline-none sm:w-64">
-                    <button type="submit" class="inline-flex h-10 items-center gap-1.5 rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
-                        <i data-lucide="plus" class="h-4 w-4"></i>
-                        Add Row
-                    </button>
-                </form>
+            @endforeach
+
+            <!-- UNASSIGNED INCOME HEADER BOX -->
+            @php
+                $unassignedIncomeRows = $incomeRows->whereNull('header_group_id')->sortBy('header_display_order')->values();
+            @endphp
+            <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs"
+                 data-header-id="unassigned"
+                 data-header-type="income">
+                <div class="flex items-center justify-between border-b border-slate-200/80 pb-3 mb-4">
+                    <h3 class="text-sm font-black text-slate-600 tracking-tight flex items-center gap-2">
+                        <span>Unassigned Income</span>
+                        <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
+                            {{ $unassignedIncomeRows->where('enabled', true)->count() }} entries
+                        </span>
+                    </h3>
+                </div>
+
+                <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
+                     data-header-id="unassigned"
+                     data-header-type="income"
+                     ondragover="handleCardDragOver(event)"
+                     ondrop="handleCardDrop(event)">
+                    @forelse($unassignedIncomeRows as $setting)
+                        @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
+                    @empty
+                        <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
+                            All income entries are assigned to headers.
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 2 — Expenses Section -->
+    <section id="expenses" class="space-y-6">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-3">
+                <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-700">
+                    <i data-lucide="trending-down" class="h-5 w-5"></i>
+                </span>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-lg font-extrabold text-slate-950">Expenses</h2>
+                        <span id="expense-count-badge" class="rounded-lg bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700 border border-rose-200"
+                              data-active="{{ $activeExpenseCount }}" data-disabled="{{ $disabledExpenseCount }}">
+                            {{ $activeExpenseCount }} Active
+                        </span>
+                    </div>
+                    <p class="text-xs font-semibold text-slate-500">Organize expense items into custom headers. Drag cards between headers or reorder headers.</p>
+                </div>
             </div>
 
-            <div class="overflow-x-auto lg:overflow-visible">
-                <table class="w-full min-w-[84rem] lg:table-fixed text-[11px] lg:text-[10px]">
-                    <thead class="bg-slate-50 text-left">
-                        <tr>
-                            <th class="w-[15%] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Row</th>
-                            <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">On</th>
-                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Paid From</th>
-                            <th class="w-[10%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Bank Dest</th>
-                            <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Sales</th>
-                            <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Income</th>
-                            <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Expense</th>
-                            <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">P&L</th>
-                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Settlement</th>
-                            <th class="w-[7%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Petty</th>
-                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Company</th>
-                            <th class="w-[8%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Payable</th>
-                            <th class="w-[4%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Auto Child</th>
-                            <th class="w-[9%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Row</th>
-                            <th class="w-[6%] px-2 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Child Amount</th>
-                            <th class="w-[4%] px-2 py-2 text-right text-[10px] font-black uppercase tracking-wider text-slate-400">Save</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @forelse($rows as $setting)
-                            <tr>
-                                <td class="px-3 py-2">
-                                    <div class="font-black text-slate-950">{{ $setting->entryType->name }}</div>
-                                    <div class="font-mono text-[10px] font-bold text-slate-400">{{ $setting->entryType->code }}</div>
-                                </td>
-                                <td class="px-2 py-2">
-                                    <input form="setting-{{ $setting->id }}" type="hidden" name="enabled" value="0">
-                                    <input form="setting-{{ $setting->id }}" type="checkbox" name="enabled" value="1" @checked($setting->enabled) class="rounded border-slate-300 text-emerald-600">
-                                </td>
-                                <td class="px-2 py-2">
-                                    <select form="setting-{{ $setting->id }}" name="default_funding_source" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
-                                        @foreach($fundingSources as $value => $label)
-                                            <option value="{{ $value }}" @selected($setting->default_funding_source === $value)>{{ $label }}</option>
-                                        @endforeach
-                                    </select>
-                                </td>
-                                <td class="px-2 py-2">
-                                    <select form="setting-{{ $setting->id }}" name="company_account_id" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
-                                        <option value="">None</option>
-                                        @foreach($companyAccounts as $account)
-                                            <option value="{{ $account->id }}" @selected((int) $setting->company_account_id === (int) $account->id)>
-                                                {{ $account->name }} ({{ $account->bank_name ?: $account->account_type }})
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                    @if($setting->companyAccount && $setting->companyAccount->account_type === 'cash' && in_array($setting->entryType?->code, ['paytm', 'card', 'upi', 'gpay', 'online']))
-                                        <div class="mt-1 text-[9px] font-bold text-amber-700 leading-tight">
-                                            ⚠️ Cash account selected
-                                        </div>
-                                    @endif
-                                    @php
-                                        $rulesForThisSetting = isset($bankAdjustmentRules) ? ($bankAdjustmentRules->get($setting->entry_type_id) ?? collect()) : collect();
-                                    @endphp
-                                    <div class="mt-1 flex items-center justify-between">
-                                        <button type="button"
-                                                id="btn-adj-rules-{{ $setting->entry_type_id }}"
-                                                onclick="openBankAdjModal({{ $currentShop->shop_id }}, {{ $setting->entry_type_id }}, '{{ addslashes($setting->entryType?->name) }}')"
-                                                class="inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded border transition {{ $rulesForThisSetting->isNotEmpty() ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200' }}">
-                                            <span>⚖️ Adj Rules ({{ $rulesForThisSetting->count() }})</span>
-                                        </button>
-                                    </div>
-                                </td>
-                                @foreach(['include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl'] as $field)
-                                    <td class="px-2 py-2">
-                                        <input form="setting-{{ $setting->id }}" type="hidden" name="{{ $field }}" value="0">
-                                        <input form="setting-{{ $setting->id }}" type="checkbox" name="{{ $field }}" value="1" {{ $setting->{$field} ? 'checked' : '' }} class="rounded border-slate-300 text-slate-900">
-                                    </td>
-                                @endforeach
-                                @foreach(['settlement_behavior', 'petty_behavior', 'company_pending_behavior'] as $field)
-                                    <td class="px-2 py-2">
-                                        <select form="setting-{{ $setting->id }}" name="{{ $field }}" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
-                                            @foreach($effects as $value => $label)
-                                                <option value="{{ $value }}" {{ (($setting->{$field} ?: 'none') === $value) ? 'selected' : '' }}>{{ $label }}</option>
-                                            @endforeach
-                                        </select>
-                                    </td>
-                                @endforeach
-                                <td class="px-2 py-2">
-                                    @if($category === 'income')
-                                        <input form="setting-{{ $setting->id }}" type="hidden" name="include_in_payable" value="0">
-                                        <input form="setting-{{ $setting->id }}" type="hidden" name="payable_direction" value="add">
-                                        <label class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 cursor-pointer">
-                                            <input form="setting-{{ $setting->id }}" type="checkbox" name="include_in_payable" value="1" {{ $setting->include_in_payable ? 'checked' : '' }} class="rounded border-slate-300 text-emerald-600">
-                                            Add
-                                        </label>
-                                    @elseif($category === 'expense')
-                                        <input form="setting-{{ $setting->id }}" type="hidden" name="include_in_payable" value="0">
-                                        <input form="setting-{{ $setting->id }}" type="hidden" name="payable_direction" value="minus">
-                                        <label class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 cursor-pointer">
-                                            <input form="setting-{{ $setting->id }}" type="checkbox" name="include_in_payable" value="1" {{ $setting->include_in_payable ? 'checked' : '' }} class="rounded border-slate-300 text-rose-600">
-                                            Minus
-                                        </label>
-                                    @else
-                                        @php
-                                            $currentDirection = $setting->payable_direction ?: (($setting->entryType && in_array($setting->entryType->code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'])) ? 'minus' : 'add');
-                                        @endphp
-                                        <input form="setting-{{ $setting->id }}" type="hidden" id="inc-pay-{{ $setting->id }}" name="include_in_payable" value="{{ $setting->include_in_payable ? 1 : 0 }}">
-                                        <input form="setting-{{ $setting->id }}" type="hidden" id="pay-dir-{{ $setting->id }}" name="payable_direction" value="{{ $currentDirection }}">
-                                        <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
-                                            <label class="inline-flex items-center gap-1 font-bold text-emerald-700 cursor-pointer" title="Add to Payable">
-                                                <input type="radio" name="pay_choice_{{ $setting->id }}" value="add"
-                                                       {{ ($setting->include_in_payable && $currentDirection === 'add') ? 'checked' : '' }}
-                                                       onchange="setPayableChoice({{ $setting->id }}, 'add')"
-                                                       class="h-3 w-3 text-emerald-600 focus:ring-emerald-500">
-                                                Add
-                                            </label>
-                                            <label class="inline-flex items-center gap-1 font-bold text-rose-700 cursor-pointer" title="Minus from Payable">
-                                                <input type="radio" name="pay_choice_{{ $setting->id }}" value="minus"
-                                                       {{ ($setting->include_in_payable && $currentDirection === 'minus') ? 'checked' : '' }}
-                                                       onchange="setPayableChoice({{ $setting->id }}, 'minus')"
-                                                       class="h-3 w-3 text-rose-600 focus:ring-rose-500">
-                                                Minus
-                                            </label>
-                                            <label class="inline-flex items-center gap-1 font-bold text-slate-400 cursor-pointer" title="Not in Payable">
-                                                <input type="radio" name="pay_choice_{{ $setting->id }}" value="none"
-                                                       {{ !$setting->include_in_payable ? 'checked' : '' }}
-                                                       onchange="setPayableChoice({{ $setting->id }}, 'none')"
-                                                       class="h-3 w-3 text-slate-400 focus:ring-slate-400">
-                                                Off
-                                            </label>
-                                        </div>
-                                    @endif
-                                </td>
-                                <td class="px-2 py-2">
-                                    <input form="setting-{{ $setting->id }}" type="hidden" name="generates_secondary_entry" value="0">
-                                    <label class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                                        <input form="setting-{{ $setting->id }}" type="checkbox" name="generates_secondary_entry" value="1" @checked($setting->generates_secondary_entry) class="rounded border-slate-300 text-emerald-600">
-                                        Create
-                                    </label>
-                                </td>
-                                <td class="px-2 py-2">
-                                    <select form="setting-{{ $setting->id }}" name="secondary_entry_type_id" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
-                                        <option value="">Select child row</option>
-                                        @foreach($allShopRows as $childSetting)
-                                            @if($childSetting->entry_type_id !== $setting->entry_type_id)
-                                                <option value="{{ $childSetting->entry_type_id }}" @selected((int) $setting->secondary_entry_type_id === (int) $childSetting->entry_type_id)>
-                                                    {{ $childSetting->entryType->name }} ({{ $childSetting->entryType->category }})
-                                                </option>
-                                            @endif
-                                        @endforeach
-                                    </select>
-                                </td>
-                                <td class="px-2 py-2">
-                                    <div class="flex items-center gap-2">
-                                        <select form="setting-{{ $setting->id }}" name="secondary_amount_mode" class="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
-                                            <option value="same_amount" @selected($setting->secondary_amount_mode === 'same_amount')>Same</option>
-                                            <option value="percentage" @selected($setting->secondary_amount_mode === 'percentage')>Percent</option>
-                                        </select>
-                                        <input form="setting-{{ $setting->id }}" type="number" min="0" step="0.01" name="secondary_amount_value" value="{{ $setting->secondary_amount_value }}"
-                                               class="h-8 w-16 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700" placeholder="%">
-                                    </div>
-                                </td>
-                                <td class="px-2 py-2 text-right">
-                                    <form id="setting-{{ $setting->id }}" onsubmit="saveShopSetting(event, {{ $setting->id }})">
-                                        <button type="submit" class="rounded-lg bg-slate-950 px-2.5 py-1.5 text-[10px] font-black text-white hover:bg-slate-800">Save</button>
-                                    </form>
-                                </td>
-                            </tr>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="openCreateHeaderModal('expense')" class="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-black text-rose-800 hover:bg-rose-100 transition shadow-xs">
+                    <i data-lucide="plus" class="h-4 w-4"></i>
+                    Create Expense Header
+                </button>
+                <button type="button" onclick="openSearchModal('expense')" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-extrabold text-slate-800 hover:bg-slate-50 transition shadow-xs">
+                    <i data-lucide="search" class="h-4 w-4"></i>
+                    Search &amp; Add Expense
+                </button>
+                <button type="button" onclick="openCreateModal('expense')" class="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-600 px-3.5 py-2 text-xs font-black text-white hover:bg-rose-700 transition shadow-xs">
+                    <i data-lucide="plus" class="h-4 w-4"></i>
+                    Create New Expense
+                </button>
+            </div>
+        </div>
+
+        <!-- EXPENSE HEADERS CONTAINER (Draggable Headers) -->
+        <div id="expense-headers-container" class="space-y-6">
+            @foreach($expenseHeaders as $header)
+                @php
+                    $headerSettings = $expenseRows->where('header_group_id', $header->id)->sortBy('header_display_order')->values();
+                @endphp
+                <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs transition"
+                     data-header-id="{{ $header->id }}"
+                     data-header-type="expense"
+                     draggable="true"
+                     ondragstart="handleHeaderDragStart(event)"
+                     ondragover="handleHeaderDragOver(event)"
+                     ondrop="handleHeaderDrop(event)"
+                     ondragend="handleHeaderDragEnd(event)">
+                    <div class="flex items-center justify-between border-b border-slate-200/80 pb-3 mb-4">
+                        <div class="flex items-center gap-2.5">
+                            <span class="header-drag-handle cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700" title="Drag to reorder header">
+                                <i data-lucide="grip-vertical" class="h-4 w-4"></i>
+                            </span>
+                            <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2">
+                                <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
+                                <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
+                                    {{ $headerSettings->where('enabled', true)->count() }} entries
+                                </span>
+                                @if($header->product_tagging_enabled)
+                                    <span class="rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-black text-indigo-700 inline-flex items-center gap-1">
+                                        <i data-lucide="tag" class="h-3 w-3"></i> Tagging ON
+                                    </span>
+                                @endif
+                            </h3>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="openSearchModal('expense', {{ $header->id }})" class="inline-flex items-center gap-1 text-[11px] font-black text-rose-700 hover:text-rose-900 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
+                                <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Expense Source
+                            </button>
+                            <button type="button" onclick="openEditHeaderModal({{ $header->id }}, '{{ addslashes($header->name) }}', {{ $header->product_tagging_enabled ? 1 : 0 }})" class="p-1 text-slate-400 hover:text-slate-700" title="Edit Header Settings">
+                                <i data-lucide="pencil" class="h-3.5 w-3.5"></i>
+                            </button>
+                            <button type="button" onclick="deleteHeaderGroup({{ $header->id }}, '{{ addslashes($header->name) }}')" class="p-1 text-slate-400 hover:text-rose-600" title="Delete Header">
+                                <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Header Cards Dropzone Grid (4 columns) -->
+                    <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
+                         data-header-id="{{ $header->id }}"
+                         data-header-type="expense"
+                         ondragover="handleCardDragOver(event)"
+                         ondrop="handleCardDrop(event)">
+                        @forelse($headerSettings as $setting)
+                            @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
                         @empty
-                            <tr>
-                                <td colspan="12" class="px-5 py-8 text-center text-sm font-bold text-slate-400">No rows found.</td>
-                            </tr>
+                            <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
+                                No entries assigned yet. Drag cards here or click "+ Add Expense Source".
+                            </div>
                         @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    @endforeach
+                    </div>
+                </div>
+            @endforeach
 
-    <section id="collection" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <!-- UNASSIGNED EXPENSES HEADER BOX -->
+            @php
+                $unassignedExpenseRows = $expenseRows->whereNull('header_group_id')->sortBy('header_display_order')->values();
+            @endphp
+            <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs"
+                 data-header-id="unassigned"
+                 data-header-type="expense">
+                <div class="flex items-center justify-between border-b border-slate-200/80 pb-3 mb-4">
+                    <h3 class="text-sm font-black text-slate-600 tracking-tight flex items-center gap-2">
+                        <span>Unassigned Expenses</span>
+                        <span class="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">
+                            {{ $unassignedExpenseRows->where('enabled', true)->count() }} entries
+                        </span>
+                    </h3>
+                </div>
+
+                <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
+                     data-header-id="unassigned"
+                     data-header-type="expense"
+                     ondragover="handleCardDragOver(event)"
+                     ondrop="handleCardDrop(event)">
+                    @forelse($unassignedExpenseRows as $setting)
+                        @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
+                    @empty
+                        <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
+                            All expense entries are assigned to headers.
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 3 — Transfers & Settlements Section -->
+    <section id="transfers-settlements" class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs space-y-6">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+                    <i data-lucide="arrow-right-left" class="h-5 w-5"></i>
+                </span>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-lg font-extrabold text-slate-950">Transfers &amp; Settlements</h2>
+                        <span id="transfer-count-badge" class="rounded-lg bg-indigo-50 px-2 py-0.5 text-xs font-bold text-indigo-700 border border-indigo-200"
+                              data-active="{{ $activeTransferCount }}" data-disabled="{{ $disabledTransferCount }}">
+                            {{ $activeTransferCount }} Active
+                        </span>
+                    </div>
+                    <p class="text-xs font-semibold text-slate-500">Configure transfer entries, source balance movements, and supermarket settlement rules for {{ $currentShop->name }}.</p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="openSearchModal('transfer')" class="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-xs font-black text-indigo-800 hover:bg-indigo-100 transition shadow-xs">
+                    <i data-lucide="plus" class="h-4 w-4"></i>
+                    Search &amp; Add Transfer
+                </button>
+                <button type="button" onclick="openCreateRelationModal()" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-900 px-3.5 py-2 text-xs font-black text-white hover:bg-slate-800 transition shadow-xs">
+                    <i data-lucide="sliders-horizontal" class="h-4 w-4"></i>
+                    Add Settlement Relation
+                </button>
+            </div>
+        </div>
+
+        <!-- Part A: Single Entry Transfers & Settlements -->
+        <div class="space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-xs font-black uppercase tracking-wider text-slate-500">Transfer &amp; Settlement Entries</h3>
+            </div>
+
+            @if($transferRows->isEmpty())
+                <div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-xs font-bold text-slate-400">
+                    No transfer or settlement entries configured for this shop.
+                </div>
+            @else
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    @foreach($transferRows as $setting)
+                        @include('admin.cashbook.settings.partials.card', [
+                            'setting' => $setting,
+                            'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels,
+                            'digitalEntryCodes' => $digitalEntryCodes
+                        ])
+                    @endforeach
+                </div>
+            @endif
+        </div>
+
+        <!-- Part B: Multi-Entry Settlement Relations -->
+        <div class="space-y-4 pt-4 border-t border-slate-100">
+            <div class="flex items-center justify-between">
+                <h3 class="text-xs font-black uppercase tracking-wider text-slate-500">Multi-Entry Settlement Relations</h3>
+            </div>
+
+            @if(!isset($relations) || $relations->isEmpty())
+                <div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center text-xs font-bold text-slate-400">
+                    No supermarket settlement relations configured. Create a relation to combine multiple cashbook entries.
+                </div>
+            @else
+                <div class="space-y-6">
+                    @foreach($relations as $relation)
+                        <div class="rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs transition space-y-4" data-relation-id="{{ $relation->id }}">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200/80 pb-4">
+                                <div>
+                                    <div class="flex items-center gap-2.5">
+                                        <h3 class="text-base font-black text-slate-950 tracking-tight">{{ $relation->name }}</h3>
+                                        <span class="rounded-full px-2.5 py-0.5 text-[10px] font-extrabold border {{ $relation->enabled ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200' }}">
+                                            {{ $relation->enabled ? 'Active' : 'Disabled' }}
+                                        </span>
+                                    </div>
+                                    <div class="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs font-semibold text-slate-500">
+                                        <span>Settlement Source: <strong class="text-slate-800">{{ $relation->settlement_source === 'shop_balance' ? 'Shop Balance' : 'Not selected' }}</strong></span>
+                                        <span>Eligibility: <strong class="text-slate-800">{{ $relation->eligibility_rule === 'previous_day_balance' ? 'Previous-Day Balance Only' : ($relation->eligibility_rule === 'current_available_balance' ? 'Current Available Balance' : 'Not selected') }}</strong></span>
+                                        <span><strong class="text-slate-800">{{ $relation->items->count() }}</strong> related entries</span>
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                    <button type="button" onclick="openConfigureRelationModal({{ $relation->id }}, '{{ addslashes($relation->name) }}', '{{ $relation->settlement_source ?? '' }}', '{{ $relation->eligibility_rule ?? '' }}', {{ $relation->enabled ? 1 : 0 }})" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-100 shadow-xs">
+                                        <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i>
+                                        Configure
+                                    </button>
+                                    <button type="button" onclick="deleteRelation({{ $relation->id }}, '{{ addslashes($relation->name) }}')" class="rounded-xl p-1.5 text-slate-400 hover:bg-rose-100 hover:text-rose-600" title="Delete Settlement">
+                                        <i data-lucide="trash-2" class="h-4 w-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+
+                        <!-- Related Entries List -->
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-black uppercase tracking-wider text-slate-500">Related Entries</span>
+                                <button type="button" onclick="openAddRelationItemModal({{ $relation->id }}, '{{ addslashes($relation->name) }}')" class="inline-flex items-center gap-1 text-[11px] font-black text-indigo-700 hover:text-indigo-900 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
+                                    <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Entry
+                                </button>
+                            </div>
+
+                            @if($relation->items->isEmpty())
+                                <div class="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-4 text-center text-xs font-bold text-slate-400">
+                                    No entries selected. Click "+ Add Entry" to select existing shop entries.
+                                </div>
+                            @else
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                    @foreach($relation->items as $item)
+                                        <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
+                                            <div class="flex items-center gap-2.5 min-w-0">
+                                                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl font-black text-xs {{ $item->role === 'subtract' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }}">
+                                                    {{ $item->role === 'subtract' ? '-' : '+' }}
+                                                </span>
+                                                <div class="min-w-0">
+                                                    <div class="font-extrabold text-xs text-slate-900 truncate">{{ $item->setting?->entryType?->name ?? 'Unknown Entry' }}</div>
+                                                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{{ $item->role === 'subtract' ? 'Subtract from Settlement' : 'Add to Settlement' }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-1 shrink-0 ml-2">
+                                                <button type="button" onclick="toggleRelationItemRole({{ $item->id }}, '{{ $item->role === 'subtract' ? 'add' : 'subtract' }}')" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Toggle Add/Subtract">
+                                                    <i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>
+                                                </button>
+                                                <button type="button" onclick="deleteRelationItem({{ $item->id }})" class="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Remove from relation">
+                                                    <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+    </section>
+
+    <!-- Collection Form Configuration -->
+    <section id="collection" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <form onsubmit="saveCollectionSettings(event)">
             <input type="hidden" name="shop_id" value="{{ $currentShop->shop_id }}">
             <input type="hidden" name="enabled" value="0">
 
             <div class="flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-center lg:justify-between">
                 <div class="flex items-center gap-3">
-                    <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                    <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
                         <i data-lucide="list-checks" class="h-5 w-5"></i>
                     </span>
                     <div>
-                        <h2 class="text-lg font-extrabold text-slate-950">Collection</h2>
+                        <h2 class="text-lg font-extrabold text-slate-950">Collection Form Grouping</h2>
                         <p class="text-xs font-semibold text-slate-500">Enable this to show one combined collection form for this shop.</p>
                     </div>
                 </div>
@@ -294,7 +569,7 @@
                     </div>
                     <div class="mt-3 grid grid-cols-1 gap-2">
                         @foreach($settingsByCategory->get($category, collect())->where('enabled', true) as $setting)
-                            <label class="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm">
+                            <label class="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-xs">
                                 <span>{{ $setting->entryType->name }}</span>
                                 <input type="checkbox"
                                        name="{{ $category === 'income' ? 'income_entry_type_ids[]' : 'expense_entry_type_ids[]' }}"
@@ -314,7 +589,9 @@
             </div>
         </form>
     </section>
-    <section id="historical-fetch" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+    <!-- Historical Bank Collection Fetch -->
+    <section id="historical-fetch" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <div class="border-b border-slate-100 pb-4">
             <div class="flex items-center gap-3">
                 <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
@@ -384,9 +661,629 @@
             </div>
         </form>
 
-        <!-- Preview Results Container -->
         <div id="hist-preview-container" class="mt-6 hidden border-t border-slate-100 pt-5"></div>
     </section>
+
+    <!-- PER-SETTING CONFIGURATION MODALS -->
+    @foreach($allShopRows as $setting)
+        @php
+            $settingCategory = strtolower((string) ($setting->entryType?->category ?? ''));
+            $isIncomeCategory = $settingCategory === 'income' || $setting->include_in_sales || $setting->include_in_income;
+            $compatibleHeaderGroups = $isIncomeCategory ? $incomeHeaders : $expenseHeaders;
+        @endphp
+        <div id="config-modal-{{ $setting->id }}" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+            <div class="relative w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-base font-extrabold text-slate-950">{{ $setting->entryType->name }}</h3>
+                            <span class="font-mono text-xs font-bold text-slate-400">({{ $setting->entryType->code }})</span>
+                        </div>
+                        <p class="text-xs font-semibold text-slate-500">Configure funding, account routing, header group, and accounting flags.</p>
+                    </div>
+                    <button type="button" onclick="closeConfigModal({{ $setting->id }})" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                        <i data-lucide="x" class="h-5 w-5"></i>
+                    </button>
+                </div>
+
+                <form id="setting-{{ $setting->id }}" onsubmit="saveShopSetting(event, {{ $setting->id }})" class="mt-5 space-y-5">
+                    <!-- Header Group Assignment Dropdown -->
+                    <div>
+                        <label class="block text-xs font-extrabold text-slate-900 mb-1.5">Header Group</label>
+                        <select name="header_group_id" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                            <option value="">Unassigned</option>
+                            @foreach($compatibleHeaderGroups as $hdr)
+                                <option value="{{ $hdr->id }}" @selected((int) $setting->header_group_id === (int) $hdr->id)>{{ $hdr->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <!-- Status Toggle -->
+                    <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div>
+                            <div class="text-xs font-extrabold text-slate-900">Enable Entry for Shop</div>
+                            <div class="text-[11px] font-semibold text-slate-500">Active entries appear in daily cashbook forms.</div>
+                        </div>
+                        <input type="hidden" name="enabled" value="0">
+                        <label class="relative inline-flex cursor-pointer items-center">
+                            <input type="checkbox" name="enabled" value="1" @checked($setting->enabled) class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                    </div>
+
+                    <!-- Note Field Toggle -->
+                    <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div>
+                            <div class="text-xs font-extrabold text-slate-900">Note Field</div>
+                            <div class="text-[11px] font-semibold text-slate-500">Show note input field in Cashbook for this category.</div>
+                        </div>
+                        <input type="hidden" name="note_enabled" value="0">
+                        <label class="relative inline-flex cursor-pointer items-center">
+                            <input type="checkbox" name="note_enabled" value="1" @checked($setting->note_enabled) class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                    </div>
+
+                    <!-- Funding Source / Paid From -->
+                    <div>
+                        <label class="block text-xs font-extrabold text-slate-900 mb-1.5">
+                            {{ $setting->entryType->category === 'expense' ? 'Paid From (Funding Source)' : 'Money Destination / Funding Source' }}
+                        </label>
+                        <select name="default_funding_source" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                            @foreach($fundingSources as $value => $label)
+                                <option value="{{ $value }}" @selected($setting->default_funding_source === $value)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <!-- Company Account Routing -->
+                    <div>
+                        <label class="block text-xs font-extrabold text-slate-900 mb-1.5">Destination Company Bank Account</label>
+                        <select name="company_account_id" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                            <option value="">None (Shop Cash / Unmapped)</option>
+                            @foreach($companyAccounts as $account)
+                                <option value="{{ $account->id }}" @selected((int) $setting->company_account_id === (int) $account->id)>
+                                    {{ $account->name }} ({{ $account->bank_name ?: $account->account_type }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <!-- Bank Adjustment Rules Button -->
+                    @php
+                        $rulesForThisSetting = isset($bankAdjustmentRules) ? ($bankAdjustmentRules->get($setting->entry_type_id) ?? collect()) : collect();
+                    @endphp
+                    <div class="flex items-center justify-between border-t border-slate-100 pt-3">
+                        <span class="text-xs font-bold text-slate-600">Bank Settlement Adjustment Rules:</span>
+                        <button type="button"
+                                id="btn-adj-rules-{{ $setting->entry_type_id }}"
+                                onclick="openBankAdjModal({{ $currentShop->shop_id }}, {{ $setting->entry_type_id }}, '{{ addslashes($setting->entryType?->name) }}')"
+                                class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition {{ $rulesForThisSetting->isNotEmpty() ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200' }}">
+                            <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i>
+                            <span>Adjustments ({{ $rulesForThisSetting->count() }})</span>
+                        </button>
+                    </div>
+
+                    <!-- COLLAPSIBLE ADVANCED ACCOUNTING -->
+                    <details class="group border-t border-slate-200 pt-4">
+                        <summary class="flex cursor-pointer items-center justify-between text-xs font-black text-amber-900 select-none">
+                            <span class="inline-flex items-center gap-1.5"><i data-lucide="settings-2" class="h-3.5 w-3.5"></i> Advanced Accounting Engine Overrides</span>
+                            <i data-lucide="chevron-down" class="h-4 w-4 transition-transform group-open:rotate-180"></i>
+                        </summary>
+                        <div class="mt-3 space-y-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs">
+                            <p class="text-[11px] font-medium text-amber-900">Advanced flags directly control posting deltas, P&amp;L effects, and secondary entries.</p>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                @foreach(['include_in_sales' => 'Include in Sales', 'include_in_income' => 'Include in Income', 'include_in_expense' => 'Include in Expense', 'include_in_pl' => 'Include in P&L'] as $field => $label)
+                                    <label class="flex items-center gap-2 font-bold text-slate-800">
+                                        <input type="hidden" name="{{ $field }}" value="0">
+                                        <input type="checkbox" name="{{ $field }}" value="1" {{ $setting->{$field} ? 'checked' : '' }} class="h-4 w-4 rounded border-slate-300 text-slate-900">
+                                        <span>{{ $label }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+
+                            <div class="border-t border-amber-200/60 pt-3">
+                                <label class="block text-[11px] font-extrabold text-slate-900 mb-1">Payable Balance Direction</label>
+                                @php
+                                    $currentDirection = $setting->payable_direction ?: (($setting->entryType && in_array($setting->entryType->code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'])) ? 'minus' : 'add');
+                                @endphp
+                                <input type="hidden" id="inc-pay-{{ $setting->id }}" name="include_in_payable" value="{{ $setting->include_in_payable ? 1 : 0 }}">
+                                <input type="hidden" id="pay-dir-{{ $setting->id }}" name="payable_direction" value="{{ $currentDirection }}">
+                                <div class="flex items-center gap-4 text-xs">
+                                    <label class="inline-flex items-center gap-1.5 font-bold text-emerald-700 cursor-pointer">
+                                        <input type="radio" name="pay_choice_{{ $setting->id }}" value="add"
+                                               {{ ($setting->include_in_payable && $currentDirection === 'add') ? 'checked' : '' }}
+                                               onchange="setPayableChoice({{ $setting->id }}, 'add')"
+                                               class="h-4 w-4 text-emerald-600">
+                                        Add to Payable
+                                    </label>
+                                    <label class="inline-flex items-center gap-1.5 font-bold text-rose-700 cursor-pointer">
+                                        <input type="radio" name="pay_choice_{{ $setting->id }}" value="minus"
+                                               {{ ($setting->include_in_payable && $currentDirection === 'minus') ? 'checked' : '' }}
+                                               onchange="setPayableChoice({{ $setting->id }}, 'minus')"
+                                               class="h-4 w-4 text-rose-600">
+                                        Minus from Payable
+                                    </label>
+                                    <label class="inline-flex items-center gap-1.5 font-bold text-slate-500 cursor-pointer">
+                                        <input type="radio" name="pay_choice_{{ $setting->id }}" value="none"
+                                               {{ !$setting->include_in_payable ? 'checked' : '' }}
+                                               onchange="setPayableChoice({{ $setting->id }}, 'none')"
+                                               class="h-4 w-4 text-slate-400">
+                                        Off
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-2 border-t border-amber-200/60 pt-3">
+                                @foreach(['settlement_behavior' => 'Settlement', 'petty_behavior' => 'Petty Cash', 'company_pending_behavior' => 'Company Pending'] as $field => $label)
+                                    <div>
+                                        <label class="block text-[10px] font-extrabold uppercase text-slate-600 mb-1">{{ $label }}</label>
+                                        <select name="{{ $field }}" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
+                                            @foreach($effects as $value => $effectLabel)
+                                                <option value="{{ $value }}" {{ (($setting->{$field} ?: 'none') === $value) ? 'selected' : '' }}>{{ $effectLabel }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                @endforeach
+                            </div>
+
+                            <div class="border-t border-amber-200/60 pt-3 space-y-2">
+                                <label class="flex items-center gap-2 font-bold text-slate-800">
+                                    <input type="hidden" name="generates_secondary_entry" value="0">
+                                    <input type="checkbox" name="generates_secondary_entry" value="1" @checked($setting->generates_secondary_entry) class="h-4 w-4 rounded border-slate-300 text-emerald-600">
+                                    <span>Auto-generate Secondary Child Entry</span>
+                                </label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[10px] font-extrabold uppercase text-slate-600">Child Entry Type</label>
+                                        <select name="secondary_entry_type_id" class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700">
+                                            <option value="">None</option>
+                                            @foreach($allShopRows as $childSetting)
+                                                @if($childSetting->entry_type_id !== $setting->entry_type_id)
+                                                    <option value="{{ $childSetting->entry_type_id }}" @selected((int) $setting->secondary_entry_type_id === (int) $childSetting->entry_type_id)>
+                                                        {{ $childSetting->entryType->name }}
+                                                    </option>
+                                                @endif
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-extrabold uppercase text-slate-600">Child Amount</label>
+                                        <div class="flex gap-1">
+                                            <select name="secondary_amount_mode" class="h-8 rounded-lg border border-slate-200 bg-white px-1 text-[11px] font-bold text-slate-700">
+                                                <option value="same_amount" @selected($setting->secondary_amount_mode === 'same_amount')>Same</option>
+                                                <option value="percentage" @selected($setting->secondary_amount_mode === 'percentage')>Percent</option>
+                                            </select>
+                                            <input type="number" min="0" step="0.01" name="secondary_amount_value" value="{{ $setting->secondary_amount_value }}"
+                                                   class="h-8 w-16 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700" placeholder="%">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                        <button type="button" onclick="closeConfigModal({{ $setting->id }})" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50">Cancel</button>
+                        <button type="submit" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800">Save Configuration</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endforeach
+
+    <!-- CREATE HEADER MODAL -->
+    <div id="create-header-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5" id="create-header-modal-title">
+                        <i data-lucide="plus-circle" class="h-4 w-4 text-emerald-600"></i> Create Header
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500">Create a shop business header for grouping categories.</p>
+                </div>
+                <button type="button" onclick="closeCreateHeaderModal()" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <form onsubmit="submitCreateHeaderGroup(event)" class="mt-5 space-y-4">
+                <input type="hidden" id="create-header-type" name="type" value="income">
+
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Header Name</label>
+                    <input type="text" id="create-header-name" name="name" required placeholder="e.g. Sales, Purchase, Shop Operating Expenses"
+                           class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                </div>
+
+                <div class="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <span class="text-xs font-bold text-slate-700">Header Type</span>
+                    <span id="create-header-type-badge" class="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-900 uppercase">Income</span>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Product Tagging</label>
+                    <select id="create-header-product-tagging" name="product_tagging_enabled" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                        <option value="0" selected>OFF</option>
+                        <option value="1">ON</option>
+                    </select>
+                    <p class="mt-1 text-[11px] font-semibold text-slate-500">When enabled, daily Cashbook entries can be tagged with Products from the existing Product catalog.</p>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                    <button type="button" onclick="closeCreateHeaderModal()" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800 inline-flex items-center gap-1">
+                        <i data-lucide="plus" class="h-4 w-4"></i> Create Header
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- EDIT HEADER MODAL -->
+    <div id="edit-header-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5" id="edit-header-modal-title">
+                        <i data-lucide="pencil" class="h-4 w-4 text-slate-700"></i> Edit Header
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500">Configure header details and optional product tagging.</p>
+                </div>
+                <button type="button" onclick="closeEditHeaderModal()" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <form onsubmit="submitEditHeaderGroup(event)" class="mt-5 space-y-4">
+                <input type="hidden" id="edit-header-id" name="id">
+
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Header Name</label>
+                    <input type="text" id="edit-header-name" name="name" required placeholder="e.g. Cash Purchase, Other Sales"
+                           class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Product Tagging</label>
+                    <select id="edit-header-product-tagging" name="product_tagging_enabled" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                        <option value="0">OFF</option>
+                        <option value="1">ON</option>
+                    </select>
+                    <p class="mt-1 text-[11px] font-semibold text-slate-500">When enabled, daily Cashbook entries can be tagged with Products from the existing Product catalog (reference only, zero accounting effect).</p>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                    <button type="button" onclick="closeEditHeaderModal()" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800 inline-flex items-center gap-1">
+                        <i data-lucide="check" class="h-4 w-4"></i> Save Header
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- SEARCH & ADD MODALS -->
+    <!-- Income Search Modal -->
+    <div id="search-income-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5">
+                        <i data-lucide="search" class="h-4 w-4 text-emerald-700"></i> Search &amp; Add Income Source
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500">Activate previously configured disabled settings or add new income entry types for {{ $currentShop->name }}.</p>
+                </div>
+                <button type="button" onclick="closeSearchModal('income')" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <div class="mt-4">
+                <input type="text" id="search-income-input" onkeyup="filterSearchList('income')" placeholder="Search income sources..."
+                       class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+            </div>
+
+            <div id="search-income-list" class="mt-4 space-y-2 max-h-72 overflow-y-auto">
+                <!-- Disabled Income Settings (Re-enable) -->
+                @foreach($incomeRows->where('enabled', false) as $disabledSetting)
+                    <div class="search-item flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/50 p-3 hover:bg-amber-100/60 transition"
+                         data-name="{{ strtolower($disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
+                        <div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->entryType->name }}</div>
+                            <div class="text-[10px] font-bold text-amber-800">Previously configured • Disabled</div>
+                        </div>
+                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->entryType->name) }}')"
+                                class="rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white hover:bg-emerald-800 shadow-xs inline-flex items-center gap-1">
+                            <i data-lucide="circle-check" class="h-3.5 w-3.5"></i> Re-enable
+                        </button>
+                    </div>
+                @endforeach
+
+                <!-- Unconfigured Income Types (+ Add to Shop) -->
+                @foreach($unconfiguredIncomeTypes as $type)
+                    <div class="search-item flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/70 p-3 hover:bg-slate-100 transition"
+                         data-name="{{ strtolower($type->name.' '.$type->code) }}">
+                        <div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $type->name }}</div>
+                            <div class="text-[10px] font-bold text-slate-400">Not configured</div>
+                        </div>
+                        <button type="button" onclick="addEntryTypeToShop({{ $type->id }}, '{{ addslashes($type->name) }}', 'income')"
+                                class="rounded-xl bg-slate-950 px-3.5 py-1.5 text-xs font-black text-white hover:bg-slate-800 inline-flex items-center gap-1">
+                            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add to Shop
+                        </button>
+                    </div>
+                @endforeach
+
+                <div id="no-search-income-results" class="hidden rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs font-bold text-slate-500">
+                    <p>No matching income category found.</p>
+                    <button type="button" onclick="openCreateModalFromSearch('income')" class="mt-3 inline-flex items-center gap-1 rounded-xl bg-slate-950 px-3.5 py-2 text-xs font-black text-white hover:bg-slate-800">
+                        <i data-lucide="plus" class="h-4 w-4"></i>
+                        <span id="create-income-search-btn-label">Create New Income Category</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-4 border-t border-slate-100 pt-3 flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-500">Cannot find what you need?</span>
+                <button type="button" onclick="openCreateModalFromSearch('income')" class="inline-flex items-center gap-1 text-xs font-black text-emerald-700 hover:text-emerald-900">
+                    <i data-lucide="plus" class="h-4 w-4"></i>
+                    Create New Income
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expense Search Modal -->
+    <div id="search-expense-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5">
+                        <i data-lucide="search" class="h-4 w-4 text-rose-700"></i> Search &amp; Add Expense Item
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500">Activate previously configured disabled settings or add new expense items for {{ $currentShop->name }}.</p>
+                </div>
+                <button type="button" onclick="closeSearchModal('expense')" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <div class="mt-4">
+                <input type="text" id="search-expense-input" onkeyup="filterSearchList('expense')" placeholder="Search expense items..."
+                       class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+            </div>
+
+            <div id="search-expense-list" class="mt-4 space-y-2 max-h-72 overflow-y-auto">
+                <!-- Disabled Expense Settings (Re-enable) -->
+                @foreach($expenseRows->where('enabled', false) as $disabledSetting)
+                    <div class="search-item flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/50 p-3 hover:bg-amber-100/60 transition"
+                         data-name="{{ strtolower($disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
+                        <div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->entryType->name }}</div>
+                            <div class="text-[10px] font-bold text-amber-800">Previously configured • Disabled</div>
+                        </div>
+                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->entryType->name) }}')"
+                                class="rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white hover:bg-emerald-800 shadow-xs inline-flex items-center gap-1">
+                            <i data-lucide="circle-check" class="h-3.5 w-3.5"></i> Re-enable
+                        </button>
+                    </div>
+                @endforeach
+
+                <!-- Unconfigured Expense Types (+ Add to Shop) -->
+                @foreach($unconfiguredExpenseTypes as $type)
+                    <div class="search-item flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/70 p-3 hover:bg-slate-100 transition"
+                         data-name="{{ strtolower($type->name.' '.$type->code) }}">
+                        <div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $type->name }}</div>
+                            <div class="text-[10px] font-bold text-slate-400">Not configured</div>
+                        </div>
+                        <button type="button" onclick="addEntryTypeToShop({{ $type->id }}, '{{ addslashes($type->name) }}', 'expense')"
+                                class="rounded-xl bg-slate-950 px-3.5 py-1.5 text-xs font-black text-white hover:bg-slate-800 inline-flex items-center gap-1">
+                            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add to Shop
+                        </button>
+                    </div>
+                @endforeach
+
+                <div id="no-search-expense-results" class="hidden rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs font-bold text-slate-500">
+                    <p>No matching expense category found.</p>
+                    <button type="button" onclick="openCreateModalFromSearch('expense')" class="mt-3 inline-flex items-center gap-1 rounded-xl bg-slate-950 px-3.5 py-2 text-xs font-black text-white hover:bg-slate-800">
+                        <i data-lucide="plus" class="h-4 w-4"></i>
+                        <span id="create-expense-search-btn-label">Create New Expense Category</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-4 border-t border-slate-100 pt-3 flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-500">Cannot find what you need?</span>
+                <button type="button" onclick="openCreateModalFromSearch('expense')" class="inline-flex items-center gap-1 text-xs font-black text-rose-700 hover:text-rose-900">
+                    <i data-lucide="plus" class="h-4 w-4"></i>
+                    Create New Expense
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transfer Search Modal -->
+    <div id="search-transfer-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5">
+                        <i data-lucide="search" class="h-4 w-4 text-indigo-700"></i> Search &amp; Add Transfer / Settlement
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500">Activate previously configured disabled settings or add transfer/settlement items for {{ $currentShop->name }}.</p>
+                </div>
+                <button type="button" onclick="closeSearchModal('transfer')" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <div class="mt-4">
+                <input type="text" id="search-transfer-input" onkeyup="filterSearchList('transfer')" placeholder="Search transfer/settlement items..."
+                       class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+            </div>
+
+            <div id="search-transfer-list" class="mt-4 space-y-2 max-h-72 overflow-y-auto">
+                <!-- Disabled Transfer Settings (Re-enable) -->
+                @foreach($transferRows->where('enabled', false) as $disabledSetting)
+                    <div class="search-item flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/50 p-3 hover:bg-amber-100/60 transition"
+                         data-name="{{ strtolower($disabledSetting->entryType->name.' '.$disabledSetting->entryType->code) }}">
+                        <div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $disabledSetting->entryType->name }}</div>
+                            <div class="text-[10px] font-bold text-amber-800">Previously configured • Disabled</div>
+                        </div>
+                        <button type="button" onclick="reenableSetting({{ $disabledSetting->id }}, '{{ addslashes($disabledSetting->entryType->name) }}')"
+                                class="rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-black text-white hover:bg-emerald-800 shadow-xs inline-flex items-center gap-1">
+                            <i data-lucide="circle-check" class="h-3.5 w-3.5"></i> Re-enable
+                        </button>
+                    </div>
+                @endforeach
+
+                <!-- Unconfigured Transfer Types (+ Add to Shop) -->
+                @foreach($unconfiguredTransferTypes as $type)
+                    <div class="search-item flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/70 p-3 hover:bg-slate-100 transition"
+                         data-name="{{ strtolower($type->name.' '.$type->code) }}">
+                        <div>
+                            <div class="font-extrabold text-xs text-slate-950">{{ $type->name }}</div>
+                            <div class="text-[10px] font-bold text-slate-400">Not configured</div>
+                        </div>
+                        <button type="button" onclick="addEntryTypeToShop({{ $type->id }}, '{{ addslashes($type->name) }}', 'transfer')"
+                                class="rounded-xl bg-slate-950 px-3.5 py-1.5 text-xs font-black text-white hover:bg-slate-800 inline-flex items-center gap-1">
+                            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add to Shop
+                        </button>
+                    </div>
+                @endforeach
+
+                <div id="no-search-transfer-results" class="hidden rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs font-bold text-slate-500">
+                    <p>No matching transfer or settlement entry found.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- CREATE NEW INCOME MODAL -->
+    <div id="create-income-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5">
+                        <i data-lucide="plus-circle" class="h-4 w-4 text-emerald-600"></i> Create New Income Category
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500">Add a brand-new income category to {{ $currentShop->name }}.</p>
+                </div>
+                <button type="button" onclick="closeCreateModal('income')" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <form onsubmit="submitCreateNewCategory(event, 'income')" class="mt-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Category Name</label>
+                    <input type="text" id="create-income-name" name="name" required placeholder="e.g. Other Delivery Income"
+                           oninput="autoSlugCode('income')"
+                           class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-black uppercase text-slate-500 mb-1">Category Code (Auto-generated)</label>
+                    <input type="text" id="create-income-code" name="code" placeholder="other_delivery_income"
+                           class="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-xs font-bold text-slate-700 focus:border-slate-400 focus:outline-none">
+                </div>
+
+                <div class="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <span class="text-xs font-bold text-slate-700">Category Classification</span>
+                    <span class="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-900 uppercase">Income</span>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Money Destination / Funding Source</label>
+                    <select name="default_funding_source" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="sales">Shop Cash / Deduct From Company Payable</option>
+                        <option value="bank">Company Bank Account</option>
+                        <option value="none">No Funding Movement</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Destination Company Account (Optional)</label>
+                    <select name="company_account_id" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="">None (Shop Cash / Unmapped)</option>
+                        @foreach($companyAccounts as $account)
+                            <option value="{{ $account->id }}">
+                                {{ $account->name }} ({{ $account->bank_name ?: $account->account_type }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                    <button type="button" onclick="closeCreateModal('income')" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800 inline-flex items-center gap-1">
+                        <i data-lucide="plus" class="h-4 w-4"></i> Create Income
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- CREATE NEW EXPENSE MODAL -->
+    <div id="create-expense-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-base font-extrabold text-slate-950 inline-flex items-center gap-1.5">
+                        <i data-lucide="plus-circle" class="h-4 w-4 text-rose-600"></i> Create New Expense Category
+                    </h3>
+                    <p class="text-xs font-semibold text-slate-500">Add a brand-new expense item to {{ $currentShop->name }}.</p>
+                </div>
+                <button type="button" onclick="closeCreateModal('expense')" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+
+            <form onsubmit="submitCreateNewCategory(event, 'expense')" class="mt-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Category Name</label>
+                    <input type="text" id="create-expense-name" name="name" required placeholder="e.g. Daily Mess"
+                           oninput="autoSlugCode('expense')"
+                           class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-black uppercase text-slate-500 mb-1">Category Code (Auto-generated)</label>
+                    <input type="text" id="create-expense-code" name="code" placeholder="daily_mess"
+                           class="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-xs font-bold text-slate-700 focus:border-slate-400 focus:outline-none">
+                </div>
+
+                <div class="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <span class="text-xs font-bold text-slate-700">Category Classification</span>
+                    <span class="rounded-lg bg-rose-100 px-2.5 py-1 text-xs font-black text-rose-900 uppercase">Expense</span>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Paid From (Funding Source)</label>
+                    <select name="default_funding_source" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="sales">Shop Cash / Deduct From Company Payable</option>
+                        <option value="petty">Petty Cash</option>
+                        <option value="company">Paid Directly by Company</option>
+                        <option value="company_later">Company Reimbursement Pending</option>
+                        <option value="bank">Company Bank Account</option>
+                        <option value="none">No Funding Movement</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                    <button type="button" onclick="closeCreateModal('expense')" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800 inline-flex items-center gap-1">
+                        <i data-lucide="plus" class="h-4 w-4"></i> Create Expense
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Bank Settlement Adjustment Rules Modal -->
     <div id="bank-adj-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 sm:p-6 backdrop-blur-xs flex items-center justify-center">
@@ -394,7 +1291,8 @@
             <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div>
                     <h3 class="text-base font-extrabold text-slate-950 flex items-center gap-2">
-                        <span>⚖️ Bank Settlement Adjustments</span>
+                        <i data-lucide="sliders-horizontal" class="h-4 w-4 text-indigo-600"></i>
+                        <span>Bank Settlement Adjustments</span>
                     </h3>
                     <p class="text-xs font-semibold text-slate-500" id="bank-adj-modal-subtitle">Configure optional rules for expected bank calculations.</p>
                 </div>
@@ -403,15 +1301,11 @@
                 </button>
             </div>
 
-            <!-- Rules list -->
             <div class="mt-4">
                 <h4 class="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Configured Rules</h4>
-                <div id="bank-adj-rules-list" class="space-y-2 max-h-60 overflow-y-auto">
-                    <!-- Populated dynamically -->
-                </div>
+                <div id="bank-adj-rules-list" class="space-y-2 max-h-60 overflow-y-auto"></div>
             </div>
 
-            <!-- Add new rule form -->
             <div class="mt-5 border-t border-slate-100 pt-4">
                 <h4 class="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Add New Rule</h4>
                 <form id="add-bank-adj-rule-form" onsubmit="submitAddBankAdjRule(event)" class="space-y-3">
@@ -436,19 +1330,669 @@
 
                     <div class="flex justify-end pt-2">
                         <button type="submit" id="btn-save-adj-rule"
-                                class="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300">
-                            + Add Rule
+                                class="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:bg-slate-300 inline-flex items-center gap-1">
+                            <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Rule
                         </button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
+    <!-- Create Relation Modal -->
+    <div id="create-relation-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <h3 class="text-base font-extrabold text-slate-950">Add Settlement</h3>
+                <button type="button" onclick="closeCreateRelationModal()" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            <form onsubmit="submitCreateRelation(event)" class="mt-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Settlement Name</label>
+                    <input type="text" id="create-rel-name" required placeholder="e.g. Supermarket Settlement" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:border-slate-400 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Settlement Source</label>
+                    <select id="create-rel-source" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="" selected>Select Source...</option>
+                        <option value="shop_balance">Shop Balance</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Eligibility Rule</label>
+                    <select id="create-rel-eligibility" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="" selected>Select Eligibility...</option>
+                        <option value="previous_day_balance">Previous-Day Balance Only</option>
+                        <option value="current_available_balance">Current Available Balance</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeCreateRelationModal()" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" id="btn-submit-create-rel" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800">Create Settlement</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Configure Relation Modal -->
+    <div id="configure-relation-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <h3 class="text-base font-extrabold text-slate-950" id="config-rel-title">Configure Settlement</h3>
+                <button type="button" onclick="closeConfigureRelationModal()" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            <form onsubmit="submitConfigureRelation(event)" class="mt-5 space-y-4">
+                <input type="hidden" id="config-rel-id">
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Settlement Source</label>
+                    <select id="config-rel-source" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="">Not selected</option>
+                        <option value="shop_balance">Shop Balance</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Eligibility Rule</label>
+                    <select id="config-rel-eligibility" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="">Not selected</option>
+                        <option value="previous_day_balance">Previous-Day Balance Only</option>
+                        <option value="current_available_balance">Current Available Balance</option>
+                    </select>
+                </div>
+                <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <span class="text-xs font-extrabold text-slate-900">Enabled</span>
+                    <input type="checkbox" id="config-rel-enabled" value="1" class="h-4 w-4 rounded border-slate-300 text-indigo-600">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeConfigureRelationModal()" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" id="btn-submit-config-rel" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800">Save Configuration</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Relation Item Modal -->
+    <div id="add-relation-item-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-xs flex items-center justify-center">
+        <div class="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <h3 class="text-base font-extrabold text-slate-950" id="add-item-rel-title">Add Entry to Settlement</h3>
+                <button type="button" onclick="closeAddRelationItemModal()" class="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                    <i data-lucide="x" class="h-5 w-5"></i>
+                </button>
+            </div>
+            <form onsubmit="submitAddRelationItem(event)" class="mt-5 space-y-4">
+                <input type="hidden" id="add-item-rel-id">
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Select Entry</label>
+                    <select id="add-item-setting-id" required class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="" disabled selected>Select Entry...</option>
+                        @foreach($allShopRows as $s)
+                            <option value="{{ $s->id }}">{{ $s->entryType?->name }} ({{ $s->entryType?->code }}) — {{ ucfirst($s->entryType?->category) }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-extrabold text-slate-900 mb-1">Role</label>
+                    <select id="add-item-role" required class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                        <option value="" disabled selected>Select Role...</option>
+                        <option value="add">Add to Settlement (+)</option>
+                        <option value="subtract">Subtract from Settlement (-)</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeAddRelationItemModal()" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" id="btn-submit-add-item" class="rounded-xl bg-slate-950 px-5 py-2 text-xs font-black text-white hover:bg-slate-800">Add Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 </div>
 @endsection
 
 @push('scripts')
 <script>
+let currentTargetHeaderId = null;
+let draggedCardElement = null;
+let draggedHeaderElement = null;
+
+function toggleShowDisabled(showDisabled) {
+    const cards = document.querySelectorAll('.setting-card');
+    cards.forEach((card) => {
+        const enabled = card.getAttribute('data-enabled') === '1';
+        if (enabled) {
+            card.classList.remove('hidden');
+        } else {
+            if (showDisabled) {
+                card.classList.remove('hidden');
+            } else {
+                card.classList.add('hidden');
+            }
+        }
+    });
+
+    const incomeBadge = document.getElementById('income-count-badge');
+    if (incomeBadge) {
+        const active = incomeBadge.getAttribute('data-active');
+        const disabled = incomeBadge.getAttribute('data-disabled');
+        incomeBadge.textContent = showDisabled ? `${active} Active · ${disabled} Disabled` : `${active} Active`;
+    }
+
+    const expenseBadge = document.getElementById('expense-count-badge');
+    if (expenseBadge) {
+        const active = expenseBadge.getAttribute('data-active');
+        const disabled = expenseBadge.getAttribute('data-disabled');
+        expenseBadge.textContent = showDisabled ? `${active} Active · ${disabled} Disabled` : `${active} Active`;
+    }
+}
+
+function openConfigModal(settingId) {
+    const modal = document.getElementById('config-modal-' + settingId);
+    if (modal) {
+        modal.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function closeConfigModal(settingId) {
+    const modal = document.getElementById('config-modal-' + settingId);
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+function openSearchModal(category, headerId = null) {
+    currentTargetHeaderId = headerId;
+    const modal = document.getElementById('search-' + category + '-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function closeSearchModal(category) {
+    const modal = document.getElementById('search-' + category + '-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+function openCreateModal(category, headerId = null) {
+    if (headerId) currentTargetHeaderId = headerId;
+    closeSearchModal(category);
+    const modal = document.getElementById('create-' + category + '-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+function closeCreateModal(category) {
+    const modal = document.getElementById('create-' + category + '-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+function openCreateHeaderModal(type) {
+    document.getElementById('create-header-type').value = type;
+    document.getElementById('create-header-name').value = '';
+    document.getElementById('create-header-modal-title').innerHTML = `
+        <i data-lucide="plus-circle" class="h-4 w-4 ${type === 'income' ? 'text-emerald-600' : 'text-rose-600'}"></i>
+        <span>Create ${type === 'income' ? 'Income' : 'Expense'} Header</span>
+    `;
+    const badge = document.getElementById('create-header-type-badge');
+    if (badge) {
+        badge.textContent = type.toUpperCase();
+        badge.className = type === 'income' ? 'rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-900 uppercase' : 'rounded-lg bg-rose-100 px-2.5 py-1 text-xs font-black text-rose-900 uppercase';
+    }
+    document.getElementById('create-header-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeCreateHeaderModal() {
+    document.getElementById('create-header-modal').classList.add('hidden');
+}
+
+async function submitCreateHeaderGroup(event) {
+    event.preventDefault();
+    const form = event.target;
+    const button = form.querySelector('button[type="submit"]');
+
+    const name = form.name.value.trim();
+    const type = form.type.value;
+    const productTaggingEnabled = form.product_tagging_enabled ? (form.product_tagging_enabled.value === '1') : false;
+
+    if (!name) return;
+
+    button.disabled = true;
+    button.textContent = 'Creating...';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.headers.create') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                shop_id: '{{ $currentShop->shop_id }}',
+                name,
+                type,
+                product_tagging_enabled: productTaggingEnabled,
+            }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            if (window.showToast) showToast(data.message || `Created header ${name}`, 'success');
+            window.location.reload();
+            return;
+        }
+        if (window.showToast) showToast(data.message || 'Creation failed', 'error');
+    } catch (err) {
+        if (window.showToast) showToast('Creation failed', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Create Header';
+    }
+}
+
+function openEditHeaderModal(headerId, currentName, taggingEnabled) {
+    document.getElementById('edit-header-id').value = headerId;
+    document.getElementById('edit-header-name').value = currentName;
+    document.getElementById('edit-header-product-tagging').value = taggingEnabled ? '1' : '0';
+    document.getElementById('edit-header-modal-title').innerHTML = `
+        <i data-lucide="pencil" class="h-4 w-4 text-slate-700"></i>
+        <span>Edit Header</span>
+    `;
+    document.getElementById('edit-header-modal').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeEditHeaderModal() {
+    document.getElementById('edit-header-modal').classList.add('hidden');
+}
+
+async function submitEditHeaderGroup(event) {
+    event.preventDefault();
+    const form = event.target;
+    const button = form.querySelector('button[type="submit"]');
+
+    const id = parseInt(form.id.value, 10);
+    const name = form.name.value.trim();
+    const productTaggingEnabled = form.product_tagging_enabled.value === '1';
+
+    if (!name) return;
+
+    button.disabled = true;
+    button.textContent = 'Saving...';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.headers.update') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                id: id,
+                name: name,
+                product_tagging_enabled: productTaggingEnabled,
+            }),
+        });
+        const data = await response.json();
+        if (data.success) {
+            if (window.showToast) showToast(data.message || 'Header updated', 'success');
+            window.location.reload();
+        } else {
+            if (window.showToast) showToast(data.message || 'Update failed', 'error');
+        }
+    } catch (err) {
+        if (window.showToast) showToast('Update failed', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Save Header';
+    }
+}
+
+async function renameHeaderGroup(headerId, currentName) {
+    openEditHeaderModal(headerId, currentName, 0);
+}
+
+async function deleteHeaderGroup(headerId, headerName) {
+    if (!confirm(`Are you sure you want to remove the header "${headerName}"? Any assigned categories will safely return to Unassigned.`)) return;
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.headers.delete') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({ id: headerId }),
+        });
+        const data = await response.json();
+        if (data.success) {
+            if (window.showToast) showToast(data.message, 'success');
+            window.location.reload();
+        } else {
+            if (window.showToast) showToast(data.message || 'Delete failed', 'error');
+        }
+    } catch (err) {
+        if (window.showToast) showToast('Delete failed', 'error');
+    }
+}
+
+// ─── DRAG & DROP IMPLEMENTATION ─────────────────────────────────────────────
+
+function handleHeaderDragStart(e) {
+    if (!e.target.classList.contains('header-group-box')) return;
+    draggedHeaderElement = e.target;
+    e.target.classList.add('opacity-50', 'scale-[0.99]');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'header:' + e.target.getAttribute('data-header-id'));
+}
+
+function handleHeaderDragOver(e) {
+    if (!draggedHeaderElement) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleHeaderDrop(e) {
+    if (!draggedHeaderElement) return;
+    e.preventDefault();
+    const targetHeader = e.currentTarget;
+    if (targetHeader && targetHeader !== draggedHeaderElement && targetHeader.getAttribute('data-header-type') === draggedHeaderElement.getAttribute('data-header-type')) {
+        const container = targetHeader.parentNode;
+        const children = Array.from(container.children);
+        const draggedIndex = children.indexOf(draggedHeaderElement);
+        const targetIndex = children.indexOf(targetHeader);
+
+        if (draggedIndex < targetIndex) {
+            container.insertBefore(draggedHeaderElement, targetHeader.nextSibling);
+        } else {
+            container.insertBefore(draggedHeaderElement, targetHeader);
+        }
+
+        saveHeaderOrders(targetHeader.getAttribute('data-header-type'));
+    }
+}
+
+function handleHeaderDragEnd(e) {
+    if (draggedHeaderElement) {
+        draggedHeaderElement.classList.remove('opacity-50', 'scale-[0.99]');
+        draggedHeaderElement = null;
+    }
+}
+
+async function saveHeaderOrders(type) {
+    const container = document.getElementById(type + '-headers-container');
+    if (!container) return;
+    const headerBoxes = container.querySelectorAll('.header-group-box[data-header-id]:not([data-header-id="unassigned"])');
+    const headerIds = Array.from(headerBoxes).map(box => parseInt(box.getAttribute('data-header-id'), 10));
+
+    if (headerIds.length === 0) return;
+
+    try {
+        await fetch('{{ route('admin.cashbook.api.shop-settings.headers.reorder') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                shop_id: '{{ $currentShop->shop_id }}',
+                header_ids: headerIds,
+            }),
+        });
+    } catch (err) {
+        console.error('Failed to save header order', err);
+    }
+}
+
+function handleCardDragStart(e) {
+    e.stopPropagation();
+    const card = e.target.closest('.setting-card');
+    if (!card) return;
+    draggedCardElement = card;
+    card.classList.add('opacity-40');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'card:' + card.getAttribute('data-setting-id'));
+}
+
+function handleCardDragOver(e) {
+    if (!draggedCardElement) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+async function handleCardDrop(e) {
+    if (!draggedCardElement) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const dropzone = e.currentTarget.closest('.cards-dropzone');
+    if (!dropzone) return;
+
+    const targetHeaderIdStr = dropzone.getAttribute('data-header-id');
+    const targetHeaderId = targetHeaderIdStr === 'unassigned' ? null : parseInt(targetHeaderIdStr, 10);
+    const settingId = parseInt(draggedCardElement.getAttribute('data-setting-id'), 10);
+
+    // Remove any placeholder in target dropzone
+    const placeholder = dropzone.querySelector('.no-cards-placeholder');
+    if (placeholder) placeholder.remove();
+
+    dropzone.appendChild(draggedCardElement);
+    draggedCardElement.classList.remove('opacity-40');
+
+    // Update card dataset
+    draggedCardElement.setAttribute('data-header-id', targetHeaderIdStr);
+
+    const settingIds = Array.from(dropzone.querySelectorAll('.setting-card')).map(c => parseInt(c.getAttribute('data-setting-id'), 10));
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.cards.reorder') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                shop_id: '{{ $currentShop->shop_id }}',
+                header_group_id: targetHeaderId,
+                setting_ids: settingIds,
+            }),
+        });
+        const data = await response.json();
+        if (data.success && window.showToast) {
+            showToast('Card moved & order saved', 'success');
+        }
+    } catch (err) {
+        console.error('Failed to save card move', err);
+    } finally {
+        draggedCardElement = null;
+    }
+}
+
+function openCreateModalFromSearch(category) {
+    const input = document.getElementById('search-' + category + '-input');
+    const query = input ? input.value.trim() : '';
+    openCreateModal(category, currentTargetHeaderId);
+    if (query) {
+        const nameInput = document.getElementById('create-' + category + '-name');
+        if (nameInput) {
+            nameInput.value = query;
+            autoSlugCode(category);
+        }
+    }
+}
+
+function autoSlugCode(category) {
+    const nameInput = document.getElementById('create-' + category + '-name');
+    const codeInput = document.getElementById('create-' + category + '-code');
+    if (nameInput && codeInput) {
+        const slug = nameInput.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+        codeInput.value = slug;
+    }
+}
+
+function filterSearchList(category) {
+    const input = document.getElementById('search-' + category + '-input');
+    const query = input ? input.value.toLowerCase().trim() : '';
+    const items = document.querySelectorAll('#search-' + category + '-list .search-item');
+    let visibleCount = 0;
+
+    items.forEach((item) => {
+        const name = item.getAttribute('data-name') || '';
+        if (name.includes(query)) {
+            item.classList.remove('hidden');
+            visibleCount++;
+        } else {
+            item.classList.add('hidden');
+        }
+    });
+
+    const noResults = document.getElementById('no-search-' + category + '-results');
+    const labelSpan = document.getElementById('create-' + category + '-search-btn-label');
+
+    if (visibleCount === 0 && query !== '') {
+        if (noResults) noResults.classList.remove('hidden');
+        if (labelSpan) labelSpan.textContent = `Create "${query}" Category`;
+    } else {
+        if (noResults) noResults.classList.add('hidden');
+    }
+}
+
+async function submitCreateNewCategory(event, category) {
+    event.preventDefault();
+    const form = event.target;
+    const button = form.querySelector('button[type="submit"]');
+
+    const name = form.name.value.trim();
+    const code = form.code.value.trim();
+    const defaultFundingSource = form.default_funding_source?.value;
+    const companyAccountId = form.company_account_id?.value;
+
+    if (!name) {
+        if (window.showToast) showToast('Category name is required', 'error');
+        return;
+    }
+
+    button.disabled = true;
+    button.textContent = 'Creating...';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.custom-row') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                shop_id: '{{ $currentShop->shop_id }}',
+                name,
+                code,
+                category,
+                default_funding_source: defaultFundingSource,
+                company_account_id: companyAccountId ? parseInt(companyAccountId, 10) : null,
+                header_group_id: currentTargetHeaderId,
+            }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            if (window.showToast) showToast(data.message || `Created ${name}`, 'success');
+            window.location.reload();
+            return;
+        }
+        if (window.showToast) showToast(data.message || 'Creation failed', 'error');
+    } catch (err) {
+        if (window.showToast) showToast('Creation failed', 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = `Create ${category === 'income' ? 'Income' : 'Expense'}`;
+    }
+}
+
+async function addEntryTypeToShop(entryTypeId, entryTypeName, category) {
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.custom-row') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                shop_id: '{{ $currentShop->shop_id }}',
+                name: entryTypeName,
+                category: category,
+                header_group_id: currentTargetHeaderId,
+            }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            if (window.showToast) showToast(data.message || 'Row added', 'success');
+            window.location.reload();
+            return;
+        }
+        if (window.showToast) showToast(data.message || 'Failed to add entry', 'error');
+    } catch (err) {
+        if (window.showToast) showToast('Failed to add entry', 'error');
+    }
+}
+
+async function reenableSetting(settingId, name) {
+    const form = document.getElementById('setting-' + settingId);
+    if (!form) return;
+    const payload = Object.fromEntries(new FormData(form).entries());
+    payload.setting_id = settingId;
+    payload.enabled = '1';
+    if (currentTargetHeaderId) {
+        payload.header_group_id = currentTargetHeaderId;
+    }
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.update') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (data.success) {
+            if (window.showToast) showToast(data.message || `Re-enabled ${name}`, 'success');
+            window.location.reload();
+            return;
+        }
+        if (window.showToast) showToast(data.message || 'Re-enable failed', 'error');
+    } catch (err) {
+        if (window.showToast) showToast('Re-enable failed', 'error');
+    }
+}
+
 function setPayableChoice(settingId, choice) {
     const incField = document.getElementById('inc-pay-' + settingId);
     const dirField = document.getElementById('pay-dir-' + settingId);
@@ -468,11 +2012,13 @@ async function saveShopSetting(event, settingId) {
     const payload = Object.fromEntries(new FormData(form).entries());
     payload.setting_id = settingId;
 
-    button.disabled = true;
-    button.textContent = 'Saving';
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Saving...';
+    }
 
     try {
-        const response = await fetch('/admin/cashbook/api/shop-settings/update', {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.update') }}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -483,56 +2029,22 @@ async function saveShopSetting(event, settingId) {
             body: JSON.stringify(payload),
         });
         const data = await response.json();
-        showToast(data.message || (data.success ? 'Saved' : 'Save failed'), data.success ? 'success' : 'error');
-    } catch (error) {
-        showToast('Save failed', 'error');
-    } finally {
-        button.disabled = false;
-        button.textContent = 'Save';
-    }
-}
-
-async function createCustomRow(event, category) {
-    event.preventDefault();
-    const form = event.target;
-    const button = form.querySelector('button[type="submit"]');
-    const name = form.name.value.trim();
-
-    if (!name) {
-        showToast('Enter a row name', 'error');
-        return;
-    }
-
-    button.disabled = true;
-    button.textContent = 'Adding';
-
-    try {
-        const response = await fetch('/admin/cashbook/api/shop-settings/custom-row', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify({
-                shop_id: form.shop_id.value,
-                name,
-                category,
-            }),
-        });
-        const data = await response.json();
-        if (data.success) {
-            showToast(data.message || 'Row added', 'success');
-            window.location.reload();
-            return;
+        if (window.showToast) {
+            showToast(data.message || (data.success ? 'Saved' : 'Save failed'), data.success ? 'success' : 'error');
         }
-        showToast(data.message || 'Add row failed', 'error');
+        if (data.success) {
+            closeConfigModal(settingId);
+            window.location.reload();
+        }
     } catch (error) {
-        showToast('Add row failed', 'error');
+        if (window.showToast) {
+            showToast('Save failed', 'error');
+        }
     } finally {
-        button.disabled = false;
-        button.textContent = 'Add Row';
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Save Configuration';
+        }
     }
 }
 
@@ -542,15 +2054,15 @@ async function createCollectionCustomRow(event, category) {
     const name = input.value.trim();
 
     if (!name) {
-        showToast('Enter a row name', 'error');
+        if (window.showToast) showToast('Enter a row name', 'error');
         return;
     }
 
     button.disabled = true;
-    button.textContent = 'Adding';
+    button.textContent = 'Adding...';
 
     try {
-        const response = await fetch('/admin/cashbook/api/shop-settings/custom-row', {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.custom-row') }}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -566,13 +2078,13 @@ async function createCollectionCustomRow(event, category) {
         });
         const data = await response.json();
         if (data.success) {
-            showToast(data.message || 'Row added', 'success');
+            if (window.showToast) showToast(data.message || 'Row added', 'success');
             window.location.reload();
             return;
         }
-        showToast(data.message || 'Add row failed', 'error');
+        if (window.showToast) showToast(data.message || 'Add row failed', 'error');
     } catch (error) {
-        showToast('Add row failed', 'error');
+        if (window.showToast) showToast('Add row failed', 'error');
     } finally {
         button.disabled = false;
         button.textContent = 'Add';
@@ -591,7 +2103,7 @@ async function saveCollectionSettings(event) {
     };
 
     button.disabled = true;
-    button.textContent = 'Saving';
+    button.textContent = 'Saving...';
 
     try {
         const response = await fetch('/admin/cashbook/api/shop-settings/collection', {
@@ -605,9 +2117,11 @@ async function saveCollectionSettings(event) {
             body: JSON.stringify(payload),
         });
         const data = await response.json();
-        showToast(data.message || (data.success ? 'Saved' : 'Save failed'), data.success ? 'success' : 'error');
+        if (window.showToast) {
+            showToast(data.message || (data.success ? 'Saved' : 'Save failed'), data.success ? 'success' : 'error');
+        }
     } catch (error) {
-        showToast('Save failed', 'error');
+        if (window.showToast) showToast('Save failed', 'error');
     } finally {
         button.disabled = false;
         button.textContent = 'Save Collection';
@@ -624,6 +2138,8 @@ function applyPeriodPreset(preset) {
 
     const fromInput = document.getElementById('hist-from-date');
     const toInput = document.getElementById('hist-to-date');
+
+    if (!fromInput || !toInput) return;
 
     if (preset === 'today') {
         fromInput.value = formatDate(today);
@@ -647,10 +2163,13 @@ function applyPeriodPreset(preset) {
 
 function onHistoricalCategoryChange() {
     const select = document.getElementById('hist-entry-type-id');
+    if (!select) return;
     const selectedOption = select.options[select.selectedIndex];
+    if (!selectedOption) return;
     const bankId = selectedOption.getAttribute('data-bank-id');
     if (bankId) {
-        document.getElementById('hist-company-account-id').value = bankId;
+        const bankSelect = document.getElementById('hist-company-account-id');
+        if (bankSelect) bankSelect.value = bankId;
     }
 }
 
@@ -663,7 +2182,6 @@ async function previewHistoricalFetch(event) {
     event.preventDefault();
     const form = event.target;
     const button = document.getElementById('btn-preview-hist');
-    const container = document.getElementById('hist-preview-container');
 
     const shopId = form.shop_id?.value;
     const entryTypeId = form.entry_type_id?.value;
@@ -672,15 +2190,15 @@ async function previewHistoricalFetch(event) {
     const toDate = form.to_date?.value;
 
     if (!entryTypeId) {
-        showToast('Please select a Category / Row first.', 'error');
+        if (window.showToast) showToast('Please select a Category / Row first.', 'error');
         return;
     }
     if (!companyAccountId) {
-        showToast('Please select a Destination Bank.', 'error');
+        if (window.showToast) showToast('Please select a Destination Bank.', 'error');
         return;
     }
     if (!fromDate || !toDate) {
-        showToast('Please select both From and To dates.', 'error');
+        if (window.showToast) showToast('Please select both From and To dates.', 'error');
         return;
     }
 
@@ -713,20 +2231,19 @@ async function previewHistoricalFetch(event) {
         try {
             data = await response.json();
         } catch (e) {
-            data = { message: 'Server returned an invalid response (status ' + response.status + ').' };
+            data = { message: 'Server returned an invalid response.' };
         }
 
         if (!response.ok || !data.success) {
-            const errorMsg = data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Preview calculation failed');
-            showToast(errorMsg, 'error');
+            const errorMsg = data.message || 'Preview calculation failed';
+            if (window.showToast) showToast(errorMsg, 'error');
             return;
         }
 
         currentHistoricalPreview = data.preview;
         renderHistoricalPreview(data.preview);
     } catch (error) {
-        console.error('Historical fetch preview error:', error);
-        showToast(error.message || 'Preview request failed', 'error');
+        if (window.showToast) showToast(error.message || 'Preview request failed', 'error');
     } finally {
         button.disabled = false;
         button.textContent = 'Preview Historical Entries';
@@ -759,69 +2276,19 @@ function renderHistoricalPreview(p) {
     const voidCount = Number(p.void_count || 0);
     const voidAmount = Number(p.void_amount || 0);
 
-    const sourceBaseAmount = Number(p.source_base_amount ?? p.source_amount ?? 0);
-    const sourceAdjAmount = Number(p.source_adjustment_amount ?? 0);
-    const sourceExpAmount = Number(p.source_expected_amount ?? p.source_amount ?? 0);
-    const hasSourceAdj = sourceAdjAmount !== 0;
-
-    const eligibleBaseAmount = Number(p.eligible_base_amount ?? p.eligible_amount ?? 0);
-    const eligibleAdjAmount = Number(p.eligible_adjustment_amount ?? 0);
-    const eligibleExpAmount = Number(p.eligible_expected_amount ?? p.eligible_amount ?? 0);
-    const hasEligibleAdj = eligibleAdjAmount !== 0;
-
-    let differentBankHtml = '';
-    if (Array.isArray(p.different_banks_detail) && p.different_banks_detail.length > 0) {
-        differentBankHtml = `<div class="mt-2 text-[11px] text-amber-700 font-semibold space-y-1">` +
-            p.different_banks_detail.map(d => `<div>• ${d.bank_name || 'Bank'}: ${Number(d.count || 0)} txs (${formatCurrency(d.amount)})</div>`).join('') +
-            `</div>`;
-    }
-
-    let duplicateWarningHtml = '';
-    if (Number(p.duplicate_source_warnings_count || 0) > 0 && Array.isArray(p.duplicate_source_warnings_detail)) {
-        duplicateWarningHtml = `
-            <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
-                <div class="flex items-center gap-2 text-rose-900 font-black text-xs">
-                    <i data-lucide="alert-triangle" class="h-4 w-4 text-rose-600"></i>
-                    <span>Duplicate Source Warnings (${p.duplicate_source_warnings_count} dates)</span>
-                </div>
-                <p class="mt-1 text-[11px] text-rose-700 font-semibold">Multiple active entries exist for the same date. These are never automatically combined.</p>
-                <div class="mt-2 space-y-1 text-xs text-rose-950 font-bold">
-                    ${p.duplicate_source_warnings_detail.map(d => `<div>• <strong>${d.business_date}</strong>: ${d.count} active entries (Total ${formatCurrency(d.total_amount)}) &mdash; IDs: ${(d.transaction_ids || []).join(', ')}</div>`).join('')}
-                </div>
-            </div>
-        `;
-    }
-
-    let sameDateDiffHtml = '';
-    if (Number(p.same_date_amount_differences_count || 0) > 0 && Array.isArray(p.same_date_amount_differences_detail)) {
-        sameDateDiffHtml = `
-            <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <div class="flex items-center gap-2 text-amber-900 font-black text-xs">
-                    <i data-lucide="alert-circle" class="h-4 w-4 text-amber-600"></i>
-                    <span>Potential Same-Date Amount Differences (${p.same_date_amount_differences_count})</span>
-                </div>
-                <p class="mt-1 text-[11px] text-amber-700 font-semibold">Unmatched bank statement exists on the same date with a different amount (requires manual review in Reconciliation).</p>
-                <div class="mt-2 space-y-1 text-xs text-amber-950 font-bold">
-                    ${p.same_date_amount_differences_detail.map(d => `<div>• <strong>${d.business_date}</strong>: Expected ${formatCurrency(d.expected_amount)} vs Statement ${formatCurrency(d.statement_amount)} (Diff: ${formatCurrency(d.difference)}) &mdash; Ref: ${d.statement_reference || '—'}</div>`).join('')}
-                </div>
-            </div>
-        `;
-    }
-
     container.innerHTML = `
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-4">
                 <div>
                     <h3 class="text-sm font-black text-slate-950">Historical Fetch Preview</h3>
                     <p class="text-xs font-semibold text-slate-500">
-                        ${shopName} • ${entryTypeName} &rarr; <span class="font-bold text-slate-900">${bankName}</span>
-                        (${fromDate} &rarr; ${toDate})
+                        ${shopName} • ${entryTypeName} &rrarr; <span class="font-bold text-slate-900">${bankName}</span>
+                        (${fromDate} &rrarr; ${toDate})
                     </p>
                 </div>
                 <div class="text-right">
                     <span class="text-xs font-bold text-slate-500">Total Found:</span>
                     <span class="text-sm font-black text-slate-950">${sourceCount} txs (${formatCurrency(sourceAmount)})</span>
-                    ${hasSourceAdj ? `<div class="text-[10px] font-bold text-slate-500">Base: ${formatCurrency(sourceBaseAmount)} | Adj: ${sourceAdjAmount > 0 ? '+' : ''}${formatCurrency(sourceAdjAmount)} &rarr; Exp: ${formatCurrency(sourceExpAmount)}</div>` : ''}
                 </div>
             </div>
 
@@ -830,28 +2297,22 @@ function renderHistoricalPreview(p) {
                     <p class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Eligible to Fetch</p>
                     <p class="mt-1 text-lg font-black text-emerald-950">${eligibleCount} <span class="text-xs font-bold text-emerald-800">txs</span></p>
                     <p class="text-xs font-bold text-emerald-700">${formatCurrency(eligibleAmount)}</p>
-                    ${hasEligibleAdj ? `<p class="text-[9px] font-bold text-emerald-800">Base: ${formatCurrency(eligibleBaseAmount)} | Adj: ${eligibleAdjAmount > 0 ? '+' : ''}${formatCurrency(eligibleAdjAmount)} &rarr; Exp: ${formatCurrency(eligibleExpAmount)}</p>` : ''}
                 </div>
-
                 <div class="rounded-xl border border-slate-200 bg-white p-3">
-                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Already ${bankName}</p>
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Already Linked</p>
                     <p class="mt-1 text-lg font-black text-slate-900">${alreadyLinkedCount} <span class="text-xs font-bold text-slate-400">txs</span></p>
                     <p class="text-xs font-bold text-slate-500">${formatCurrency(alreadyLinkedAmount)}</p>
                 </div>
-
                 <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
                     <p class="text-[10px] font-black uppercase tracking-wider text-amber-800">Different Bank</p>
                     <p class="mt-1 text-lg font-black text-amber-950">${differentBankCount} <span class="text-xs font-bold text-amber-800">txs</span></p>
                     <p class="text-xs font-bold text-amber-700">${formatCurrency(differentBankAmount)}</p>
-                    ${differentBankHtml}
                 </div>
-
                 <div class="rounded-xl border border-slate-200 bg-white p-3">
                     <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Reconciled (Locked)</p>
                     <p class="mt-1 text-lg font-black text-slate-900">${reconciledCount} <span class="text-xs font-bold text-slate-400">txs</span></p>
                     <p class="text-xs font-bold text-slate-500">${formatCurrency(reconciledAmount)}</p>
                 </div>
-
                 <div class="rounded-xl border border-slate-200 bg-white p-3">
                     <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Void / Excluded</p>
                     <p class="mt-1 text-lg font-black text-slate-900">${voidCount} <span class="text-xs font-bold text-slate-400">txs</span></p>
@@ -859,12 +2320,9 @@ function renderHistoricalPreview(p) {
                 </div>
             </div>
 
-            ${duplicateWarningHtml}
-            ${sameDateDiffHtml}
-
             <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 pt-4">
                 <p class="text-xs font-bold text-slate-600">
-                    ${eligibleCount > 0 ? `Ready to assign ${eligibleCount} entries to ${bankName}. Original sales dates will be retained.` : `No unassigned eligible transactions found for this period.`}
+                    ${eligibleCount > 0 ? `Ready to assign ${eligibleCount} entries to ${bankName}.` : `No unassigned eligible transactions found.`}
                 </p>
                 <button type="button"
                         id="btn-execute-hist"
@@ -884,8 +2342,6 @@ async function executeHistoricalFetch() {
     if (!currentHistoricalPreview || currentHistoricalPreview.eligible_count <= 0) return;
 
     const button = document.getElementById('btn-execute-hist');
-    const container = document.getElementById('hist-preview-container');
-
     button.disabled = true;
     button.textContent = 'Fetching Entries...';
 
@@ -911,94 +2367,21 @@ async function executeHistoricalFetch() {
             body: JSON.stringify(payload),
         });
 
-        let data = {};
-        try {
-            data = await response.json();
-        } catch (e) {
-            data = { message: 'Server returned an invalid response (status ' + response.status + ').' };
-        }
-
+        const data = await response.json();
         if (!response.ok || !data.success) {
-            const errorMsg = data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Fetch execution failed');
-            showToast(errorMsg, 'error');
+            if (window.showToast) showToast(data.message || 'Fetch failed', 'error');
             button.disabled = false;
             button.textContent = `Fetch ${currentHistoricalPreview.eligible_count} Eligible Entries`;
             return;
         }
 
-        showToast(data.message, 'success');
-        renderHistoricalFetchComplete(data.result);
+        if (window.showToast) showToast(data.message, 'success');
+        window.location.reload();
     } catch (error) {
-        console.error('Historical fetch execution error:', error);
-        showToast(error.message || 'Fetch execution failed', 'error');
+        if (window.showToast) showToast(error.message || 'Fetch failed', 'error');
         button.disabled = false;
         button.textContent = `Fetch ${currentHistoricalPreview.eligible_count} Eligible Entries`;
     }
-}
-
-function renderHistoricalFetchComplete(res) {
-    const container = document.getElementById('hist-preview-container');
-    const formatCurrency = (n) => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const reconUrl = `/admin/cashbook/finance/reconciliation?company_account_uuid=${res.company_account.public_uuid}`;
-
-    container.innerHTML = `
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5">
-            <div class="flex items-center gap-3">
-                <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white">
-                    <i data-lucide="check-circle" class="h-6 w-6"></i>
-                </span>
-                <div>
-                    <h3 class="text-sm font-black text-slate-950">Historical Bank Collection Fetch Complete</h3>
-                    <p class="text-xs font-semibold text-slate-600">
-                        ${res.shop.name} • ${res.entry_type.name} &rarr; <span class="font-bold text-slate-950">${res.company_account.name}</span>
-                        (${res.from_date} &rarr; ${res.to_date})
-                    </p>
-                </div>
-            </div>
-
-            <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div class="rounded-xl border border-emerald-200 bg-white p-3 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Successfully Updated</p>
-                    <p class="mt-1 text-lg font-black text-emerald-950">${res.updated_count} txs</p>
-                    <p class="text-xs font-bold text-emerald-700">${formatCurrency(res.updated_amount)}</p>
-                </div>
-
-                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Already Linked</p>
-                    <p class="mt-1 text-lg font-black text-slate-900">${res.skipped.already_linked_count} txs</p>
-                    <p class="text-xs font-bold text-slate-500">${formatCurrency(res.skipped.already_linked_amount)}</p>
-                </div>
-
-                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Different Bank (Skipped)</p>
-                    <p class="mt-1 text-lg font-black text-slate-900">${res.skipped.different_bank_count} txs</p>
-                    <p class="text-xs font-bold text-slate-500">${formatCurrency(res.skipped.different_bank_amount)}</p>
-                </div>
-
-                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Reconciled / Locked</p>
-                    <p class="mt-1 text-lg font-black text-slate-900">${res.skipped.reconciled_count} txs</p>
-                    <p class="text-xs font-bold text-slate-500">${formatCurrency(res.skipped.reconciled_amount)}</p>
-                </div>
-            </div>
-
-            <div class="mt-5 flex flex-wrap items-center gap-3 border-t border-emerald-100 pt-4">
-                <a href="${reconUrl}" class="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white hover:bg-slate-800">
-                    <i data-lucide="external-link" class="h-4 w-4"></i>
-                    Open ${res.company_account.name} Reconciliation
-                </a>
-                <a href="/admin/cashbook/finance/reconciliation?company_account_uuid=${res.company_account.public_uuid}&month=${res.from_date.substring(0, 7)}&direction=in" class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700">
-                    <i data-lucide="sparkles" class="h-4 w-4"></i>
-                    Preview Auto Match
-                </a>
-                <button type="button" onclick="document.getElementById('hist-preview-container').classList.add('hidden')" class="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
-                    Preview Another Period
-                </button>
-            </div>
-        </div>
-    `;
-
-    if (window.lucide) { lucide.createIcons(); }
 }
 
 // ─── Bank Settlement Adjustment Rules JS ───────────────────────────────────
@@ -1087,17 +2470,17 @@ async function submitAddBankAdjRule(event) {
 
         const data = await response.json();
         if (!response.ok || !data.success) {
-            showToast(data.message || 'Failed to save rule', 'error');
+            if (window.showToast) showToast(data.message || 'Failed to save rule', 'error');
             return;
         }
 
         allBankAdjustmentRules[activeAdjEntryTypeId] = data.rules;
         renderBankAdjRulesList();
         document.getElementById('bank-adj-label').value = '';
-        showToast('Rule saved successfully.', 'success');
+        if (window.showToast) showToast('Rule saved successfully.', 'success');
         updateAdjRuleButtonCount(activeAdjEntryTypeId, data.rules.length);
     } catch (err) {
-        showToast(err.message || 'Failed to save rule', 'error');
+        if (window.showToast) showToast(err.message || 'Failed to save rule', 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = '+ Add Rule';
@@ -1132,15 +2515,15 @@ async function toggleBankAdjRule(ruleId, newEnabledState) {
 
         const data = await response.json();
         if (!response.ok || !data.success) {
-            showToast(data.message || 'Failed to update rule', 'error');
+            if (window.showToast) showToast(data.message || 'Failed to update rule', 'error');
             return;
         }
 
         allBankAdjustmentRules[activeAdjEntryTypeId] = data.rules;
         renderBankAdjRulesList();
-        showToast('Rule updated.', 'success');
+        if (window.showToast) showToast('Rule updated.', 'success');
     } catch (err) {
-        showToast(err.message || 'Failed to update rule', 'error');
+        if (window.showToast) showToast(err.message || 'Failed to update rule', 'error');
     }
 }
 
@@ -1162,28 +2545,306 @@ async function deleteBankAdjRule(ruleId) {
 
         const data = await response.json();
         if (!response.ok || !data.success) {
-            showToast(data.message || 'Failed to delete rule', 'error');
+            if (window.showToast) showToast(data.message || 'Failed to delete rule', 'error');
             return;
         }
 
         allBankAdjustmentRules[activeAdjEntryTypeId] = data.rules;
         renderBankAdjRulesList();
-        showToast('Rule deleted.', 'success');
+        if (window.showToast) showToast('Rule deleted.', 'success');
         updateAdjRuleButtonCount(activeAdjEntryTypeId, data.rules.length);
     } catch (err) {
-        showToast(err.message || 'Failed to delete rule', 'error');
+        if (window.showToast) showToast(err.message || 'Failed to delete rule', 'error');
     }
 }
 
 function updateAdjRuleButtonCount(entryTypeId, count) {
     const btn = document.getElementById(`btn-adj-rules-${entryTypeId}`);
     if (btn) {
-        btn.textContent = `⚖️ Adj Rules (${count})`;
+        btn.innerHTML = `<i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i><span>Adjustments (${count})</span>`;
         if (count > 0) {
-            btn.className = 'inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded border transition bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100';
+            btn.className = 'inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100';
         } else {
-            btn.className = 'inline-flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded border transition bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200';
+            btn.className = 'inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200';
         }
+        if (window.lucide) lucide.createIcons();
+    }
+}
+
+// RELATION MANAGEMENT JS FUNCTIONS
+function openCreateRelationModal() {
+    document.getElementById('create-rel-name').value = '';
+    document.getElementById('create-rel-source').value = '';
+    document.getElementById('create-rel-eligibility').value = '';
+    document.getElementById('create-relation-modal').classList.remove('hidden');
+}
+
+function closeCreateRelationModal() {
+    document.getElementById('create-relation-modal').classList.add('hidden');
+}
+
+async function submitCreateRelation(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-submit-create-rel');
+    const name = document.getElementById('create-rel-name').value.trim();
+    const source = document.getElementById('create-rel-source').value || null;
+    const eligibility = document.getElementById('create-rel-eligibility').value || null;
+
+    if (!name) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.relations.create') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                shop_id: {{ $currentShop->shop_id }},
+                name: name,
+                settlement_source: source,
+                eligibility_rule: eligibility,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            if (window.showToast) showToast(data.message || 'Failed to create settlement', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Create Settlement';
+            return;
+        }
+
+        if (window.showToast) showToast(`Settlement '${name}' created.`, 'success');
+        window.location.reload();
+    } catch (err) {
+        if (window.showToast) showToast(err.message || 'Error creating settlement', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Create Settlement';
+    }
+}
+
+function openConfigureRelationModal(relId, name, source, eligibility, enabled) {
+    document.getElementById('config-rel-id').value = relId;
+    document.getElementById('config-rel-title').textContent = `Configure ${name}`;
+    document.getElementById('config-rel-source').value = source || '';
+    document.getElementById('config-rel-eligibility').value = eligibility || '';
+    document.getElementById('config-rel-enabled').checked = !!enabled;
+    document.getElementById('configure-relation-modal').classList.remove('hidden');
+}
+
+function closeConfigureRelationModal() {
+    document.getElementById('configure-relation-modal').classList.add('hidden');
+}
+
+async function submitConfigureRelation(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-submit-config-rel');
+    const relId = parseInt(document.getElementById('config-rel-id').value, 10);
+    const source = document.getElementById('config-rel-source').value || null;
+    const eligibility = document.getElementById('config-rel-eligibility').value || null;
+    const enabled = document.getElementById('config-rel-enabled').checked ? 1 : 0;
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.relations.update-settings') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                id: relId,
+                settlement_source: source,
+                eligibility_rule: eligibility,
+                enabled: enabled,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            if (window.showToast) showToast(data.message || 'Failed to update settlement configuration', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Save Configuration';
+            return;
+        }
+
+        if (window.showToast) showToast('Settlement configuration saved.', 'success');
+        window.location.reload();
+    } catch (err) {
+        if (window.showToast) showToast(err.message || 'Error saving settlement configuration', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Save Configuration';
+    }
+}
+
+function openAddRelationItemModal(relId, relName) {
+    document.getElementById('add-item-rel-id').value = relId;
+    document.getElementById('add-item-rel-title').textContent = `Add Entry to ${relName}`;
+    document.getElementById('add-item-setting-id').value = '';
+    document.getElementById('add-item-role').value = '';
+    document.getElementById('add-relation-item-modal').classList.remove('hidden');
+}
+
+function closeAddRelationItemModal() {
+    document.getElementById('add-relation-item-modal').classList.add('hidden');
+}
+
+async function submitAddRelationItem(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-submit-add-item');
+    const relId = parseInt(document.getElementById('add-item-rel-id').value, 10);
+    const settingId = parseInt(document.getElementById('add-item-setting-id').value, 10);
+    const role = document.getElementById('add-item-role').value;
+
+    if (!settingId || !role) {
+        if (window.showToast) showToast('Please select both entry and role.', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Adding...';
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.relations.add-item') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                relation_id: relId,
+                setting_id: settingId,
+                role: role,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            if (window.showToast) showToast(data.message || 'Failed to add entry to settlement', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Add Entry';
+            return;
+        }
+
+        if (window.showToast) showToast('Entry linked to settlement.', 'success');
+        window.location.reload();
+    } catch (err) {
+        if (window.showToast) showToast(err.message || 'Error adding entry to settlement', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Add Entry';
+    }
+}
+
+async function toggleRelationItemRole(itemId, newRole) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.relations.update-item-role') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                item_id: itemId,
+                role: newRole,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            if (window.showToast) showToast(data.message || 'Failed to update entry role', 'error');
+            return;
+        }
+
+        if (window.showToast) showToast('Entry role updated.', 'success');
+        window.location.reload();
+    } catch (err) {
+        if (window.showToast) showToast(err.message || 'Error updating entry role', 'error');
+    }
+}
+
+async function deleteRelationItem(itemId) {
+    if (!confirm('Are you sure you want to remove this entry from the settlement?')) return;
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.relations.delete-item') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                item_id: itemId,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            if (window.showToast) showToast(data.message || 'Failed to remove entry', 'error');
+            return;
+        }
+
+        if (window.showToast) showToast('Entry removed from settlement.', 'success');
+        window.location.reload();
+    } catch (err) {
+        if (window.showToast) showToast(err.message || 'Error removing entry', 'error');
+    }
+}
+
+async function deleteRelation(relId, relName) {
+    if (!confirm(`Are you sure you want to delete settlement '${relName}'?`)) return;
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.relations.delete') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                id: relId,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            if (window.showToast) showToast(data.message || 'Failed to delete settlement', 'error');
+            return;
+        }
+
+        if (window.showToast) showToast(`Settlement '${relName}' deleted.`, 'success');
+        window.location.reload();
+    } catch (err) {
+        if (window.showToast) showToast(err.message || 'Error deleting settlement', 'error');
     }
 }
 </script>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\LedgerClient;
+use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopConfigPreset;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
@@ -87,6 +88,7 @@ class CashbookShopSyncService
                 $profile->save();
 
                 $this->syncPresetSettingsToShop($profile, $preset);
+                $this->ensureOtherEntriesForShop($erpShop->id);
             }
         });
 
@@ -196,5 +198,72 @@ class CashbookShopSyncService
                 'company_pending_behavior' => $presetSetting->company_pending_behavior,
             ]);
         }
+    }
+
+    public function ensureOtherEntriesForShop(int $shopId): void
+    {
+        $otherIncomeType = LedgerEntryType::firstOrCreate(
+            ['code' => 'other_income'],
+            [
+                'name' => 'Other Income',
+                'category' => 'income',
+                'active' => true,
+                'display_order' => 7,
+            ]
+        );
+
+        $otherExpenseType = LedgerEntryType::firstOrCreate(
+            ['code' => 'other_expense'],
+            [
+                'name' => 'Other Expense',
+                'category' => 'expense',
+                'active' => true,
+                'display_order' => 18,
+            ]
+        );
+
+        ShopLedgerEntrySetting::query()->firstOrCreate(
+            [
+                'shop_id' => $shopId,
+                'entry_type_id' => $otherIncomeType->id,
+            ],
+            [
+                'version' => 1,
+                'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
+                'effective_to' => null,
+                'enabled' => true,
+                'default_funding_source' => 'shop_cash',
+                'allowed_funding_sources' => ['sales', 'bank'],
+                'include_in_sales' => false,
+                'include_in_income' => true,
+                'include_in_expense' => false,
+                'include_in_pl' => true,
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+            ]
+        );
+
+        ShopLedgerEntrySetting::query()->firstOrCreate(
+            [
+                'shop_id' => $shopId,
+                'entry_type_id' => $otherExpenseType->id,
+            ],
+            [
+                'version' => 1,
+                'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
+                'effective_to' => null,
+                'enabled' => true,
+                'default_funding_source' => 'sales',
+                'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
+                'include_in_sales' => false,
+                'include_in_income' => false,
+                'include_in_expense' => true,
+                'include_in_pl' => true,
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+            ]
+        );
     }
 }

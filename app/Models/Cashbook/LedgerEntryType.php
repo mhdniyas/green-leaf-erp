@@ -28,4 +28,9 @@ class LedgerEntryType extends Model
     {
         return $this->hasMany(ShopLedgerEntrySetting::class, 'entry_type_id');
     }
+
+    public function requiresNote(): bool
+    {
+        return in_array($this->code, ['other_income', 'other_expense'], true);
+    }
 }

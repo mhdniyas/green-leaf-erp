@@ -79,6 +79,29 @@
             border-left: 3px solid #0f172a;
             box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
         }
+
+        /* Tailwind-consistent select: suppress OS dark dropdown, inject custom chevron */
+        select {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
+            background-color: #ffffff;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.625rem center;
+            background-size: 1rem 1rem;
+            padding-right: 2.25rem !important;
+            color: #1e293b;
+        }
+        select:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px #d1fae5, 0 0 0 4px #10b981;
+        }
+        /* Darken arrow on dark-background selects (e.g. bg-emerald-50) */
+        select option {
+            background-color: #ffffff;
+            color: #1e293b;
+        }
     </style>
     @stack('styles')
 </head>

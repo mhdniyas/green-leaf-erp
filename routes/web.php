@@ -724,6 +724,8 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/income-expense', [CashbookController::class, 'companyIncomeExpense'])->name('finance.income-expense');
             Route::post('finance/income-expense', [CashbookController::class, 'storeCompanyIncomeExpense'])->name('finance.income-expense.store');
             Route::get('finance/income-expense/{entry:public_uuid}', [CashbookController::class, 'showCompanyIncomeExpense'])->name('finance.income-expense.show');
+            Route::patch('finance/income-expense/{entry:public_uuid}', [CashbookController::class, 'updateCompanyIncomeExpense'])->name('finance.income-expense.update');
+            Route::delete('finance/income-expense/{entry:public_uuid}', [CashbookController::class, 'destroyCompanyIncomeExpense'])->name('finance.income-expense.destroy');
             Route::get('finance/direct-sales', [CashbookController::class, 'directCompanySales'])->name('finance.direct-sales');
             Route::post('finance/direct-sales', [CashbookController::class, 'storeDirectCompanySale'])->name('finance.direct-sales.store');
             Route::get('finance/direct-sales/{directCompanySale:public_uuid}', [CashbookController::class, 'showDirectCompanySale'])->name('finance.direct-sales.show');
@@ -828,6 +830,7 @@ Route::middleware('auth')->group(function () {
             Route::get('rules-config', [CashbookController::class, 'rulesPage'])->name('rules-config');
             Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
+            Route::get('settings/shops/{shop}/demo', [CashbookController::class, 'shopDemoPage'])->name('settings.shop.demo');
             Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');
             Route::get('settings/collections', [CashbookController::class, 'collectionGroupsPage'])->name('settings.collections');
             Route::get('bank-accounts/create', [CashbookController::class, 'createBankAccountPage'])->name('bank-accounts.create');
@@ -872,6 +875,19 @@ Route::middleware('auth')->group(function () {
                 Route::post('presets/update-setting', [CashbookController::class, 'updatePresetSetting'])->name('presets.update-setting');
                 Route::post('shop-settings/update', [CashbookController::class, 'updateShopSetting'])->name('shop-settings.update');
                 Route::post('shop-settings/custom-row', [CashbookController::class, 'createShopCustomRow'])->name('shop-settings.custom-row');
+                Route::post('shop-settings/headers/create', [CashbookController::class, 'createShopHeaderGroup'])->name('shop-settings.headers.create');
+                Route::post('shop-settings/headers/update', [CashbookController::class, 'updateShopHeaderGroup'])->name('shop-settings.headers.update');
+                Route::post('shop-settings/headers/delete', [CashbookController::class, 'deleteShopHeaderGroup'])->name('shop-settings.headers.delete');
+                Route::post('shop-settings/headers/reorder', [CashbookController::class, 'reorderShopHeaderGroups'])->name('shop-settings.headers.reorder');
+                Route::get('products/search', [CashbookController::class, 'searchProducts'])->name('products.search');
+                Route::post('shop-settings/assign-header', [CashbookController::class, 'assignSettingToHeaderGroup'])->name('shop-settings.assign-header');
+                Route::post('shop-settings/cards/reorder', [CashbookController::class, 'reorderShopHeaderCards'])->name('shop-settings.cards.reorder');
+                Route::post('shop-settings/relations/create', [CashbookController::class, 'createShopRelation'])->name('shop-settings.relations.create');
+                Route::post('shop-settings/relations/add-item', [CashbookController::class, 'addShopRelationItem'])->name('shop-settings.relations.add-item');
+                Route::post('shop-settings/relations/update-item-role', [CashbookController::class, 'updateShopRelationItemRole'])->name('shop-settings.relations.update-item-role');
+                Route::post('shop-settings/relations/delete-item', [CashbookController::class, 'deleteShopRelationItem'])->name('shop-settings.relations.delete-item');
+                Route::post('shop-settings/relations/delete', [CashbookController::class, 'deleteShopRelation'])->name('shop-settings.relations.delete');
+                Route::post('shop-settings/relations/update-settings', [CashbookController::class, 'updateShopRelationSettings'])->name('shop-settings.relations.update-settings');
                 Route::post('shop-settings/bank-adjustment-rules', [CashbookController::class, 'saveShopBankAdjustmentRule'])->name('shop-settings.bank-adjustment-rules.save');
                 Route::delete('shop-settings/bank-adjustment-rules/{rule}', [CashbookController::class, 'deleteShopBankAdjustmentRule'])->name('shop-settings.bank-adjustment-rules.delete');
                 Route::post('shops/{shop}/bank-settlement-adjustments', [CashbookController::class, 'saveShopDailyBankAdjustments'])->name('shops.bank-settlement-adjustments.save');

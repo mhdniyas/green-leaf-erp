@@ -7,14 +7,15 @@ namespace App\Models\Cashbook;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShopLedgerEntrySetting extends Model
 {
     protected $table = 'shop_ledger_entry_settings';
 
     protected $fillable = [
-        'shop_id', 'entry_type_id', 'company_account_id', 'version', 'effective_from', 'effective_to',
-        'enabled', 'default_funding_source', 'allowed_funding_sources',
+        'shop_id', 'entry_type_id', 'header_group_id', 'header_display_order', 'company_account_id', 'version', 'effective_from', 'effective_to',
+        'enabled', 'note_enabled', 'default_funding_source', 'allowed_funding_sources',
         'include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl',
         'include_in_payable', 'payable_direction',
         'settlement_behavior', 'petty_behavior', 'company_pending_behavior',
@@ -23,10 +24,13 @@ class ShopLedgerEntrySetting extends Model
     ];
 
     protected $casts = [
+        'header_group_id' => 'integer',
+        'header_display_order' => 'integer',
         'company_account_id' => 'integer',
         'effective_from' => 'date',
         'effective_to' => 'date',
         'enabled' => 'boolean',
+        'note_enabled' => 'boolean',
         'allowed_funding_sources' => 'array',
         'include_in_sales' => 'boolean',
         'include_in_income' => 'boolean',
@@ -42,6 +46,11 @@ class ShopLedgerEntrySetting extends Model
         return $this->belongsTo(LedgerEntryType::class, 'entry_type_id');
     }
 
+    public function headerGroup(): BelongsTo
+    {
+        return $this->belongsTo(ShopLedgerHeaderGroup::class, 'header_group_id');
+    }
+
     public function companyAccount(): BelongsTo
     {
         return $this->belongsTo(CompanyAccount::class, 'company_account_id');
@@ -50,6 +59,11 @@ class ShopLedgerEntrySetting extends Model
     public function secondaryEntryType(): BelongsTo
     {
         return $this->belongsTo(LedgerEntryType::class, 'secondary_entry_type_id');
+    }
+
+    public function relationItems(): HasMany
+    {
+        return $this->hasMany(ShopCashbookRelationItem::class, 'shop_ledger_entry_setting_id');
     }
 
     public function isDirectBankCollection(): bool
@@ -66,5 +80,15 @@ class ShopLedgerEntrySetting extends Model
             ->where(function (Builder $q) use ($date) {
                 $q->whereNull('effective_to')->orWhere('effective_to', '>=', $date);
             });
+    }
+
+    public function isNoteEnabled(): bool
+    {
+        return (bool) $this->note_enabled;
+    }
+
+    public function requiresNote(): bool
+    {
+        return $this->entryType?->requiresNote() ?? false;
     }
 }
