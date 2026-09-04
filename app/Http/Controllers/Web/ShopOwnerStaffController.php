@@ -262,9 +262,9 @@ class ShopOwnerStaffController extends Controller
             'verification_status' => 'pending',
             'submitted_by' => $request->user()->id,
             'joined_on' => $validated['joined_on'],
-            'salary_type' => null,
-            'monthly_salary' => null,
-            'daily_wage' => null,
+            'salary_type' => $validated['salary_type'],
+            'monthly_salary' => $validated['salary_type'] === 'monthly' ? (float) $validated['monthly_salary'] : null,
+            'daily_wage' => $validated['salary_type'] === 'daily_wage' ? (float) $validated['daily_wage'] : null,
             'notes' => $validated['notes'] ?? null,
         ]);
 
@@ -328,8 +328,9 @@ class ShopOwnerStaffController extends Controller
             'rejection_reason' => null,
             'submitted_by' => $request->user()->id,
             'joined_on' => $validated['joined_on'],
-            'salary_type' => null,
-            'monthly_salary' => null,
+            'salary_type' => $validated['salary_type'],
+            'monthly_salary' => $validated['salary_type'] === 'monthly' ? (float) $validated['monthly_salary'] : null,
+            'daily_wage' => $validated['salary_type'] === 'daily_wage' ? (float) $validated['daily_wage'] : null,
             'notes' => $validated['notes'] ?? null,
         ]);
 

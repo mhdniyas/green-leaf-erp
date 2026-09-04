@@ -36,6 +36,7 @@
         <!-- SINGLE MAIN COMPACT CARD WITH SUBTLE DIVIDERS -->
         <div class="rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-xs" x-data="{
             idType: '{{ old('id_type', $employee?->id_type ?? 'aadhaar') }}',
+            salaryType: '{{ old('salary_type', $employee?->salary_type ?? 'monthly') }}',
         }">
             <form method="POST" action="{{ $employee ? route('shop-owner.staff.employees.resubmit', $employee) : route('shop-owner.staff.employees.store') }}" class="space-y-3">
                 @csrf
@@ -103,6 +104,40 @@
                         <div>
                             <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Joining Date *</label>
                             <input type="date" name="joined_on" value="{{ old('joined_on', $employee?->joined_on?->format('Y-m-d') ?? date('Y-m-d')) }}" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 3: SALARY -->
+                @php($selectedSalaryType = old('salary_type', $employee?->salary_type ?? 'monthly'))
+                <div class="space-y-2.5 border-t border-slate-100 pt-2.5">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-400">Salary Information</p>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Salary Type *</label>
+                            <div class="relative">
+                                <select id="shop-owner-salary-type" name="salary_type" class="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 cursor-pointer" required>
+                                    <option value="monthly" @selected($selectedSalaryType === 'monthly')>Monthly salary</option>
+                                    <option value="daily_wage" @selected($selectedSalaryType === 'daily_wage')>Daily wage</option>
+                                </select>
+                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-500">
+                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                    </svg>
+                                </div>
+                            </div>
+                            @error('salary_type') <p class="mt-0.5 text-[11px] font-bold text-rose-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div id="shop-owner-monthly-salary-field" class="{{ $selectedSalaryType === 'daily_wage' ? 'hidden' : '' }}">
+                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Monthly Salary *</label>
+                            <input id="shop-owner-monthly-salary-input" type="number" step="0.01" min="0" name="monthly_salary" value="{{ old('monthly_salary', $employee?->monthly_salary) }}" placeholder="Monthly salary" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" @required($selectedSalaryType !== 'daily_wage') @disabled($selectedSalaryType === 'daily_wage')>
+                            @error('monthly_salary') <p class="mt-0.5 text-[11px] font-bold text-rose-600">{{ $message }}</p> @enderror
+                        </div>
+                        <div id="shop-owner-daily-wage-field" class="{{ $selectedSalaryType === 'daily_wage' ? '' : 'hidden' }}">
+                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Daily Wage *</label>
+                            <input id="shop-owner-daily-wage-input" type="number" step="0.01" min="0" name="daily_wage" value="{{ old('daily_wage', $employee?->daily_wage) }}" placeholder="Daily wage" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" @required($selectedSalaryType === 'daily_wage') @disabled($selectedSalaryType !== 'daily_wage')>
+                            @error('daily_wage') <p class="mt-0.5 text-[11px] font-bold text-rose-600">{{ $message }}</p> @enderror
                         </div>
                     </div>
                 </div>
@@ -251,6 +286,31 @@
     <script>
         let cropper = null;
         let currentTargetField = null;
+
+        const salaryTypeSelect = document.getElementById('shop-owner-salary-type');
+        const monthlySalaryField = document.getElementById('shop-owner-monthly-salary-field');
+        const monthlySalaryInput = document.getElementById('shop-owner-monthly-salary-input');
+        const dailyWageField = document.getElementById('shop-owner-daily-wage-field');
+        const dailyWageInput = document.getElementById('shop-owner-daily-wage-input');
+
+        function syncShopOwnerSalaryFields() {
+            if (!salaryTypeSelect || !monthlySalaryField || !monthlySalaryInput || !dailyWageField || !dailyWageInput) return;
+
+            const isDailyWage = salaryTypeSelect.value === 'daily_wage';
+
+            monthlySalaryField.classList.toggle('hidden', isDailyWage);
+            monthlySalaryInput.required = !isDailyWage;
+            monthlySalaryInput.disabled = isDailyWage;
+
+            dailyWageField.classList.toggle('hidden', !isDailyWage);
+            dailyWageInput.required = isDailyWage;
+            dailyWageInput.disabled = !isDailyWage;
+        }
+
+        if (salaryTypeSelect) {
+            salaryTypeSelect.addEventListener('change', syncShopOwnerSalaryFields);
+            syncShopOwnerSalaryFields();
+        }
 
         function handleCropImageSelect(event, targetField) {
             const files = event.target.files;

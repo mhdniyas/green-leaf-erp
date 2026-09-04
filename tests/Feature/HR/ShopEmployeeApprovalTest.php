@@ -80,10 +80,12 @@ class ShopEmployeeApprovalTest extends TestCase
         $response->assertOk();
         $response->assertSee('Add New Shop Staff');
         $response->assertDontSee('Role / Designation');
-        $response->assertDontSee('Salary Type');
+        $response->assertSee('Salary Type');
+        $response->assertSee('Monthly Salary');
+        $response->assertSee('Daily Wage');
     }
 
-    public function test_shop_owner_submitting_staff_creates_pending_employee_without_category_or_salary(): void
+    public function test_shop_owner_submitting_staff_creates_pending_employee_with_salary(): void
     {
         $payload = [
             'shop_id' => $this->shop->id,
@@ -95,6 +97,8 @@ class ShopEmployeeApprovalTest extends TestCase
             'id_type' => 'aadhaar',
             'id_number' => '1234-5678-9012',
             'address' => '123 MG Road, Kochi',
+            'salary_type' => 'monthly',
+            'monthly_salary' => 18500,
             'photo_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
             'id_front_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         ];
@@ -109,8 +113,8 @@ class ShopEmployeeApprovalTest extends TestCase
             'name' => 'Rahul Sharma',
             'default_shop_id' => $this->shop->id,
             'employee_category_id' => null,
-            'salary_type' => null,
-            'monthly_salary' => null,
+            'salary_type' => 'monthly',
+            'monthly_salary' => 18500.00,
             'daily_wage' => null,
             'staff_area' => 'shop',
             'verification_status' => 'pending',
@@ -359,6 +363,8 @@ class ShopEmployeeApprovalTest extends TestCase
             'id_type' => 'aadhaar',
             'id_number' => '1111-2222-6666',
             'address' => 'Kozhikode',
+            'salary_type' => 'daily_wage',
+            'daily_wage' => 650,
             'photo_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
             'id_front_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         ];
@@ -372,7 +378,9 @@ class ShopEmployeeApprovalTest extends TestCase
             'id' => $rejectedEmployee->id,
             'name' => 'Vikas Nair Corrected',
             'employee_category_id' => null,
-            'salary_type' => null,
+            'salary_type' => 'daily_wage',
+            'daily_wage' => 650.00,
+            'monthly_salary' => null,
             'verification_status' => 'pending',
             'rejection_reason' => null,
         ]);

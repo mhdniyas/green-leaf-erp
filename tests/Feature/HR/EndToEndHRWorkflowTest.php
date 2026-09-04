@@ -74,6 +74,8 @@ class EndToEndHRWorkflowTest extends TestCase
             'id_type' => 'aadhaar',
             'id_number' => '999988887777',
             'address' => 'Casio Street, Kochi',
+            'salary_type' => 'monthly',
+            'monthly_salary' => 24000,
             'photo_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
             'id_front_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         ];
@@ -92,8 +94,8 @@ class EndToEndHRWorkflowTest extends TestCase
         $this->assertEquals($this->casioShop->id, $employee->default_shop_id);
         $this->assertEquals('pending', $employee->verification_status);
         $this->assertNull($employee->employee_category_id);
-        $this->assertNull($employee->salary_type);
-        $this->assertNull($employee->monthly_salary);
+        $this->assertEquals('monthly', $employee->salary_type);
+        $this->assertEquals(24000.00, (float) $employee->monthly_salary);
         $this->assertNull($employee->daily_wage);
 
         // 2. SHOP PENDING STATE
@@ -192,6 +194,8 @@ class EndToEndHRWorkflowTest extends TestCase
             'id_type' => 'aadhaar',
             'id_number' => '9999-8888-6666',
             'address' => 'Casio Street, Kochi',
+            'salary_type' => 'monthly',
+            'monthly_salary' => 18000,
             'photo_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
             'id_front_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         ];
