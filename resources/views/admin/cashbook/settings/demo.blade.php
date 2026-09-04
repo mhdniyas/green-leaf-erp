@@ -44,7 +44,8 @@
     if ($unassignedSettings->isNotEmpty()) {
         $unassignedTransfers = $unassignedSettings->filter(function ($s) {
             $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            return $cat === 'transfer' || $cat === 'settlement' || (! $s->include_in_sales && ! $s->include_in_income && ! $s->include_in_expense);
+            $isSalesDeduction = $s->include_in_sales && $s->payable_direction === 'minus';
+            return $cat === 'transfer' || $cat === 'settlement' || $isSalesDeduction || (! $s->include_in_sales && ! $s->include_in_income && ! $s->include_in_expense);
         })->values();
 
         $unassignedIncome = $unassignedSettings->filter(function ($s) use ($unassignedTransfers) {
@@ -82,7 +83,8 @@
     if ($demoHeaderSections->isEmpty() && $sortedSettings->isNotEmpty()) {
         $incomeSet = $sortedSettings->filter(function ($s) {
             $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            return $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+            $isSalesDeduction = $s->include_in_sales && $s->payable_direction === 'minus';
+            return ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
         })->values();
         $expenseSet = $sortedSettings->reject(fn($s) => $incomeSet->contains('id', $s->id))->values();
 
@@ -129,7 +131,9 @@
     // Serialize metadata for JS calculation engine
     $settingsJson = $settings->map(function ($s) {
         $cat = strtolower((string) ($s->entryType?->category ?? ''));
-        $isIncome = $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+        $isSalesDeduction = $s->include_in_sales && $s->payable_direction === 'minus';
+        $isIncome = ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
+        $isExpense = ($cat === 'expense' || $s->include_in_expense) && ! $isSalesDeduction;
         $code = strtolower((string) ($s->entryType?->code ?? ''));
         $name = strtolower((string) ($s->entryType?->name ?? ''));
         $isCashPurchase = str_contains($code, 'cash_purchase') || str_contains($name, 'cash purchase');
@@ -152,9 +156,10 @@
         return [
             'id' => (int) $s->id,
             'name' => $s->displayName(),
-            'category' => $isIncome ? 'income' : 'expense',
+            'category' => $isSalesDeduction ? 'transfer' : ($isIncome ? 'income' : 'expense'),
             'is_income' => $isIncome,
-            'is_expense' => !$isIncome,
+            'is_expense' => $isExpense,
+            'is_sales_deduction' => $isSalesDeduction,
             'is_cash_purchase' => $isCashPurchase,
             'requires_note' => $requiresNote,
             'note_enabled' => $noteEnabled,
@@ -1797,7 +1802,11 @@
                 const amt = parseFloat(dayAmounts[s.id]) || 0;
                 if (amt <= 0) return;
 
-                if (s.is_income) {
+                if (s.is_sales_deduction) {
+                    daySales -= amt;
+                    cashCollectedAtShop += amt;
+                    shopHeldSalesEntries.push({ name: `${s.name} (Transfer)`, amount: -amt });
+                } else if (s.is_income) {
                     daySales += amt;
                     if (s.company_account_id) {
                         directCompanyBankTotal += amt;
@@ -1810,7 +1819,7 @@
                         cashCollectedAtShop += amt;
                         shopHeldSalesEntries.push({ name: s.name, amount: amt });
                     }
-                } else {
+                } else if (s.is_expense) {
                     if (s.is_cash_purchase) {
                         dayCashPurchase += amt;
                     } else {

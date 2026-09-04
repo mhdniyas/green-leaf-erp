@@ -2738,13 +2738,13 @@ final class CashbookController extends Controller
         $expenseSettings = $settings->filter(function ($setting) {
             $cat = strtolower((string) ($setting->entryType?->category ?? ''));
 
-            return $cat === 'expense' || $setting->include_in_expense;
+            return ($cat === 'expense' || $setting->include_in_expense) && ! ($setting->include_in_sales && $setting->payable_direction === 'minus');
         })->values();
 
         $transferSettings = $settings->filter(function ($setting) {
             $cat = strtolower((string) ($setting->entryType?->category ?? ''));
 
-            return $cat === 'transfer' || $cat === 'settlement' || (! $setting->include_in_sales && ! $setting->include_in_income && ! $setting->include_in_expense);
+            return $cat === 'transfer' || $cat === 'settlement' || ($setting->include_in_sales && $setting->payable_direction === 'minus') || (! $setting->include_in_sales && ! $setting->include_in_income && ! $setting->include_in_expense);
         })->values();
 
         $allEntryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
@@ -7302,9 +7302,18 @@ final class CashbookController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
-        $totalSales = (float) $rangeTransactions
-            ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
-            ->sum('amount');
+        $totalSales = (float) $rangeTransactions->sum(function ($t) use ($shopSettings) {
+            $setting = $shopSettings->firstWhere('entry_type_id', $t->entry_type_id);
+            $isIncome = $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income');
+            if ($isIncome) {
+                return (float) $t->amount;
+            }
+            if ($setting && $setting->include_in_sales && ($setting->payable_direction === 'minus' || $t->direction === 'transfer' || $t->entryType?->category === 'transfer')) {
+                return -(float) $t->amount;
+            }
+
+            return 0.0;
+        });
 
         $totalExpense = (float) $rangeTransactions
             ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))

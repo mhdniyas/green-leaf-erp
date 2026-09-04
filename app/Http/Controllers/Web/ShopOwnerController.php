@@ -1237,9 +1237,18 @@ class ShopOwnerController extends Controller
             return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
         }), 2);
 
-        $totalSales = (float) $transactions
-            ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
-            ->sum('amount');
+        $totalSales = (float) $transactions->sum(function ($t) use ($settings) {
+            $setting = $settings->firstWhere('entry_type_id', $t->entry_type_id);
+            $isIncome = $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income');
+            if ($isIncome) {
+                return (float) $t->amount;
+            }
+            if ($setting && $setting->include_in_sales && ($setting->payable_direction === 'minus' || $t->direction === 'transfer' || $t->entryType?->category === 'transfer')) {
+                return -(float) $t->amount;
+            }
+
+            return 0.0;
+        });
 
         $totalExpense = (float) $transactions
             ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
