@@ -194,7 +194,7 @@
 
         <!-- TAB 2: ATTENDANCE (FAST ONE-TAP CHECK-IN & REASON MODAL) -->
         @if($selectedTab === 'attendance')
-            <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-2" x-data="{ openReasonModal: false, targetForm: null, targetStatus: '', targetLabel: '', reasonInput: '' }">
+            <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-2" x-data="{ openReasonModal: false, targetForm: null, targetAlpine: null, targetStatus: '', targetLabel: '', reasonInput: '' }">
                 <div class="flex items-center justify-between gap-2">
                     <div>
                         <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Quick Check-In</h2>
@@ -220,7 +220,10 @@
                             $attendance = $attendanceRecords->get($employee->id);
                             $isMarked = $attendance !== null;
                             $status = $attendance?->status;
-                            $selectedStatus = $attendance?->status ?? 'present';
+                            $statusLabel = $status === 'present' ? '✓ Present' : ($status ? str_replace('_', ' ', ucfirst((string) $status)) : 'Not Marked');
+                            $markedTimeStr = $attendance?->marked_at ? $attendance->marked_at->timezone('Asia/Kolkata')->format('g:i A') : '';
+                            $badgeStyle = $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600';
+                            $notesStr = $attendance?->notes ?? '';
                         @endphp
 
                         <form method="POST" 
@@ -228,13 +231,31 @@
                               class="py-2.5 space-y-1.5" 
                               data-owned-shop-attendance-form 
                               id="attendance-form-emp-{{ $employee->id }}"
-                              x-data="{ isMarked: {{ $isMarked ? 'true' : 'false' }}, editing: {{ $isMarked ? 'false' : 'true' }} }"
-                              @attendance-saved.window="if ($event.target === $el) { isMarked = true; editing = false; }">
+                              x-data="{ 
+                                  isMarked: {{ $isMarked ? 'true' : 'false' }}, 
+                                  editing: {{ $isMarked ? 'false' : 'true' }},
+                                  status: '{{ $status ?? '' }}',
+                                  statusLabel: '{{ $statusLabel }}',
+                                  markedAt: '{{ $markedTimeStr }}',
+                                  badgeClass: '{{ $badgeStyle }}',
+                                  notes: '{{ addslashes($notesStr) }}'
+                              }"
+                              @attendance-saved.window="if ($event.target === $el) { 
+                                  isMarked = true; 
+                                  editing = false; 
+                                  if ($event.detail) {
+                                      status = $event.detail.status || status;
+                                      statusLabel = $event.detail.statusLabel || statusLabel;
+                                      markedAt = $event.detail.markedAt || markedAt;
+                                      badgeClass = $event.detail.badgeClass || badgeClass;
+                                      notes = $event.detail.notes !== undefined ? $event.detail.notes : notes;
+                                  }
+                              }">
                             @csrf
                             <input type="hidden" name="employee_id" value="{{ $employee->id }}">
                             <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
                             <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
-                            <input type="hidden" name="notes" value="{{ $attendance?->notes }}" data-attendance-notes-input>
+                            <input type="hidden" name="notes" value="{{ $notesStr }}" data-attendance-notes-input>
 
                             <div class="flex items-center justify-between gap-2">
                                 <div class="flex items-center gap-2.5 min-w-0">
@@ -254,59 +275,80 @@
                                 </div>
 
                                 <div class="text-right shrink-0">
-                                    <template x-if="isMarked && !editing">
-                                        <div class="flex flex-col items-end gap-0.5">
-                                            <div class="flex items-center gap-1">
-                                                <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600' }}" data-attendance-status-badge>
-                                                    {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', ucfirst((string) $status)) }}
-                                                </span>
-                                                <span class="text-[10px] font-extrabold text-slate-700" data-attendance-time>
-                                                    @if($attendance?->marked_at)
-                                                        · {{ $attendance->marked_at->timezone('Asia/Kolkata')->format('g:i A') }}
-                                                    @endif
-                                                </span>
-                                                @if($isAttendanceOpen)
-                                                    <button type="button" @click="editing = true" class="text-[10px] font-black text-cyan-700 hover:underline cursor-pointer ml-1">[Change]</button>
+                                    <div x-show="isMarked" 
+                                         class="flex flex-col items-end gap-0.5" 
+                                         data-attendance-marked-container 
+                                         style="{{ $isMarked ? '' : 'display: none;' }}">
+                                        <div class="flex items-center gap-1">
+                                            <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block {{ $badgeStyle }}" 
+                                                  :class="badgeClass"
+                                                  x-text="statusLabel"
+                                                  data-attendance-status-badge>
+                                                {{ $statusLabel }}
+                                            </span>
+                                            <span class="text-[10px] font-extrabold text-slate-700" 
+                                                  x-text="markedAt ? ' · ' + markedAt : ''"
+                                                  data-attendance-time>
+                                                @if($markedTimeStr)
+                                                    · {{ $markedTimeStr }}
                                                 @endif
-                                            </div>
-                                            <p class="text-[10px] font-semibold text-slate-500 truncate max-w-[170px] {{ $attendance?->notes ? '' : 'hidden' }}" data-attendance-reason title="{{ $attendance?->notes }}">
-                                                @if($attendance?->notes)
-                                                    Reason: {{ $attendance->notes }}
-                                                @endif
-                                            </p>
+                                            </span>
+                                            @if($isAttendanceOpen)
+                                                <button type="button" 
+                                                        @click="editing = !editing; const g = $el.closest('form').querySelector('[data-attendance-actions-grid]'); if (g) g.style.display = editing ? 'grid' : 'none';" 
+                                                        class="text-[10px] font-black text-cyan-700 hover:underline cursor-pointer ml-1"
+                                                        x-text="editing ? '· [Cancel]' : '· [Change]'"
+                                                        data-attendance-change-btn>
+                                                    · [Change]
+                                                </button>
+                                            @endif
                                         </div>
-                                    </template>
-                                    <template x-if="!isMarked && !editing">
+                                        <p class="text-[10px] font-semibold text-slate-500 truncate max-w-[170px] {{ $notesStr ? '' : 'hidden' }}" 
+                                           :class="notes ? '' : 'hidden'"
+                                           x-text="notes ? 'Reason: ' + notes : ''"
+                                           :title="notes"
+                                           data-attendance-reason>
+                                            @if($notesStr)
+                                                Reason: {{ $notesStr }}
+                                            @endif
+                                        </p>
+                                    </div>
+                                    <div x-show="!isMarked" 
+                                         data-attendance-not-marked 
+                                         style="{{ !$isMarked ? '' : 'display: none;' }}">
                                         <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border border-slate-200 bg-slate-100 text-slate-500 inline-block">
                                             Not Marked
                                         </span>
-                                    </template>
+                                    </div>
                                 </div>
                             </div>
 
                             <!-- COMPACT 4 ACTION BUTTONS GRID -->
                             @if($isAttendanceOpen)
-                                <div x-show="editing || !isMarked" class="grid grid-cols-4 gap-1.5 pt-0.5">
+                                <div x-show="editing || !isMarked" 
+                                     style="{{ $isMarked ? 'display: none;' : '' }}" 
+                                     class="grid grid-cols-4 gap-1.5 pt-0.5" 
+                                     data-attendance-actions-grid>
                                     <button type="button" 
-                                            onclick="submitAttendanceStatus(this.form, 'present', '', this)"
+                                            @click="status = 'present'; statusLabel = '✓ Present'; badgeClass = 'border-emerald-200 bg-emerald-50 text-emerald-800'; isMarked = true; editing = false; notes = ''; const g = $el.closest('form').querySelector('[data-attendance-actions-grid]'); if (g) g.style.display = 'none'; submitAttendanceStatus($el.closest('form'), 'present', '', $el)"
                                             class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-600 hover:text-white">
                                         ✓ Present
                                     </button>
 
                                     <button type="button" 
-                                            @click="targetForm = document.getElementById('attendance-form-emp-{{ $employee->id }}'); targetStatus = 'half_day'; targetLabel = 'Half Day'; reasonInput = '{{ e($attendance?->notes ?? '') }}'; openReasonModal = true"
+                                            @click="targetForm = $el.closest('form'); targetAlpine = $data; targetStatus = 'half_day'; targetLabel = 'Half Day'; reasonInput = notes || ''; openReasonModal = true"
                                             class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-amber-50 text-amber-800 hover:bg-amber-500 hover:text-white">
                                         ◐ Half
                                     </button>
 
                                     <button type="button" 
-                                            @click="targetForm = document.getElementById('attendance-form-emp-{{ $employee->id }}'); targetStatus = 'leave'; targetLabel = 'Leave'; reasonInput = '{{ e($attendance?->notes ?? '') }}'; openReasonModal = true"
+                                            @click="targetForm = $el.closest('form'); targetAlpine = $data; targetStatus = 'leave'; targetLabel = 'Leave'; reasonInput = notes || ''; openReasonModal = true"
                                             class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-600 hover:text-white">
                                         L Leave
                                     </button>
 
                                     <button type="button" 
-                                            @click="targetForm = document.getElementById('attendance-form-emp-{{ $employee->id }}'); targetStatus = 'absent'; targetLabel = 'Absent'; reasonInput = '{{ e($attendance?->notes ?? '') }}'; openReasonModal = true"
+                                            @click="targetForm = $el.closest('form'); targetAlpine = $data; targetStatus = 'absent'; targetLabel = 'Absent'; reasonInput = notes || ''; openReasonModal = true"
                                             class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-rose-50 text-rose-800 hover:bg-rose-600 hover:text-white">
                                         × Absent
                                     </button>
@@ -340,7 +382,7 @@
                         <div class="flex justify-end gap-2 pt-1">
                             <button type="button" @click="openReasonModal = false" class="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 cursor-pointer">Cancel</button>
                             <button type="button" 
-                                    @click="if (reasonInput.trim().length >= 3) { submitAttendanceStatus(targetForm, targetStatus, reasonInput.trim()); openReasonModal = false; } else { window.showAppAlert?.('Please enter a reason (minimum 3 characters)'); }" 
+                                    @click="if (reasonInput.trim().length >= 3) { if (targetAlpine) { targetAlpine.isMarked = true; targetAlpine.editing = false; targetAlpine.status = targetStatus; targetAlpine.notes = reasonInput.trim(); } const g = targetForm?.querySelector('[data-attendance-actions-grid]'); if (g) g.style.display = 'none'; submitAttendanceStatus(targetForm, targetStatus, reasonInput.trim()); openReasonModal = false; } else { (window.showAppAlert || alert)('Please enter a reason (minimum 3 characters)'); }" 
                                     class="rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-black text-white hover:bg-emerald-700 cursor-pointer">
                                 Save
                             </button>
@@ -721,6 +763,175 @@
 
     @push('scripts')
         <script>
+            window.submitAttendanceStatus = async function(formOrId, status, notes = '', triggerBtn = null) {
+                const form = typeof formOrId === 'string'
+                    ? document.getElementById(formOrId)
+                    : (formOrId || (triggerBtn ? triggerBtn.closest('form') : null));
+
+                if (!form) {
+                    console.error('submitAttendanceStatus: Target form not found', formOrId);
+                    return;
+                }
+
+                // 1. Immediate synchronous DOM update: remove stale "Not Marked" badge right on click
+                const notMarkedEl = form.querySelector('[data-attendance-not-marked]');
+                if (notMarkedEl) {
+                    notMarkedEl.style.display = 'none';
+                }
+                const markedContainer = form.querySelector('[data-attendance-marked-container]');
+                if (markedContainer) {
+                    markedContainer.style.display = 'flex';
+                }
+                const actionsGrid = form.querySelector('[data-attendance-actions-grid]');
+                if (actionsGrid && status === 'present') {
+                    actionsGrid.style.display = 'none';
+                }
+                const badge = form.querySelector('[data-attendance-status-badge]');
+                if (badge) {
+                    badge.textContent = status === 'present' ? '✓ Present' : (status.replace('_', ' ').toUpperCase());
+                    badge.className = 'rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block ' + getAttendanceBadgeClass(status);
+                }
+
+                const notesInput = form.querySelector('[data-attendance-notes-input]');
+                if (notesInput) {
+                    notesInput.value = notes || '';
+                }
+
+                const formData = new FormData(form);
+                formData.set('status', status);
+                if (notes) {
+                    formData.set('notes', notes);
+                    if (status === 'leave') {
+                        formData.set('leave_reason', notes);
+                    }
+                } else {
+                    formData.set('notes', '');
+                    formData.delete('leave_reason');
+                }
+
+                const buttons = form.querySelectorAll('button');
+                buttons.forEach(b => b.disabled = true);
+                if (triggerBtn) {
+                    triggerBtn.dataset.originalHtml = triggerBtn.innerHTML;
+                    triggerBtn.innerHTML = '...';
+                }
+
+                try {
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') 
+                        || form.querySelector('input[name="_token"]')?.value;
+
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken || ''
+                        },
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        const statusLabel = data.attendance?.status_label || (status === 'present' ? '✓ Present' : status.replace('_', ' '));
+                        const rawMarkedAt = data.attendance?.marked_at || '';
+                        const badgeClass = getAttendanceBadgeClass(status);
+                        const finalNotes = (status === 'present') ? '' : (data.attendance?.notes || notes || '');
+
+                        if (notMarkedEl) {
+                            notMarkedEl.style.display = 'none';
+                        }
+                        if (markedContainer) {
+                            markedContainer.style.display = 'flex';
+                        }
+                        if (actionsGrid && status === 'present') {
+                            actionsGrid.style.display = 'none';
+                        }
+
+                        if (badge) {
+                            badge.textContent = statusLabel;
+                            badge.className = 'rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block ' + badgeClass;
+                        }
+
+                        const timeEl = form.querySelector('[data-attendance-time]');
+                        if (timeEl) {
+                            timeEl.textContent = rawMarkedAt ? ` · ${rawMarkedAt}` : '';
+                        }
+
+                        const reasonEl = form.querySelector('[data-attendance-reason]');
+                        if (reasonEl) {
+                            if (finalNotes) {
+                                reasonEl.textContent = `Reason: ${finalNotes}`;
+                                reasonEl.title = finalNotes;
+                                reasonEl.classList.remove('hidden');
+                            } else {
+                                reasonEl.textContent = '';
+                                reasonEl.classList.add('hidden');
+                            }
+                        }
+
+                        // 2. Alpine reactive state updates
+                        const detail = {
+                            status: status,
+                            statusLabel: statusLabel,
+                            markedAt: rawMarkedAt,
+                            badgeClass: badgeClass,
+                            notes: finalNotes
+                        };
+
+                        if (form._x_dataStack && form._x_dataStack[0]) {
+                            const stack = form._x_dataStack[0];
+                            stack.isMarked = true;
+                            stack.editing = false;
+                            stack.status = detail.status;
+                            stack.statusLabel = detail.statusLabel;
+                            stack.markedAt = detail.markedAt;
+                            stack.badgeClass = detail.badgeClass;
+                            stack.notes = detail.notes;
+                        }
+
+                        form.dispatchEvent(new CustomEvent('attendance-saved', { 
+                            bubbles: true, 
+                            detail: detail 
+                        }));
+
+                        if (window.showAppToast) {
+                            window.showAppToast(data.message || 'Attendance marked successfully.');
+                        }
+                    } else {
+                        const errorMsg = data.message || (data.errors ? Object.values(data.errors).flat().join('\n') : 'Error marking attendance.');
+                        if (window.showAppAlert) {
+                            window.showAppAlert(errorMsg);
+                        } else {
+                            alert(errorMsg);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Attendance submit error:', e);
+                    const msg = 'Network or server error marking attendance. Please try again.';
+                    if (window.showAppAlert) {
+                        window.showAppAlert(msg);
+                    } else {
+                        alert(msg);
+                    }
+                } finally {
+                    buttons.forEach(b => b.disabled = false);
+                    if (triggerBtn && triggerBtn.dataset.originalHtml) {
+                        triggerBtn.innerHTML = triggerBtn.dataset.originalHtml;
+                    }
+                }
+            };
+
+            function getAttendanceBadgeClass(status) {
+                switch (status) {
+                    case 'present': return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+                    case 'half_day': return 'border-amber-200 bg-amber-50 text-amber-800';
+                    case 'leave': return 'border-cyan-200 bg-cyan-50 text-cyan-800';
+                    case 'absent': return 'border-rose-200 bg-rose-50 text-rose-800';
+                    default: return 'border-slate-200 bg-slate-100 text-slate-600';
+                }
+            }
+
             (() => {
                 const root = document.querySelector('[data-staff-advance-options]');
                 if (!root) return;

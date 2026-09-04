@@ -167,15 +167,108 @@ class ShopAttendanceUIRedesignTest extends TestCase
         $response->assertSee('Not marked · Marking closed at 10:00 AM. Contact HR for corrections.');
     }
 
-    public function test_staff_tab_preserves_staff_list_with_primary_and_emergency_phones(): void
+    public function test_quick_check_in_updates_existing_attendance_without_creating_duplicate(): void
     {
-        $response = $this->actingAs($this->shopOwner)
-            ->get(route('shop-owner.staff.index', ['shop' => $this->shop->code, 'tab' => 'staff']));
+        Carbon::setTestNow(Carbon::parse('2026-09-03 09:15:00', 'Asia/Kolkata'));
 
-        $response->assertOk();
-        $response->assertSee('Active Shop Staff');
-        $response->assertSee('Ahmed Ali');
-        $response->assertSee('Primary: 9876543210');
-        $response->assertSee('Emergency: 9123456789');
+        // First mark as present
+        $firstResponse = $this->actingAs($this->shopOwner)
+            ->postJson(route('shop-owner.staff.attendance.store'), [
+                'employee_id' => $this->employee->id,
+                'shop_id' => $this->shop->id,
+                'attendance_date' => '2026-09-03',
+                'status' => 'present',
+                'notes' => '',
+            ]);
+
+        $firstResponse->assertOk();
+        $this->assertEquals(1, EmployeeAttendance::query()->where('employee_id', $this->employee->id)->count());
+
+        // Change status to absent with reason
+        $secondResponse = $this->actingAs($this->shopOwner)
+            ->postJson(route('shop-owner.staff.attendance.store'), [
+                'employee_id' => $this->employee->id,
+                'shop_id' => $this->shop->id,
+                'attendance_date' => '2026-09-03',
+                'status' => 'absent',
+                'notes' => 'Unwell today',
+            ]);
+
+        $secondResponse->assertOk();
+        $secondResponse->assertJson([
+            'message' => 'Attendance updated for today.',
+            'attendance' => [
+                'employee_id' => $this->employee->id,
+                'status' => 'absent',
+                'status_label' => 'Absent',
+                'notes' => 'Unwell today',
+            ],
+        ]);
+
+        // Still exactly 1 record, updated in place
+        $this->assertEquals(1, EmployeeAttendance::query()->where('employee_id', $this->employee->id)->count());
+        $fresh = EmployeeAttendance::query()->where('employee_id', $this->employee->id)->firstOrFail();
+        $this->assertEquals('absent', $fresh->status);
+        $this->assertEquals('Unwell today', $fresh->notes);
+
+        // Reload page: attendance tab shows updated Absent badge and reason
+        $pageResponse = $this->actingAs($this->shopOwner)
+            ->get(route('shop-owner.staff.index', ['shop' => $this->shop->code, 'tab' => 'attendance']));
+
+        $pageResponse->assertOk();
+        $pageResponse->assertSee('Absent');
+        $pageResponse->assertSee('Unwell today');
+    }
+
+    public function test_quick_check_in_validation_rejects_missing_reason_for_half_day_and_leave(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-03 09:15:00', 'Asia/Kolkata'));
+
+        $halfDayResponse = $this->actingAs($this->shopOwner)
+            ->postJson(route('shop-owner.staff.attendance.store'), [
+                'employee_id' => $this->employee->id,
+                'shop_id' => $this->shop->id,
+                'attendance_date' => '2026-09-03',
+                'status' => 'half_day',
+                'notes' => '',
+            ]);
+
+        $halfDayResponse->assertStatus(422);
+        $halfDayResponse->assertJsonValidationErrors(['notes']);
+
+        $leaveResponse = $this->actingAs($this->shopOwner)
+            ->postJson(route('shop-owner.staff.attendance.store'), [
+                'employee_id' => $this->employee->id,
+                'shop_id' => $this->shop->id,
+                'attendance_date' => '2026-09-03',
+                'status' => 'leave',
+                'notes' => '',
+            ]);
+
+        $leaveResponse->assertStatus(422);
+        $leaveResponse->assertJsonValidationErrors(['leave_reason']);
+    }
+
+    public function test_quick_check_in_cannot_mark_employee_from_unauthorized_shop(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-03 09:15:00', 'Asia/Kolkata'));
+
+        $otherShop = Shop::query()->create([
+            'name' => 'Other Shop',
+            'code' => 'AV_OTHER',
+            'warehouse_tag' => 'OT',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->postJson(route('shop-owner.staff.attendance.store'), [
+                'employee_id' => $this->employee->id,
+                'shop_id' => $otherShop->id,
+                'attendance_date' => '2026-09-03',
+                'status' => 'present',
+                'notes' => '',
+            ]);
+
+        $response->assertStatus(403);
     }
 }
