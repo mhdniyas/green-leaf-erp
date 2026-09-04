@@ -146,13 +146,13 @@ class ShopAttendanceUIRedesignTest extends TestCase
         $response->assertOk();
         $response->assertSee('Ahmed Ali');
         $response->assertSee('EMP-00031');
-        $response->assertSee('✓ Present');
+        $response->assertSee('PRESENT');
         $response->assertSee($expectedTime);
-        $response->assertSee('[Change]');
-        $response->assertSee('✓ Present');
-        $response->assertSee('◐ Half');
-        $response->assertSee('L Leave');
-        $response->assertSee('× Absent');
+        $response->assertSee('Change');
+        $response->assertSee('Present');
+        $response->assertSee('Half Day');
+        $response->assertSee('Leave');
+        $response->assertSee('Absent');
     }
 
     public function test_after_cutoff_attendance_is_read_only_and_shows_locked_message(): void

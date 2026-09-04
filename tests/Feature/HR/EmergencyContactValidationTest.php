@@ -132,6 +132,7 @@ class EmergencyContactValidationTest extends TestCase
         // Missing emergency contact
         $response1 = $this->actingAs($this->shopOwner)
             ->post(route('shop-owner.staff.employees.store'), [
+                'shop_id' => $this->shop->id,
                 'name' => 'Shop Staff One',
                 'phone' => '9876543210',
                 'alternate_phone' => '',
@@ -148,9 +149,12 @@ class EmergencyContactValidationTest extends TestCase
         // Both provided
         $response2 = $this->actingAs($this->shopOwner)
             ->post(route('shop-owner.staff.employees.store'), [
+                'shop_id' => $this->shop->id,
                 'name' => 'Shop Staff Two',
                 'phone' => '9876543210',
                 'alternate_phone' => '9123456789',
+                'salary_type' => 'monthly',
+                'monthly_salary' => 20000,
                 'joined_on' => '2026-09-01',
                 'id_type' => 'aadhaar',
                 'id_number' => '999988887777',

@@ -143,794 +143,347 @@
             <div class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">{{ $errors->first() }}</div>
         @endif
 
-        <!-- TAB 1: STAFF DIRECTORY LIST (COMPACT ROWS) -->
+        <!-- TAB CONTENT PARTIALS -->
         @if($selectedTab === 'staff')
-            <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-2">
-                <div class="flex items-center justify-between">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Active Shop Staff ({{ $employees->count() }})</h2>
-                    <form method="GET" class="flex items-center gap-1.5">
-                        <input type="hidden" name="tab" value="staff">
-                        <input type="hidden" name="shop" value="{{ $selectedShop?->code }}">
-                        <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="h-8 rounded-lg border border-slate-200 px-2 text-xs font-bold" onchange="this.form.submit()">
-                    </form>
-                </div>
-
-                <div class="divide-y divide-slate-100">
-                    @forelse($employees as $employee)
-                        @php
-                            $attendance = $attendanceRecords->get($employee->id);
-                            $status = $attendance?->status ?? 'absent';
-                        @endphp
-                        <div class="flex items-center justify-between py-2.5 gap-2">
-                            <div class="flex items-center gap-2.5 min-w-0">
-                                @if($employee->photo_url)
-                                    <img src="{{ $employee->photo_url }}" class="h-9 w-9 rounded-full object-cover border border-slate-200 shrink-0" alt="{{ $employee->name }}">
-                                @else
-                                    <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 font-bold text-white text-xs shrink-0">
-                                        {{ Illuminate\Support\Str::upper(substr($employee->name, 0, 2)) }}
-                                    </div>
-                                @endif
-                                <div class="min-w-0">
-                                    <div class="flex items-center gap-1.5 truncate">
-                                        <p class="text-xs font-black text-slate-950 truncate">{{ $employee->name }}</p>
-                                        <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase border shrink-0 {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600' }}">
-                                            {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', ucfirst((string) $status)) }}
-                                        </span>
-                                    </div>
-                                    <p class="text-[11px] font-semibold text-slate-400 truncate">
-                                        {{ $employee->employee_code }} · Primary: {{ $employee->phone ?: 'N/A' }} · Emergency: {{ $employee->alternate_phone ?: 'N/A' }}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    @empty
-                        <div class="py-6 text-center text-xs font-semibold text-slate-400">
-                            No active shop staff registered for this shop.
-                        </div>
-                    @endforelse
-                </div>
-            </section>
+            @include('shop-owner.staff.partials.staff')
+        @elseif($selectedTab === 'attendance')
+            @include('shop-owner.staff.partials.attendance')
+        @elseif($selectedTab === 'salary')
+            @include('shop-owner.staff.partials.salary')
+        @elseif($selectedTab === 'advance')
+            @include('shop-owner.staff.partials.advance')
+        @elseif($selectedTab === 'leave')
+            @include('shop-owner.staff.partials.leave')
+        @elseif($selectedTab === 'history')
+            @include('shop-owner.staff.partials.history')
         @endif
 
-        <!-- TAB 2: ATTENDANCE (FAST ONE-TAP CHECK-IN & REASON MODAL) -->
-        @if($selectedTab === 'attendance')
-            <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-2" x-data="{ openReasonModal: false, targetForm: null, targetAlpine: null, targetStatus: '', targetLabel: '', reasonInput: '' }">
-                <div class="flex items-center justify-between gap-2">
-                    <div>
-                        <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Quick Check-In</h2>
-                        <p class="text-[11px] font-semibold text-slate-400">{{ $selectedDate->format('d M Y') }}</p>
-                    </div>
-
-                    <div>
-                        @if($isAttendanceOpen)
-                            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-800 border border-emerald-200">
-                                <span>🕙</span> Attendance open · until {{ $cutoffFormatted }}
-                            </span>
-                        @else
-                            <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-black text-amber-900 border border-amber-200">
-                                <span>🔒</span> Attendance closed · {{ $cutoffFormatted }}
-                            </span>
-                        @endif
-                    </div>
-                </div>
-
-                <div class="divide-y divide-slate-100">
-                    @forelse($employees as $employee)
-                        @php
-                            $attendance = $attendanceRecords->get($employee->id);
-                            $isMarked = $attendance !== null;
-                            $status = $attendance?->status;
-                            $statusLabel = $status === 'present' ? '✓ Present' : ($status ? str_replace('_', ' ', ucfirst((string) $status)) : 'Not Marked');
-                            $markedTimeStr = $attendance?->marked_at ? $attendance->marked_at->timezone('Asia/Kolkata')->format('g:i A') : '';
-                            $badgeStyle = $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600';
-                            $notesStr = $attendance?->notes ?? '';
-                        @endphp
-
-                        <form method="POST" 
-                              action="{{ route('shop-owner.staff.attendance.store') }}" 
-                              class="py-2.5 space-y-1.5" 
-                              data-owned-shop-attendance-form 
-                              id="attendance-form-emp-{{ $employee->id }}"
-                              x-data="{ 
-                                  isMarked: {{ $isMarked ? 'true' : 'false' }}, 
-                                  editing: {{ $isMarked ? 'false' : 'true' }},
-                                  status: '{{ $status ?? '' }}',
-                                  statusLabel: '{{ $statusLabel }}',
-                                  markedAt: '{{ $markedTimeStr }}',
-                                  badgeClass: '{{ $badgeStyle }}',
-                                  notes: '{{ addslashes($notesStr) }}'
-                              }"
-                              @attendance-saved.window="if ($event.target === $el) { 
-                                  isMarked = true; 
-                                  editing = false; 
-                                  if ($event.detail) {
-                                      status = $event.detail.status || status;
-                                      statusLabel = $event.detail.statusLabel || statusLabel;
-                                      markedAt = $event.detail.markedAt || markedAt;
-                                      badgeClass = $event.detail.badgeClass || badgeClass;
-                                      notes = $event.detail.notes !== undefined ? $event.detail.notes : notes;
-                                  }
-                              }">
-                            @csrf
-                            <input type="hidden" name="employee_id" value="{{ $employee->id }}">
-                            <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
-                            <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
-                            <input type="hidden" name="notes" value="{{ $notesStr }}" data-attendance-notes-input>
-
-                            <div class="flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-2.5 min-w-0">
-                                    @if($employee->photo_url)
-                                        <img src="{{ $employee->photo_url }}" class="h-9 w-9 rounded-full object-cover border border-slate-200 shrink-0" alt="{{ $employee->name }}">
-                                    @else
-                                        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 font-bold text-white text-xs shrink-0">
-                                            {{ Illuminate\Support\Str::upper(substr($employee->name, 0, 2)) }}
-                                        </div>
-                                    @endif
-                                    <div class="min-w-0">
-                                        <p class="text-xs font-black text-slate-950 truncate">{{ $employee->name }}</p>
-                                        <p class="text-[10px] font-semibold text-slate-400 truncate">
-                                            {{ $employee->employee_code }}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div class="text-right shrink-0">
-                                    <div x-show="isMarked" 
-                                         class="flex flex-col items-end gap-0.5" 
-                                         data-attendance-marked-container 
-                                         style="{{ $isMarked ? '' : 'display: none;' }}">
-                                        <div class="flex items-center gap-1">
-                                            <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block {{ $badgeStyle }}" 
-                                                  :class="badgeClass"
-                                                  x-text="statusLabel"
-                                                  data-attendance-status-badge>
-                                                {{ $statusLabel }}
-                                            </span>
-                                            <span class="text-[10px] font-extrabold text-slate-700" 
-                                                  x-text="markedAt ? ' · ' + markedAt : ''"
-                                                  data-attendance-time>
-                                                @if($markedTimeStr)
-                                                    · {{ $markedTimeStr }}
-                                                @endif
-                                            </span>
-                                            @if($isAttendanceOpen)
-                                                <button type="button" 
-                                                        @click="editing = !editing; const g = $el.closest('form').querySelector('[data-attendance-actions-grid]'); if (g) g.style.display = editing ? 'grid' : 'none';" 
-                                                        class="text-[10px] font-black text-cyan-700 hover:underline cursor-pointer ml-1"
-                                                        x-text="editing ? '· [Cancel]' : '· [Change]'"
-                                                        data-attendance-change-btn>
-                                                    · [Change]
-                                                </button>
-                                            @endif
-                                        </div>
-                                        <p class="text-[10px] font-semibold text-slate-500 truncate max-w-[170px] {{ $notesStr ? '' : 'hidden' }}" 
-                                           :class="notes ? '' : 'hidden'"
-                                           x-text="notes ? 'Reason: ' + notes : ''"
-                                           :title="notes"
-                                           data-attendance-reason>
-                                            @if($notesStr)
-                                                Reason: {{ $notesStr }}
-                                            @endif
-                                        </p>
-                                    </div>
-                                    <div x-show="!isMarked" 
-                                         data-attendance-not-marked 
-                                         style="{{ !$isMarked ? '' : 'display: none;' }}">
-                                        <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border border-slate-200 bg-slate-100 text-slate-500 inline-block">
-                                            Not Marked
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- COMPACT 4 ACTION BUTTONS GRID -->
-                            @if($isAttendanceOpen)
-                                <div x-show="editing || !isMarked" 
-                                     style="{{ $isMarked ? 'display: none;' : '' }}" 
-                                     class="grid grid-cols-4 gap-1.5 pt-0.5" 
-                                     data-attendance-actions-grid>
-                                    <button type="button" 
-                                            @click="status = 'present'; statusLabel = '✓ Present'; badgeClass = 'border-emerald-200 bg-emerald-50 text-emerald-800'; isMarked = true; editing = false; notes = ''; const g = $el.closest('form').querySelector('[data-attendance-actions-grid]'); if (g) g.style.display = 'none'; submitAttendanceStatus($el.closest('form'), 'present', '', $el)"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-600 hover:text-white">
-                                        ✓ Present
-                                    </button>
-
-                                    <button type="button" 
-                                            @click="targetForm = $el.closest('form'); targetAlpine = $data; targetStatus = 'half_day'; targetLabel = 'Half Day'; reasonInput = notes || ''; openReasonModal = true"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-amber-50 text-amber-800 hover:bg-amber-500 hover:text-white">
-                                        ◐ Half
-                                    </button>
-
-                                    <button type="button" 
-                                            @click="targetForm = $el.closest('form'); targetAlpine = $data; targetStatus = 'leave'; targetLabel = 'Leave'; reasonInput = notes || ''; openReasonModal = true"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-600 hover:text-white">
-                                        L Leave
-                                    </button>
-
-                                    <button type="button" 
-                                            @click="targetForm = $el.closest('form'); targetAlpine = $data; targetStatus = 'absent'; targetLabel = 'Absent'; reasonInput = notes || ''; openReasonModal = true"
-                                            class="h-8 rounded-lg border text-center flex items-center justify-center text-[11px] font-extrabold transition cursor-pointer border-slate-200 bg-rose-50 text-rose-800 hover:bg-rose-600 hover:text-white">
-                                        × Absent
-                                    </button>
-                                </div>
-                            @else
-                                <div x-show="!isMarked" class="rounded-lg border border-slate-200 bg-slate-50 p-2 text-center text-[11px] font-bold text-slate-500">
-                                    Not marked · Marking closed at {{ $cutoffFormatted }}. Contact HR for corrections.
-                                </div>
-                            @endif
-                        </form>
-                    @empty
-                        <div class="py-6 text-center text-xs font-semibold text-slate-400">
-                            No shop staff available for check-in.
-                        </div>
-                    @endforelse
-                </div>
-
-                <!-- COMPACT REASON MODAL -->
-                <div x-show="openReasonModal" x-cloak style="display: none;" 
-                     class="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs" @click="openReasonModal = false"></div>
-                    <div class="relative w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl border border-slate-200 space-y-3" @click.stop>
-                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                            <h3 class="text-xs font-black text-slate-900 uppercase">Reason for <span x-text="targetLabel" class="text-emerald-700"></span></h3>
-                            <button type="button" @click="openReasonModal = false" class="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer">✕</button>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Reason *</label>
-                            <textarea x-model="reasonInput" rows="2" placeholder="e.g. Medical appointment / Family function / No show" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold focus:border-emerald-600 focus:ring-emerald-600" required></textarea>
-                        </div>
-                        <div class="flex justify-end gap-2 pt-1">
-                            <button type="button" @click="openReasonModal = false" class="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 cursor-pointer">Cancel</button>
-                            <button type="button" 
-                                    @click="if (reasonInput.trim().length >= 3) { if (targetAlpine) { targetAlpine.isMarked = true; targetAlpine.editing = false; targetAlpine.status = targetStatus; targetAlpine.notes = reasonInput.trim(); } const g = targetForm?.querySelector('[data-attendance-actions-grid]'); if (g) g.style.display = 'none'; submitAttendanceStatus(targetForm, targetStatus, reasonInput.trim()); openReasonModal = false; } else { (window.showAppAlert || alert)('Please enter a reason (minimum 3 characters)'); }" 
-                                    class="rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-black text-white hover:bg-emerald-700 cursor-pointer">
-                                Save
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- PENDING HR APPROVAL COMPACT LIST -->
-            <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-2">
-                <div class="flex items-center justify-between">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Pending & Rejected Submissions</h2>
-                    @if(isset($pendingEmployees) && $pendingEmployees->count() > 0)
-                        <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900">
-                            {{ $pendingEmployees->count() }}
-                        </span>
-                    @endif
-                </div>
-
-                <div class="divide-y divide-slate-100">
-                    @forelse($pendingEmployees ?? [] as $pendingEmp)
-                        <div class="py-2.5 space-y-1.5" x-data="{ expanded: false }">
-                            <div class="flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-2 min-w-0">
-                                    @if($pendingEmp->photo_url)
-                                        <img src="{{ $pendingEmp->photo_url }}" class="h-9 w-9 rounded-full object-cover border border-slate-200 shrink-0" alt="{{ $pendingEmp->name }}">
-                                    @else
-                                        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 font-bold text-white text-xs shrink-0">
-                                            {{ Illuminate\Support\Str::upper(substr($pendingEmp->name, 0, 2)) }}
-                                        </div>
-                                    @endif
-                                    <div class="min-w-0">
-                                        <p class="text-xs font-black text-slate-950 truncate">{{ $pendingEmp->name }}</p>
-                                        <p class="text-[10px] font-semibold text-slate-400 truncate">{{ $pendingEmp->employee_code }} · {{ $pendingEmp->category?->name ?? 'Staff' }}</p>
-                                    </div>
-                                </div>
-
-                                <div class="flex items-center gap-1.5 shrink-0">
-                                    <span class="rounded px-2 py-0.5 text-[9px] font-black uppercase border {{ $pendingEmp->verification_status === 'pending' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-rose-200 bg-rose-50 text-rose-800' }}">
-                                        {{ $pendingEmp->verification_status === 'pending' ? 'Pending HR Approval' : 'Rejected' }}
-                                    </span>
-                                    <a href="{{ route('shop-owner.staff.employees.edit-submission', $pendingEmp) }}" class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-extrabold text-slate-700 hover:bg-slate-100">
-                                        Edit
-                                    </a>
-                                </div>
-                            </div>
-
-                            @if($pendingEmp->verification_status === 'rejected' && $pendingEmp->rejection_reason)
-                                <div class="rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-800 font-medium">
-                                    <span class="font-bold">Reason:</span> {{ $pendingEmp->rejection_reason }}
-                                </div>
-                            @endif
-                        </div>
-                    @empty
-                        <div class="py-4 text-center text-xs font-semibold text-slate-400">
-                            No pending or rejected staff submissions.
-                        </div>
-                    @endforelse
-                </div>
-            </section>
-        @endif
-
-        <!-- TAB 3: SALARY TAB (COMPACT CASHBOOK STYLE) -->
-        @if($selectedTab === 'salary')
-            <section class="grid gap-3 sm:grid-cols-2">
-                <article class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-3">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Pay Staff Salary</h2>
-                    <form method="POST" action="{{ route('shop-owner.staff.salary-payments.store') }}" class="space-y-2.5">
-                        @csrf
-                        <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
-                        
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Date</label>
-                            <input type="date" name="paid_on" value="{{ $selectedDate->format('Y-m-d') }}" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900" required>
-                        </div>
-
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Employee</label>
-                            <div class="relative">
-                                <select name="employee_id" class="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 cursor-pointer" data-salary-employee required>
-                                    <option value="">Select employee</option>
-                                    @foreach($employees as $employee)
-                                        <option value="{{ $employee->id }}">{{ $employee->name }} · {{ $employee->employee_code }}</option>
-                                    @endforeach
-                                </select>
-                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-500">
-                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                    </svg>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs font-semibold text-emerald-900" data-salary-summary>
-                            Select an employee to see salary balance.
-                        </div>
-
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Amount (₹)</label>
-                            <input type="number" step="0.01" min="0.01" name="amount" placeholder="Amount" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
-                        </div>
-
-                        <input type="hidden" name="fund_source" value="petty_cash">
-
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Note</label>
-                            <input type="text" name="notes" placeholder="Note / description" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600">
-                        </div>
-
-                        <button type="submit" class="h-10 w-full rounded-xl bg-emerald-600 text-xs font-black text-white hover:bg-emerald-700 transition">
-                            Pay Salary
-                        </button>
-                    </form>
-                </article>
-
-                <article class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-3">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Recent Salary Payments</h2>
-                    <div class="divide-y divide-slate-100">
-                        @forelse($recentPayrollPayments as $payment)
-                            <div class="py-2 flex items-center justify-between text-xs">
-                                <div>
-                                    <p class="font-black text-slate-950">{{ $payment->employee?->name }}</p>
-                                    <p class="text-[10px] font-semibold text-slate-400">{{ $payment->paid_on->format('d M') }} · {{ str($payment->payment_type)->headline() }}</p>
-                                </div>
-                                <p class="font-black text-slate-950">₹{{ number_format((float) $payment->amount, 2) }}</p>
-                            </div>
-                        @empty
-                            <p class="py-4 text-center text-xs font-semibold text-slate-400">No recent salary payments.</p>
-                        @endforelse
-                    </div>
-                </article>
-            </section>
-        @endif
-
-        <!-- ADVANCE TAB -->
-        @if($selectedTab === 'advance')
-            <section class="grid gap-3 sm:grid-cols-2">
-                <article class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-3">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Request Advance</h2>
-                    <form method="POST" action="{{ route('shop-owner.staff.advance-requests.store') }}" class="space-y-2.5">
-                        @csrf
-                        <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
-                        <input type="date" name="requested_on" value="{{ $selectedDate->format('Y-m-d') }}" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
-                        
-                        <div class="relative">
-                            <select name="employee_id" class="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 cursor-pointer" data-advance-employee required>
-                                <option value="">Select employee</option>
-                                @foreach($advanceEmployees as $employee)
-                                    <option value="{{ $employee->id }}">{{ $employee->name }} · {{ $employee->employee_code }}</option>
-                                @endforeach
-                            </select>
-                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-500">
-                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                </svg>
-                            </div>
-                        </div>
-
-                        <div class="rounded-lg border border-cyan-200 bg-cyan-50 p-2 text-xs font-semibold text-cyan-900" data-advance-summary>
-                            Select an employee to see available advance.
-                        </div>
-                        <input type="number" step="0.01" min="0.01" name="amount" placeholder="Advance amount" class="h-9 w-full rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" data-advance-amount required>
-                        <p class="hidden rounded-lg border px-2.5 py-1.5 text-xs font-black" data-advance-decision></p>
-                        <input type="hidden" name="fund_source" value="petty_cash">
-                        <textarea name="request_note" rows="2" placeholder="Reason / note" class="w-full rounded-lg border border-slate-200 p-2 text-xs font-semibold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600"></textarea>
-                        <button type="submit" class="h-10 w-full rounded-xl bg-cyan-600 text-xs font-black text-white hover:bg-cyan-700 transition">Submit Advance</button>
-                    </form>
-                </article>
-
-                <article class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-3">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Advance Requests</h2>
-                    <div class="divide-y divide-slate-100">
-                        @forelse($advanceRequests as $advanceRequest)
-                            <div class="py-2 flex items-center justify-between text-xs">
-                                <div>
-                                    <p class="font-black text-slate-950">{{ $advanceRequest->employee?->name }}</p>
-                                    <p class="text-[10px] font-semibold text-slate-400">Requested {{ $advanceRequest->requested_on->format('d M') }}</p>
-                                </div>
-                                <div class="text-right">
-                                    <p class="font-black text-slate-950">₹{{ number_format((float) $advanceRequest->requested_amount, 2) }}</p>
-                                    <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase border {{ $advanceRequest->status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($advanceRequest->status === 'rejected' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $advanceRequest->status }}</span>
-                                </div>
-                            </div>
-                        @empty
-                            <p class="py-4 text-center text-xs font-semibold text-slate-400">No advance requests yet.</p>
-                        @endforelse
-                    </div>
-                </article>
-            </section>
-        @endif
-
-        <!-- LEAVE TAB -->
-        @if($selectedTab === 'leave')
-            <section class="grid gap-3 sm:grid-cols-2">
-                <article class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-3">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Request Leave</h2>
-                    <form method="POST" action="{{ route('shop-owner.staff.leave-requests.store') }}" class="space-y-2.5">
-                        @csrf
-                        <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
-                        
-                        <div class="relative">
-                            <select name="employee_id" class="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 cursor-pointer" required>
-                                <option value="">Select employee</option>
-                                @foreach($employees as $employee)
-                                    <option value="{{ $employee->id }}" @selected((int) old('employee_id') === $employee->id)>{{ $employee->name }}</option>
-                                @endforeach
-                            </select>
-                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-500">
-                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                </svg>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <input type="date" name="start_date" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-xs font-bold" required>
-                            <input type="date" name="end_date" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-xs font-bold" required>
-                        </div>
-                        <textarea name="reason" rows="2" class="w-full rounded-lg border border-slate-200 p-2 text-xs font-semibold" placeholder="Reason for leave" required>{{ old('reason') }}</textarea>
-                        <button type="submit" class="h-10 w-full rounded-xl bg-slate-950 text-xs font-black text-white hover:bg-slate-800 transition">Submit Leave Request</button>
-                    </form>
-                </article>
-
-                <article class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs space-y-3">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-500">Recent Leave Updates</h2>
-                    <div class="divide-y divide-slate-100">
-                        @forelse($leaveRequests as $leaveRequest)
-                            <div class="py-2 flex items-center justify-between text-xs">
-                                <div>
-                                    <p class="font-black text-slate-950">{{ $leaveRequest->employee->name }}</p>
-                                    <p class="text-[10px] font-semibold text-slate-400">{{ $leaveRequest->start_date->format('d M') }} to {{ $leaveRequest->end_date->format('d M') }}</p>
-                                </div>
-                                <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase border {{ $leaveRequest->status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($leaveRequest->status === 'rejected' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $leaveRequest->status }}</span>
-                            </div>
-                        @empty
-                            <p class="py-4 text-center text-xs font-semibold text-slate-400">No leave requests yet.</p>
-                        @endforelse
-                    </div>
-                </article>
-            </section>
-        @endif
-
-        <!-- HISTORY TAB: COMPACT MONTHLY ATTENDANCE CALENDAR -->
-        @if($selectedTab === 'history')
-            @php
-                $prevMonth = $calendarMonth->copy()->subMonth();
-                $nextMonth = $calendarMonth->copy()->addMonth();
-                $daysInMonth = $calendarMonth->daysInMonth;
-                $firstDayOfWeek = $calendarMonth->copy()->startOfMonth()->dayOfWeekIso; // 1 = Monday, 7 = Sunday
-                $todayDate = today()->format('Y-m-d');
-                $currentSelectedDate = $selectedDate->format('Y-m-d');
-            @endphp
-            <section class="grid gap-3 lg:grid-cols-12">
-                <!-- COMPACT CALENDAR CARD -->
-                <article class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-3 lg:col-span-5">
-                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $prevMonth->format('Y-m'), 'date' => $prevMonth->copy()->startOfMonth()->format('Y-m-d')]) }}" 
-                           class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
-                           title="Previous month">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </a>
-                        <div class="text-center">
-                            <h2 class="text-xs font-black uppercase tracking-wider text-slate-900">{{ $calendarMonth->format('F Y') }}</h2>
-                            <p class="text-[10px] font-semibold text-slate-400">Attendance History</p>
-                        </div>
-                        <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $nextMonth->format('Y-m'), 'date' => $nextMonth->copy()->startOfMonth()->format('Y-m-d')]) }}" 
-                           class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
-                           title="Next month">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                            </svg>
-                        </a>
-                    </div>
-
-                    <!-- 7-COLUMN CALENDAR (Mon-Sun) -->
-                    <div>
-                        <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase text-slate-400 pb-1.5">
-                            <div>Mon</div>
-                            <div>Tue</div>
-                            <div>Wed</div>
-                            <div>Thu</div>
-                            <div>Fri</div>
-                            <div>Sat</div>
-                            <div>Sun</div>
-                        </div>
-                        <div class="grid grid-cols-7 gap-1 text-center">
-                            @for($i = 1; $i < $firstDayOfWeek; $i++)
-                                <div class="h-8"></div>
-                            @endfor
-                            @for($day = 1; $day <= $daysInMonth; $day++)
-                                @php
-                                    $dayDateStr = $calendarMonth->copy()->day($day)->format('Y-m-d');
-                                    $isSelected = $dayDateStr === $currentSelectedDate;
-                                    $isToday = $dayDateStr === $todayDate;
-                                    $hasAttendance = $historyDatesWithAttendance->contains($dayDateStr);
-                                @endphp
-                                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $calendarMonth->format('Y-m'), 'date' => $dayDateStr]) }}"
-                                   class="relative flex h-8 flex-col items-center justify-center rounded-lg text-xs font-bold transition
-                                          {{ $isSelected ? 'bg-slate-950 text-white shadow-xs' : ($isToday ? 'border border-emerald-500 font-black text-emerald-950 bg-emerald-50/50' : 'text-slate-700 hover:bg-slate-100') }}">
-                                    <span>{{ $day }}</span>
-                                    @if($hasAttendance)
-                                        <span class="absolute bottom-0.5 h-1 w-1 rounded-full {{ $isSelected ? 'bg-emerald-400' : 'bg-emerald-600' }}"></span>
-                                    @endif
-                                </a>
-                            @endfor
-                        </div>
-                    </div>
-
-                    <div class="flex items-center justify-center gap-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-400">
-                        <span class="flex items-center gap-1">
-                            <span class="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Has Records
-                        </span>
-                        <span class="flex items-center gap-1">
-                            <span class="h-2 w-2 rounded-sm border border-emerald-500 bg-emerald-50"></span> Today
-                        </span>
-                        <span class="flex items-center gap-1">
-                            <span class="h-2 w-2 rounded-sm bg-slate-950"></span> Selected
-                        </span>
-                    </div>
-                </article>
-
-                <!-- SELECTED DAY ATTENDANCE DETAILS -->
-                <article class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-3 lg:col-span-7">
-                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <div>
-                            <h3 class="text-xs font-black uppercase tracking-wider text-slate-500">Selected Date</h3>
-                            <p class="text-sm font-black text-slate-950">{{ $selectedDate->format('d M Y') }}</p>
-                        </div>
-                        @if($historyDayAttendance->isNotEmpty())
-                            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-black text-slate-700">
-                                {{ $historyDayAttendance->count() }} marked
-                            </span>
-                        @endif
-                    </div>
-
-                    <div class="divide-y divide-slate-100">
-                        @forelse($historyDayAttendance as $att)
-                            @php
-                                $status = $att->status;
-                            @endphp
-                            <div class="py-2.5 space-y-1">
-                                <div class="flex items-center justify-between gap-2">
-                                    <div class="min-w-0">
-                                        <div class="flex items-center gap-1.5">
-                                            <p class="text-xs font-black text-slate-950 truncate">{{ $att->employee?->name }}</p>
-                                            <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase border shrink-0 {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600' }}">
-                                                {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', ucfirst((string) $status)) }}
-                                            </span>
-                                        </div>
-                                        <p class="text-[10px] font-semibold text-slate-400">
-                                            {{ $att->employee?->employee_code }}
-                                            @if($att->marked_at)
-                                                · Time: {{ $att->marked_at->timezone('Asia/Kolkata')->format('g:i A') }}
-                                            @endif
-                                            @if($att->markedBy)
-                                                · By: {{ $att->markedBy->name }}
-                                            @endif
-                                        </p>
-                                    </div>
-                                </div>
-                                @if($att->notes)
-                                    <p class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600">
-                                        {{ $att->notes }}
-                                    </p>
-                                @endif
-                            </div>
-                        @empty
-                            <div class="py-10 text-center text-xs font-semibold text-slate-400">
-                                No attendance records for this date.
-                            </div>
-                        @endforelse
-                    </div>
-                </article>
-            </section>
-        @endif
     </div>
 
     @push('scripts')
         <script>
-            window.submitAttendanceStatus = async function(formOrId, status, notes = '', triggerBtn = null) {
-                const form = typeof formOrId === 'string'
-                    ? document.getElementById(formOrId)
-                    : (formOrId || (triggerBtn ? triggerBtn.closest('form') : null));
-
-                if (!form) {
-                    console.error('submitAttendanceStatus: Target form not found', formOrId);
-                    return;
-                }
-
-                // 1. Immediate synchronous DOM update: remove stale "Not Marked" badge right on click
-                const notMarkedEl = form.querySelector('[data-attendance-not-marked]');
-                if (notMarkedEl) {
-                    notMarkedEl.style.display = 'none';
-                }
-                const markedContainer = form.querySelector('[data-attendance-marked-container]');
-                if (markedContainer) {
-                    markedContainer.style.display = 'flex';
-                }
-                const actionsGrid = form.querySelector('[data-attendance-actions-grid]');
-                if (actionsGrid && status === 'present') {
-                    actionsGrid.style.display = 'none';
-                }
-                const badge = form.querySelector('[data-attendance-status-badge]');
-                if (badge) {
-                    badge.textContent = status === 'present' ? '✓ Present' : (status.replace('_', ' ').toUpperCase());
-                    badge.className = 'rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block ' + getAttendanceBadgeClass(status);
-                }
-
-                const notesInput = form.querySelector('[data-attendance-notes-input]');
-                if (notesInput) {
-                    notesInput.value = notes || '';
-                }
-
-                const formData = new FormData(form);
-                formData.set('status', status);
-                if (notes) {
-                    formData.set('notes', notes);
-                    if (status === 'leave') {
-                        formData.set('leave_reason', notes);
+            // Pure Vanilla JavaScript Controller for Attendance (Zero Alpine Dependency)
+            (() => {
+                const statusMap = {
+                    present: {
+                        label: 'PRESENT',
+                        cardClass: 'border-emerald-200 bg-emerald-50/70 text-emerald-950',
+                        iconSvg: '<svg class="h-5 w-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+                    },
+                    half_day: {
+                        label: 'HALF DAY',
+                        cardClass: 'border-amber-200 bg-amber-50/70 text-amber-950',
+                        iconSvg: '<svg class="h-5 w-5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>'
+                    },
+                    leave: {
+                        label: 'LEAVE',
+                        cardClass: 'border-cyan-200 bg-cyan-50/70 text-cyan-950',
+                        iconSvg: '<svg class="h-5 w-5 text-cyan-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>'
+                    },
+                    absent: {
+                        label: 'ABSENT',
+                        cardClass: 'border-rose-200 bg-rose-50/70 text-rose-950',
+                        iconSvg: '<svg class="h-5 w-5 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
                     }
-                } else {
-                    formData.set('notes', '');
-                    formData.delete('leave_reason');
+                };
+
+                const allCardClasses = [
+                    'border-emerald-200', 'bg-emerald-50/70', 'text-emerald-950',
+                    'border-amber-200', 'bg-amber-50/70', 'text-amber-950',
+                    'border-cyan-200', 'bg-cyan-50/70', 'text-cyan-950',
+                    'border-rose-200', 'bg-rose-50/70', 'text-rose-950',
+                    'border-slate-200', 'bg-slate-50', 'text-slate-900'
+                ];
+
+                let activeModalForm = null;
+                let activeModalStatus = '';
+
+                const modal = document.getElementById('attendance-reason-modal');
+                const modalStatusLabel = document.getElementById('attendance-modal-status-label');
+                const modalEmployeeName = document.getElementById('attendance-modal-employee-name');
+                const modalReasonInput = document.getElementById('attendance-modal-reason-input');
+                const modalError = document.getElementById('attendance-modal-error');
+                const modalSaveBtn = document.getElementById('attendance-modal-save-btn');
+
+                function openModal(form, status, statusLabel) {
+                    if (!modal) return;
+                    activeModalForm = form;
+                    activeModalStatus = status;
+
+                    if (modalStatusLabel) modalStatusLabel.textContent = statusLabel || status;
+                    if (modalEmployeeName) modalEmployeeName.textContent = form.dataset.employeeName ? `Staff: ${form.dataset.employeeName}` : '';
+                    if (modalReasonInput) {
+                        modalReasonInput.value = form.dataset.notes || '';
+                    }
+                    if (modalError) {
+                        modalError.textContent = '';
+                        modalError.classList.add('hidden');
+                    }
+
+                    modal.classList.remove('hidden');
+                    setTimeout(() => modalReasonInput?.focus(), 50);
                 }
 
-                const buttons = form.querySelectorAll('button');
-                buttons.forEach(b => b.disabled = true);
-                if (triggerBtn) {
-                    triggerBtn.dataset.originalHtml = triggerBtn.innerHTML;
-                    triggerBtn.innerHTML = '...';
+                function closeModal() {
+                    if (!modal) return;
+                    modal.classList.add('hidden');
+                    activeModalForm = null;
+                    activeModalStatus = '';
+                    if (modalReasonInput) modalReasonInput.value = '';
+                    if (modalError) {
+                        modalError.textContent = '';
+                        modalError.classList.add('hidden');
+                    }
                 }
 
-                try {
-                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') 
-                        || form.querySelector('input[name="_token"]')?.value;
-
-                    const response = await fetch(form.action, {
-                        method: 'POST',
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': csrfToken || ''
-                        },
-                        body: formData
+                if (modal) {
+                    modal.querySelectorAll('[data-action="close-reason-modal"]').forEach(el => {
+                        el.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            closeModal();
+                        });
                     });
 
-                    const data = await response.json();
-
-                    if (response.ok) {
-                        const statusLabel = data.attendance?.status_label || (status === 'present' ? '✓ Present' : status.replace('_', ' '));
-                        const rawMarkedAt = data.attendance?.marked_at || '';
-                        const badgeClass = getAttendanceBadgeClass(status);
-                        const finalNotes = (status === 'present') ? '' : (data.attendance?.notes || notes || '');
-
-                        if (notMarkedEl) {
-                            notMarkedEl.style.display = 'none';
+                    document.addEventListener('keydown', (e) => {
+                        if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                            closeModal();
                         }
-                        if (markedContainer) {
-                            markedContainer.style.display = 'flex';
-                        }
-                        if (actionsGrid && status === 'present') {
-                            actionsGrid.style.display = 'none';
-                        }
+                    });
 
-                        if (badge) {
-                            badge.textContent = statusLabel;
-                            badge.className = 'rounded px-2 py-0.5 text-[10px] font-black uppercase border inline-block ' + badgeClass;
-                        }
+                    modalSaveBtn?.addEventListener('click', () => {
+                        if (!activeModalForm || !activeModalStatus) return;
+                        const reason = (modalReasonInput?.value || '').trim();
 
-                        const timeEl = form.querySelector('[data-attendance-time]');
-                        if (timeEl) {
-                            timeEl.textContent = rawMarkedAt ? ` · ${rawMarkedAt}` : '';
-                        }
-
-                        const reasonEl = form.querySelector('[data-attendance-reason]');
-                        if (reasonEl) {
-                            if (finalNotes) {
-                                reasonEl.textContent = `Reason: ${finalNotes}`;
-                                reasonEl.title = finalNotes;
-                                reasonEl.classList.remove('hidden');
+                        if (reason.length < 3) {
+                            if (modalError) {
+                                modalError.textContent = 'Please enter a reason (minimum 3 characters)';
+                                modalError.classList.remove('hidden');
+                            } else if (window.showAppAlert) {
+                                window.showAppAlert('Please enter a reason (minimum 3 characters)');
                             } else {
-                                reasonEl.textContent = '';
-                                reasonEl.classList.add('hidden');
+                                alert('Please enter a reason (minimum 3 characters)');
                             }
+                            modalReasonInput?.focus();
+                            return;
                         }
 
-                        // 2. Alpine reactive state updates
-                        const detail = {
-                            status: status,
-                            statusLabel: statusLabel,
-                            markedAt: rawMarkedAt,
-                            badgeClass: badgeClass,
-                            notes: finalNotes
-                        };
+                        const formToSubmit = activeModalForm;
+                        const statusToSubmit = activeModalStatus;
+                        closeModal();
+                        submitAttendance(formToSubmit, statusToSubmit, reason);
+                    });
+                }
 
-                        if (form._x_dataStack && form._x_dataStack[0]) {
-                            const stack = form._x_dataStack[0];
-                            stack.isMarked = true;
-                            stack.editing = false;
-                            stack.status = detail.status;
-                            stack.statusLabel = detail.statusLabel;
-                            stack.markedAt = detail.markedAt;
-                            stack.badgeClass = detail.badgeClass;
-                            stack.notes = detail.notes;
-                        }
+                async function submitAttendance(form, status, notes = '', triggerBtn = null) {
+                    if (!form) return;
 
-                        form.dispatchEvent(new CustomEvent('attendance-saved', { 
-                            bubbles: true, 
-                            detail: detail 
-                        }));
+                    const notMarkedEl = form.querySelector('[data-attendance-not-marked]');
+                    const markedContainer = form.querySelector('[data-attendance-marked-container]');
+                    const actionsGrid = form.querySelector('[data-attendance-actions-grid]');
+                    const changeHeader = form.querySelector('[data-attendance-change-header]');
+                    const cancelContainer = form.querySelector('[data-attendance-cancel-container]');
+                    const errorMsgEl = form.querySelector('[data-attendance-error-msg]');
+                    const notesInput = form.querySelector('[data-attendance-notes-input]');
+                    const buttons = form.querySelectorAll('button');
 
-                        if (window.showAppToast) {
-                            window.showAppToast(data.message || 'Attendance marked successfully.');
-                        }
+                    if (errorMsgEl) {
+                        errorMsgEl.textContent = '';
+                        errorMsgEl.classList.add('hidden');
+                    }
+
+                    buttons.forEach(b => b.disabled = true);
+                    const labelEl = triggerBtn?.querySelector('[data-button-label]');
+                    let originalLabel = '';
+                    if (labelEl) {
+                        originalLabel = labelEl.textContent;
+                        labelEl.textContent = 'Saving...';
+                    }
+
+                    if (notesInput) {
+                        notesInput.value = notes || '';
+                    }
+
+                    const formData = new FormData(form);
+                    formData.set('status', status);
+                    formData.set('notes', notes || '');
+                    if (status === 'leave' && notes) {
+                        formData.set('leave_reason', notes);
                     } else {
-                        const errorMsg = data.message || (data.errors ? Object.values(data.errors).flat().join('\n') : 'Error marking attendance.');
-                        if (window.showAppAlert) {
-                            window.showAppAlert(errorMsg);
+                        formData.delete('leave_reason');
+                    }
+
+                    try {
+                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') 
+                            || form.querySelector('input[name="_token"]')?.value;
+
+                        const response = await fetch(form.action, {
+                            method: 'POST',
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken || ''
+                            },
+                            body: formData
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            const wasMarked = form.dataset.isMarked === '1';
+                            const rawTime = data.attendance?.marked_at || data.attendance?.checked_in_at || '';
+                            const timeText = rawTime ? (wasMarked ? `Updated at ${rawTime}` : `Marked at ${rawTime}`) : '';
+                            const finalNotes = status === 'present' ? '' : (data.attendance?.notes || notes || '');
+                            const cfg = statusMap[status] || {
+                                label: status.replace('_', ' ').toUpperCase(),
+                                cardClass: 'border-slate-200 bg-slate-50 text-slate-900',
+                                iconSvg: ''
+                            };
+
+                            form.dataset.isMarked = '1';
+                            form.dataset.status = status;
+                            form.dataset.statusLabel = cfg.label;
+                            form.dataset.markedAt = timeText;
+                            form.dataset.notes = finalNotes;
+                            if (notesInput) notesInput.value = finalNotes;
+
+                            if (notMarkedEl) notMarkedEl.classList.add('hidden');
+                            if (actionsGrid) actionsGrid.classList.add('hidden');
+                            if (changeHeader) changeHeader.classList.remove('hidden');
+                            if (cancelContainer) cancelContainer.classList.remove('hidden');
+
+                            if (markedContainer) {
+                                markedContainer.classList.remove('hidden');
+                                allCardClasses.forEach(c => markedContainer.classList.remove(c));
+                                cfg.cardClass.split(' ').forEach(c => markedContainer.classList.add(c));
+                            }
+
+                            const iconWrapper = form.querySelector('[data-attendance-icon-wrapper]');
+                            if (iconWrapper) iconWrapper.innerHTML = cfg.iconSvg;
+
+                            const statusBadge = form.querySelector('[data-attendance-status-badge]');
+                            if (statusBadge) statusBadge.textContent = cfg.label;
+
+                            const timeEl = form.querySelector('[data-attendance-time]');
+                            if (timeEl) timeEl.textContent = timeText;
+
+                            const reasonEl = form.querySelector('[data-attendance-reason]');
+                            if (reasonEl) {
+                                if (status !== 'present' && finalNotes) {
+                                    reasonEl.textContent = `Reason: ${finalNotes}`;
+                                    reasonEl.classList.remove('hidden');
+                                } else {
+                                    reasonEl.textContent = '';
+                                    reasonEl.classList.add('hidden');
+                                }
+                            }
+
+                            if (window.showAppToast) {
+                                window.showAppToast(data.message || 'Attendance updated successfully.');
+                            }
                         } else {
-                            alert(errorMsg);
+                            const errorMsg = data.message || (data.errors ? Object.values(data.errors).flat().join('\n') : 'Unable to update attendance. Try again.');
+                            if (errorMsgEl) {
+                                errorMsgEl.textContent = errorMsg;
+                                errorMsgEl.classList.remove('hidden');
+                            } else if (window.showAppAlert) {
+                                window.showAppAlert(errorMsg);
+                            } else {
+                                alert(errorMsg);
+                            }
+                            if (actionsGrid) actionsGrid.classList.remove('hidden');
+                        }
+                    } catch (err) {
+                        console.error('Attendance submit error:', err);
+                        const msg = 'Unable to update attendance. Try again.';
+                        if (errorMsgEl) {
+                            errorMsgEl.textContent = msg;
+                            errorMsgEl.classList.remove('hidden');
+                        } else if (window.showAppAlert) {
+                            window.showAppAlert(msg);
+                        } else {
+                            alert(msg);
+                        }
+                        if (actionsGrid) actionsGrid.classList.remove('hidden');
+                    } finally {
+                        buttons.forEach(b => b.disabled = false);
+                        if (labelEl && originalLabel) {
+                            labelEl.textContent = originalLabel;
                         }
                     }
-                } catch (e) {
-                    console.error('Attendance submit error:', e);
-                    const msg = 'Network or server error marking attendance. Please try again.';
-                    if (window.showAppAlert) {
-                        window.showAppAlert(msg);
-                    } else {
-                        alert(msg);
-                    }
-                } finally {
-                    buttons.forEach(b => b.disabled = false);
-                    if (triggerBtn && triggerBtn.dataset.originalHtml) {
-                        triggerBtn.innerHTML = triggerBtn.dataset.originalHtml;
-                    }
                 }
-            };
 
-            function getAttendanceBadgeClass(status) {
-                switch (status) {
-                    case 'present': return 'border-emerald-200 bg-emerald-50 text-emerald-800';
-                    case 'half_day': return 'border-amber-200 bg-amber-50 text-amber-800';
-                    case 'leave': return 'border-cyan-200 bg-cyan-50 text-cyan-800';
-                    case 'absent': return 'border-rose-200 bg-rose-50 text-rose-800';
-                    default: return 'border-slate-200 bg-slate-100 text-slate-600';
-                }
-            }
+                document.addEventListener('click', (e) => {
+                    const closeBtn = e.target.closest('[data-action="close-reason-modal"]');
+                    if (closeBtn) {
+                        e.preventDefault();
+                        closeModal();
+                        return;
+                    }
+
+                    const changeBtn = e.target.closest('[data-action="change-attendance"]');
+                    if (changeBtn) {
+                        e.preventDefault();
+                        const form = changeBtn.closest('[data-owned-shop-attendance-form]');
+                        if (!form) return;
+                        const markedContainer = form.querySelector('[data-attendance-marked-container]');
+                        const actionsGrid = form.querySelector('[data-attendance-actions-grid]');
+                        const changeHeader = form.querySelector('[data-attendance-change-header]');
+                        const cancelContainer = form.querySelector('[data-attendance-cancel-container]');
+                        const errorMsgEl = form.querySelector('[data-attendance-error-msg]');
+
+                        if (markedContainer) markedContainer.classList.add('hidden');
+                        if (actionsGrid) actionsGrid.classList.remove('hidden');
+                        if (changeHeader) changeHeader.classList.remove('hidden');
+                        if (cancelContainer) cancelContainer.classList.remove('hidden');
+                        if (errorMsgEl) {
+                            errorMsgEl.textContent = '';
+                            errorMsgEl.classList.add('hidden');
+                        }
+                        return;
+                    }
+
+                    const cancelBtn = e.target.closest('[data-action="cancel-change"]');
+                    if (cancelBtn) {
+                        e.preventDefault();
+                        const form = cancelBtn.closest('[data-owned-shop-attendance-form]');
+                        if (!form) return;
+                        const markedContainer = form.querySelector('[data-attendance-marked-container]');
+                        const actionsGrid = form.querySelector('[data-attendance-actions-grid]');
+                        const errorMsgEl = form.querySelector('[data-attendance-error-msg]');
+
+                        if (form.dataset.isMarked === '1') {
+                            if (actionsGrid) actionsGrid.classList.add('hidden');
+                            if (markedContainer) markedContainer.classList.remove('hidden');
+                        }
+                        if (errorMsgEl) {
+                            errorMsgEl.textContent = '';
+                            errorMsgEl.classList.add('hidden');
+                        }
+                        return;
+                    }
+
+                    const statusBtn = e.target.closest('[data-action="mark-status"]');
+                    if (statusBtn) {
+                        e.preventDefault();
+                        const form = statusBtn.closest('[data-owned-shop-attendance-form]');
+                        if (!form) return;
+                        const status = statusBtn.dataset.status;
+                        const statusLabel = statusBtn.dataset.statusLabel || status;
+
+                        if (status === 'present') {
+                            submitAttendance(form, 'present', '', statusBtn);
+                        } else {
+                            openModal(form, status, statusLabel);
+                        }
+                        return;
+                    }
+                });
+
+                window.submitAttendanceStatus = function(formOrId, status, notes = '') {
+                    const form = typeof formOrId === 'string' ? document.getElementById(formOrId) : formOrId;
+                    if (form) submitAttendance(form, status, notes);
+                };
+            })();
 
             (() => {
                 const root = document.querySelector('[data-staff-advance-options]');

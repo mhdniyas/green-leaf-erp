@@ -5,7 +5,7 @@
         </style>
     @endpush
 
-    <div class="mx-auto max-w-4xl space-y-6" x-data="{ showRejectModal: false, salaryType: 'monthly' }">
+    <div class="mx-auto max-w-4xl space-y-6" x-data="{ showRejectModal: false, salaryType: '{{ old('salary_type', $employee->salary_type ?? 'monthly') }}' }">
         <!-- HEADER -->
         <div class="flex items-center justify-between gap-3">
             <div>
@@ -204,7 +204,9 @@
                         <select name="employee_category_id" class="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-3 pr-8 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 cursor-pointer" required>
                             <option value="">Select Designation *</option>
                             @foreach($categories as $category)
-                                <option value="{{ $category->id }}">{{ $category->name }} ({{ ucfirst($category->staff_area) }})</option>
+                                <option value="{{ $category->id }}" @selected(old('employee_category_id', $employee->employee_category_id) == $category->id)>
+                                    {{ $category->name }} ({{ ucfirst($category->staff_area) }})
+                                </option>
                             @endforeach
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-500">
@@ -213,6 +215,9 @@
                             </svg>
                         </div>
                     </div>
+                    @error('employee_category_id')
+                        <p class="mt-1 text-[11px] font-bold text-rose-600">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <!-- SALARY TYPE -->
@@ -220,8 +225,8 @@
                     <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Salary Type *</label>
                     <div class="relative">
                         <select name="salary_type" x-model="salaryType" class="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-3 pr-8 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 cursor-pointer" required>
-                            <option value="monthly">Monthly Salary</option>
-                            <option value="daily_wage">Daily Wage</option>
+                            <option value="monthly" @selected(old('salary_type', $employee->salary_type ?? 'monthly') === 'monthly')>Monthly Salary</option>
+                            <option value="daily_wage" @selected(old('salary_type', $employee->salary_type) === 'daily_wage')>Daily Wage</option>
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-500">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -229,18 +234,27 @@
                             </svg>
                         </div>
                     </div>
+                    @error('salary_type')
+                        <p class="mt-1 text-[11px] font-bold text-rose-600">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <!-- MONTHLY SALARY -->
                 <div x-show="salaryType === 'monthly'">
                     <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Monthly Salary (₹) *</label>
-                    <input type="number" step="0.01" min="0" name="monthly_salary" placeholder="e.g. 18000" class="h-10 w-full rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" :required="salaryType === 'monthly'" :disabled="salaryType !== 'monthly'">
+                    <input type="number" step="0.01" min="0" name="monthly_salary" value="{{ old('monthly_salary', $employee->monthly_salary ? number_format((float)$employee->monthly_salary, 2, '.', '') : '') }}" placeholder="e.g. 18000" class="h-10 w-full rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" :required="salaryType === 'monthly'" :disabled="salaryType !== 'monthly'">
+                    @error('monthly_salary')
+                        <p class="mt-1 text-[11px] font-bold text-rose-600">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <!-- DAILY WAGE -->
-                <div x-show="salaryType === 'daily_wage'" x-cloak style="display: none;">
+                <div x-show="salaryType === 'daily_wage'" x-cloak :class="{ 'hidden': salaryType !== 'daily_wage' }">
                     <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Daily Wage (₹) *</label>
-                    <input type="number" step="0.01" min="0" name="daily_wage" placeholder="e.g. 750" class="h-10 w-full rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" :required="salaryType === 'daily_wage'" :disabled="salaryType !== 'daily_wage'">
+                    <input type="number" step="0.01" min="0" name="daily_wage" value="{{ old('daily_wage', $employee->daily_wage ? number_format((float)$employee->daily_wage, 2, '.', '') : '') }}" placeholder="e.g. 750" class="h-10 w-full rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" :required="salaryType === 'daily_wage'" :disabled="salaryType !== 'daily_wage'">
+                    @error('daily_wage')
+                        <p class="mt-1 text-[11px] font-bold text-rose-600">{{ $message }}</p>
+                    @enderror
                 </div>
             </div>
 
