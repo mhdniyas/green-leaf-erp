@@ -1,60 +1,71 @@
 <x-layouts.staff title="Staff Attendance Board">
-    <div class="mx-auto max-w-7xl space-y-6">
-        <!-- PAGE HEADER & DATE NAVIGATION BAR -->
-        <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="mx-auto max-w-[1600px] space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
                 <h1 class="text-2xl font-black text-slate-950">Staff Attendance</h1>
-                <p class="text-sm font-semibold text-slate-500">Shop-wise operational attendance dashboard for quick daily marking & verification.</p>
+                <p class="text-sm font-semibold text-slate-500">Monthly attendance register for {{ $selectedDate->format('F Y') }}.</p>
             </div>
-            
+
             <div class="flex flex-wrap items-center gap-2">
-                <!-- DATE NAV CONTROLS -->
                 <form method="GET" action="{{ route('admin.staff.attendance') }}" class="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white p-1 shadow-xs">
                     <input type="hidden" name="search" value="{{ $search }}">
                     <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
                     <input type="hidden" name="category" value="{{ $categoryCode }}">
                     <input type="hidden" name="status" value="{{ $selectedStatus }}">
+                    <input type="hidden" name="tab" value="{{ $selectedAttendanceTab }}">
 
                     <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['date' => $prevDate->format('Y-m-d')])) }}" 
-                       class="rounded-xl p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-950 transition" title="Previous Day">
+                       class="rounded-xl p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950" title="Previous month" aria-label="Previous month">
                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     </a>
 
-                    <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['date' => today()->format('Y-m-d')])) }}" 
+                    <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['date' => today()->format('Y-m-d')])) }}"
                        class="rounded-xl px-2.5 py-1 text-xs font-black text-slate-700 hover:bg-slate-100 transition">
-                        Today
+                        This month
                     </a>
 
-                    <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" 
+                    <input type="month" name="date" value="{{ $selectedDate->format('Y-m') }}"
                            class="rounded-xl border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600"
                            onchange="this.form.submit()">
 
                     <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['date' => $nextDate->format('Y-m-d')])) }}" 
-                       class="rounded-xl p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-950 transition" title="Next Day">
+                       class="rounded-xl p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950" title="Next month" aria-label="Next month">
                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                     </a>
                 </form>
 
-                <button type="button" 
+                @if($selectedAttendanceTab === 'attendance')
+                <button type="button"
                         class="js-open-attendance-modal inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-700 shadow-xs cursor-pointer"
                         data-employee-id="" 
                         data-employee-name="" 
+                        data-attendance-date="{{ $selectedDate->format('Y-m-d') }}"
                         data-shop-id="" 
                         data-status="present" 
                         data-notes="">
                     <span>+</span> Add Attendance
                 </button>
+                @endif
             </div>
         </div>
 
-        <!-- MAIN TOP SUMMARY CARDS (TOTALS ACROSS ALL SHOPS) -->
+        <nav class="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-xs" aria-label="Attendance page sections">
+            <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['tab' => null])) }}"
+               class="rounded-xl px-4 py-2 text-xs font-black transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 {{ $selectedAttendanceTab === 'attendance' ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+               @if($selectedAttendanceTab === 'attendance') aria-current="page" @endif>Attendance</a>
+            <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['tab' => 'pending-payment', 'status' => null])) }}"
+               class="rounded-xl px-4 py-2 text-xs font-black transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 {{ $selectedAttendanceTab === 'pending-payment' ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+               @if($selectedAttendanceTab === 'pending-payment') aria-current="page" @endif>Pending Payment</a>
+        </nav>
+
+        @if($selectedAttendanceTab === 'attendance')
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
             @php
                 $summaryCards = [
                     'all' => ['label' => 'Total Staff', 'value' => $statusCounts['total'], 'color' => 'text-slate-950'],
                     'present' => ['label' => 'Present (P)', 'value' => $statusCounts['present'], 'color' => 'text-emerald-700'],
-                    'half_day' => ['label' => 'Half Day (½)', 'value' => $statusCounts['half_day'], 'color' => 'text-amber-700'],
-                    'leave' => ['label' => 'On Leave (L)', 'value' => $statusCounts['leave'], 'color' => 'text-cyan-700'],
+                    'half_day' => ['label' => 'Half Day (H)', 'value' => $statusCounts['half_day'], 'color' => 'text-orange-700'],
+                    'leave' => ['label' => 'On Leave (L)', 'value' => $statusCounts['leave'], 'color' => 'text-slate-950'],
                     'absent' => ['label' => 'Absent (A)', 'value' => $statusCounts['absent'], 'color' => 'text-rose-700'],
                     'not_marked' => ['label' => 'Not Marked (—)', 'value' => $statusCounts['not_marked'], 'color' => 'text-slate-500'],
                 ];
@@ -69,26 +80,38 @@
                 </a>
             @endforeach
         </div>
+        @endif
 
-        <!-- COMPACT FILTER BAR -->
+        <nav class="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-xs" aria-label="Filter attendance by shop">
+            <div class="flex min-w-max items-center gap-2">
+                <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['shop_id' => null])) }}"
+                   data-shop-filter="all"
+                   class="inline-flex h-9 items-center gap-2 rounded-full border px-4 text-xs font-black transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 {{ $selectedShopId === null ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800' }}"
+                   @if($selectedShopId === null) aria-current="page" @endif>
+                    All Shops
+                </a>
+                @foreach($availableShops as $shop)
+                    <a href="{{ route('admin.staff.attendance', array_merge(request()->query(), ['shop_id' => $shop->id])) }}"
+                       data-shop-filter="{{ $shop->id }}"
+                       class="inline-flex h-9 items-center gap-2 rounded-full border px-4 text-xs font-black transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 {{ $selectedShopId === $shop->id ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800' }}"
+                       @if($selectedShopId === $shop->id) aria-current="page" @endif>
+                        {{ $shop->name }}
+                        <span class="rounded-full px-2 py-0.5 text-[10px] {{ $selectedShopId === $shop->id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500' }}">{{ $shopEmployeeCounts->get($shop->id) }}</span>
+                    </a>
+                @endforeach
+            </div>
+        </nav>
+
         <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
             <form method="GET" action="{{ route('admin.staff.attendance') }}" class="flex flex-wrap items-center justify-between gap-3">
                 <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
+                <input type="hidden" name="shop_id" value="{{ $selectedShopId }}">
+                <input type="hidden" name="tab" value="{{ $selectedAttendanceTab }}">
 
                 <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                    <!-- Search Input -->
                     <input type="search" name="search" value="{{ $search }}" placeholder="Search employee name, code..." 
                            class="h-9 w-full sm:w-56 rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-600 focus:ring-emerald-600">
 
-                    <!-- Shop Select -->
-                    <select name="shop_id" class="h-9 rounded-xl border border-slate-200 px-3 text-xs font-semibold">
-                        <option value="">-- All Shops --</option>
-                        @foreach($shops as $shop)
-                            <option value="{{ $shop->id }}" @selected($selectedShopId === $shop->id)>{{ $shop->name }}</option>
-                        @endforeach
-                    </select>
-
-                    <!-- Category Select -->
                     <select name="category" class="h-9 rounded-xl border border-slate-200 px-3 text-xs font-semibold">
                         <option value="">-- All Categories --</option>
                         @foreach($categories as $cat)
@@ -96,166 +119,160 @@
                         @endforeach
                     </select>
 
-                    <!-- Status Select -->
+                    @if($selectedAttendanceTab === 'attendance')
                     <select name="status" class="h-9 rounded-xl border border-slate-200 px-3 text-xs font-semibold">
                         <option value="">-- All Statuses --</option>
                         <option value="present" @selected($selectedStatus === 'present')>Present (P)</option>
-                        <option value="half_day" @selected($selectedStatus === 'half_day')>Half Day (½)</option>
+                        <option value="half_day" @selected($selectedStatus === 'half_day')>Half Day (H)</option>
                         <option value="leave" @selected($selectedStatus === 'leave')>Leave (L)</option>
                         <option value="absent" @selected($selectedStatus === 'absent')>Absent (A)</option>
                         <option value="not_marked" @selected($selectedStatus === 'not_marked')>Not Marked (—)</option>
                     </select>
+                    @endif
 
                     <button type="submit" class="h-9 rounded-xl bg-slate-950 px-4 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer">Filter</button>
                     @if($search || $selectedShopId || $categoryCode || $selectedStatus)
-                        <a href="{{ route('admin.staff.attendance', ['date' => $selectedDate->format('Y-m-d')]) }}" 
+                        <a href="{{ route('admin.staff.attendance', ['date' => $selectedDate->format('Y-m-d'), 'tab' => $selectedAttendanceTab === 'pending-payment' ? 'pending-payment' : null]) }}"
                            class="h-9 rounded-xl border border-slate-200 px-3 flex items-center text-xs font-bold text-slate-600 hover:bg-slate-50">Reset</a>
                     @endif
                 </div>
             </form>
         </div>
 
-        <!-- SHOP CARDS GRID / STACK (ONE-VIEW SHOP-WISE ATTENDANCE) -->
-        <div class="space-y-4">
-            @forelse($shopGroups as $group)
-                <div class="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-                    <!-- SHOP CARD HEADER -->
-                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-3">
-                        <div class="flex items-center gap-2">
-                            <h2 class="text-sm font-black uppercase tracking-wider text-slate-900">{{ $group['shop_name'] }}</h2>
-                            <span class="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-black text-slate-700">
-                                {{ $group['total'] }} Staff
-                            </span>
-                        </div>
+        @if($selectedAttendanceTab === 'attendance')
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div>
+                    <h2 class="text-sm font-black text-slate-950">{{ $selectedDate->format('F Y') }} attendance register</h2>
+                    <p class="text-xs font-semibold text-slate-500">Scroll sideways to view every day. Select a cell to add or edit attendance.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-[11px] font-black" aria-label="Attendance status legend">
+                    <span class="rounded-lg bg-emerald-600 px-2.5 py-1 text-white">P <span class="font-semibold">Present</span></span>
+                    <span class="rounded-lg bg-rose-600 px-2.5 py-1 text-white">A <span class="font-semibold">Absent</span></span>
+                    <span class="rounded-lg bg-orange-500 px-2.5 py-1 text-white">H <span class="font-semibold">Half Day</span></span>
+                    <span class="rounded-lg bg-slate-950 px-2.5 py-1 text-white">L <span class="font-semibold">Leave</span></span>
+                    <span class="rounded-lg bg-slate-200 px-2.5 py-1 text-slate-600">— <span class="font-semibold">Not Marked</span></span>
+                </div>
+            </div>
 
-                        <!-- SHOP HEADER SUMMARY PILLS -->
-                        <div class="flex items-center gap-1.5 flex-wrap">
-                            @if($group['present'] > 0)
-                                <span class="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-800">
-                                    {{ $group['present'] }} P
-                                </span>
-                            @endif
-                            @if($group['half_day'] > 0)
-                                <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-800">
-                                    {{ $group['half_day'] }} ½
-                                </span>
-                            @endif
-                            @if($group['leave'] > 0)
-                                <span class="rounded-md border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-black text-cyan-800">
-                                    {{ $group['leave'] }} L
-                                </span>
-                            @endif
-                            @if($group['absent'] > 0)
-                                <span class="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-800">
-                                    {{ $group['absent'] }} A
-                                </span>
-                            @endif
-                            @if($group['not_marked'] > 0)
-                                <span class="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
-                                    {{ $group['not_marked'] }} —
-                                </span>
-                            @endif
-                        </div>
-                    </div>
-
-                    <!-- EMPLOYEE ROWS IN SHOP CARD -->
-                    <div class="divide-y divide-slate-100">
-                        @foreach($group['employees'] as $item)
-                            @php($emp = $item['employee'])
-                            @php($att = $item['attendance'])
-                            @php($status = $item['status'])
-
-                            <div class="flex flex-col sm:flex-row sm:items-center justify-between p-3 gap-3 hover:bg-slate-50/60 transition">
-                                <!-- Employee Profile Info -->
-                                <div class="flex items-center gap-3 min-w-0">
-                                    @if($emp->photo_url)
-                                        <img src="{{ $emp->photo_url }}" class="h-9 w-9 rounded-full object-cover border border-slate-200 shrink-0" alt="{{ $emp->name }}">
-                                    @else
-                                        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 font-bold text-white text-xs shrink-0">
-                                            {{ Illuminate\Support\Str::upper(substr($emp->name, 0, 2)) }}
-                                        </div>
-                                    @endif
-
-                                    <div class="min-w-0">
-                                        <a href="{{ route('admin.staff.assignments.show', $emp) }}" class="text-xs font-black text-slate-950 hover:text-emerald-700 hover:underline truncate block">
-                                            {{ $emp->name }}
-                                        </a>
-                                        <p class="text-[10px] font-semibold text-slate-400 truncate">
-                                            {{ $emp->employee_code }} · {{ $emp->category?->name ?? 'Staff' }}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <!-- Status Badge, Time & Reason -->
-                                <div class="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                                    <div class="flex items-center gap-2 min-w-[140px]">
-                                        <!-- ONE-LETTER / COMPACT STATUS BADGE -->
-                                        @if($status === 'present')
-                                            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-xs font-black text-white" title="Present">P</span>
-                                        @elseif($status === 'half_day')
-                                            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-xs font-black text-white" title="Half Day">½</span>
-                                        @elseif($status === 'leave')
-                                            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-cyan-600 text-xs font-black text-white" title="Leave">L</span>
-                                        @elseif($status === 'absent')
-                                            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-xs font-black text-white" title="Absent">A</span>
-                                        @else
-                                            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-xs font-black text-slate-500" title="Not Marked">—</span>
-                                        @endif
-
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-extrabold text-slate-900">
-                                                {{ $att?->marked_at ? $att->marked_at->timezone('Asia/Kolkata')->format('g:i A') : ($status ? 'Marked' : 'Not Marked') }}
-                                            </p>
-                                            @if($att?->notes)
-                                                <p class="text-[10px] font-semibold text-slate-500 truncate max-w-[180px]" title="{{ $att->notes }}">
-                                                    {{ $att->notes }}
-                                                </p>
-                                            @endif
-                                        </div>
-                                    </div>
-
-                                    <!-- Action Buttons -->
-                                    <div class="flex items-center gap-1.5">
-                                        <button type="button" 
-                                                class="js-open-details-modal rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
-                                                data-employee-id="{{ $emp->id }}"
-                                                data-employee-code="{{ $emp->employee_code }}"
-                                                data-employee-name="{{ e($emp->name) }}"
-                                                data-employee-category="{{ e($emp->category?->name ?? '') }}"
-                                                data-employee-photo="{{ $emp->photo_url }}"
-                                                data-employee-phone="{{ $emp->phone }}"
-                                                data-employee-emergency="{{ $emp->alternate_phone }}"
-                                                data-shop-name="{{ e($group['shop_name']) }}"
-                                                data-status="{{ $status ? match($status) { 'present' => 'P (Present)', 'half_day' => '½ (Half Day)', 'leave' => 'L (Leave)', 'absent' => 'A (Absent)', default => ucfirst($status) } : 'Not Marked' }}"
-                                                data-marked-at="{{ $att?->marked_at ? $att->marked_at->timezone('Asia/Kolkata')->format('g:i A') : '—' }}"
-                                                data-marked-by="{{ e($att?->markedBy?->name ?? '—') }}"
-                                                data-source="{{ ucfirst($att?->source ?? 'admin') }}"
-                                                data-notes="{{ e($att?->notes ?? '') }}"
-                                                data-calendar-url="{{ route('admin.staff.assignments.show', $emp) }}">
-                                            Details
-                                        </button>
-
-                                        <button type="button" 
-                                                class="js-open-attendance-modal rounded-lg px-2.5 py-1 text-[11px] font-bold text-white transition cursor-pointer {{ $status ? 'bg-slate-900 hover:bg-slate-800' : 'bg-emerald-600 hover:bg-emerald-700' }}"
-                                                data-employee-id="{{ $emp->id }}"
-                                                data-employee-name="{{ e($emp->name) }}"
-                                                data-shop-id="{{ $group['shop_id'] ?? '' }}"
+            <div class="overflow-x-auto overscroll-x-contain" tabindex="0" aria-label="Monthly attendance table, horizontally scrollable">
+                <table class="w-max min-w-full border-separate border-spacing-0 text-left">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="sticky left-0 z-30 min-w-64 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wider text-slate-700 shadow-[5px_0_8px_-6px_rgba(15,23,42,0.35)]">Employee</th>
+                            @foreach($monthDays as $day)
+                                <th scope="col" class="min-w-12 border-b border-r border-slate-200 px-1 py-2 text-center {{ $day->isSameDay($selectedDate) ? 'bg-emerald-50' : ($day->isWeekend() ? 'bg-slate-100' : 'bg-slate-50') }}">
+                                    <span class="block text-[9px] font-black uppercase text-slate-400">{{ $day->format('D') }}</span>
+                                    <span class="mt-0.5 block text-xs font-black {{ $day->isSameDay($selectedDate) ? 'text-emerald-700' : 'text-slate-800' }}">{{ $day->format('d') }}</span>
+                                </th>
+                            @endforeach
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($employees as $employee)
+                            @php($employeeAttendance = $monthlyAttendanceByEmployee->get($employee->id, collect()))
+                            @php($selectedAttendance = $employeeAttendance->get($selectedDate->toDateString()))
+                            <tr class="group">
+                                <th scope="row" class="sticky left-0 z-20 border-b border-r border-slate-200 bg-white px-4 py-2.5 shadow-[5px_0_8px_-6px_rgba(15,23,42,0.35)] group-hover:bg-slate-50">
+                                    <a href="{{ route('admin.staff.assignments.show', $employee) }}" class="block max-w-56 truncate text-xs font-black text-slate-950 hover:text-emerald-700 hover:underline">{{ $employee->name }}</a>
+                                    <span class="block max-w-56 truncate text-[10px] font-semibold text-slate-400">{{ $employee->employee_code }} · {{ $employee->defaultShop?->name ?? 'UNALLOCATED STAFF' }}</span>
+                                    <button type="button"
+                                            class="js-open-details-modal mt-1 text-[10px] font-bold text-emerald-700 hover:underline"
+                                            data-employee-code="{{ $employee->employee_code }}"
+                                            data-employee-name="{{ e($employee->name) }}"
+                                            data-employee-category="{{ e($employee->category?->name ?? '') }}"
+                                            data-employee-photo="{{ $employee->photo_url }}"
+                                            data-employee-phone="{{ $employee->phone }}"
+                                            data-employee-emergency="{{ $employee->alternate_phone }}"
+                                            data-shop-name="{{ e($selectedAttendance?->shop?->name ?? $employee->defaultShop?->name ?? 'UNALLOCATED STAFF') }}"
+                                            data-status="{{ $selectedAttendance ? match($selectedAttendance->status) { 'present' => 'P (Present)', 'half_day' => 'H (Half Day)', 'leave' => 'L (Leave)', 'absent' => 'A (Absent)', default => ucfirst($selectedAttendance->status) } : 'Not Marked' }}"
+                                            data-marked-at="{{ $selectedAttendance?->marked_at?->timezone('Asia/Kolkata')->format('g:i A') ?? '—' }}"
+                                            data-marked-by="{{ e($selectedAttendance?->markedBy?->name ?? '—') }}"
+                                            data-source="{{ ucfirst($selectedAttendance?->source ?? 'admin') }}"
+                                            data-notes="{{ e($selectedAttendance?->notes ?? '') }}"
+                                            data-calendar-url="{{ route('admin.staff.assignments.show', $employee) }}">Details</button>
+                                </th>
+                                @foreach($monthDays as $day)
+                                    @php($attendance = $employeeAttendance->get($day->toDateString()))
+                                    @php($status = $attendance?->status)
+                                    @php($statusStyles = match($status) {
+                                        'present' => ['P', 'Present', 'bg-emerald-600 text-white hover:bg-emerald-700'],
+                                        'absent' => ['A', 'Absent', 'bg-rose-600 text-white hover:bg-rose-700'],
+                                        'half_day' => ['H', 'Half Day', 'bg-orange-500 text-white hover:bg-orange-600'],
+                                        'leave' => ['L', 'Leave', 'bg-slate-950 text-white hover:bg-black'],
+                                        default => ['—', 'Not Marked', 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700'],
+                                    })
+                                    <td class="border-b border-r border-slate-200 p-1 text-center {{ $day->isSameDay($selectedDate) ? 'bg-emerald-50/60' : ($day->isWeekend() ? 'bg-slate-50' : 'bg-white') }}">
+                                        <button type="button"
+                                                class="js-open-attendance-modal flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 {{ $statusStyles[2] }}"
+                                                title="{{ $employee->name }} — {{ $day->format('d M') }}: {{ $statusStyles[1] }}"
+                                                aria-label="{{ $employee->name }}, {{ $day->format('d F Y') }}, {{ $statusStyles[1] }}"
+                                                data-employee-id="{{ $employee->id }}"
+                                                data-employee-name="{{ e($employee->name) }}"
+                                                data-attendance-date="{{ $day->toDateString() }}"
+                                                data-shop-id="{{ $attendance?->shop_id ?? $employee->default_shop_id ?? '' }}"
                                                 data-status="{{ $status ?? 'present' }}"
-                                                data-notes="{{ e($att?->notes ?? '') }}">
-                                            {{ $status ? 'Edit' : '+ Add' }}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                </div>
-            @empty
-                <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-xs font-semibold text-slate-400">
-                    No active employees match the selected filters on {{ $selectedDate->format('d M Y') }}.
-                </div>
-            @endforelse
+                                                data-notes="{{ e($attendance?->notes ?? '') }}">{{ $statusStyles[0] }}</button>
+                                    </td>
+                                @endforeach
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="{{ $monthDays->count() + 1 }}" class="p-12 text-center text-xs font-semibold text-slate-400">No active employees match the selected filters.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
+        @else
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4">
+                <div>
+                    <h2 class="text-sm font-black text-slate-950">Pending payments for {{ $selectedDate->format('F Y') }}</h2>
+                    <p class="text-xs font-semibold text-slate-500">Remaining salary after all recorded salary and advance payments.</p>
+                </div>
+                <div class="rounded-xl bg-emerald-50 px-4 py-2 text-right">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-700">Total Pending Payment</p>
+                    <p class="text-lg font-black text-emerald-900">₹{{ number_format($totalPendingPayment, 2) }}</p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full min-w-[640px] text-left text-sm">
+                    <thead class="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-500">
+                        <tr>
+                            <th class="px-4 py-3">Employee</th>
+                            <th class="px-4 py-3">Shop</th>
+                            <th class="px-4 py-3 text-right">Pending Payment</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($pendingPaymentRows as $row)
+                            <tr class="hover:bg-slate-50/70">
+                                <td class="px-4 py-3">
+                                    <a href="{{ route('admin.staff.show', $row['employee']) }}" class="font-black text-slate-950 hover:text-emerald-700 hover:underline">{{ $row['employee']->name }}</a>
+                                    <p class="text-xs font-semibold text-slate-400">{{ $row['employee']->employee_code }}</p>
+                                </td>
+                                <td class="px-4 py-3 font-semibold text-slate-600">{{ $row['shop']?->name ?? 'UNALLOCATED STAFF' }}</td>
+                                <td class="px-4 py-3 text-right text-base font-black {{ $row['pending_amount'] > 0 ? 'text-rose-700' : 'text-emerald-700' }}">₹{{ number_format($row['pending_amount'], 2) }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="3" class="px-4 py-12 text-center text-sm font-semibold text-slate-400">No employees match the selected filters.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                    <tfoot class="border-t-2 border-slate-200 bg-slate-50">
+                        <tr>
+                            <th colspan="2" class="px-4 py-4 text-sm font-black text-slate-950">Total Pending Payment</th>
+                            <th class="px-4 py-4 text-right text-lg font-black text-rose-700">₹{{ number_format($totalPendingPayment, 2) }}</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        @endif
 
         <!-- REUSED ADD / EDIT ATTENDANCE MODAL -->
         <div id="admin-attendance-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -286,7 +303,7 @@
                     <!-- Attendance Date -->
                     <div>
                         <label class="block text-xs font-bold text-slate-600 mb-1">Date *</label>
-                        <input type="date" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
+                        <input id="attendance-modal-date" type="date" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
                     </div>
 
                     <!-- Work Location / Shop -->
@@ -310,10 +327,10 @@
                             </label>
                             <label class="flex items-center gap-2 rounded-xl border border-slate-200 p-2 text-xs font-bold text-slate-800 cursor-pointer hover:bg-amber-50/50">
                                 <input type="radio" name="status" value="half_day" class="accent-amber-600">
-                                <span>½ — Half Day</span>
+                                <span>H — Half Day</span>
                             </label>
-                            <label class="flex items-center gap-2 rounded-xl border border-slate-200 p-2 text-xs font-bold text-slate-800 cursor-pointer hover:bg-cyan-50/50">
-                                <input type="radio" name="status" value="leave" class="accent-cyan-600">
+                            <label class="flex items-center gap-2 rounded-xl border border-slate-200 p-2 text-xs font-bold text-slate-800 cursor-pointer hover:bg-slate-100">
+                                <input type="radio" name="status" value="leave" class="accent-slate-950">
                                 <span>L — Leave</span>
                             </label>
                             <label class="flex items-center gap-2 rounded-xl border border-slate-200 p-2 text-xs font-bold text-slate-800 cursor-pointer hover:bg-rose-50/50">
@@ -419,10 +436,11 @@
             const attCancelBtn = document.getElementById('btn-cancel-attendance-modal');
             const attSubtitle = document.getElementById('attendance-modal-subtitle');
             const attEmployeeSelect = document.getElementById('attendance-modal-employee-id');
+            const attDateInput = document.getElementById('attendance-modal-date');
             const attShopSelect = document.getElementById('attendance-modal-shop-id');
             const attNotesInput = document.getElementById('attendance-modal-notes');
 
-            function openAttendanceModal(empId, empName, shopId, status, notes) {
+            function openAttendanceModal(empId, empName, attendanceDate, shopId, status, notes) {
                 if (!attModal) return;
 
                 if (attEmployeeSelect && empId) {
@@ -439,6 +457,10 @@
 
                 if (attNotesInput) {
                     attNotesInput.value = notes || '';
+                }
+
+                if (attDateInput && attendanceDate) {
+                    attDateInput.value = attendanceDate;
                 }
 
                 const radioStatus = attModal.querySelector('input[name="status"][value="' + (status || 'present') + '"]');
@@ -464,11 +486,12 @@
 
                     const empId = button.getAttribute('data-employee-id') || '';
                     const empName = button.getAttribute('data-employee-name') || '';
+                    const attendanceDate = button.getAttribute('data-attendance-date') || '';
                     const shopId = button.getAttribute('data-shop-id') || '';
                     const status = button.getAttribute('data-status') || 'present';
                     const notes = button.getAttribute('data-notes') || '';
 
-                    openAttendanceModal(empId, empName, shopId, status, notes);
+                    openAttendanceModal(empId, empName, attendanceDate, shopId, status, notes);
                 });
             });
 

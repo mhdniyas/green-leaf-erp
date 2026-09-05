@@ -28,4 +28,9 @@ class EmployeePolicy
     {
         return $user->can('hr.employee.update');
     }
+
+    public function delete(User $user, Employee $employee): bool
+    {
+        return $user->can('hr.employee.update') && $employee->verification_status === 'pending';
+    }
 }

@@ -60,12 +60,23 @@
                                     </span>
                                 </td>
                                 <td class="py-3 text-right">
-                                    <a href="{{ route('admin.staff.approvals.show', $employee) }}" class="inline-flex items-center gap-1 rounded-xl bg-slate-950 px-3 py-1.5 text-xs font-black text-white hover:bg-slate-800 transition">
-                                        <span>Review</span>
-                                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                                        </svg>
-                                    </a>
+                                    <div class="inline-flex items-center gap-2">
+                                        <a href="{{ route('admin.staff.approvals.show', $employee) }}" class="inline-flex items-center gap-1 rounded-xl bg-slate-950 px-3 py-1.5 text-xs font-black text-white hover:bg-slate-800 transition">
+                                            <span>Review</span>
+                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                            </svg>
+                                        </a>
+                                        @can('delete', $employee)
+                                            <form method="POST" action="{{ route('admin.staff.duplicate.destroy', $employee) }}" onsubmit="return confirm('Permanently delete this pending registration as a duplicate? This cannot be undone.');">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="inline-flex items-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-100 transition">
+                                                    Delete duplicate
+                                                </button>
+                                            </form>
+                                        @endcan
+                                    </div>
                                 </td>
                             </tr>
                         @empty

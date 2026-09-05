@@ -53,9 +53,20 @@
                     <p class="text-xs font-bold text-slate-500">Submitted for: {{ $employee->defaultShop?->name ?? 'Shop Staff' }}</p>
                 </div>
             </div>
-            <button id="reject-trigger-btn" type="button" @click="showRejectModal = true" class="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-2.5 text-xs font-black text-rose-800 hover:bg-rose-100 transition cursor-pointer">
-                ✕ Reject Registration
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+                @can('delete', $employee)
+                    <form method="POST" action="{{ route('admin.staff.duplicate.destroy', $employee) }}" onsubmit="return confirm('Permanently delete this pending registration as a duplicate? This cannot be undone.');">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="rounded-2xl border border-rose-300 bg-white px-5 py-2.5 text-xs font-black text-rose-700 hover:bg-rose-50 transition cursor-pointer">
+                            Delete Duplicate
+                        </button>
+                    </form>
+                @endcan
+                <button id="reject-trigger-btn" type="button" @click="showRejectModal = true" class="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-2.5 text-xs font-black text-rose-800 hover:bg-rose-100 transition cursor-pointer">
+                    ✕ Reject Registration
+                </button>
+            </div>
         </div>
 
         <!-- 2 COLUMNS GRID: PERSONAL DETAILS & SHOP ORIGIN -->

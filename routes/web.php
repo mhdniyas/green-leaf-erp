@@ -1006,6 +1006,7 @@ Route::middleware('auth')->group(function () {
             Route::put('staff/{employee:employee_code}', [StaffManagementController::class, 'update'])->name('staff.update');
             Route::post('staff/{employee:employee_code}/approve', [StaffManagementController::class, 'approveEmployee'])->name('staff.approve');
             Route::post('staff/{employee:employee_code}/reject', [StaffManagementController::class, 'rejectEmployee'])->name('staff.reject');
+            Route::delete('staff/{employee:employee_code}/duplicate', [StaffManagementController::class, 'destroyDuplicateEmployee'])->name('staff.duplicate.destroy');
             Route::patch('staff/{employee:employee_code}/employment-status', [StaffManagementController::class, 'updateEmploymentStatus'])->name('staff.employment-status.update');
             Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
             Route::patch('staff/settings/check-in-time', [StaffManagementController::class, 'updateCheckInTime'])->name('staff.settings.check-in-time.update');

@@ -9,6 +9,7 @@ use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
+use App\Models\ShopStaffPayment;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -286,5 +287,81 @@ class AdminStaffAttendanceRedesignTest extends TestCase
         $this->assertTrue($shopGroups->has('shop_'.$this->shop1->id));
         $this->assertTrue($shopGroups->has('shop_'.$shop2->id));
         $this->assertTrue($shopGroups->has('unallocated'));
+    }
+
+    public function test_attendance_page_renders_a_scrollable_month_register_with_status_letters(): void
+    {
+        $emptyShop = Shop::query()->create([
+            'name' => 'Empty Shop',
+            'code' => 'EMPTY',
+            'warehouse_tag' => 'ES',
+            'status' => 'active',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+            'is_active' => true,
+        ]);
+
+        EmployeeAttendance::query()->create([
+            'employee_id' => $this->approvedStaff->id,
+            'shop_id' => $this->shop1->id,
+            'attendance_date' => '2026-09-03',
+            'status' => 'half_day',
+            'notes' => 'Morning appointment',
+            'source' => 'admin',
+            'marked_at' => Carbon::create(2026, 9, 3, 13, 0),
+            'marked_by' => $this->admin->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.staff.attendance', ['date' => '2026-09-05']));
+
+        $response->assertOk();
+        $response->assertSee('September 2026 attendance register');
+        $response->assertSee('Monthly attendance table, horizontally scrollable');
+        $response->assertSee('H <span class="font-semibold">Half Day</span>', false);
+        $response->assertSee('L <span class="font-semibold">Leave</span>', false);
+        $response->assertSee('data-attendance-date="2026-09-03"', false);
+        $response->assertSee('title="Ahmed Approved — 03 Sep: Half Day"', false);
+        $response->assertSee('data-shop-filter="'.$this->shop1->id.'"', false);
+        $response->assertDontSee('data-shop-filter="'.$emptyShop->id.'"', false);
+        $this->assertCount(30, $response->viewData('monthDays'));
+        $this->assertCount(1, $response->viewData('availableShops'));
+    }
+
+    public function test_pending_payment_tab_shows_only_the_remaining_employee_payment_and_total(): void
+    {
+        EmployeeAttendance::query()->create([
+            'employee_id' => $this->approvedStaff->id,
+            'shop_id' => $this->shop1->id,
+            'attendance_date' => '2026-09-03',
+            'status' => 'present',
+            'source' => 'admin',
+            'marked_at' => Carbon::create(2026, 9, 3, 9, 0),
+            'marked_by' => $this->admin->id,
+        ]);
+        ShopStaffPayment::query()->create([
+            'employee_id' => $this->approvedStaff->id,
+            'shop_id' => $this->shop1->id,
+            'paid_by' => $this->admin->id,
+            'paid_on' => '2026-09-05',
+            'amount' => 200,
+            'payment_type' => 'advance',
+            'fund_source' => 'petty_cash',
+            'status' => 'paid',
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.staff.attendance', [
+                'date' => '2026-09-05',
+                'tab' => 'pending-payment',
+            ]));
+
+        $response->assertOk();
+        $response->assertSee('Pending payments for September 2026');
+        $response->assertSee('Ahmed Approved');
+        $response->assertSee('₹633.33');
+        $response->assertDontSee('Monthly Salary');
+        $response->assertDontSee('Daily Salary');
+        $this->assertSame(633.33, $response->viewData('totalPendingPayment'));
     }
 }

@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Tests\Feature\HR;
 
 use App\Models\Employee;
+use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
 use App\Models\Shop;
 use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ShopEmployeeApprovalTest extends TestCase
@@ -83,6 +85,7 @@ class ShopEmployeeApprovalTest extends TestCase
         $response->assertSee('Salary Type');
         $response->assertSee('Monthly Salary');
         $response->assertSee('Daily Wage');
+        $response->assertSee('data-submit-button', false);
     }
 
     public function test_shop_owner_submitting_staff_creates_pending_employee_with_salary(): void
@@ -120,6 +123,41 @@ class ShopEmployeeApprovalTest extends TestCase
             'verification_status' => 'pending',
             'submitted_by' => $this->shopOwner->id,
         ]);
+    }
+
+    public function test_repeated_staff_submission_does_not_create_a_duplicate_pending_employee(): void
+    {
+        $payload = [
+            'shop_id' => $this->shop->id,
+            'name' => 'Rahul Sharma',
+            'phone' => '9876543210',
+            'alternate_phone' => '9876543211',
+            'email' => 'rahul@example.com',
+            'joined_on' => '2026-09-01',
+            'id_type' => 'aadhaar',
+            'id_number' => '1234-5678-9012',
+            'address' => '123 MG Road, Kochi',
+            'salary_type' => 'monthly',
+            'monthly_salary' => 18500,
+            'photo_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+            'id_front_data_url' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        ];
+
+        $this->actingAs($this->shopOwner)
+            ->post(route('shop-owner.staff.employees.store'), $payload)
+            ->assertSessionHas('success');
+
+        $this->actingAs($this->shopOwner)
+            ->post(route('shop-owner.staff.employees.store'), $payload)
+            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $this->shop->code]))
+            ->assertSessionHas('warning', 'This employee is already waiting for HR approval.');
+
+        $this->assertSame(1, Employee::query()
+            ->where('default_shop_id', $this->shop->id)
+            ->where('id_type', 'aadhaar')
+            ->where('id_number', '1234-5678-9012')
+            ->where('verification_status', 'pending')
+            ->count());
     }
 
     public function test_pending_approvals_index_shows_only_pending_employees(): void
@@ -200,6 +238,90 @@ class ShopEmployeeApprovalTest extends TestCase
         $response->assertSee('openEmployeeImagePreview', false);
         $response->assertSee('id="employee-image-preview-modal"', false);
         $response->assertSee('id="lightbox-close-btn"', false);
+        $response->assertSee('Delete Duplicate');
+    }
+
+    public function test_authorized_admin_can_delete_a_pending_duplicate_submission(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('employees/photos/duplicate.jpg', 'photo');
+
+        $pendingEmployee = Employee::factory()->create([
+            'employee_code' => 'EMP-00991',
+            'default_shop_id' => $this->shop->id,
+            'employee_category_id' => null,
+            'verification_status' => 'pending',
+            'submitted_by' => $this->shopOwner->id,
+            'photo_path' => 'employees/photos/duplicate.jpg',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->delete(route('admin.staff.duplicate.destroy', $pendingEmployee))
+            ->assertRedirect(route('admin.staff.approvals.index'))
+            ->assertSessionHas('success', "Duplicate employee submission {$pendingEmployee->employee_code} deleted.");
+
+        $this->assertModelMissing($pendingEmployee);
+        Storage::disk('public')->assertMissing('employees/photos/duplicate.jpg');
+        $this->assertDatabaseHas('activity_log', [
+            'log_name' => 'staff',
+            'description' => 'Pending employee submission deleted as duplicate',
+            'causer_id' => $this->admin->id,
+        ]);
+    }
+
+    public function test_user_without_employee_update_permission_cannot_delete_a_pending_submission(): void
+    {
+        $viewer = User::factory()->create();
+        $viewer->givePermissionTo('hr.employee.view');
+        $pendingEmployee = Employee::factory()->create([
+            'employee_code' => 'EMP-00992',
+            'default_shop_id' => $this->shop->id,
+            'employee_category_id' => null,
+            'verification_status' => 'pending',
+        ]);
+
+        $this->actingAs($viewer)
+            ->delete(route('admin.staff.duplicate.destroy', $pendingEmployee))
+            ->assertForbidden();
+
+        $this->assertModelExists($pendingEmployee);
+    }
+
+    public function test_approved_employee_cannot_be_deleted_as_a_duplicate(): void
+    {
+        $approvedEmployee = Employee::factory()->create([
+            'employee_code' => 'EMP-00993',
+            'default_shop_id' => $this->shop->id,
+            'employee_category_id' => $this->shopCategory->id,
+            'verification_status' => 'approved',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->delete(route('admin.staff.duplicate.destroy', $approvedEmployee))
+            ->assertForbidden();
+
+        $this->assertModelExists($approvedEmployee);
+    }
+
+    public function test_pending_employee_with_linked_hr_records_cannot_be_deleted(): void
+    {
+        $pendingEmployee = Employee::factory()->create([
+            'employee_code' => 'EMP-00994',
+            'default_shop_id' => $this->shop->id,
+            'employee_category_id' => null,
+            'verification_status' => 'pending',
+        ]);
+        EmployeeAttendance::factory()->for($pendingEmployee)->create([
+            'attendance_date' => '2026-09-01',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->from(route('admin.staff.approvals.show', $pendingEmployee))
+            ->delete(route('admin.staff.duplicate.destroy', $pendingEmployee))
+            ->assertRedirect(route('admin.staff.approvals.show', $pendingEmployee))
+            ->assertSessionHas('warning', 'This registration has linked HR records and cannot be deleted.');
+
+        $this->assertModelExists($pendingEmployee);
     }
 
     public function test_shop_owner_cannot_access_hr_approvals(): void

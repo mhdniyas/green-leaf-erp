@@ -59,6 +59,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
@@ -504,6 +505,58 @@ class StaffManagementController extends Controller
         return redirect()->back()->with('warning', "Employee {$employee->name} ({$employee->employee_code}) registration rejected.");
     }
 
+    public function destroyDuplicateEmployee(Request $request, Employee $employee): RedirectResponse
+    {
+        Gate::authorize('delete', $employee);
+
+        $deletedEmployee = DB::transaction(function () use ($request, $employee): ?array {
+            $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
+            abort_unless($lockedEmployee->verification_status === 'pending', 404);
+
+            $hasDependentRecords = $lockedEmployee->attendances()->exists()
+                || $lockedEmployee->leaveRequests()->exists()
+                || $lockedEmployee->leaveLedgerEntries()->exists()
+                || $lockedEmployee->hrOverrides()->exists()
+                || $lockedEmployee->payrollItems()->exists()
+                || $lockedEmployee->payrollPayments()->exists()
+                || $lockedEmployee->shopStaffPayments()->exists()
+                || $lockedEmployee->advanceRequests()->exists()
+                || $lockedEmployee->shopAssignments()->exists();
+
+            if ($hasDependentRecords) {
+                return null;
+            }
+
+            activity('staff')
+                ->causedBy($request->user())
+                ->performedOn($lockedEmployee)
+                ->withProperties([
+                    'employee_code' => $lockedEmployee->employee_code,
+                    'default_shop_id' => $lockedEmployee->default_shop_id,
+                    'reason' => 'duplicate_pending_submission',
+                ])
+                ->log('Pending employee submission deleted as duplicate');
+
+            $deletedEmployee = [
+                'code' => $lockedEmployee->employee_code,
+                'image_paths' => array_filter([$lockedEmployee->photo_path, $lockedEmployee->id_front_path, $lockedEmployee->id_back_path]),
+            ];
+
+            $lockedEmployee->delete();
+
+            return $deletedEmployee;
+        });
+
+        if ($deletedEmployee === null) {
+            return redirect()->back()->with('warning', 'This registration has linked HR records and cannot be deleted.');
+        }
+
+        Storage::disk('public')->delete($deletedEmployee['image_paths']);
+
+        return redirect()->route('admin.staff.approvals.index')
+            ->with('success', "Duplicate employee submission {$deletedEmployee['code']} deleted.");
+    }
+
     public function store(StoreEmployeeRequest $request): RedirectResponse
     {
         $validated = $request->validated();
@@ -701,6 +754,9 @@ class StaffManagementController extends Controller
         $categoryCode = trim($request->string('category')->toString());
         $search = trim($request->string('search')->toString());
         $selectedStatus = trim($request->string('status')->toString());
+        $selectedAttendanceTab = $request->string('tab')->toString() === 'pending-payment'
+            ? 'pending-payment'
+            : 'attendance';
         $shopId = $request->integer('shop_id');
         $categories = EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get();
         $selectedCategory = $categoryCode !== '' && $categoryCode !== 'all'
@@ -722,7 +778,19 @@ class StaffManagementController extends Controller
                         ->orWhere('phone', 'like', '%'.$search.'%')
                         ->orWhere('email', 'like', '%'.$search.'%');
                 });
-            })
+            });
+
+        $shopEmployeeCounts = (clone $employeeBaseQuery)
+            ->selectRaw('default_shop_id, COUNT(*) as employee_count')
+            ->whereNotNull('default_shop_id')
+            ->groupBy('default_shop_id')
+            ->pluck('employee_count', 'default_shop_id');
+
+        $availableShops = $ownedShops
+            ->filter(fn (Shop $shop): bool => $shopEmployeeCounts->has($shop->id))
+            ->values();
+
+        $employeeBaseQuery
             ->when($shopId > 0, function ($query) use ($shopId): void {
                 $query->where(function ($employeeQuery) use ($shopId): void {
                     $employeeQuery
@@ -788,6 +856,73 @@ class StaffManagementController extends Controller
         }
 
         $employees = $employeesQuery->get();
+
+        $monthStart = $selectedDate->copy()->startOfMonth();
+        $monthEnd = $selectedDate->copy()->endOfMonth();
+        $monthDays = collect(range(1, $selectedDate->daysInMonth))
+            ->map(fn (int $day): Carbon => $monthStart->copy()->day($day));
+
+        $monthlyAttendanceRecords = EmployeeAttendance::query()
+            ->with(['shop', 'markedBy'])
+            ->whereBetween('attendance_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+            ->whereIn('employee_id', $employees->pluck('id'))
+            ->when($shopId > 0, fn ($query) => $query->where('shop_id', $shopId))
+            ->orderBy('attendance_date')
+            ->get();
+
+        $monthlyAttendanceByEmployee = $monthlyAttendanceRecords
+            ->groupBy('employee_id')
+            ->map(fn (Collection $records): Collection => $records->keyBy(
+                fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString(),
+            ));
+
+        $pendingPaymentRows = collect();
+        $totalPendingPayment = 0.0;
+
+        if ($selectedAttendanceTab === 'pending-payment') {
+            $payrollRun = PayrollRun::query()
+                ->with(['items.payments', 'items.shopStaffPayments'])
+                ->whereDate('period_start', $monthStart->toDateString())
+                ->latest('id')
+                ->first();
+            $payrollItemsByEmployee = $payrollRun?->items->keyBy('employee_id') ?? collect();
+
+            $payrollPaymentsByEmployee = PayrollPayment::query()
+                ->whereBetween('paid_on', [$monthStart->toDateString(), $monthEnd->toDateString()])
+                ->whereIn('employee_id', $employees->pluck('id'))
+                ->selectRaw('employee_id, SUM(amount) as paid_amount')
+                ->groupBy('employee_id')
+                ->pluck('paid_amount', 'employee_id');
+            $shopPaymentsByEmployee = ShopStaffPayment::query()
+                ->where('status', 'paid')
+                ->whereBetween('paid_on', [$monthStart->toDateString(), $monthEnd->toDateString()])
+                ->whereIn('employee_id', $employees->pluck('id'))
+                ->selectRaw('employee_id, SUM(amount) as paid_amount')
+                ->groupBy('employee_id')
+                ->pluck('paid_amount', 'employee_id');
+
+            $pendingPaymentRows = $employees->map(function (Employee $employee) use ($monthStart, $monthEnd, $payrollItemsByEmployee, $payrollPaymentsByEmployee, $shopPaymentsByEmployee): array {
+                /** @var PayrollRunItem|null $payrollItem */
+                $payrollItem = $payrollItemsByEmployee->get($employee->id);
+                $earnedAmount = $payrollItem !== null
+                    ? (float) $payrollItem->final_amount
+                    : (float) $this->payrollService->payableForAttendance($employee, $monthStart, $monthEnd)['amount'];
+                $paidAmount = $payrollItem !== null
+                    ? $payrollItem->paidAmount()
+                    : round(
+                        (float) $payrollPaymentsByEmployee->get($employee->id, 0)
+                        + (float) $shopPaymentsByEmployee->get($employee->id, 0),
+                        2,
+                    );
+
+                return [
+                    'employee' => $employee,
+                    'shop' => $employee->defaultShop,
+                    'pending_amount' => round(max(0, $earnedAmount - $paidAmount), 2),
+                ];
+            });
+            $totalPendingPayment = round((float) $pendingPaymentRows->sum('pending_amount'), 2);
+        }
 
         $attendanceRecords = EmployeeAttendance::query()
             ->with(['employee.category', 'shop', 'markedBy'])
@@ -881,10 +1016,13 @@ class StaffManagementController extends Controller
 
         return view('admin.staff.attendance', [
             'selectedDate' => $selectedDate,
-            'prevDate' => $selectedDate->copy()->subDay(),
-            'nextDate' => $selectedDate->copy()->addDay(),
+            'prevDate' => $selectedDate->copy()->subMonthNoOverflow()->startOfMonth(),
+            'nextDate' => $selectedDate->copy()->addMonthNoOverflow()->startOfMonth(),
+            'monthDays' => $monthDays,
+            'monthlyAttendanceByEmployee' => $monthlyAttendanceByEmployee,
             'search' => $search,
             'selectedStatus' => $selectedStatus,
+            'selectedAttendanceTab' => $selectedAttendanceTab,
             'statusCounts' => $statusCounts,
             'selectedShopId' => $shopId > 0 ? $shopId : null,
             'selectedStaffArea' => $staffArea,
@@ -896,6 +1034,10 @@ class StaffManagementController extends Controller
             'attendanceRecords' => $attendanceRecords,
             'allActiveEmployees' => $allActiveEmployees,
             'shops' => $ownedShops,
+            'availableShops' => $availableShops,
+            'shopEmployeeCounts' => $shopEmployeeCounts,
+            'pendingPaymentRows' => $pendingPaymentRows,
+            'totalPendingPayment' => $totalPendingPayment,
         ]);
     }
 

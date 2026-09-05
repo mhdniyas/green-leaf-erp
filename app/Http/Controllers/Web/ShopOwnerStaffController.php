@@ -31,6 +31,7 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 class ShopOwnerStaffController extends Controller
@@ -229,47 +230,69 @@ class ShopOwnerStaffController extends Controller
 
         $shop = Shop::query()->findOrFail($shopId);
 
-        $photoPath = $request->filled('photo_data_url')
-            ? $this->imageUploadService->processAndStore((string) $request->input('photo_data_url'), 'employees/photos', 600)
-            : null;
+        $submissionLock = hash('sha256', implode('|', [
+            $request->user()->id,
+            $shop->id,
+            $validated['id_type'],
+            mb_strtoupper(trim($validated['id_number'])),
+        ]));
 
-        $idFrontPath = $request->filled('id_front_data_url')
-            ? $this->imageUploadService->processAndStore((string) $request->input('id_front_data_url'), 'employees/ids', 1200)
-            : null;
+        return Cache::lock("shop-owner-staff-submission:{$submissionLock}", 10)->block(5, function () use ($request, $validated, $shop): RedirectResponse {
+            $alreadySubmitted = Employee::query()
+                ->where('default_shop_id', $shop->id)
+                ->where('submitted_by', $request->user()->id)
+                ->where('verification_status', 'pending')
+                ->where('id_type', $validated['id_type'])
+                ->where('id_number', $validated['id_number'])
+                ->exists();
 
-        $idBackPath = $request->filled('id_back_data_url')
-            ? $this->imageUploadService->processAndStore((string) $request->input('id_back_data_url'), 'employees/ids', 1200)
-            : null;
+            if ($alreadySubmitted) {
+                return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
+                    ->with('warning', 'This employee is already waiting for HR approval.');
+            }
 
-        $employee = Employee::create([
-            'employee_code' => Employee::generateNextCode(),
-            'user_id' => null,
-            'default_shop_id' => $shop->id,
-            'employee_category_id' => null,
-            'name' => $validated['name'],
-            'phone' => $validated['phone'],
-            'alternate_phone' => $validated['alternate_phone'] ?? null,
-            'email' => $validated['email'] ?? null,
-            'photo_path' => $photoPath,
-            'id_type' => $validated['id_type'],
-            'other_id_type' => $validated['other_id_type'] ?? null,
-            'id_number' => $validated['id_number'],
-            'id_front_path' => $idFrontPath,
-            'id_back_path' => $idBackPath,
-            'address' => $validated['address'],
-            'staff_area' => 'shop',
-            'employment_status' => 'active',
-            'verification_status' => 'pending',
-            'submitted_by' => $request->user()->id,
-            'joined_on' => $validated['joined_on'],
-            'salary_type' => $validated['salary_type'],
-            'monthly_salary' => $validated['salary_type'] === 'monthly' ? (float) $validated['monthly_salary'] : null,
-            'daily_wage' => $validated['salary_type'] === 'daily_wage' ? (float) $validated['daily_wage'] : null,
-            'notes' => $validated['notes'] ?? null,
-        ]);
+            $photoPath = $request->filled('photo_data_url')
+                ? $this->imageUploadService->processAndStore((string) $request->input('photo_data_url'), 'employees/photos', 600)
+                : null;
 
-        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
-            ->with('success', 'Employee submitted for HR approval.');
+            $idFrontPath = $request->filled('id_front_data_url')
+                ? $this->imageUploadService->processAndStore((string) $request->input('id_front_data_url'), 'employees/ids', 1200)
+                : null;
+
+            $idBackPath = $request->filled('id_back_data_url')
+                ? $this->imageUploadService->processAndStore((string) $request->input('id_back_data_url'), 'employees/ids', 1200)
+                : null;
+
+            Employee::create([
+                'employee_code' => Employee::generateNextCode(),
+                'user_id' => null,
+                'default_shop_id' => $shop->id,
+                'employee_category_id' => null,
+                'name' => $validated['name'],
+                'phone' => $validated['phone'],
+                'alternate_phone' => $validated['alternate_phone'] ?? null,
+                'email' => $validated['email'] ?? null,
+                'photo_path' => $photoPath,
+                'id_type' => $validated['id_type'],
+                'other_id_type' => $validated['other_id_type'] ?? null,
+                'id_number' => $validated['id_number'],
+                'id_front_path' => $idFrontPath,
+                'id_back_path' => $idBackPath,
+                'address' => $validated['address'],
+                'staff_area' => 'shop',
+                'employment_status' => 'active',
+                'verification_status' => 'pending',
+                'submitted_by' => $request->user()->id,
+                'joined_on' => $validated['joined_on'],
+                'salary_type' => $validated['salary_type'],
+                'monthly_salary' => $validated['salary_type'] === 'monthly' ? (float) $validated['monthly_salary'] : null,
+                'daily_wage' => $validated['salary_type'] === 'daily_wage' ? (float) $validated['daily_wage'] : null,
+                'notes' => $validated['notes'] ?? null,
+            ]);
+
+            return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
+                ->with('success', 'Employee submitted for HR approval.');
+        });
     }
 
     public function editEmployeeSubmission(Request $request, Employee $employee): View
