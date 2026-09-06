@@ -69,7 +69,7 @@ return new class extends Migration
                         'entry_type_id' => $entryTypeId,
                         'version' => 1,
                         'effective_from' => '2026-01-01',
-                        'enabled' => false,
+                        'enabled' => true,
                         'display_order' => $maxShopOrder + 1,
                         'default_funding_source' => 'sales',
                         'allowed_funding_sources' => json_encode(['sales', 'none']),
