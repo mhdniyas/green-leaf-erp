@@ -830,6 +830,7 @@ Route::middleware('auth')->group(function () {
             Route::get('shops/{shop}/post-entry', [CashbookController::class, 'postEntryPageForShop'])->name('shop.post-entry');
             Route::get('rules-config', [CashbookController::class, 'rulesPage'])->name('rules-config');
             Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');
+            Route::post('settings/staff', [CashbookController::class, 'updateStaffSettings'])->name('settings.staff');
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
             Route::get('settings/shops/{shop}/demo', [CashbookController::class, 'shopDemoPage'])->name('settings.shop.demo');
             Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');

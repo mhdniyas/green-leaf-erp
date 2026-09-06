@@ -123,9 +123,9 @@ class ShopCashbookSimulationService
             if ($isIncome) {
                 $totalSales += $amount;
 
-                if ($setting->companyAccount) {
-                    $accId = (int) $setting->companyAccount->id;
-                    $accName = $setting->companyAccount->name;
+                if ($setting->isDirectBankCollection()) {
+                    $accId = (int) ($setting->company_account_id ?: $setting->companyAccount?->id);
+                    $accName = $setting->companyAccount?->name ?? 'Bank';
                     $directCompanyBankTotal += $amount;
                     if (! isset($bankBreakdown[$accId])) {
                         $bankBreakdown[$accId] = [

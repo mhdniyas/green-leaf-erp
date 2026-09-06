@@ -12,6 +12,7 @@ use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Client;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
+use App\Models\ShopStaffPayment;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -29,6 +30,7 @@ class CashbookShopSyncService
 
     public function __construct(
         private readonly InvoiceCashbookProjectionService $invoiceProjectionService,
+        private readonly StaffPaymentCashbookProjectionService $staffPaymentProjectionService,
     ) {}
 
     /**
@@ -149,6 +151,27 @@ class CashbookShopSyncService
         }
     }
 
+    /**
+     * Automatically syncs ShopStaffPayment records from Green Leaf ERP
+     * into cashbook ShopLedgerTransaction entries (code: salary).
+     */
+    public function syncStaffPaymentsToCashbook(): void
+    {
+        if (! $this->staffPaymentProjectionService instanceof StaffPaymentCashbookProjectionService) {
+            return;
+        }
+
+        $payments = ShopStaffPayment::query()
+            ->where('amount', '>', 0)
+            ->where('status', '!=', 'cancelled')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($payments as $payment) {
+            $this->staffPaymentProjectionService->syncPayment($payment, 1);
+        }
+    }
+
     public function syncPresetSettingsToShop(ShopLedgerProfile $profile, ?ShopConfigPreset $preset): void
     {
         if (! $preset) {
@@ -222,6 +245,16 @@ class CashbookShopSyncService
             ]
         );
 
+        $salaryType = LedgerEntryType::firstOrCreate(
+            ['code' => 'salary'],
+            [
+                'name' => 'Salary',
+                'category' => 'expense',
+                'active' => true,
+                'display_order' => 17,
+            ]
+        );
+
         ShopLedgerEntrySetting::query()->firstOrCreate(
             [
                 'shop_id' => $shopId,
@@ -248,6 +281,28 @@ class CashbookShopSyncService
             [
                 'shop_id' => $shopId,
                 'entry_type_id' => $otherExpenseType->id,
+            ],
+            [
+                'version' => 1,
+                'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
+                'effective_to' => null,
+                'enabled' => true,
+                'default_funding_source' => 'sales',
+                'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
+                'include_in_sales' => false,
+                'include_in_income' => false,
+                'include_in_expense' => true,
+                'include_in_pl' => true,
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+            ]
+        );
+
+        ShopLedgerEntrySetting::query()->firstOrCreate(
+            [
+                'shop_id' => $shopId,
+                'entry_type_id' => $salaryType->id,
             ],
             [
                 'version' => 1,

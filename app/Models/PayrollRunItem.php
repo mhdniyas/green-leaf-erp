@@ -35,6 +35,10 @@ class PayrollRunItem extends Model
         'client_shop_computed_amount',
         'override_amount',
         'final_amount',
+        'opening_recovery_amount',
+        'closing_recovery_amount',
+        'opening_company_recovery_amount',
+        'closing_company_recovery_amount',
         'rule_snapshot',
     ];
 
@@ -56,6 +60,10 @@ class PayrollRunItem extends Model
             'client_shop_computed_amount' => 'decimal:2',
             'override_amount' => 'decimal:2',
             'final_amount' => 'decimal:2',
+            'opening_recovery_amount' => 'decimal:2',
+            'closing_recovery_amount' => 'decimal:2',
+            'opening_company_recovery_amount' => 'decimal:2',
+            'closing_company_recovery_amount' => 'decimal:2',
             'rule_snapshot' => 'array',
         ];
     }
@@ -110,6 +118,13 @@ class PayrollRunItem extends Model
     public function remainingAmount(): float
     {
         return round(max(0, (float) $this->final_amount - $this->paidAmount()), 2);
+    }
+
+    public function signedSalaryRemaining(): float
+    {
+        $opening = (float) ($this->opening_recovery_amount ?? 0.0);
+
+        return round((float) $this->final_amount - $opening - $this->paidAmount(), 2);
     }
 
     public function greenLeafPayableAmount(): float

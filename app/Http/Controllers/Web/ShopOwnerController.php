@@ -29,11 +29,13 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
+use App\Models\ShopStaffPayment;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
+use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
@@ -71,6 +73,7 @@ class ShopOwnerController extends Controller
         private readonly CashbookShopSyncService $cashbookShopSyncService,
         private readonly CollectionGroupPostingService $collectionGroupPostingService,
         private readonly InvoiceCashbookProjectionService $invoiceCashbookProjectionService,
+        private readonly StaffPaymentCashbookProjectionService $staffPaymentCashbookProjectionService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -1045,9 +1048,29 @@ class ShopOwnerController extends Controller
     public function cashbookShow(Request $request): View
     {
         $shop = $this->ownedAccountingShop($request);
-        $date = Carbon::parse((string) $request->input('date', today()->toDateString()))->toDateString();
         $tab = (string) $request->input('tab', 'cashbook');
         $open = (string) $request->input('open', '');
+        $timeframe = (string) $request->input('timeframe', 'daily');
+        $date = Carbon::parse((string) $request->input('date', today()->toDateString()))->toDateString();
+        $startDate = (string) $request->input('start_date', $date);
+        $endDate = (string) $request->input('end_date', $date);
+        $month = (string) $request->input('month', substr($date, 0, 7));
+
+        if ($tab === 'reports') {
+            if ($timeframe === 'monthly') {
+                $syncStartDate = Carbon::parse($month.'-01')->startOfMonth()->toDateString();
+                $syncEndDate = Carbon::parse($month.'-01')->endOfMonth()->toDateString();
+            } elseif ($timeframe === 'custom') {
+                $syncStartDate = $startDate;
+                $syncEndDate = $endDate;
+            } else {
+                $syncStartDate = $date;
+                $syncEndDate = $date;
+            }
+        } else {
+            $syncStartDate = $date;
+            $syncEndDate = $date;
+        }
 
         $this->cashbookShopSyncService->syncAndGetProfiles();
 
@@ -1074,11 +1097,37 @@ class ShopOwnerController extends Controller
             ->where('enabled', true)
             ->get();
 
-        $todayTransactions = ShopLedgerTransaction::query()
+        // Ensure approved invoice bills and staff payments are reflected in cashbook as default daily expenses.
+        $this->syncApprovedInvoiceBillsToCashbook(
+            $shop,
+            $syncStartDate,
+            $syncEndDate,
+            (int) ($request->user()?->id ?? 1),
+        );
+        $this->syncStaffPaymentsToCashbook(
+            $shop,
+            $syncStartDate,
+            $syncEndDate,
+            (int) ($request->user()?->id ?? 1),
+        );
+
+        $txQuery = ShopLedgerTransaction::query()
             ->with('entryType')
-            ->where('shop_id', (int) $shop->id)
-            ->where('business_date', $date)
-            ->get();
+            ->where('shop_id', (int) $shop->id);
+
+        if ($tab === 'reports') {
+            if ($timeframe === 'monthly') {
+                $txQuery->where('business_date', 'like', $month.'%');
+            } elseif ($timeframe === 'custom') {
+                $txQuery->whereBetween('business_date', [$startDate, $endDate]);
+            } else {
+                $txQuery->where('business_date', $date);
+            }
+        } else {
+            $txQuery->where('business_date', $date);
+        }
+
+        $todayTransactions = $txQuery->get();
 
         $entryTypes = $settings
             ->pluck('entryType')
@@ -1087,15 +1136,7 @@ class ShopOwnerController extends Controller
             ->values();
         $collectionGroups = $this->collectionGroupPostingService->groupsForShop((int) $shop->id);
 
-        // Ensure approved invoice bills are reflected in cashbook as default daily expenses.
-        $this->syncApprovedInvoiceBillsToCashbook(
-            $shop,
-            $date,
-            $date,
-            (int) ($request->user()?->id ?? 1),
-        );
-
-        $snapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $date);
+        $snapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $syncEndDate);
 
         return view('shop-owner.cashbook.index', [
             'shop' => $shop,
@@ -1110,9 +1151,10 @@ class ShopOwnerController extends Controller
             'snapshot' => $snapshot,
             'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
             'openModal' => $open === 'line',
-            'timeframe' => (string) $request->input('timeframe', 'daily'),
-            'startDate' => (string) $request->input('start_date', $date),
-            'endDate' => (string) $request->input('end_date', $date),
+            'timeframe' => $timeframe,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'selectedMonth' => $month,
         ]);
     }
 
@@ -1169,6 +1211,12 @@ class ShopOwnerController extends Controller
         };
 
         $this->syncApprovedInvoiceBillsToCashbook(
+            $shop,
+            $syncStartDate,
+            $syncEndDate,
+            (int) ($request->user()?->id ?? 1),
+        );
+        $this->syncStaffPaymentsToCashbook(
             $shop,
             $syncStartDate,
             $syncEndDate,
@@ -1396,6 +1444,25 @@ class ShopOwnerController extends Controller
 
         foreach ($invoices as $invoice) {
             $this->invoiceCashbookProjectionService->syncInvoice($invoice, $userId);
+        }
+    }
+
+    private function syncStaffPaymentsToCashbook(Shop $shop, string $startDate, string $endDate, int $userId): void
+    {
+        if (! $this->staffPaymentCashbookProjectionService instanceof StaffPaymentCashbookProjectionService) {
+            return;
+        }
+
+        $payments = ShopStaffPayment::query()
+            ->where('shop_id', (int) $shop->id)
+            ->whereDate('paid_on', '>=', $startDate)
+            ->whereDate('paid_on', '<=', $endDate)
+            ->orderBy('paid_on')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($payments as $payment) {
+            $this->staffPaymentCashbookProjectionService->syncPayment($payment, $userId);
         }
     }
 

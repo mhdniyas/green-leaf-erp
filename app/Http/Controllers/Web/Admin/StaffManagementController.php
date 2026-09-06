@@ -1317,6 +1317,10 @@ class StaffManagementController extends Controller
                 ->where('employment_status', 'active')
                 ->orderBy('name')
                 ->get(),
+            'companyAccounts' => CompanyAccount::query()
+                ->where('enabled', true)
+                ->orderBy('name')
+                ->get(),
         ]);
     }
 
@@ -1381,6 +1385,8 @@ class StaffManagementController extends Controller
             (float) ($request->validated('approved_amount') ?? $advanceRequest->requested_amount),
             $request->user(),
             $request->validated('review_note'),
+            $request->validated('fund_source'),
+            $request->filled('company_account_id') ? $request->integer('company_account_id') : null,
         );
 
         return redirect()->route('admin.staff.advance-payments.index', [

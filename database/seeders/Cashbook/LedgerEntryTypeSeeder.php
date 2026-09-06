@@ -55,6 +55,8 @@ class LedgerEntryTypeSeeder extends Seeder
             ['code' => 'sales_to_company',  'name' => 'Sales → Company',   'category' => 'transfer'],
             ['code' => 'company_to_shop',   'name' => 'Company → Shop',    'category' => 'transfer'],
             ['code' => 'bank_to_petty',     'name' => 'Bank → Petty',      'category' => 'transfer'],
+            ['code' => 'shop_to_supermarket', 'name' => 'Shop to Supermarket', 'category' => 'transfer'],
+            ['code' => 'casio_delivery',    'name' => 'Casio Delivery',    'category' => 'transfer'],
 
             // Settlements
             ['code' => 'shop_paid_company',   'name' => 'Shop Paid Company',   'category' => 'settlement'],

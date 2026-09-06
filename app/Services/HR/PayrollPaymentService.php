@@ -44,12 +44,23 @@ class PayrollPaymentService
         ?string $reference = null,
         ?string $requestUuid = null,
     ): PayrollPayment {
-        if ($requestUuid !== null) {
+        if ($requestUuid !== null && trim($requestUuid) !== '') {
             $existingPayment = PayrollPayment::query()
                 ->where('request_uuid', $requestUuid)
                 ->first();
 
             if ($existingPayment instanceof PayrollPayment) {
+                $this->validateExistingPaymentFingerprint(
+                    $existingPayment,
+                    $payrollRunItem,
+                    $amount,
+                    $paymentType,
+                    $shop,
+                    $fundSource,
+                    $companyAccountId,
+                    $advanceRequestId,
+                );
+
                 return $existingPayment->fresh(['employee', 'shop', 'payrollRun', 'payrollRunItem.payrollRun', 'journalEntry.transactions.account', 'cashbookMovement.companyAccount', 'paidBy']);
             }
         }
@@ -62,13 +73,24 @@ class PayrollPaymentService
                 ->firstOrFail();
             $payrollRunItem->payments()->lockForUpdate()->get();
 
-            if ($requestUuid !== null) {
+            if ($requestUuid !== null && trim($requestUuid) !== '') {
                 $existingPayment = PayrollPayment::query()
                     ->where('request_uuid', $requestUuid)
                     ->lockForUpdate()
                     ->first();
 
                 if ($existingPayment instanceof PayrollPayment) {
+                    $this->validateExistingPaymentFingerprint(
+                        $existingPayment,
+                        $payrollRunItem,
+                        $amount,
+                        $paymentType,
+                        $shop,
+                        $fundSource,
+                        $companyAccountId,
+                        $advanceRequestId,
+                    );
+
                     return $existingPayment->fresh(['employee', 'shop', 'payrollRun', 'payrollRunItem.payrollRun', 'journalEntry.transactions.account', 'cashbookMovement.companyAccount', 'paidBy']);
                 }
             }
@@ -396,6 +418,35 @@ class PayrollPaymentService
         if ($amount > $remainingApproved) {
             throw ValidationException::withMessages([
                 'amount' => 'The salary advance payment cannot exceed the remaining approved advance amount.',
+            ]);
+        }
+    }
+
+    private function validateExistingPaymentFingerprint(
+        PayrollPayment $existingPayment,
+        PayrollRunItem $payrollRunItem,
+        float $amount,
+        string $paymentType,
+        ?Shop $shop,
+        string $fundSource,
+        ?int $companyAccountId,
+        ?int $advanceRequestId,
+    ): void {
+        $expectedShopId = $shop?->id ?? $payrollRunItem->shop_id;
+        $existingShopId = $existingPayment->shop_id;
+
+        if (
+            (int) $existingPayment->employee_id !== (int) $payrollRunItem->employee_id
+            || (int) $existingPayment->payroll_run_item_id !== (int) $payrollRunItem->id
+            || ($expectedShopId !== null && (int) $existingShopId !== (int) $expectedShopId)
+            || abs((float) $existingPayment->amount - round($amount, 2)) > 0.009
+            || $existingPayment->payment_type !== $paymentType
+            || $existingPayment->fund_source !== $fundSource
+            || ($companyAccountId !== null && (int) $existingPayment->company_account_id !== (int) $companyAccountId)
+            || ($advanceRequestId !== null && (int) $existingPayment->employee_advance_request_id !== (int) $advanceRequestId)
+        ) {
+            throw ValidationException::withMessages([
+                'request_uuid' => 'This request UUID has already been used for a different payment.',
             ]);
         }
     }

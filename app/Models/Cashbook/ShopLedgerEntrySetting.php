@@ -71,7 +71,7 @@ class ShopLedgerEntrySetting extends Model
     {
         return $this->enabled
             && $this->company_account_id !== null
-            && ($this->include_in_income || $this->include_in_sales || ($this->entryType && $this->entryType->category === 'income'));
+            && ($this->include_in_sales || $this->include_in_income || ($this->entryType && $this->entryType->category === 'income'));
     }
 
     /** Scope to settings effective on a given date. */

@@ -68,12 +68,43 @@ class JournalEntry extends Model
         return $this->belongsTo(PurchaserCredit::class, 'source_id');
     }
 
+    public ?bool $memoizedIsReversed = null;
+
+    public ?self $memoizedReversalEntry = null;
+
+    public ?self $memoizedReplacementEntry = null;
+
+    public ?self $memoizedOriginalReversedEntry = null;
+
+    public function resetMemoizedState(): void
+    {
+        $this->memoizedIsReversed = null;
+        $this->memoizedReversalEntry = null;
+        $this->memoizedReplacementEntry = null;
+        $this->memoizedOriginalReversedEntry = null;
+    }
+
+    public function setAttribute($key, $value)
+    {
+        if (in_array($key, ['source_event', 'description', 'reference'], true)) {
+            $this->resetMemoizedState();
+        }
+
+        return parent::setAttribute($key, $value);
+    }
+
     public function getIsReversedAttribute(): bool
     {
-        return str_starts_with((string) $this->source_event, 'reversal:')
+        if ($this->memoizedIsReversed !== null) {
+            return $this->memoizedIsReversed;
+        }
+
+        $isReversed = str_starts_with((string) $this->source_event, 'reversal:')
             || $this->source_event === 'reversal'
             || str_contains((string) $this->description, '[REVERSED]')
             || static::query()->where('source_event', "reversal:{$this->id}")->exists();
+
+        return $this->memoizedIsReversed = $isReversed;
     }
 
     public function getIsReversalAttribute(): bool
@@ -90,26 +121,38 @@ class JournalEntry extends Model
 
     public function getReversalEntryAttribute(): ?self
     {
-        return static::query()->where('source_event', "reversal:{$this->id}")->first();
+        if ($this->memoizedReversalEntry !== null) {
+            return $this->memoizedReversalEntry;
+        }
+
+        return $this->memoizedReversalEntry = static::query()->where('source_event', "reversal:{$this->id}")->first();
     }
 
     public function getReplacementEntryAttribute(): ?self
     {
-        return static::query()->where('description', 'like', "%[Replacement for JE #{$this->id}]%")->first();
+        if ($this->memoizedReplacementEntry !== null) {
+            return $this->memoizedReplacementEntry;
+        }
+
+        return $this->memoizedReplacementEntry = static::query()->where('description', 'like', "%[Replacement for JE #{$this->id}]%")->first();
     }
 
     public function getOriginalReversedEntryAttribute(): ?self
     {
+        if ($this->memoizedOriginalReversedEntry !== null) {
+            return $this->memoizedOriginalReversedEntry;
+        }
+
         if ($this->is_reversal) {
             $idStr = str_replace('reversal:', '', (string) $this->source_event);
             if (is_numeric($idStr)) {
-                return static::query()->find((int) $idStr);
+                return $this->memoizedOriginalReversedEntry = static::query()->find((int) $idStr);
             }
         }
 
         if ($this->is_replacement) {
             if (preg_match('/\[Replacement for JE #(\d+)\]/', (string) $this->description, $matches)) {
-                return static::query()->find((int) $matches[1]);
+                return $this->memoizedOriginalReversedEntry = static::query()->find((int) $matches[1]);
             }
         }
 

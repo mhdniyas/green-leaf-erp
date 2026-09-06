@@ -221,6 +221,71 @@ final class PurchaserSettlementService
     }
 
     /**
+     * Assert that a purchaser credit funding entry can be safely updated or deleted.
+     *
+     * @throws ValidationException
+     */
+    public function assertFundingMutable(PurchaserCredit $credit): void
+    {
+        $journalId = JournalEntry::query()
+            ->where('source_type', PurchaserCredit::class)
+            ->where('source_id', $credit->id)
+            ->value('id');
+
+        $linkedStatementExists = CompanyAccountStatementEntry::query()
+            ->where(function ($q) use ($credit, $journalId): void {
+                $q->where(function ($q2) use ($credit): void {
+                    $q2->whereIn('source_type', [PurchaserCredit::class, 'purchaser_funding'])
+                        ->where('source_id', $credit->id);
+                })
+                    ->orWhere(function ($q2) use ($credit): void {
+                        $q2->whereIn('counterpart_type', [PurchaserCredit::class, 'purchaser_funding'])
+                            ->where('counterpart_id', $credit->id);
+                    });
+                if ($journalId) {
+                    $q->orWhere('journal_entry_id', $journalId);
+                }
+            })
+            ->where(function ($q): void {
+                $q->where('is_finalized', true)
+                    ->orWhereIn('status', ['matched', 'reconciled', 'partially_matched'])
+                    ->orWhere('matched_amount', '>', 0);
+            })
+            ->exists();
+
+        if ($linkedStatementExists) {
+            throw ValidationException::withMessages([
+                'credit' => 'Funding is linked to a matched or reconciled statement entry. Unmatch first before editing or deleting.',
+            ]);
+        }
+
+        if ($journalId) {
+            $manualReconciliationExists = DB::table('cashbook_company_payment_reconciliations as allocation')
+                ->where('allocation.journal_entry_id', $journalId)
+                ->exists();
+
+            if ($manualReconciliationExists) {
+                throw ValidationException::withMessages([
+                    'credit' => 'Manual reconciliation allocation exists for this funding entry.',
+                ]);
+            }
+
+            $journal = JournalEntry::query()->find($journalId);
+            if (! $journal || ! in_array($journal->source_event, ['purchaser_funding', 'purchaser_funding_return'], true)) {
+                throw ValidationException::withMessages([
+                    'credit' => 'Historical or invalid funding entry cannot be modified.',
+                ]);
+            }
+        }
+
+        if ($credit->purchase_invoice_id !== null) {
+            throw ValidationException::withMessages([
+                'credit' => 'Funding entry linked directly to a purchase invoice cannot be edited or deleted directly.',
+            ]);
+        }
+    }
+
+    /**
      * Safe admin operation to delete a funding entry (even if utilized), with chronological reversal & audit.
      */
     public function deleteFundingWithReversal(
@@ -238,6 +303,7 @@ final class PurchaserSettlementService
         DB::transaction(function () use ($credit, $purchaser, $actor, $reason, $notes): void {
             // Lock purchaser credits for update
             $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+            $this->assertFundingMutable($credit);
             $originalAmount = (float) $credit->amount;
             $originalDate = $credit->business_date->format('Y-m-d');
             $originalRef = (string) ($credit->reference ?? '');
@@ -344,6 +410,7 @@ final class PurchaserSettlementService
 
         DB::transaction(function () use ($credit, $purchaser, $actor, $newAmount, $newDate, $paymentSource, $companyAccountId, $reference, $description, $reason, $notes): void {
             $credit = PurchaserCredit::query()->whereKey($credit->id)->lockForUpdate()->firstOrFail();
+            $this->assertFundingMutable($credit);
             $oldAmount = (float) $credit->amount;
             $oldDate = $credit->business_date->format('Y-m-d');
             $oldRef = (string) ($credit->reference ?? '');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Cashbook\CompanyAccount;
 use Database\Factories\EmployeeAdvanceRequestFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,6 +16,7 @@ class EmployeeAdvanceRequest extends Model
     use HasFactory;
 
     protected $fillable = [
+        'request_uuid',
         'employee_id',
         'shop_id',
         'employee_advance_rule_id',
@@ -28,8 +30,11 @@ class EmployeeAdvanceRequest extends Model
         'eligible_amount',
         'approved_amount',
         'fund_source',
+        'approved_fund_source',
+        'approved_company_account_id',
         'status',
         'rule_snapshot',
+        'review_snapshot',
         'request_note',
         'review_note',
         'reviewed_at',
@@ -49,6 +54,7 @@ class EmployeeAdvanceRequest extends Model
             'eligible_amount' => 'decimal:2',
             'approved_amount' => 'decimal:2',
             'rule_snapshot' => 'array',
+            'review_snapshot' => 'array',
             'reviewed_at' => 'datetime',
         ];
     }
@@ -76,6 +82,11 @@ class EmployeeAdvanceRequest extends Model
     public function shopStaffPayment(): BelongsTo
     {
         return $this->belongsTo(ShopStaffPayment::class);
+    }
+
+    public function approvedCompanyAccount(): BelongsTo
+    {
+        return $this->belongsTo(CompanyAccount::class, 'approved_company_account_id');
     }
 
     public function requestedBy(): BelongsTo

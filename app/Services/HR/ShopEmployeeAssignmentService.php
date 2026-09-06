@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\HR;
 
 use App\Models\Employee;
+use App\Models\EmployeeAttendance;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\User;
@@ -53,7 +54,11 @@ class ShopEmployeeAssignmentService
 
     public function isAssignedToShopOn(Employee $employee, Shop $shop, Carbon $date): bool
     {
-        return ShopEmployeeAssignment::query()
+        if ((int) $employee->default_shop_id === (int) $shop->id) {
+            return true;
+        }
+
+        $assignmentExists = ShopEmployeeAssignment::query()
             ->where('employee_id', $employee->id)
             ->where('shop_id', $shop->id)
             ->where('status', 'active')
@@ -66,17 +71,41 @@ class ShopEmployeeAssignmentService
                     ->orWhereDate('effective_to', '>=', $date->toDateString());
             })
             ->exists();
+
+        if ($assignmentExists) {
+            return true;
+        }
+
+        return EmployeeAttendance::query()
+            ->where('employee_id', $employee->id)
+            ->where('shop_id', $shop->id)
+            ->whereDate('attendance_date', '<=', $date->toDateString())
+            ->exists();
     }
 
     public function hasWorkedAtShopOnOrBefore(Employee $employee, Shop $shop, Carbon $date): bool
     {
-        return ShopEmployeeAssignment::query()
+        if ((int) $employee->default_shop_id === (int) $shop->id) {
+            return true;
+        }
+
+        $assignmentExists = ShopEmployeeAssignment::query()
             ->where('employee_id', $employee->id)
             ->where('shop_id', $shop->id)
             ->where(function ($query) use ($date): void {
                 $query->whereNull('effective_from')
                     ->orWhereDate('effective_from', '<=', $date->toDateString());
             })
+            ->exists();
+
+        if ($assignmentExists) {
+            return true;
+        }
+
+        return EmployeeAttendance::query()
+            ->where('employee_id', $employee->id)
+            ->where('shop_id', $shop->id)
+            ->whereDate('attendance_date', '<=', $date->toDateString())
             ->exists();
     }
 

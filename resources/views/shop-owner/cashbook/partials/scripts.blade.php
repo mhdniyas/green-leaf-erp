@@ -53,6 +53,56 @@
         if (window.lucide) lucide.createIcons();
     }
 
+    function switchReportTimeframe(mode) {
+        const hiddenInput = document.getElementById('report-hidden-timeframe');
+        if (hiddenInput) hiddenInput.value = mode;
+
+        const btnDaily = document.getElementById('timeframe-btn-daily');
+        const btnCustom = document.getElementById('timeframe-btn-custom');
+        const btnMonthly = document.getElementById('timeframe-btn-monthly');
+
+        const inDaily = document.getElementById('filter-input-daily');
+        const inCustom = document.getElementById('filter-input-custom');
+        const inMonthly = document.getElementById('filter-input-monthly');
+
+        [btnDaily, btnCustom, btnMonthly].forEach(b => {
+            if (b) {
+                b.className = 'px-2.5 py-1 rounded-md transition cursor-pointer text-slate-500 hover:text-slate-900';
+            }
+        });
+
+        [inDaily, inCustom, inMonthly].forEach(i => {
+            if (i) i.classList.add('hidden');
+        });
+
+        if (mode === 'monthly') {
+            if (btnMonthly) btnMonthly.className = 'px-2.5 py-1 rounded-md transition cursor-pointer bg-white text-slate-950 shadow-2xs';
+            if (inMonthly) inMonthly.classList.remove('hidden');
+        } else if (mode === 'custom') {
+            if (btnCustom) btnCustom.className = 'px-2.5 py-1 rounded-md transition cursor-pointer bg-white text-slate-950 shadow-2xs';
+            if (inCustom) inCustom.classList.remove('hidden');
+        } else {
+            if (btnDaily) btnDaily.className = 'px-2.5 py-1 rounded-md transition cursor-pointer bg-white text-slate-950 shadow-2xs';
+            if (inDaily) inDaily.classList.remove('hidden');
+        }
+
+        if (window.lucide) lucide.createIcons();
+    }
+
+    function toggleSummaryHeaderAccordion(headerId) {
+        const itemContainer = document.getElementById('summary-items-' + headerId);
+        const chevron = document.getElementById('summary-chevron-' + headerId);
+        if (!itemContainer) return;
+
+        if (itemContainer.classList.contains('hidden')) {
+            itemContainer.classList.remove('hidden');
+            if (chevron) chevron.classList.add('rotate-180');
+        } else {
+            itemContainer.classList.add('hidden');
+            if (chevron) chevron.classList.remove('rotate-180');
+        }
+    }
+
     // SYNC MODAL OPEN STATE FOR FLOATING CONTROLS
     function syncModalOpenState() {
         const inModal = document.getElementById('in-header-modal');
@@ -172,7 +222,14 @@
 
         let total = 0;
         (header.setting_ids || []).forEach(sId => {
-            total += parseFloat(activeDayData[sId]) || 0;
+            const amt = parseFloat(activeDayData[sId]) || 0;
+            const s = settings.find(item => item.id === sId);
+            const isMinus = s && (s.is_sales_deduction || s.payable_direction === 'minus');
+            if (isMinus) {
+                total -= amt;
+            } else {
+                total += amt;
+            }
         });
 
         const pRows = productRowsState[activeHeaderId] || [];
@@ -277,13 +334,24 @@
 
             (h.setting_ids || []).forEach(sId => {
                 const amt = parseFloat(activeDayData[sId]) || 0;
-                headerTotal += amt;
-
                 const s = settings.find(item => item.id === sId);
+                const isMinus = s && (s.is_sales_deduction || s.payable_direction === 'minus');
+
+                if (isMinus) {
+                    headerTotal -= amt;
+                } else {
+                    headerTotal += amt;
+                }
+
                 if (s && amt > 0) {
                     headerCount++;
                     activeEntryCount++;
-                    if (s.is_income) {
+                    if (s.is_sales_deduction) {
+                        totalIncome -= amt;
+                        if (s.funding_source === 'sales' || s.funding_source === 'shop_cash') {
+                            cashCollectedAtShop -= amt;
+                        }
+                    } else if (s.is_income) {
                         totalIncome += amt;
                         if (s.company_account_id) {
                             bankInflows[s.company_account_id] = (bankInflows[s.company_account_id] || 0) + amt;
@@ -366,9 +434,21 @@
                             <span class="block font-bold text-slate-900">${escapeHtml(rel.name || 'Supermarket Settlement')}</span>
                             <span class="text-[10px] text-slate-400 font-medium block">From: Previous Shop Balance</span>
                         </div>
-                        <span class="font-mono text-slate-950 font-black">-${formatCurrency(relationSettled)}</span>
+                        <span class="font-mono text-rose-700 font-black">−${formatCurrency(relationSettled)}</span>
                     </div>
                 `;
+            }
+        }
+
+        // Update Summary Bill Relations
+        const summaryRelContainer = document.getElementById('summary-bill-relations-container');
+        const summaryRelContent = document.getElementById('summary-bill-relations-content');
+        if (summaryRelContainer && summaryRelContent) {
+            if (relHtml.trim().length > 0) {
+                summaryRelContainer.classList.remove('hidden');
+                summaryRelContent.innerHTML = relHtml;
+            } else {
+                summaryRelContainer.classList.add('hidden');
             }
         }
 
@@ -397,7 +477,7 @@
         const kpiNet = document.getElementById('kpi-today-net-activity');
         if (kpiNet) {
             kpiNet.textContent = formatCurrency(todayNetActivity);
-            kpiNet.className = 'font-mono text-lg sm:text-2xl font-black mt-0.5 ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
+            kpiNet.className = 'font-mono text-base sm:text-xl font-black ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
         }
 
         const kpiCashHeld = document.getElementById('kpi-cash-held');
@@ -409,23 +489,21 @@
         const kpiPetty = document.getElementById('kpi-petty-closing');
         if (kpiPetty) kpiPetty.textContent = formatCurrency(closingPetty);
 
-        // Update Today's Row
+        // Update Today's Row & Bill Footer
         const todayCountEl = document.getElementById('today-entry-count');
-        if (todayCountEl) todayCountEl.textContent = activeEntryCount + (activeEntryCount === 1 ? ' Entry' : ' Entries');
+        if (todayCountEl) todayCountEl.textContent = activeEntryCount + (activeEntryCount === 1 ? ' Entry Recorded' : ' Entries Recorded');
 
-        const todayRowOut = document.getElementById('today-row-out');
-        if (todayRowOut) todayRowOut.textContent = formatCurrency(totalExpense);
-
-        const todayRowIn = document.getElementById('today-row-in');
-        if (todayRowIn) todayRowIn.textContent = formatCurrency(totalIncome);
-
-        // Update Main Bill Sections & Report Breakdown Content
+        // Update Main Bill Sections, Today Summary Bill, and Report Breakdown
+        renderSummaryBillHeaders();
         renderMainBillSections();
         renderReportBreakdown();
 
         // Update Report View Elements
         const repNet = document.getElementById('report-net-activity');
-        if (repNet) repNet.textContent = formatCurrency(todayNetActivity);
+        if (repNet) {
+            repNet.textContent = formatCurrency(todayNetActivity);
+            repNet.className = 'font-mono text-xs sm:text-sm font-black ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
+        }
 
         const repHeld = document.getElementById('report-pos-held');
         if (repHeld) repHeld.textContent = formatCurrency(shopHeldNet);
@@ -440,6 +518,101 @@
         if (repShop) repShop.textContent = formatCurrency(closingShopBal);
 
         if (window.lucide) lucide.createIcons();
+    }
+
+    function renderSummaryBillHeaders() {
+        const container = document.getElementById('summary-bill-headers-container');
+        if (!container) return;
+
+        if (headers.length === 0) {
+            container.innerHTML = '<div class="py-2 text-center text-xs text-slate-400">No headers configured</div>';
+            return;
+        }
+
+        const incomeHeaders = headers.filter(h => h.type === 'income');
+        const expenseHeaders = headers.filter(h => h.type === 'expense');
+        const orderedHeaders = [...incomeHeaders, ...expenseHeaders];
+
+        container.innerHTML = orderedHeaders.map(h => {
+            const isIncome = h.type === 'income';
+            let hTotal = 0;
+
+            const childItems = [];
+            (h.setting_ids || []).map(sId => {
+                const amt = parseFloat(activeDayData[sId]) || 0;
+                const s = settings.find(item => item.id === sId);
+                if (!s) return;
+
+                const isMinus = s.is_sales_deduction || s.payable_direction === 'minus';
+                if (isMinus) {
+                    hTotal -= amt;
+                } else {
+                    hTotal += amt;
+                }
+
+                if (amt > 0) {
+                    const name = s.name || 'Item';
+                    const signPrefix = isMinus ? '−' : '+';
+                    const signClass = isMinus ? 'text-rose-600 font-bold' : 'text-slate-900 font-bold';
+                    childItems.push(`
+                        <div class="flex items-center justify-between py-1 text-xs text-slate-600">
+                            <span class="truncate pr-2">${escapeHtml(name)}</span>
+                            <span class="font-mono ${signClass} shrink-0">
+                                ${signPrefix} ${formatCurrency(amt)}
+                            </span>
+                        </div>
+                    `);
+                }
+            });
+
+            const pRows = productRowsState[h.id] || [];
+            pRows.forEach(pr => {
+                const pAmt = parseFloat(pr.amount) || 0;
+                hTotal += pAmt;
+                if (pAmt > 0) {
+                    childItems.push(`
+                        <div class="flex items-center justify-between py-1 text-xs text-slate-600">
+                            <span class="truncate pr-2">${escapeHtml(pr.productName)}</span>
+                            <span class="font-mono font-bold text-slate-900 shrink-0">+ ${formatCurrency(pAmt)}</span>
+                        </div>
+                    `);
+                }
+            });
+
+            const signPrefix = isIncome ? '' : '−';
+            const signTextClass = isIncome ? 'text-emerald-700' : 'text-rose-700';
+            const formattedTotal = `${signPrefix}${formatCurrency(Math.abs(hTotal))}`;
+
+            const childItemsHtml = childItems.length > 0
+                ? childItems.join('')
+                : '<div class="py-1 text-[11px] text-slate-400 italic">No entries recorded yet (tap to add)</div>';
+
+            return `
+                <div class="py-1.5">
+                    <div class="flex items-center justify-between cursor-pointer group hover:bg-slate-50/80 p-1 rounded-lg transition" onclick="toggleSummaryHeaderAccordion('${h.id}')">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
+                            <span class="h-2 w-2 rounded-full ${isIncome ? 'bg-emerald-500' : 'bg-rose-500'} shrink-0"></span>
+                            <span class="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition truncate">${escapeHtml(h.name)}</span>
+                            <span class="text-slate-400 group-hover:text-slate-700">
+                                <i data-lucide="chevron-down" id="summary-chevron-${h.id}" class="h-3.5 w-3.5 inline transition-transform"></i>
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-2.5 shrink-0">
+                            <span class="font-mono text-xs sm:text-sm font-black ${signTextClass}">
+                                ${formattedTotal}
+                            </span>
+                            <button type="button" onclick="event.stopPropagation(); selectHeaderForEntry('${h.id}')"
+                                    class="text-[10px] font-black text-slate-600 hover:text-emerald-700 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-emerald-50 transition border border-slate-200/60 shadow-2xs">
+                                Edit
+                            </button>
+                        </div>
+                    </div>
+                    <div id="summary-items-${h.id}" class="hidden pl-4 pr-1 pt-1 pb-1 space-y-0.5 text-xs border-l-2 border-slate-100 ml-2 mt-1">
+                        ${childItemsHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
 
     function renderMainBillSections() {
@@ -466,9 +639,16 @@
 
             const childLines = (h.setting_ids || []).map(sId => {
                 const amt = parseFloat(activeDayData[sId]) || 0;
-                hTotal += amt;
                 const s = settings.find(item => item.id === sId);
                 if (!s) return '';
+
+                const isMinus = s.is_sales_deduction || s.payable_direction === 'minus';
+                if (isMinus) {
+                    hTotal -= amt;
+                } else {
+                    hTotal += amt;
+                }
+
                 const name = s.name || 'Item';
                 let sub = '';
                 if (name.toLowerCase() === 'cash' || name.toLowerCase() === 'cash sales') {
@@ -480,14 +660,23 @@
                 }
                 const note = (activeDayData.notes && activeDayData.notes[sId]) ? activeDayData.notes[sId].trim() : '';
 
+                const signPrefix = isMinus ? '−' : '+';
+                const signBadgeClass = isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700';
+                const signTextClass = isMinus ? 'text-rose-600' : 'text-emerald-700';
+
                 return `
                     <div class="flex items-start justify-between gap-2 py-1">
                         <div class="min-w-0 flex-1">
-                            <span class="text-xs font-bold text-slate-800 block leading-tight truncate">${escapeHtml(name)}</span>
-                            ${sub ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 truncate">${escapeHtml(sub)}</span>` : ''}
-                            ${note ? `<span class="text-[10px] text-emerald-600 font-medium block leading-tight mt-0.5 truncate">${escapeHtml(note)}</span>` : ''}
+                            <div class="flex items-center gap-1.5">
+                                <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black ${signBadgeClass} shrink-0">${signPrefix}</span>
+                                <span class="text-xs font-bold text-slate-800 leading-tight truncate">${escapeHtml(name)}</span>
+                            </div>
+                            ${sub ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 ml-5 truncate">${escapeHtml(sub)}</span>` : ''}
+                            ${note ? `<span class="text-[10px] text-emerald-600 font-medium block leading-tight mt-0.5 ml-5 truncate">${escapeHtml(note)}</span>` : ''}
                         </div>
-                        <span class="font-mono text-xs font-black text-slate-900 shrink-0 ${amt > 0 ? '' : 'text-slate-400'}">${formatCurrency(amt)}</span>
+                        <span class="font-mono text-xs font-black shrink-0 ${amt > 0 ? (isMinus ? 'text-rose-600' : 'text-slate-900') : 'text-slate-400'}">
+                            ${amt > 0 ? `<span class="${signTextClass} mr-0.5 font-bold">${signPrefix}</span>${formatCurrency(amt)}` : formatCurrency(amt)}
+                        </span>
                     </div>
                 `;
             }).filter(Boolean).join('');
@@ -499,10 +688,15 @@
                 return `
                     <div class="flex items-start justify-between gap-2 py-1">
                         <div class="min-w-0 flex-1">
-                            <span class="text-xs font-bold text-slate-800 block leading-tight truncate">${escapeHtml(pr.productName)}</span>
-                            ${pr.sku ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 truncate">${escapeHtml(pr.sku)}</span>` : ''}
+                            <div class="flex items-center gap-1.5">
+                                <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>
+                                <span class="text-xs font-bold text-slate-800 leading-tight truncate">${escapeHtml(pr.productName)}</span>
+                            </div>
+                            ${pr.sku ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 ml-5 truncate">${escapeHtml(pr.sku)}</span>` : ''}
                         </div>
-                        <span class="font-mono text-xs font-black text-slate-900 shrink-0 ${pAmt > 0 ? '' : 'text-slate-400'}">${formatCurrency(pAmt)}</span>
+                        <span class="font-mono text-xs font-black text-slate-900 shrink-0 ${pAmt > 0 ? '' : 'text-slate-400'}">
+                            ${pAmt > 0 ? `<span class="text-emerald-700 mr-0.5 font-bold">+</span>${formatCurrency(pAmt)}` : formatCurrency(pAmt)}
+                        </span>
                     </div>
                 `;
             }).join('');
@@ -551,15 +745,31 @@
         if (!container) return;
 
         const headerSections = headers.map(h => {
+            let hTotal = 0;
+
             const settingLines = (h.setting_ids || []).map(sId => {
                 const amt = parseFloat(activeDayData[sId]) || 0;
                 if (amt <= 0) return '';
                 const s = settings.find(item => item.id === sId);
                 const name = s ? s.name : 'Item';
+                const isMinus = s && (s.is_sales_deduction || s.payable_direction === 'minus');
+
+                if (isMinus) {
+                    hTotal -= amt;
+                } else {
+                    hTotal += amt;
+                }
+
+                const signPrefix = isMinus ? '−' : '+';
+                const signBadgeClass = isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700';
+
                 return `
                     <div class="flex justify-between py-1 text-slate-700 font-medium">
-                        <span>${escapeHtml(name)}</span>
-                        <span class="font-mono font-bold text-slate-900">${formatCurrency(amt)}</span>
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black ${signBadgeClass} shrink-0">${signPrefix}</span>
+                            <span class="truncate">${escapeHtml(name)}</span>
+                        </div>
+                        <span class="font-mono font-bold ${isMinus ? 'text-rose-600' : 'text-slate-900'}">${isMinus ? '− ' : '+ '}${formatCurrency(amt)}</span>
                     </div>
                 `;
             }).filter(Boolean).join('');
@@ -568,10 +778,14 @@
             const productLines = pRows.map(pr => {
                 const pAmt = parseFloat(pr.amount) || 0;
                 if (pAmt <= 0) return '';
+                hTotal += pAmt;
                 return `
                     <div class="flex justify-between py-1 text-slate-700 font-medium">
-                        <span>${escapeHtml(pr.productName)}</span>
-                        <span class="font-mono font-bold text-slate-900">${formatCurrency(pAmt)}</span>
+                        <div class="flex items-center gap-1.5 min-w-0">
+                            <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>
+                            <span class="truncate">${escapeHtml(pr.productName)}</span>
+                        </div>
+                        <span class="font-mono font-bold text-slate-900">+ ${formatCurrency(pAmt)}</span>
                     </div>
                 `;
             }).filter(Boolean).join('');
@@ -579,10 +793,6 @@
             if (!settingLines && !productLines) {
                 return '';
             }
-
-            let hTotal = 0;
-            (h.setting_ids || []).forEach(sId => hTotal += (parseFloat(activeDayData[sId]) || 0));
-            pRows.forEach(pr => hTotal += (parseFloat(pr.amount) || 0));
 
             return `
                 <div class="space-y-2">

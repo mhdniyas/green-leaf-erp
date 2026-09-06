@@ -123,7 +123,9 @@
     // Serialize metadata for JS calculation engine
     $settingsJson = $settings->map(function ($s) {
         $cat = strtolower((string) ($s->entryType?->category ?? ''));
-        $isIncome = $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+        $isSalesDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $cat === 'transfer');
+        $isIncome = ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
+        $isExpense = ($cat === 'expense' || $s->include_in_expense) && ! $isSalesDeduction;
         $code = strtolower((string) ($s->entryType?->code ?? ''));
         $name = strtolower((string) ($s->entryType?->name ?? ''));
         $isCashPurchase = str_contains($code, 'cash_purchase') || str_contains($name, 'cash purchase');
@@ -146,9 +148,11 @@
             'header_id' => (string) ($s->header_group_id ?? 'unassigned_' . ($isIncome ? 'income' : 'expense')),
             'name' => $s->displayName(),
             'code' => $s->entryType?->code ?? '',
-            'category' => $isIncome ? 'income' : 'expense',
+            'category' => $isSalesDeduction ? 'transfer' : ($isIncome ? 'income' : 'expense'),
             'is_income' => $isIncome,
-            'is_expense' => !$isIncome,
+            'is_expense' => $isExpense,
+            'is_sales_deduction' => $isSalesDeduction,
+            'payable_direction' => $s->payable_direction ?? ($isSalesDeduction ? 'minus' : ($isIncome ? 'plus' : 'minus')),
             'is_cash_purchase' => $isCashPurchase,
             'requires_note' => $requiresNote,
             'note_enabled' => $noteEnabled,
@@ -230,7 +234,6 @@
     <div id="cashbook-dashboard-view" @class(['space-y-3 sm:space-y-4', 'hidden' => $isReportTab])>
         @include('shop-owner.cashbook.partials.header')
         @include('shop-owner.cashbook.partials.position-summary')
-        @include('shop-owner.cashbook.partials.daily-overview')
         @include('shop-owner.cashbook.partials.header-bill-list')
     </div>
 

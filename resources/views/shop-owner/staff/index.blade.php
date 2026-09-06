@@ -9,7 +9,9 @@
     $tabs = [
         'staff' => 'Staff',
         'attendance' => 'Attendance',
-        'salary' => 'Salary',
+        'salary' => 'Salary & Advance',
+        'history' => 'History',
+        'leave' => 'Leave',
     ];
     $statusStyles = [
         'present' => 'border-emerald-200 bg-emerald-50 text-emerald-800',
@@ -24,7 +26,7 @@
 @endphp
 
 @section('content')
-    <div class="mx-auto w-full max-w-5xl space-y-3" data-staff-advance-options='@json($advanceOptions)' data-staff-salary-options='@json($salaryOptions)'>
+    <div class="mx-auto w-full max-w-5xl space-y-3" data-staff-advance-options="{{ json_encode($advanceOptions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) }}" data-staff-salary-options="{{ json_encode($salaryOptions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) }}">
         
         <!-- COMPACT PAGE HEADER -->
         <header class="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
@@ -82,46 +84,49 @@
             </div>
         </div>
 
-        <!-- 3 MAIN TABS IN ONE ROW ON MOBILE -->
+        <!-- 5 MAIN TABS -->
         @if(!$shops->isEmpty())
-            <div class="space-y-1.5">
-                <nav class="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
-                    <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'staff']) }}"
-                       class="flex items-center justify-center gap-1 rounded-lg py-2 text-center text-xs font-black transition {{ in_array($selectedTab, ['staff', 'attendance'], true) && $selectedTab === 'staff' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
-                        <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-                        </svg>
-                        <span>Staff</span>
-                    </a>
-                    <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'attendance']) }}"
-                       class="flex items-center justify-center gap-1 rounded-lg py-2 text-center text-xs font-black transition {{ $selectedTab === 'attendance' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
-                        <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>Attendance</span>
-                    </a>
-                    <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'salary']) }}"
-                       class="flex items-center justify-center gap-1 rounded-lg py-2 text-center text-xs font-black transition {{ $selectedTab === 'salary' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
-                        <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v8m-4-4h8" />
-                        </svg>
-                        <span>Salary</span>
-                    </a>
-                </nav>
-
-                <!-- SECONDARY LINKS (ADVANCE, LEAVE, HISTORY) -->
-                <div class="flex items-center justify-center gap-2 text-[11px] font-bold text-slate-500">
-                    <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'advance']) }}" class="{{ $selectedTab === 'advance' ? 'text-emerald-600 font-black underline' : 'hover:text-slate-900' }}">Advance</a>
-                    <span>·</span>
-                    <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'leave']) }}" class="{{ $selectedTab === 'leave' ? 'text-emerald-600 font-black underline' : 'hover:text-slate-900' }}">Leave</a>
-                    <span>·</span>
-                    <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'history']) }}" class="{{ $selectedTab === 'history' ? 'text-emerald-600 font-black underline' : 'hover:text-slate-900' }}">History</a>
-                </div>
-            </div>
+            <nav class="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5 text-center sm:grid-cols-5 sm:gap-1">
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'staff']) }}"
+                   class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'staff' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                    </svg>
+                    <span class="truncate">Staff</span>
+                </a>
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'attendance']) }}"
+                   class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'attendance' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span class="truncate">Attendance</span>
+                </a>
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'salary']) }}"
+                   class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ in_array($selectedTab, ['salary', 'advance'], true) ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v.375c0 .621.504 1.125 1.125 1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-12H21.75M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                    </svg>
+                    <span class="hidden sm:inline truncate">Salary & Advance</span>
+                    <span class="sm:hidden truncate">Salary</span>
+                </a>
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'history']) }}"
+                   class="flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'history' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span class="truncate">History</span>
+                </a>
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'date' => $selectedDate->format('Y-m-d'), 'tab' => 'leave']) }}"
+                   class="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 rounded-lg py-2 px-2 text-xs font-black transition {{ $selectedTab === 'leave' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-700 hover:bg-white' }}">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                    </svg>
+                    <span class="truncate">Leave</span>
+                </a>
+            </nav>
         @endif
 
-        @if(in_array($selectedTab, ['advance', 'salary', 'leave'], true))
+        @if(in_array($selectedTab, ['salary', 'advance', 'leave', 'history'], true))
             @include('shop-owner.partials.date-range-filter', [
                 'action' => route('shop-owner.staff.index'),
                 'hidden' => [
@@ -140,7 +145,19 @@
         @endif
 
         @if($errors->any())
-            <div class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">{{ $errors->first() }}</div>
+            <div class="rounded-2xl border border-rose-200 bg-rose-50 p-3.5 shadow-sm" role="alert" tabindex="-1">
+                <div class="flex items-center gap-2 text-rose-900 font-black text-xs mb-1">
+                    <svg class="h-4 w-4 text-rose-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    </svg>
+                    <span>Please correct the errors below:</span>
+                </div>
+                <ul class="list-disc list-inside text-xs font-semibold text-rose-700 space-y-0.5">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
         @endif
 
         <!-- TAB CONTENT PARTIALS -->
@@ -148,10 +165,8 @@
             @include('shop-owner.staff.partials.staff')
         @elseif($selectedTab === 'attendance')
             @include('shop-owner.staff.partials.attendance')
-        @elseif($selectedTab === 'salary')
+        @elseif(in_array($selectedTab, ['salary', 'advance'], true))
             @include('shop-owner.staff.partials.salary')
-        @elseif($selectedTab === 'advance')
-            @include('shop-owner.staff.partials.advance')
         @elseif($selectedTab === 'leave')
             @include('shop-owner.staff.partials.leave')
         @elseif($selectedTab === 'history')
@@ -485,55 +500,164 @@
                 };
             })();
 
+            @if(in_array($selectedTab, ['advance', 'salary'], true))
             (() => {
                 const root = document.querySelector('[data-staff-advance-options]');
                 if (!root) return;
                 const money = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const escapeHtml = (str) => {
+                    if (str === null || str === undefined) return '';
+                    return String(str)
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;');
+                };
                 const advanceOptions = JSON.parse(root.dataset.staffAdvanceOptions || '{}');
                 const salaryOptions = JSON.parse(root.dataset.staffSalaryOptions || '{}');
                 const advanceEmployee = document.querySelector('[data-advance-employee]');
                 const advanceAmount = document.querySelector('[data-advance-amount]');
                 const advanceSummary = document.querySelector('[data-advance-summary]');
                 const advanceDecision = document.querySelector('[data-advance-decision]');
+                const advanceAmountHelper = document.getElementById('adv_amount_helper');
                 const salaryEmployee = document.querySelector('[data-salary-employee]');
+                const salaryAmount = document.querySelector('[data-salary-amount]');
                 const salarySummary = document.querySelector('[data-salary-summary]');
+                const salaryAmountHelper = document.getElementById('sal_amount_helper');
 
                 const renderAdvance = () => {
-                    if (!advanceEmployee || !advanceSummary || !advanceDecision) return;
+                    if (!advanceEmployee || !advanceSummary) return;
                     const option = advanceOptions[advanceEmployee.value];
                     if (!option) {
-                        advanceSummary.textContent = 'Select an employee to see available advance.';
-                        advanceDecision.classList.add('hidden');
+                        advanceSummary.innerHTML = '<span class="text-xs font-bold text-slate-500">Select an employee to see availability & attendance breakdown.</span>';
+                        if (advanceDecision) advanceDecision.classList.add('hidden');
+                        if (advanceAmountHelper) advanceAmountHelper.textContent = '';
                         return;
                     }
-                    advanceSummary.innerHTML = `Available ₹${money.format(option.available_amount)}<br>Already taken ₹${money.format(option.already_advanced_amount)} · Earned ₹${money.format(option.earned_amount)} · ${option.present_days} present days<br>${option.rule_label}`;
+
+                    if (advanceAmountHelper) {
+                        advanceAmountHelper.textContent = `Direct payout ceiling: ₹${money.format(option.available_amount)}`;
+                    }
+
+                    // Render Complete Employee Summary Card
+                    advanceSummary.innerHTML = `
+                        <div class="flex items-start justify-between border-b border-slate-200 pb-2">
+                            <div>
+                                <h3 class="text-xs font-black text-slate-900 uppercase">${escapeHtml(option.employee_name)} · ${escapeHtml(option.role)}</h3>
+                                <p class="text-[10px] font-semibold text-slate-500">Salary: ₹${money.format(option.monthly_salary)} /mo · Daily: ₹${money.format(option.daily_rate)}</p>
+                            </div>
+                            <span class="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+                                ${option.payable_units} Payable Units
+                            </span>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Earned To Date</span>
+                                <span class="font-black text-slate-900">₹${money.format(option.earned_amount)}</span>
+                            </div>
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Advances Paid</span>
+                                <span class="font-black text-amber-700">₹${money.format(option.already_advanced_amount)}</span>
+                            </div>
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Available Advance</span>
+                                <span class="font-black text-emerald-700">₹${money.format(option.available_amount)}</span>
+                            </div>
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Salary Remaining</span>
+                                <span class="font-black text-cyan-700">₹${money.format(option.remaining_salary)}</span>
+                            </div>
+                        </div>
+                        ${Number(option.opening_recovery) > 0 ? `<p class="text-[10px] font-bold text-rose-600 pt-1">Previous Recoverable Balance: ₹${money.format(option.opening_recovery)}</p>` : ''}
+                    `;
+
                     const amount = Number(advanceAmount?.value || 0);
-                    if (amount <= 0) {
-                        advanceDecision.classList.add('hidden');
+                    if (amount <= 0 || !advanceDecision) {
+                        if (advanceDecision) advanceDecision.classList.add('hidden');
                         return;
                     }
                     const needsApproval = amount > Number(option.available_amount || 0);
-                    advanceDecision.textContent = needsApproval ? 'Needs HR approval (above available advance).' : 'Available now (auto-approved).';
-                    advanceDecision.className = `rounded-lg border px-2.5 py-1.5 text-xs font-black ${needsApproval ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`;
+                    advanceDecision.textContent = needsApproval
+                        ? 'Requires HR Approval: Requested amount exceeds the manager 50% advance ceiling.'
+                        : 'Direct Payout: Within permitted manager ceiling (Auto-approved on submission).';
+                    advanceDecision.className = `rounded-xl border p-2.5 text-xs font-bold ${needsApproval ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`;
+                    advanceDecision.classList.remove('hidden');
                 };
 
                 const renderSalary = () => {
                     if (!salaryEmployee || !salarySummary) return;
                     const option = salaryOptions[salaryEmployee.value];
                     if (!option) {
-                        salarySummary.textContent = 'Select an employee to see salary balance.';
+                        salarySummary.innerHTML = '<span class="text-xs font-bold text-slate-500">Select an employee to see current salary remaining balance.</span>';
+                        if (salaryAmountHelper) salaryAmountHelper.textContent = '';
                         return;
                     }
-                    const remaining = option.remaining_amount === null ? 'Payroll pending' : `Remaining ₹${money.format(option.remaining_amount)}`;
-                    salarySummary.innerHTML = `Salary ₹${money.format(option.salary_amount)}<br>Paid ₹${money.format(option.paid_amount)} · ${remaining}`;
+
+                    if (salaryAmountHelper) {
+                        salaryAmountHelper.textContent = `Max remaining: ₹${money.format(option.remaining_amount)}`;
+                    }
+
+                    salarySummary.innerHTML = `
+                        <div class="flex items-start justify-between border-b border-slate-200 pb-2">
+                            <div>
+                                <h3 class="text-xs font-black text-slate-900 uppercase">${escapeHtml(option.employee_name)} · ${escapeHtml(option.role)}</h3>
+                                <p class="text-[10px] font-semibold text-slate-500">Salary: ₹${money.format(option.monthly_salary)} /mo · Daily: ₹${money.format(option.daily_rate)}</p>
+                            </div>
+                            <span class="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+                                ${option.payable_units} Payable Units
+                            </span>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Earned Salary</span>
+                                <span class="font-black text-slate-900">₹${money.format(option.earned_amount)}</span>
+                            </div>
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Advances Paid</span>
+                                <span class="font-black text-amber-700">₹${money.format(option.already_advanced_amount)}</span>
+                            </div>
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Salary Paid</span>
+                                <span class="font-black text-slate-700">₹${money.format(option.paid_amount)}</span>
+                            </div>
+                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
+                                <span class="block text-[9px] font-black uppercase text-slate-400">Remaining Salary</span>
+                                <span class="font-black text-emerald-700">₹${money.format(option.remaining_amount)}</span>
+                            </div>
+                        </div>
+                    `;
+                };
+
+                const setupSubmitAndUuid = (formId, btnId, uuidInputId) => {
+                    const form = document.getElementById(formId);
+                    const btn = document.getElementById(btnId);
+                    const uuidInput = document.getElementById(uuidInputId);
+                    if (!form || !btn) return;
+
+                    form.addEventListener('submit', () => {
+                        if (uuidInput && !uuidInput.value) {
+                            uuidInput.value = (window.crypto && window.crypto.randomUUID)
+                                ? window.crypto.randomUUID()
+                                : 'req-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+                        }
+                        btn.disabled = true;
+                        btn.classList.add('opacity-50', 'cursor-not-allowed');
+                        btn.innerHTML = '<span class="inline-block animate-spin mr-1">↻</span> Processing..';
+                    });
                 };
 
                 advanceEmployee?.addEventListener('change', renderAdvance);
                 advanceAmount?.addEventListener('input', renderAdvance);
                 salaryEmployee?.addEventListener('change', renderSalary);
+
+                setupSubmitAndUuid('advance-request-form', 'advance-submit-btn', 'adv_request_uuid');
+                setupSubmitAndUuid('salary-payment-form', 'salary-submit-btn', 'sal_request_uuid');
+
                 renderAdvance();
                 renderSalary();
             })();
+            @endif
         </script>
     @endpush
 @endsection

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
+use App\DTOs\HR\SalaryAvailabilityData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreEmployeeAdvanceRequest;
 use App\Http\Requests\Web\ShopOwner\StoreEmployeeLeaveRequest;
@@ -17,7 +18,6 @@ use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
 use App\Models\EmployeeLeaveRequest;
 use App\Models\LeaveType;
-use App\Models\PayrollRunItem;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
@@ -25,10 +25,11 @@ use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeAdvanceService;
 use App\Services\HR\ImageUploadService;
 use App\Services\HR\PayrollService;
+use App\Services\HR\SalaryAvailabilityService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -41,6 +42,7 @@ class ShopOwnerStaffController extends Controller
         private readonly EmployeeAdvanceService $employeeAdvanceService,
         private readonly PayrollService $payrollService,
         private readonly ImageUploadService $imageUploadService,
+        private readonly SalaryAvailabilityService $salaryAvailabilityService,
     ) {}
 
     public function index(Request $request): View
@@ -102,28 +104,51 @@ class ShopOwnerStaffController extends Controller
 
         $quickEmployees = $this->quickEmployeesForShop($selectedShop?->id, $selectedDate);
         $advanceEmployees = $this->advanceEmployeesForShop($selectedShop?->id, $selectedDate);
+
+        $availabilityMap = collect();
+        if ($selectedShop !== null) {
+            $allStaffEmployees = $advanceEmployees->concat($quickEmployees)->unique('id')->values();
+            $payrollMonth = CarbonImmutable::parse($selectedDate->toDateString())->startOfMonth();
+            $calculationDate = CarbonImmutable::parse($selectedDate->toDateString());
+            $employeeIds = $allStaffEmployees->pluck('id')->values()->all();
+            $recoveryDebts = $this->employeeAdvanceService->resolveEmployeesRecoveryDebt($employeeIds, $payrollMonth);
+
+            $shopAllocatedRecoveries = [];
+            foreach ($recoveryDebts as $empId => $debt) {
+                $shopAllocatedRecoveries[$empId] = ($debt !== null && $debt <= 0.0001) ? 0.0 : null;
+            }
+
+            $availabilityMap = $this->salaryAvailabilityService->calculateForShop(
+                $allStaffEmployees,
+                $payrollMonth,
+                $calculationDate,
+                (int) $selectedShop->id,
+                openingRecoveries: $recoveryDebts,
+                shopAllocatedRecoveries: $shopAllocatedRecoveries,
+            );
+        }
+
         $advanceOptions = $advanceEmployees
-            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->advanceOptionForEmployee($employee, $selectedDate, $selectedShop?->id)])
+            ->mapWithKeys(fn (Employee $employee): array => [
+                $employee->id => $this->advanceOptionForEmployee($employee, $availabilityMap->get($employee->id)),
+            ])
             ->all();
 
-        $salaryOptions = [];
-        $recentPayrollPayments = new LengthAwarePaginator([], 0, 8);
+        $salaryOptions = $quickEmployees
+            ->mapWithKeys(fn (Employee $employee): array => [
+                $employee->id => $this->salaryOptionForEmployee($employee, $availabilityMap->get($employee->id)),
+            ])
+            ->all();
 
-        if ($selectedTab === 'salary') {
-            $salaryOptions = $quickEmployees
-                ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->salaryOptionForEmployee($employee, $selectedDate, $selectedShop?->id)])
-                ->all();
-
-            $recentPayrollPayments = ShopStaffPayment::query()
-                ->with(['employee', 'advanceRequest', 'cashbookLine.entry'])
-                ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
-                ->when($filterStartDate, fn ($query) => $query->whereDate('paid_on', '>=', $filterStartDate))
-                ->when($filterEndDate, fn ($query) => $query->whereDate('paid_on', '<=', $filterEndDate))
-                ->latest('paid_on')
-                ->latest('id')
-                ->paginate(8, ['*'], 'staff_payments_page')
-                ->withQueryString();
-        }
+        $recentPayrollPayments = ShopStaffPayment::query()
+            ->with(['employee', 'advanceRequest', 'cashbookLine.entry'])
+            ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
+            ->when($filterStartDate, fn ($query) => $query->whereDate('paid_on', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('paid_on', '<=', $filterEndDate))
+            ->latest('paid_on')
+            ->latest('id')
+            ->paginate(8, ['*'], 'staff_payments_page')
+            ->withQueryString();
 
         $historyDatesWithAttendance = collect();
         $historyDayAttendance = collect();
@@ -383,6 +408,7 @@ class ShopOwnerStaffController extends Controller
             Carbon::parse((string) $request->validated('paid_on')),
             $request->user(),
             $request->validated('notes'),
+            $request->validated('request_uuid'),
         );
 
         return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'salary'])
@@ -406,6 +432,7 @@ class ShopOwnerStaffController extends Controller
             Carbon::parse((string) $request->validated('requested_on')),
             $request->user(),
             $request->validated('request_note'),
+            $request->validated('request_uuid'),
         );
 
         return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'advance'])
@@ -680,49 +707,119 @@ class ShopOwnerStaffController extends Controller
     }
 
     /**
-     * @return array{present_days:float, earned_amount:float, eligible_amount:float, already_advanced_amount:float, available_amount:float, rule_label:string}
+     * @return array<string, mixed>
      */
-    private function advanceOptionForEmployee(Employee $employee, Carbon $selectedDate, ?int $shopId): array
+    private function advanceOptionForEmployee(Employee $employee, ?SalaryAvailabilityData $data): array
     {
-        $eligibility = $this->employeeAdvanceService->eligibility($employee, $selectedDate->copy()->startOfMonth(), $shopId);
+        if (! $data instanceof SalaryAvailabilityData) {
+            return [
+                'employee_id' => $employee->id,
+                'employee_name' => $employee->name,
+                'role' => $employee->category?->name ?? 'Staff',
+                'monthly_salary' => (float) ($employee->monthly_salary ?? 0),
+                'daily_rate' => 0.0,
+                'payable_units' => 0.0,
+                'present_days' => 0.0,
+                'half_days' => 0.0,
+                'paid_leave_days' => 0.0,
+                'earned_amount' => 0.0,
+                'opening_recovery' => 0.0,
+                'advance_ceiling' => 0.0,
+                'already_advanced_amount' => 0.0,
+                'salary_paid' => 0.0,
+                'available_amount' => 0.0,
+                'signed_advance_availability' => 0.0,
+                'remaining_salary' => 0.0,
+                'signed_salary_remaining' => 0.0,
+                'requires_hr' => false,
+                'approval_reasons' => [],
+                'rule_label' => 'Standard Advance Rule (50% Ceiling)',
+            ];
+        }
+
+        $earned = $data->shopEarned ?? $data->employeeWideEarned;
+        $advancesPaid = $data->shopAdvancesPaid ?? $data->employeeWideAdvancesPaid;
+        $salaryPaid = $data->shopSalaryPaid ?? $data->employeeWideSalaryPaid;
+        $openingRecovery = $data->employeeWideOpeningRecovery ?? $data->shopAllocatedRecovery;
+        $advanceCeiling = round($earned * 0.5, 2);
+        $availableAdvance = $data->shopAvailableAdvance ?? $data->employeeWideAvailableAdvance ?? 0.0;
+        $signedAdvance = $data->shopSignedAdvanceAvailability ?? $data->employeeWideSignedAdvanceAvailability ?? 0.0;
+        $remainingSalary = $data->shopRemainingSalary ?? $data->employeeWideRemainingSalary ?? 0.0;
+        $signedSalary = $data->shopSignedSalaryRemaining ?? $data->employeeWideSignedSalaryRemaining ?? 0.0;
+        $requiresHr = $data->dataQualityStatus !== 'verified' || $data->hasConflictingLinks;
 
         return [
-            'present_days' => (float) $eligibility['present_days'],
-            'earned_amount' => (float) $eligibility['earned_amount'],
-            'eligible_amount' => (float) $eligibility['eligible_amount'],
-            'already_advanced_amount' => (float) $eligibility['already_advanced_amount'],
-            'available_amount' => (float) $eligibility['available_amount'],
-            'rule_label' => (float) $eligibility['rule']->advance_percent.'% after '.(int) $eligibility['rule']->minimum_present_days.' present days',
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->name,
+            'role' => $employee->category?->name ?? 'Staff',
+            'monthly_salary' => $data->monthlySalary ?: (float) ($employee->monthly_salary ?? 0),
+            'daily_rate' => $data->dailyRate,
+            'payable_units' => $data->payableUnits,
+            'present_days' => $data->presentDays,
+            'half_days' => $data->halfDays,
+            'paid_leave_days' => $data->paidLeaveDays,
+            'earned_amount' => $earned,
+            'opening_recovery' => $openingRecovery !== null ? round((float) $openingRecovery, 2) : null,
+            'advance_ceiling' => $advanceCeiling,
+            'already_advanced_amount' => $advancesPaid,
+            'salary_paid' => $salaryPaid,
+            'available_amount' => $availableAdvance,
+            'signed_advance_availability' => $signedAdvance,
+            'remaining_salary' => $remainingSalary,
+            'signed_salary_remaining' => $signedSalary,
+            'requires_hr' => $requiresHr,
+            'approval_reasons' => $data->dataQualityReasons,
+            'rule_label' => '50% of earned salary to date',
         ];
     }
 
     /**
-     * @return array{salary_amount:float, paid_amount:float, remaining_amount:float|null}
+     * @return array<string, mixed>
      */
-    private function salaryOptionForEmployee(Employee $employee, Carbon $selectedDate, ?int $shopId): array
+    private function salaryOptionForEmployee(Employee $employee, ?SalaryAvailabilityData $data): array
     {
-        $payrollRunItem = PayrollRunItem::query()
-            ->with(['payments', 'shopStaffPayments'])
-            ->where('employee_id', $employee->id)
-            ->whereHas('payrollRun', fn ($query) => $query->whereDate('period_start', $selectedDate->copy()->startOfMonth()->toDateString()))
-            ->first();
+        if (! $data instanceof SalaryAvailabilityData) {
+            return [
+                'employee_id' => $employee->id,
+                'employee_name' => $employee->name,
+                'role' => $employee->category?->name ?? 'Staff',
+                'monthly_salary' => (float) ($employee->monthly_salary ?? 0),
+                'daily_rate' => 0.0,
+                'payable_units' => 0.0,
+                'earned_amount' => 0.0,
+                'already_advanced_amount' => 0.0,
+                'salary_amount' => 0.0,
+                'paid_amount' => 0.0,
+                'remaining_amount' => 0.0,
+                'signed_salary_remaining' => 0.0,
+                'opening_recovery' => null,
+                'available_amount' => 0.0,
+            ];
+        }
 
-        $shopPayable = $shopId !== null
-            ? $this->payrollService->payableForAttendance(
-                $employee,
-                $selectedDate->copy()->startOfMonth(),
-                $selectedDate->copy()->endOfMonth(),
-                $shopId,
-            )
-            : ['amount' => 0.0];
-        $paidAmount = round((float) ($payrollRunItem?->shopStaffPayments
-            ->when($shopId !== null, fn ($payments) => $payments->where('shop_id', $shopId))
-            ->sum('amount') ?? 0), 2);
+        $earned = $data->shopEarned ?? $data->employeeWideEarned;
+        $advancesPaid = $data->shopAdvancesPaid ?? $data->employeeWideAdvancesPaid;
+        $salaryPaid = $data->shopSalaryPaid ?? $data->employeeWideSalaryPaid;
+        $openingRecovery = $data->employeeWideOpeningRecovery ?? $data->shopAllocatedRecovery;
+        $availableAdvance = $data->shopAvailableAdvance ?? $data->employeeWideAvailableAdvance ?? 0.0;
+        $remainingSalary = $data->shopRemainingSalary ?? $data->employeeWideRemainingSalary ?? 0.0;
+        $signedSalary = $data->shopSignedSalaryRemaining ?? $data->employeeWideSignedSalaryRemaining ?? 0.0;
 
         return [
-            'salary_amount' => round((float) $shopPayable['amount'], 2),
-            'paid_amount' => $paidAmount,
-            'remaining_amount' => $payrollRunItem ? round(max(0, (float) $shopPayable['amount'] - $paidAmount), 2) : null,
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->name,
+            'role' => $employee->category?->name ?? 'Staff',
+            'monthly_salary' => $data->monthlySalary ?: (float) ($employee->monthly_salary ?? 0),
+            'daily_rate' => $data->dailyRate,
+            'payable_units' => $data->payableUnits,
+            'earned_amount' => $earned,
+            'already_advanced_amount' => $advancesPaid,
+            'salary_amount' => $earned,
+            'paid_amount' => $salaryPaid,
+            'remaining_amount' => $remainingSalary,
+            'signed_salary_remaining' => $signedSalary,
+            'opening_recovery' => $openingRecovery !== null ? round((float) $openingRecovery, 2) : null,
+            'available_amount' => $availableAdvance,
         ];
     }
 

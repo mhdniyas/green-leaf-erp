@@ -52,6 +52,7 @@ use App\Models\CompanyAccountingEntry;
 use App\Models\CompanyPayableSettlement;
 use App\Models\DirectCompanySale;
 use App\Models\EmployeeAdvanceRequest;
+use App\Models\EmployeeAdvanceRule;
 use App\Models\JournalEntry;
 use App\Models\JournalTransaction;
 use App\Models\Payment;
@@ -63,6 +64,7 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaseProductFilter;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
+use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
@@ -2631,9 +2633,68 @@ final class CashbookController extends Controller
         $company = config('greenleaf');
         $currentShop = $shops->first();
 
+        $advanceRule = EmployeeAdvanceRule::activeRule();
+        $salaryCategory = ShopAccountingCategory::query()->whereNull('shop_id')->where('purpose', 'staff_salary')->first();
+        $advanceCategory = ShopAccountingCategory::query()->whereNull('shop_id')->where('purpose', 'staff_advance')->first();
+
         return view('admin.cashbook.settings.index', compact(
-            'shops', 'clients', 'entryTypes', 'companyAccounts', 'company', 'currentShop'
+            'shops', 'clients', 'entryTypes', 'companyAccounts', 'company', 'currentShop',
+            'advanceRule', 'salaryCategory', 'advanceCategory'
         ));
+    }
+
+    public function updateStaffSettings(Request $request): RedirectResponse
+    {
+        $this->ensureCanManageSalarySettings($request);
+
+        $validated = $request->validate([
+            'salary_category_name' => ['required', 'string', 'max:100'],
+            'salary_category_active' => ['nullable', 'boolean'],
+            'advance_category_name' => ['required', 'string', 'max:100'],
+            'advance_category_active' => ['nullable', 'boolean'],
+            'default_fund_source' => ['required', 'string', 'in:petty_cash,sales_income,petty,sales'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+        ]);
+
+        $shopId = ! empty($validated['shop_id']) ? (int) $validated['shop_id'] : null;
+        $isSalaryActive = $request->boolean('salary_category_active');
+        $isAdvanceActive = $request->boolean('advance_category_active');
+
+        // Update or create salary category
+        $salaryCategory = ShopAccountingCategory::query()->firstOrNew([
+            'shop_id' => $shopId,
+            'purpose' => 'staff_salary',
+        ]);
+        $salaryCategory->fill([
+            'name' => $validated['salary_category_name'],
+            'type' => 'expense',
+            'cash_effect' => true,
+            'is_active' => $isSalaryActive,
+        ])->save();
+
+        // Update or create advance category
+        $advanceCategory = ShopAccountingCategory::query()->firstOrNew([
+            'shop_id' => $shopId,
+            'purpose' => 'staff_advance',
+        ]);
+        $advanceCategory->fill([
+            'name' => $validated['advance_category_name'],
+            'type' => 'expense',
+            'cash_effect' => true,
+            'is_active' => $isAdvanceActive,
+        ])->save();
+
+        // Update active advance rule default fund source (frozen at 50% and 0 days)
+        $rule = EmployeeAdvanceRule::activeRule();
+        $isPetty = in_array($validated['default_fund_source'], ['petty_cash', 'petty'], true);
+        $rule->fill([
+            'advance_percent' => 50.0,
+            'minimum_present_days' => 0,
+            'default_from_petty_cash' => $isPetty,
+        ])->save();
+
+        return redirect()->route('admin.cashbook.settings')
+            ->with('success', 'Staff salary & advance settings updated successfully.');
     }
 
     public function shopSettingsPage(Request $request, int|string $shop): View
@@ -3953,7 +4014,7 @@ final class CashbookController extends Controller
         $search = trim((string) $request->input('search', ''));
         $accountId = (int) $request->input('company_account_id', 0);
 
-        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $shops = ShopLedgerProfile::query()->where('enabled', true)->get();
         $companyAccounts = CompanyAccount::where('enabled', true)->orderBy('name')->get();
         $company = config('greenleaf');
         $currentShop = $shops->first();
@@ -3965,7 +4026,13 @@ final class CashbookController extends Controller
                 'reconciliations.statementEntry.companyAccount',
                 'reconciliations.paymentRequest.shop',
                 'statementEntries.companyAccount',
-            ]);
+                'purchaserCredit',
+            ])
+            ->whereHas('transactions.account', fn ($q) => $q->whereIn('code', ['1010', '1020']))
+            ->where(function ($q): void {
+                $q->whereHas('statementEntries', fn ($sq) => $sq->where('is_finalized', true))
+                    ->orWhereHas('reconciliations', fn ($rq) => $rq->where('is_finalized', true));
+            });
 
         // Date filter
         if ($startDate !== '') {
@@ -4066,6 +4133,25 @@ final class CashbookController extends Controller
         ];
 
         $journalEntries = $query->latest('entry_date')->latest('id')->paginate(30)->withQueryString();
+
+        $entryIds = $journalEntries->getCollection()->pluck('id')->filter()->all();
+        if (! empty($entryIds)) {
+            $reversedEvents = JournalEntry::query()
+                ->whereIn('source_event', array_map(fn ($id) => "reversal:{$id}", $entryIds))
+                ->pluck('source_event')
+                ->all();
+            $reversedSet = array_flip($reversedEvents);
+
+            foreach ($journalEntries->getCollection() as $entry) {
+                $entry->memoizedIsReversed = (
+                    str_starts_with((string) $entry->source_event, 'reversal:')
+                    || $entry->source_event === 'reversal'
+                    || str_contains((string) $entry->description, '[REVERSED]')
+                    || isset($reversedSet["reversal:{$entry->id}"])
+                );
+            }
+        }
+
         $purchasers = rescue(fn () => User::role('purchaser')->orderBy('name')->get(), fn () => collect(), false);
 
         return view('admin.cashbook.finance.journal', compact(
@@ -9708,6 +9794,20 @@ final class CashbookController extends Controller
         }
 
         abort(403, 'Unauthorized access to cashbook.');
+    }
+
+    private function ensureCanManageSalarySettings(Request $request): void
+    {
+        $user = $request->user();
+        if (! $user instanceof User) {
+            abort(401);
+        }
+
+        if ($user->isMainAdmin() || $user->hasRole('admin')) {
+            return;
+        }
+
+        abort(403, 'Unauthorized to manage salary and advance settings.');
     }
 
     private function resolveShop(int|string $shopParam): ShopLedgerProfile

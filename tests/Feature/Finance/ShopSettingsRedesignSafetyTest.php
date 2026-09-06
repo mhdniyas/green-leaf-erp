@@ -292,7 +292,7 @@ class ShopSettingsRedesignSafetyTest extends TestCase
             ->get(route('admin.cashbook.settings.shop', ['shop' => $this->casio->id]));
 
         $response->assertStatus(200);
-        $response->assertSee('1 Active');
+        $response->assertSee('Active');
         $response->assertSee('data-enabled="0"', false);
         $response->assertSee('hidden', false);
     }

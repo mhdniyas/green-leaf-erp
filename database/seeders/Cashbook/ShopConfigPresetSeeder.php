@@ -195,6 +195,17 @@ class ShopConfigPresetSeeder extends Seeder
                 'allowed_funding_sources' => ['sales', 'petty', 'company'],
                 'include_in_expense' => true,
                 'include_in_pl' => true,
+                'display_order' => $order++,
+            ]
+        );
+
+        PresetEntrySetting::updateOrCreate(
+            ['preset_id' => $preset->id, 'entry_type_id' => $type('salary')->id],
+            $base + [
+                'default_funding_source' => 'sales',
+                'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
+                'include_in_expense' => true,
+                'include_in_pl' => true,
                 'display_order' => $order,
             ]
         );

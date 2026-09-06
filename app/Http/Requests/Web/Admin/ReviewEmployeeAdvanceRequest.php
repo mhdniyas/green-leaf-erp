@@ -23,7 +23,14 @@ class ReviewEmployeeAdvanceRequest extends FormRequest
         return [
             'decision' => ['required', 'string', Rule::in(['approve', 'reject'])],
             'approved_amount' => ['nullable', 'required_if:decision,approve', 'numeric', 'min:0.01'],
-            'review_note' => ['nullable', 'string', 'max:1000'],
+            'fund_source' => ['nullable', 'required_if:decision,approve', 'string', Rule::in(['sales_income', 'petty_cash', 'company_cash', 'company_bank'])],
+            'company_account_id' => [
+                'nullable',
+                'required_if:fund_source,company_cash,company_bank',
+                'integer',
+                'exists:cashbook_company_accounts,id',
+            ],
+            'review_note' => ['nullable', 'required_if:decision,reject', 'string', 'max:1000'],
         ];
     }
 }

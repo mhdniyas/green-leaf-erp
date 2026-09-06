@@ -17,6 +17,8 @@ use App\Services\Finance\JournalService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class PayrollService
 {
@@ -28,6 +30,15 @@ class PayrollService
     public function generate(Carbon $periodStart, Carbon $periodEnd, int $userId): PayrollRun
     {
         return DB::transaction(function () use ($periodStart, $periodEnd, $userId): PayrollRun {
+            $existing = PayrollRun::query()
+                ->whereDate('period_start', $periodStart->toDateString())
+                ->whereDate('period_end', $periodEnd->toDateString())
+                ->first();
+
+            if ($existing && $existing->status === 'finalized') {
+                throw new RuntimeException('Finalized payroll runs cannot be regenerated.');
+            }
+
             $payrollRun = PayrollRun::query()->updateOrCreate(
                 [
                     'period_start' => $periodStart->toDateString(),
@@ -149,17 +160,135 @@ class PayrollService
     public function finalize(PayrollRun $payrollRun, int $userId): PayrollRun
     {
         return DB::transaction(function () use ($payrollRun, $userId): PayrollRun {
-            $payrollRun->loadMissing('items');
+            $payrollRun = PayrollRun::query()
+                ->whereKey($payrollRun->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($payrollRun->status === 'finalized') {
+                throw new RuntimeException('Payroll run is already finalized.');
+            }
+
+            $items = $payrollRun->items()
+                ->with(['employee', 'payments', 'shopStaffPayments'])
+                ->lockForUpdate()
+                ->get();
 
             if ($payrollRun->journalEntry()->exists()) {
                 $payrollRun->journalEntry()->delete();
             }
 
+            JournalEntry::query()
+                ->where('source_type', PayrollRun::class)
+                ->where('source_id', $payrollRun->id)
+                ->where('source_event', 'advance_clearing')
+                ->each(fn (JournalEntry $entry) => $entry->delete());
+
             $this->refreshRunTotals($payrollRun);
+
+            $totalCompanyAdvancesRecovered = 0.0;
+
+            foreach ($items as $item) {
+                // Find prior finalized payroll item's closing recovery
+                $prevRunItem = PayrollRunItem::query()
+                    ->select('payroll_run_items.*')
+                    ->join('payroll_runs', 'payroll_runs.id', '=', 'payroll_run_items.payroll_run_id')
+                    ->where('payroll_run_items.employee_id', $item->employee_id)
+                    ->where('payroll_runs.status', 'finalized')
+                    ->whereDate('payroll_runs.period_end', '<', $payrollRun->period_start)
+                    ->orderByDesc('payroll_runs.period_end')
+                    ->orderByDesc('payroll_run_items.id')
+                    ->first();
+
+                if ($prevRunItem !== null) {
+                    $employeeName = $item->employee?->name ?? "ID {$item->employee_id}";
+                    if ($prevRunItem->closing_recovery_amount === null) {
+                        throw ValidationException::withMessages([
+                            'payroll_run' => "Cannot finalize payroll: Employee {$employeeName} has an unverified or unknown historical recovery balance that must be resolved by HR before finalization.",
+                        ]);
+                    }
+                    if ((float) $prevRunItem->closing_recovery_amount > 0.0 && $prevRunItem->closing_company_recovery_amount === null) {
+                        throw ValidationException::withMessages([
+                            'payroll_run' => "Cannot finalize payroll: Employee {$employeeName} has an unverified or unknown company recovery composition that must be resolved by HR before finalization.",
+                        ]);
+                    }
+                }
+
+                $openingRecovery = $prevRunItem !== null ? (float) $prevRunItem->closing_recovery_amount : 0.0;
+                $openingCompanyRecovery = $prevRunItem !== null ? (float) ($prevRunItem->closing_company_recovery_amount ?? 0.0) : 0.0;
+                $openingShopRecovery = max(0.0, round($openingRecovery - $openingCompanyRecovery, 2));
+
+                $shopAdvances = (float) $item->shopStaffPayments()->where('payment_type', 'advance')->sum('amount');
+                $companyAdvances = (float) $item->payments()->where('payment_type', 'advance')->sum('amount');
+                $totalAdvances = round($shopAdvances + $companyAdvances, 2);
+
+                $shopSalary = (float) $item->shopStaffPayments()->where('payment_type', 'salary')->sum('amount');
+                $companySalary = (float) $item->payments()->where('payment_type', 'salary')->sum('amount');
+                $totalSalaryPaid = round($shopSalary + $companySalary, 2);
+
+                $grossPayable = (float) $item->final_amount;
+
+                // Priority 1A: Opening shop recovery
+                $openingShopRecovered = min($openingShopRecovery, $grossPayable);
+                $salaryRemainingAfterShopOpening = max(0.0, round($grossPayable - $openingShopRecovered, 2));
+
+                // Priority 1B: Opening company recovery (carried from prior months)
+                $openingCompanyRecovered = min($openingCompanyRecovery, $salaryRemainingAfterShopOpening);
+                $totalOpeningRecovered = round($openingShopRecovered + $openingCompanyRecovered, 2);
+
+                // Priority 2: Current-month shop advances
+                $salaryAvailableForShopAdvances = max(0.0, round($grossPayable - $totalOpeningRecovered, 2));
+                $shopAdvancesRecovered = min($shopAdvances, $salaryAvailableForShopAdvances);
+
+                // Priority 3: Current-month company advances
+                $salaryAvailableForCurrentCompany = max(0.0, round($salaryAvailableForShopAdvances - $shopAdvancesRecovered, 2));
+                $currentCompanyRecovered = min($companyAdvances, $salaryAvailableForCurrentCompany);
+
+                // Total company advances recovered from salary this month (carried + current)
+                $totalCompanyRecovered = round($openingCompanyRecovered + $currentCompanyRecovered, 2);
+                $totalCompanyAdvancesRecovered += $totalCompanyRecovered;
+
+                // Carry forward unapplied company component
+                $closingCompanyRecovery = round(
+                    ($openingCompanyRecovery - $openingCompanyRecovered) + ($companyAdvances - $currentCompanyRecovered),
+                    2
+                );
+
+                $signedClosingBalance = round($grossPayable - $openingRecovery - $totalAdvances - $totalSalaryPaid, 2);
+                $closingRecovery = $signedClosingBalance < 0 ? round(abs($signedClosingBalance), 2) : 0.0;
+
+                $item->forceFill([
+                    'opening_recovery_amount' => $openingRecovery,
+                    'closing_recovery_amount' => $closingRecovery,
+                    'opening_company_recovery_amount' => $openingCompanyRecovery,
+                    'closing_company_recovery_amount' => $closingCompanyRecovery,
+                    'rule_snapshot' => array_merge($item->rule_snapshot ?? [], [
+                        'opening_recovery_amount' => $openingRecovery,
+                        'opening_company_recovery_amount' => $openingCompanyRecovery,
+                        'opening_shop_recovery_amount' => $openingShopRecovery,
+                        'opening_company_recovered' => $openingCompanyRecovered,
+                        'opening_shop_recovered' => $openingShopRecovered,
+                        'advances_paid' => $totalAdvances,
+                        'company_advances_paid' => $companyAdvances,
+                        'company_advances_recovered' => $totalCompanyRecovered,
+                        'current_company_recovered' => $currentCompanyRecovered,
+                        'shop_advances_paid' => $shopAdvances,
+                        'shop_advances_recovered' => $shopAdvancesRecovered,
+                        'salary_paid' => $totalSalaryPaid,
+                        'signed_closing_balance' => $signedClosingBalance,
+                        'closing_recovery_amount' => $closingRecovery,
+                        'closing_company_recovery_amount' => $closingCompanyRecovery,
+                    ]),
+                ])->save();
+            }
 
             $journalEntry = (float) $payrollRun->gross_amount > 0
                 ? $this->recordPayrollExpense($payrollRun, $userId)
                 : null;
+
+            if ($totalCompanyAdvancesRecovered > 0.0) {
+                $this->recordCompanyAdvanceClearing($payrollRun, $totalCompanyAdvancesRecovered, $userId);
+            }
 
             $payrollRun->forceFill([
                 'status' => 'finalized',
@@ -420,6 +549,56 @@ class PayrollService
                 sourceType: PayrollRun::class,
                 sourceId: $payrollRun->id,
                 sourceEvent: 'payroll_accrual',
+            ),
+            $userId,
+        );
+    }
+
+    private function recordCompanyAdvanceClearing(PayrollRun $payrollRun, float $amount, int $userId): ?JournalEntry
+    {
+        if ($amount <= 0.0) {
+            return null;
+        }
+
+        $salaryPayableAccount = Account::query()->firstOrCreate(
+            ['code' => '2300'],
+            [
+                'name' => 'Salary Payable',
+                'type' => 'liability',
+                'is_active' => true,
+                'parent_id' => null,
+            ],
+        );
+        $employeeAdvanceAccount = Account::query()->firstOrCreate(
+            ['code' => '1600'],
+            [
+                'name' => 'Employee Advances',
+                'type' => 'asset',
+                'is_active' => true,
+                'parent_id' => null,
+            ],
+        );
+
+        return $this->journalService->createEntry(
+            new JournalEntryData(
+                entryDate: $payrollRun->period_end->format('Y-m-d'),
+                reference: sprintf('PAYROLL-ADV-CLEAR-%s', $payrollRun->id),
+                description: 'Advance recovery clearing for '.$payrollRun->period_start->format('F Y'),
+                lines: [
+                    [
+                        'account_id' => (int) $salaryPayableAccount->id,
+                        'type' => 'debit',
+                        'amount' => round($amount, 2),
+                    ],
+                    [
+                        'account_id' => (int) $employeeAdvanceAccount->id,
+                        'type' => 'credit',
+                        'amount' => round($amount, 2),
+                    ],
+                ],
+                sourceType: PayrollRun::class,
+                sourceId: $payrollRun->id,
+                sourceEvent: 'advance_clearing',
             ),
             $userId,
         );

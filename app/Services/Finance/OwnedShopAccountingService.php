@@ -102,11 +102,17 @@ class OwnedShopAccountingService
                 ]);
             }
 
+            $fundingSource = match ((string) $payment->fund_source) {
+                'petty_cash', 'petty' => ShopAccountingEntryLine::FundingPetty,
+                default => ShopAccountingEntryLine::FundingSales,
+            };
+
             $line->fill([
                 'shop_accounting_entry_id' => $entry->id,
                 'shop_accounting_category_id' => $category->id,
                 'type' => 'expense',
                 'cash_effect' => true,
+                'funding_source' => $fundingSource,
                 'amount' => $amount,
                 'description' => $description,
                 'review_status' => null,
@@ -900,22 +906,25 @@ class OwnedShopAccountingService
             ->orderByRaw('shop_id is null')
             ->first();
 
-        if (! $category instanceof ShopAccountingCategory) {
-            $category = ShopAccountingCategory::query()->firstOrNew([
-                'shop_id' => null,
-                'purpose' => $purpose,
-            ]);
+        if ($category instanceof ShopAccountingCategory) {
+            if (! $category->is_active) {
+                $typeName = $payment->payment_type === 'advance' ? 'salary advance' : 'salary';
+                throw ValidationException::withMessages([
+                    'category' => "The {$typeName} category '{$category->name}' is inactive. Please activate it before recording payments.",
+                ]);
+            }
+
+            return $category;
         }
 
-        $category->fill([
+        return ShopAccountingCategory::query()->create([
+            'shop_id' => null,
+            'purpose' => $purpose,
             'type' => 'expense',
             'cash_effect' => true,
-            'name' => $category->exists ? $category->name : $defaultName,
+            'name' => $defaultName,
             'is_active' => true,
         ]);
-        $category->save();
-
-        return $category->fresh() ?? $category;
     }
 
     private function entryForShopStaffPayment(Shop $shop, Carbon $businessDate, int $userId): ShopAccountingEntry

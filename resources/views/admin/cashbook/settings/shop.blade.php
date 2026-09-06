@@ -44,21 +44,24 @@
 
     $incomeRows = $allShopRows->filter(function ($setting) {
         $cat = strtolower((string) ($setting->entryType?->category ?? ''));
-        return $cat === 'income' || $setting->include_in_sales || $setting->include_in_income;
+        $isSalesDeduction = $setting->include_in_sales && ($setting->payable_direction === 'minus' || $cat === 'transfer');
+        return ($cat === 'income' || $setting->include_in_sales || $setting->include_in_income) && ! $isSalesDeduction;
     });
     $activeIncomeCount = $incomeRows->where('enabled', true)->count();
     $disabledIncomeCount = $incomeRows->where('enabled', false)->count();
 
     $expenseRows = $allShopRows->filter(function ($setting) {
         $cat = strtolower((string) ($setting->entryType?->category ?? ''));
-        return $cat === 'expense' || $setting->include_in_expense;
+        $isSalesDeduction = $setting->include_in_sales && ($setting->payable_direction === 'minus' || $cat === 'transfer');
+        return ($cat === 'expense' || $setting->include_in_expense) && ! $isSalesDeduction;
     });
     $activeExpenseCount = $expenseRows->where('enabled', true)->count();
     $disabledExpenseCount = $expenseRows->where('enabled', false)->count();
 
     $transferRows = $allShopRows->filter(function ($setting) {
         $cat = strtolower((string) ($setting->entryType?->category ?? ''));
-        return $cat === 'transfer' || $cat === 'settlement' || (! $setting->include_in_sales && ! $setting->include_in_income && ! $setting->include_in_expense);
+        $isSalesDeduction = $setting->include_in_sales && ($setting->payable_direction === 'minus' || $cat === 'transfer');
+        return $cat === 'transfer' || $cat === 'settlement' || $isSalesDeduction || (! $setting->include_in_sales && ! $setting->include_in_income && ! $setting->include_in_expense);
     });
     $activeTransferCount = $transferRows->where('enabled', true)->count();
     $disabledTransferCount = $transferRows->where('enabled', false)->count();
@@ -116,6 +119,10 @@
                     <a href="#transfers-settlements" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100">Transfers &amp; Settlements</a>
                     <a href="#collection" class="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 hover:bg-sky-100">Collection Form</a>
                     <a href="#historical-fetch" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">Historical Fetch</a>
+                    <a href="#instructions-guide" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 hover:bg-amber-100 inline-flex items-center gap-1">
+                        <i data-lucide="help-circle" class="h-3.5 w-3.5"></i>
+                        Setup Guide
+                    </a>
                     <a href="{{ route('admin.cashbook.settings.shop.demo', ['shop' => $currentShop->shop_id]) }}" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100 inline-flex items-center gap-1">
                         <i data-lucide="play-circle" class="h-3.5 w-3.5"></i>
                         Demo Cashbook
@@ -738,6 +745,87 @@
         </form>
 
         <div id="hist-preview-container" class="mt-6 hidden border-t border-slate-100 pt-5"></div>
+    </section>
+
+    <!-- INSTRUCTIONS / HOW-TO GUIDE: CONFIGURING CATEGORIES & SALES DEDUCTIONS -->
+    <section id="instructions-guide" class="rounded-3xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xs space-y-5">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-700 shrink-0">
+                    <i data-lucide="help-circle" class="h-5 w-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-base font-black tracking-tight text-slate-950">How to Configure Categories &amp; Sales Deductions</h3>
+                    <p class="text-xs font-semibold text-slate-500 mt-0.5">Instructions to set up deductions (like Casio Delivery, Shop to Supermarket) or custom categories for any shop.</p>
+                </div>
+            </div>
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 w-fit">
+                <i data-lucide="sparkles" class="h-3.5 w-3.5"></i>
+                Standardized Rule Engine
+            </span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- Step 1 -->
+            <div class="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 space-y-2.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">1</span>
+                    <h4 class="text-xs font-extrabold uppercase text-slate-900">Locate Category</h4>
+                </div>
+                <p class="text-xs font-medium text-slate-600 leading-relaxed">
+                    Navigate to <strong class="text-slate-900">Transfers &amp; Movements</strong> or <strong class="text-slate-900">Sales</strong> tab. Find the category row (e.g. <em>Casio Delivery</em> or <em>Shop to Supermarket</em>) or search to add it.
+                </p>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 space-y-2.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">2</span>
+                    <h4 class="text-xs font-extrabold uppercase text-slate-900">Assign to Sales</h4>
+                </div>
+                <p class="text-xs font-medium text-slate-600 leading-relaxed">
+                    Toggle <strong class="text-emerald-700">Enabled: ON</strong> and select <strong class="text-slate-900">Header Group: SALES</strong> so it displays directly on the shop's sales entry card.
+                </p>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 space-y-2.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">3</span>
+                    <h4 class="text-xs font-extrabold uppercase text-slate-900">Set Sales Deduction</h4>
+                </div>
+                <p class="text-xs font-medium text-slate-600 leading-relaxed">
+                    Set <strong class="text-slate-900">Include in Sales: ON</strong> and <strong class="text-rose-700">Payable Direction: Minus (−)</strong>. Keep <strong class="text-slate-900">Include in Expense: OFF</strong> so it does not count as expense.
+                </p>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 space-y-2.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-6 h-6 rounded-full bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">4</span>
+                    <h4 class="text-xs font-extrabold uppercase text-slate-900">Funding &amp; Save</h4>
+                </div>
+                <p class="text-xs font-medium text-slate-600 leading-relaxed">
+                    Set <strong class="text-slate-900">Default Funding: Sales Cash</strong> and <strong class="text-slate-900">Settlement: Decrease</strong>, then click <strong class="text-slate-900">Save Changes</strong>.
+                </p>
+            </div>
+        </div>
+
+        <!-- Formula & Visual Preview Banner -->
+        <div class="rounded-2xl border border-slate-200 bg-slate-900 text-white p-4 sm:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center justify-center w-5 h-5 rounded-md bg-rose-500/20 text-rose-300 font-mono font-black text-xs">−</span>
+                    <span class="text-xs font-black uppercase tracking-wider text-slate-300">Sales Formula Calculation</span>
+                </div>
+                <div class="font-mono text-xs sm:text-sm font-bold text-slate-100">
+                    Total Sales = Cash + Card + Paytm + Delivery &minus; <span class="text-rose-300 font-black">(Casio Delivery + Deductions)</span>
+                </div>
+            </div>
+            <div class="text-xs text-slate-400 max-w-md font-medium">
+                Deductions display with an explicit <span class="text-rose-400 font-bold">− (rose)</span> badge in the owner cashbook and subtract cleanly without inflating total expenses.
+            </div>
+        </div>
     </section>
 
     <!-- PER-SETTING CONFIGURATION MODALS -->

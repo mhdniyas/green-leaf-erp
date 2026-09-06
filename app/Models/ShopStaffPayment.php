@@ -16,6 +16,7 @@ class ShopStaffPayment extends Model
     use HasFactory;
 
     protected $fillable = [
+        'request_uuid',
         'payroll_run_id',
         'payroll_run_item_id',
         'employee_id',

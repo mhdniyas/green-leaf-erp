@@ -11,9 +11,11 @@ class StoreShopStaffSalaryPaymentRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        $this->merge([
-            'fund_source' => $this->input('fund_source', 'petty_cash'),
-        ]);
+        if (! $this->has('fund_source') || empty($this->input('fund_source'))) {
+            $this->merge([
+                'fund_source' => 'petty_cash',
+            ]);
+        }
     }
 
     public function authorize(): bool
@@ -33,6 +35,7 @@ class StoreShopStaffSalaryPaymentRequest extends FormRequest
             'amount' => ['required', 'numeric', 'min:0.01'],
             'fund_source' => ['required', 'string', Rule::in(['petty_cash', 'sales_income'])],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'request_uuid' => ['required', 'string', 'uuid'],
         ];
     }
 }

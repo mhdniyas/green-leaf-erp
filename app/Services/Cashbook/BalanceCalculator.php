@@ -95,7 +95,17 @@ class BalanceCalculator
                 }
             }
 
-            $totalSales = (float) $transactions->where('affects_sales', true)->sum('amount');
+            $totalSales = (float) $transactions->sum(function ($tx) {
+                if (! $tx->affects_sales) {
+                    return 0.0;
+                }
+                $isIncome = $tx->direction === 'income' || ($tx->entryType && $tx->entryType->category === 'income');
+                if ($isIncome) {
+                    return (float) $tx->amount;
+                }
+
+                return -(float) $tx->amount;
+            });
             $totalIncome = (float) $transactions->where('affects_income', true)->sum('amount');
             $totalExpense = (float) $transactions->where('affects_expense', true)->sum('amount');
             $netPl = (float) $transactions->sum('pl_delta');

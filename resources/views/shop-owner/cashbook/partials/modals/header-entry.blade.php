@@ -33,7 +33,10 @@
                     @foreach($hSec['settings'] as $s)
                         @php
                             $cat = strtolower((string) ($s->entryType?->category ?? ''));
-                            $isIncome = $cat === 'income' || $s->include_in_sales || $s->include_in_income;
+                            $isSalesDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $cat === 'transfer');
+                            $isIncome = ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
+                            $isMinus = $isSalesDeduction || $s->payable_direction === 'minus';
+                            $signPrefix = $isMinus ? '−' : '+';
                             $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
                             $destLabel = $resolver->resolveDestinationLabel($s);
                             $requiresNote = (bool) ($s->requires_note ?? false);
@@ -48,18 +51,23 @@
                         <div class="p-2 sm:p-2.5 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200/80 transition space-y-1" data-entry-row="{{ $s->id }}">
                             <div class="flex items-center justify-between gap-2">
                                 <div class="min-w-0 flex-1 flex items-center gap-2">
-                                    <div class="w-6 h-6 rounded-full bg-white border border-slate-200/60 shadow-2xs flex items-center justify-center text-slate-800 font-black text-[11px] uppercase shrink-0">
+                                    <div class="w-6 h-6 rounded-full {{ $isMinus ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-white text-slate-800 border-slate-200/60' }} border shadow-2xs flex items-center justify-center font-black text-[11px] uppercase shrink-0">
                                         {{ $firstLetter }}
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <span class="text-xs font-bold text-slate-900 block truncate leading-none">{{ $displayName }}</span>
-                                        <span class="text-[10px] font-medium text-slate-400 block truncate leading-none mt-0.5">{{ $displaySub }}</span>
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black {{ $isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }} shrink-0">
+                                                {{ $signPrefix }}
+                                            </span>
+                                            <span class="text-xs font-bold text-slate-900 truncate leading-none">{{ $displayName }}</span>
+                                        </div>
+                                        <span class="text-[10px] font-medium text-slate-400 block truncate leading-none mt-0.5 ml-5">{{ $displaySub }}</span>
                                     </div>
                                 </div>
 
                                 {{-- Amount Input (Compact h-8 / 32px height) --}}
-                                <div class="relative shrink-0 w-28 sm:w-32">
-                                    <span class="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none text-slate-400 font-bold text-xs">₹</span>
+                                <div class="relative shrink-0 w-32 sm:w-36">
+                                    <span class="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none {{ $isMinus ? 'text-rose-500 font-black' : 'text-slate-400 font-bold' }} text-xs">{{ $isMinus ? '− ₹' : '+ ₹' }}</span>
                                     <input type="number"
                                            inputmode="decimal"
                                            min="0"
@@ -69,7 +77,7 @@
                                            oninput="onOwnerInputChange(this)"
                                            onblur="formatInputOnBlur(this)"
                                            placeholder="0.00"
-                                           class="h-8 w-full rounded-lg border border-slate-200 bg-white pl-5 pr-2 text-right text-sm font-black font-mono text-slate-950 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 focus:outline-none shadow-2xs transition">
+                                           class="h-8 w-full rounded-lg border {{ $isMinus ? 'border-rose-200 focus:border-rose-500 focus:ring-rose-500/20 text-rose-700' : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 text-slate-950' }} bg-white pl-7 pr-2 text-right text-sm font-black font-mono focus:ring-1 focus:outline-none shadow-2xs transition">
                                 </div>
                             </div>
 
