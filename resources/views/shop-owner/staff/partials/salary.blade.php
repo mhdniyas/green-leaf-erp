@@ -20,13 +20,45 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-                <!-- Payroll Month Selector -->
-                <div class="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 shadow-2xs">
+                @php
+                    $selectedMonthVal = $calendarMonth->format('Y-m');
+                    $monthOptions = collect(range(-11, 1))->map(function ($offset) {
+                        $m = now()->addMonths($offset);
+                        return [
+                            'value' => $m->format('Y-m'),
+                            'label' => $m->format('F Y'),
+                            'is_current' => $m->isCurrentMonth(),
+                        ];
+                    })->reverse()->values();
+
+                    if (! $monthOptions->contains('value', $selectedMonthVal)) {
+                        $monthOptions->prepend([
+                            'value' => $selectedMonthVal,
+                            'label' => $calendarMonth->format('F Y'),
+                            'is_current' => $calendarMonth->isCurrentMonth(),
+                        ]);
+                    }
+                @endphp
+
+                <!-- Payroll Month Selector Dropdown -->
+                <div class="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 shadow-2xs hover:border-slate-300 transition">
                     <label for="sal_filter_month" class="text-[10px] font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Month:</label>
-                    <input type="month" id="sal_filter_month" name="month"
-                           value="{{ $calendarMonth->format('Y-m') }}"
-                           onchange="window.location.href = '{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'salary']) }}&month=' + this.value"
-                           class="h-6 bg-transparent border-none p-0 text-xs font-black text-slate-800 focus:ring-0 cursor-pointer">
+                    <div class="relative">
+                        <select id="sal_filter_month" name="month"
+                                onchange="window.location.href = '{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'salary']) }}&month=' + this.value"
+                                class="h-6 bg-transparent border-none py-0 pl-1 pr-5 text-xs font-black text-slate-900 focus:ring-0 cursor-pointer appearance-none">
+                            @foreach($monthOptions as $mo)
+                                <option value="{{ $mo['value'] }}" {{ $selectedMonthVal === $mo['value'] ? 'selected' : '' }}>
+                                    {{ $mo['label'] }}{{ $mo['is_current'] ? ' (Current)' : '' }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center text-slate-500">
+                            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Mode Selector Switch -->

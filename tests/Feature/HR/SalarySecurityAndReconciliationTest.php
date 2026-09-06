@@ -205,7 +205,7 @@ class SalarySecurityAndReconciliationTest extends TestCase
                 'shop_id' => $this->shopA->id,
                 'employee_id' => $this->employeeB->id,
                 'amount' => 2000,
-                'paid_on' => '2026-09-15',
+                'paid_on' => '2026-09-30',
                 'fund_source' => 'sales_income',
                 'request_uuid' => (string) Str::uuid(),
             ]);
