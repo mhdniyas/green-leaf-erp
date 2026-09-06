@@ -64,7 +64,7 @@ class ShopCashbookSimulationService
 
             // If there's a relation, use its closing eligible balance as next day's opening shop balance
             if (! empty($dayResult['relations'])) {
-                $firstRel = $dayResult['relations'][0];
+                $firstRel = collect($dayResult['relations'])->first(fn (array $relation): bool => ! in_array($relation['relation_type'], ['default_income', 'default_expense', 'default_balance', 'default_company_payable', 'formula'], true));
                 if (isset($firstRel['closingEligibleBalance'])) {
                     $currentShopBalance = (float) $firstRel['closingEligibleBalance'];
                 }

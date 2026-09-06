@@ -169,8 +169,8 @@
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         @foreach($shops as $shop)
-            <a href="{{ route('admin.cashbook.settings.shop', $shop->slug ?: $shop->shop_id) }}"
-               class="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-emerald-300 hover:shadow-md">
+            <div class="space-y-2"><a href="{{ route('admin.cashbook.settings.shop', $shop->slug ?: $shop->shop_id) }}"
+               class="block group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-emerald-300 hover:shadow-md">
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                         <h2 class="truncate text-base font-black text-slate-950 group-hover:text-emerald-700">{{ $shop->name }}</h2>
@@ -189,6 +189,8 @@
                     </span>
                 </div>
             </a>
+            <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-center text-sm font-bold text-indigo-800 hover:bg-indigo-100">Settlements</a>
+            </div>
         @endforeach
     </div>
 

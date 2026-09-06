@@ -598,9 +598,8 @@ class HeaderCashFlowSettingsTest extends TestCase
             ->get(route('admin.cashbook.settings.shop.demo', ['shop' => $this->shop->id]));
 
         $response->assertOk();
-        $response->assertSee('Today Net Activity');
-        $response->assertSee('BALANCE MOVEMENTS');
-        $response->assertSee('From: Previous Shop Balance');
+        $response->assertSee('Net Balance');
+        $response->assertSee('Payable to Company');
     }
 
     public function test_demo_page_renders_save_and_clear_demo_browser_storage_controls(): void

@@ -4,12 +4,13 @@
 
 @section('content')
 @php
-    $relationList = $relations ?? collect();
+    $summaryRelations = $relations ?? collect();
+    $relationList = $summaryRelations->reject(fn ($relation) => in_array($relation->relation_type, ['default_income', 'default_expense', 'default_balance', 'default_company_payable', 'formula'], true))->values();
     $accountsList = $companyAccounts ?? collect();
     $headerGroupList = $headerGroups ?? collect();
 
     // Sort settings by header_display_order or display_order
-    $sortedSettings = $settings->sortBy(fn ($s) => (int) ($s->header_display_order ?? $s->entryType?->display_order ?? $s->display_order))->values();
+    $sortedSettings = $settings->sortBy(fn ($s) => (int) ($s->header_display_order ?? $s->display_order ?? $s->entryType?->display_order ?? $s->id))->values();
 
     // Group settings by header_group_id
     $settingsByHeader = $sortedSettings->groupBy(fn ($s) => (int) ($s->header_group_id ?? 0));
@@ -19,7 +20,7 @@
     // 1. Process explicit saved headers in display_order
     foreach ($headerGroupList->sortBy('display_order') as $hg) {
         $hgId = (int) $hg->id;
-        $headerSettings = $settingsByHeader->get($hgId, collect())->values();
+        $headerSettings = $settingsByHeader->get($hgId, collect())->sortBy(fn ($s) => (int) ($s->header_display_order ?? $s->display_order ?? $s->entryType?->display_order ?? $s->id))->values();
 
         if ($headerSettings->isNotEmpty() || $hg->product_tagging_enabled) {
             $demoHeaderSections->push([
@@ -44,7 +45,7 @@
     if ($unassignedSettings->isNotEmpty()) {
         $unassignedTransfers = $unassignedSettings->filter(function ($s) {
             $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            $isSalesDeduction = $s->include_in_sales && $s->payable_direction === 'minus';
+            $isSalesDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $cat === 'transfer');
             return $cat === 'transfer' || $cat === 'settlement' || $isSalesDeduction || (! $s->include_in_sales && ! $s->include_in_income && ! $s->include_in_expense);
         })->values();
 
@@ -83,14 +84,17 @@
     if ($demoHeaderSections->isEmpty() && $sortedSettings->isNotEmpty()) {
         $incomeSet = $sortedSettings->filter(function ($s) {
             $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            $isSalesDeduction = $s->include_in_sales && $s->payable_direction === 'minus';
+            $isSalesDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $cat === 'transfer');
             return ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
         })->values();
-        $expenseSet = $sortedSettings->reject(fn($s) => $incomeSet->contains('id', $s->id))->values();
+
+        $expenseSet = $sortedSettings->reject(function ($s) use ($incomeSet) {
+            return $incomeSet->contains('id', $s->id);
+        })->values();
 
         if ($incomeSet->isNotEmpty()) {
             $demoHeaderSections->push([
-                'id' => 'default_sales',
+                'id' => 'default_income',
                 'name' => 'SALES',
                 'type' => 'income',
                 'display_order' => 1,
@@ -100,7 +104,7 @@
         if ($expenseSet->isNotEmpty()) {
             $demoHeaderSections->push([
                 'id' => 'default_expense',
-                'name' => 'EXPENSES',
+                'name' => 'SHOP EXPENSES',
                 'type' => 'expense',
                 'display_order' => 2,
                 'settings' => $expenseSet,
@@ -131,7 +135,7 @@
     // Serialize metadata for JS calculation engine
     $settingsJson = $settings->map(function ($s) {
         $cat = strtolower((string) ($s->entryType?->category ?? ''));
-        $isSalesDeduction = $s->include_in_sales && $s->payable_direction === 'minus';
+        $isSalesDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $cat === 'transfer');
         $isIncome = ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
         $isExpense = ($cat === 'expense' || $s->include_in_expense) && ! $isSalesDeduction;
         $code = strtolower((string) ($s->entryType?->code ?? ''));
@@ -160,6 +164,7 @@
             'is_income' => $isIncome,
             'is_expense' => $isExpense,
             'is_sales_deduction' => $isSalesDeduction,
+            'payable_direction' => $s->payable_direction ?? ($isSalesDeduction ? 'minus' : ($isIncome ? 'plus' : 'minus')),
             'is_cash_purchase' => $isCashPurchase,
             'requires_note' => $requiresNote,
             'note_enabled' => $noteEnabled,
@@ -181,6 +186,22 @@
             'account_number' => $a->account_number,
         ];
     })->values()->all();
+
+    $settingsMap = $settings->keyBy('id');
+    $summaryRelationJson = $summaryRelations->map(fn ($relation) => [
+        'id' => (int) $relation->id,
+        'name' => $relation->name,
+        'kind' => $relation->relation_type,
+        'enabled' => (bool) $relation->enabled,
+        'items' => $relation->items->map(function ($item) use ($settingsMap) {
+            $settingId = (int) $item->shop_ledger_entry_setting_id;
+            return [
+                'setting_id' => $settingId,
+                'name' => $settingsMap->get($settingId)?->displayName() ?? $item->setting?->displayName() ?? ('Category #'.$settingId),
+                'role' => $item->role,
+            ];
+        })->values()->all(),
+    ])->values()->all();
 
     $relationJson = $relationList->map(function ($r) {
         return [
@@ -291,25 +312,52 @@
         </div>
     </div>
 
-    <!-- Sticky Day Switcher Bar -->
-    <div class="sticky top-2 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md p-2 shadow-xs">
-        <div class="flex items-center gap-1.5">
-            <button type="button" id="tab-day-1" onclick="switchDay(1)"
-                    class="tab-btn inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-black transition border bg-indigo-600 text-white border-indigo-600 shadow-2xs cursor-pointer">
-                <i data-lucide="calendar" class="h-3.5 w-3.5"></i>
-                <span>Day 1</span>
-            </button>
-            <button type="button" id="tab-day-2" onclick="switchDay(2)"
-                    class="tab-btn inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 cursor-pointer">
-                <i data-lucide="calendar" class="h-3.5 w-3.5"></i>
-                <span>Day 2</span>
-            </button>
-            <button type="button" id="tab-day-3" onclick="switchDay(3)"
-                    class="tab-btn inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 cursor-pointer">
-                <i data-lucide="calendar" class="h-3.5 w-3.5"></i>
-                <span>Day 3</span>
-            </button>
+    <!-- Sticky Day Switcher Bar & Real Data Controls -->
+    <div class="sticky top-2 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md p-2.5 shadow-xs">
+        <div class="flex flex-wrap items-center gap-2.5">
+            <div class="flex items-center gap-1.5">
+                <button type="button" id="tab-day-1" onclick="switchDay(1)"
+                        class="tab-btn inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-black transition border bg-indigo-600 text-white border-indigo-600 shadow-2xs cursor-pointer">
+                    <i data-lucide="calendar" class="h-3.5 w-3.5"></i>
+                    <span>Day 1</span>
+                </button>
+                <button type="button" id="tab-day-2" onclick="switchDay(2)"
+                        class="tab-btn inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <i data-lucide="calendar" class="h-3.5 w-3.5"></i>
+                    <span>Day 2</span>
+                </button>
+                <button type="button" id="tab-day-3" onclick="switchDay(3)"
+                        class="tab-btn inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <i data-lucide="calendar" class="h-3.5 w-3.5"></i>
+                    <span>Day 3</span>
+                </button>
+            </div>
+
+            <div class="h-6 w-px bg-slate-200 hidden md:block"></div>
+
+            <!-- REAL SHOP DATA LOADER CONTROLS -->
+            <div class="flex flex-wrap items-center gap-2 rounded-xl bg-slate-100/80 border border-slate-200 p-1">
+                <span class="flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-indigo-950 pl-1.5">
+                    <i data-lucide="database" class="h-3.5 w-3.5 text-indigo-600"></i>
+                    <span>Real Shop Data:</span>
+                </span>
+                <input type="date" id="real-shop-date-input" value="{{ today()->format('Y-m-d') }}"
+                       class="h-7 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 focus:border-indigo-600 focus:ring-0 cursor-pointer">
+                <button type="button" onclick="fetchAndLoadRealData('active')" id="fetch-real-day-btn"
+                        class="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-extrabold text-white hover:bg-indigo-700 transition shadow-2xs cursor-pointer"
+                        title="Fetch real shop transactions for selected date and load into current Day view">
+                    <i data-lucide="arrow-down-to-dot" class="h-3 w-3"></i>
+                    <span>Load to Active Day</span>
+                </button>
+                <button type="button" onclick="fetchAndLoadRealData('3days')" id="fetch-real-3days-btn"
+                        class="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-xs font-extrabold text-indigo-900 hover:bg-indigo-50 transition shadow-2xs cursor-pointer"
+                        title="Fetch 3 consecutive days of real shop data starting from this date and load into Day 1, Day 2, and Day 3">
+                    <i data-lucide="layers" class="h-3 w-3 text-indigo-600"></i>
+                    <span>Load 3 Real Days</span>
+                </button>
+            </div>
         </div>
+
         <div class="text-xs font-extrabold text-slate-500 pr-2" id="current-day-label">
             Active View: <span class="text-slate-950 font-black">Day 1</span>
         </div>
@@ -442,11 +490,23 @@
                                 @foreach($sectionSettings as $s)
                                     <div class="py-2 flex items-center justify-between gap-3">
                                         <div class="min-w-0 flex-1 space-y-0.5">
-                                            <label for="input-s-{{ $s->id }}" class="text-xs font-bold text-slate-900 block truncate cursor-pointer">
-                                                {{ $s->displayName() }}
-                                            </label>
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <label for="input-s-{{ $s->id }}" class="text-xs font-bold text-slate-900 truncate cursor-pointer">
+                                                    {{ $s->displayName() }}
+                                                </label>
+                                                @if($s->entryType && $s->entryType->name !== $s->displayName())
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 border border-slate-200">{{ $s->entryType->name }}</span>
+                                                @endif
+                                            </div>
                                             <div class="text-[11px] font-medium text-slate-500 truncate flex items-center gap-1">
-                                                @if($s->companyAccount)
+                                                @php
+                                                    $sCat = strtolower((string) ($s->entryType?->category ?? ''));
+                                                    $sIsDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $sCat === 'transfer');
+                                                @endphp
+                                                @if($sIsDeduction)
+                                                    <span class="inline-flex items-center justify-center w-3 h-3 rounded-xs text-[9px] font-black bg-rose-100 text-rose-700">−</span>
+                                                    <span class="text-rose-600 font-bold">Sales Deduction · {{ $s->default_funding_source ?: 'Shop Cash' }}</span>
+                                                @elseif($s->companyAccount)
                                                     <i data-lucide="landmark" class="h-3 w-3 text-indigo-600 inline"></i>
                                                     <span>{{ $s->companyAccount->name }} · Direct Company</span>
                                                 @else
@@ -571,9 +631,14 @@
                                     @endphp
                                     <div class="py-2 flex items-center justify-between gap-3">
                                         <div class="min-w-0 flex-1 space-y-0.5">
-                                            <label for="input-s-{{ $s->id }}" class="text-xs font-bold text-slate-900 block truncate cursor-pointer">
-                                                {{ $s->displayName() }}
-                                            </label>
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <label for="input-s-{{ $s->id }}" class="text-xs font-bold text-slate-900 truncate cursor-pointer">
+                                                    {{ $s->displayName() }}
+                                                </label>
+                                                @if($s->entryType && $s->entryType->name !== $s->displayName())
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 border border-slate-200">{{ $s->entryType->name }}</span>
+                                                @endif
+                                            </div>
                                             <div class="text-[11px] font-medium text-slate-500 truncate flex items-center gap-1">
                                                 @if($src === 'petty')
                                                     <i data-lucide="wallet" class="h-3 w-3 text-amber-600 inline"></i>
@@ -923,63 +988,16 @@
                 </div>
 
                 <div id="demo-section-body-summary" class="space-y-4 pt-2 border-t border-slate-100">
-                    <!-- DAILY NET POSITION -->
-                    <div class="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-3">
-                        <div class="flex items-center justify-between border-b border-slate-200/80 pb-2">
-                            <h3 class="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
-                                <i data-lucide="calculator" class="h-4 w-4 text-indigo-600"></i>
-                                Daily Net Position
-                            </h3>
-                            <span class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                Calculated
-                            </span>
+                    <p class="text-xs text-slate-600">Results from this shop's enabled settlements.</p>
+                    <div id="dynamic-net-position-content" class="space-y-3 text-sm text-slate-700" aria-live="polite"></div>
+                    <div class="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 space-y-2">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-black text-slate-950">Net Balance</h3>
+                            <span id="settlement-net-balance" class="font-mono text-lg font-black text-indigo-800" aria-live="polite">₹0.00</span>
                         </div>
-
-                        <div id="dynamic-net-position-content" class="space-y-3 text-xs font-semibold text-slate-700">
-                            <!-- Dynamic Header-based summary rendered by JS -->
-                        </div>
-
-                        <div class="pt-2.5 border-t border-slate-200/80 flex items-center justify-between">
-                            <span class="text-xs font-black uppercase tracking-wider text-slate-900">Today Net Activity</span>
-                            <span class="text-base font-black font-mono text-emerald-700" id="bill-net-activity">₹0.00</span>
-                        </div>
+                        <p id="settlement-net-label" class="text-xs text-slate-600">Balance</p>
                     </div>
-
-                    <!-- SHOP BALANCE FOOTER -->
-                    <div class="rounded-2xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
-                        <div class="flex items-center justify-between border-b border-emerald-200/80 pb-2">
-                            <h3 class="text-xs font-black uppercase tracking-wider text-emerald-950 flex items-center gap-2">
-                                <i data-lucide="store" class="h-4 w-4 text-emerald-700"></i>
-                                Shop Balance
-                            </h3>
-                            <span class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300">
-                                Payable Result
-                            </span>
-                        </div>
-
-                        <div class="space-y-1.5 text-xs font-semibold text-slate-700">
-                            <div class="flex justify-between">
-                                <span>Opening Shop Balance</span>
-                                <span class="font-mono text-slate-900 font-bold" id="sb-opening">₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-rose-700">
-                                <div>
-                                    <span class="block">Settlement Paid</span>
-                                    <span class="text-[10px] text-slate-400 font-medium block" id="sb-settlement-sub">From Previous Shop Balance</span>
-                                </div>
-                                <span class="font-mono font-bold" id="sb-settlement">-₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-emerald-700">
-                                <span>Today's Shop-Held Money</span>
-                                <span class="font-mono font-bold" id="sb-shop-held">+₹0.00</span>
-                            </div>
-                        </div>
-
-                        <div class="pt-2.5 border-t border-emerald-200/80 flex items-center justify-between text-xs font-black text-emerald-950">
-                            <span class="uppercase tracking-wider">Closing Shop Balance</span>
-                            <span class="text-lg font-black font-mono text-emerald-900" id="sb-closing">₹0.00</span>
-                        </div>
-                    </div>
+                    <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex py-1 text-xs font-bold text-indigo-700 hover:text-indigo-900">Configure Settlements &rarr;</a>
                 </div>
             </div>
 
@@ -1201,23 +1219,10 @@
             <!-- 3-DAY ACTIVITY (INVOICE STYLE LEFT) -->
             <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 space-y-2">
                 <h3 class="text-xs font-black uppercase tracking-wider text-slate-800 border-b border-slate-200 pb-1.5">3-Day Activity Totals</h3>
-                <div class="space-y-1.5 text-xs font-bold text-slate-700">
-                    <div class="flex justify-between">
-                        <span>3-Day Total Sales</span>
-                        <span class="font-mono text-emerald-700 font-black text-sm" id="sum3-sales">₹0.00</span>
-                    </div>
-                    <div class="flex justify-between text-rose-700">
-                        <span>3-Day Total Expenses</span>
-                        <span class="font-mono font-black" id="sum3-expenses">-₹0.00</span>
-                    </div>
-                    <div class="flex justify-between text-amber-700">
-                        <span>3-Day Total Cash Purchase</span>
-                        <span class="font-mono font-black" id="sum3-cash-purchase">-₹0.00</span>
-                    </div>
-                    <div class="flex justify-between text-purple-900">
-                        <span>3-Day Settlement Calculated</span>
-                        <span class="font-mono font-black" id="sum3-settlement-calc">₹0.00</span>
-                    </div>
+                <div id="settlement-three-day-summary" class="space-y-2 text-sm text-slate-700"></div>
+                <div class="flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
+                    <span class="text-sm font-black text-slate-950">3-Day Net Balance</span>
+                    <span id="settlement-three-day-net" class="font-mono text-lg font-black">₹0.00</span>
                 </div>
             </div>
 
@@ -1324,6 +1329,7 @@
     </div>
 </div>
 
+<script src="{{ asset('js/cashbook-settlement-summary.js') }}"></script>
 <script>
     let activeDay = 1;
 
@@ -1344,6 +1350,7 @@
     const settings = @json($settingsJson);
     const accounts = @json($accountsJson);
     const relations = @json($relationJson);
+    const summaryRelations = @json($summaryRelationJson);
     const headers = @json($headersJson);
 
     const DEMO_STORAGE_VERSION = 1;
@@ -1518,18 +1525,142 @@
         }
     }
 
-    function clearSavedDemoData() {
-        if (!confirm('Clear saved Demo simulation data for ' + shopName + ' from this browser?')) {
+    async function fetchAndLoadRealData(mode = 'active') {
+        const dateInput = document.getElementById('real-shop-date-input');
+        const selectedDate = dateInput ? dateInput.value : '';
+        if (!selectedDate) {
+            alert('Please select a date first.');
             return;
         }
 
-        try {
-            localStorage.removeItem(demoStorageKey);
-        } catch (err) {}
+        const activeBtn = document.getElementById('fetch-real-day-btn');
+        const threeDaysBtn = document.getElementById('fetch-real-3days-btn');
+        const targetBtn = mode === '3days' ? threeDaysBtn : activeBtn;
+        const originalHtml = targetBtn ? targetBtn.innerHTML : '';
 
-        clearAllDemo();
-        updateStorageStatusText('Cleared local save', 'neutral');
-        isDemoDirty = false;
+        if (targetBtn) {
+            targetBtn.disabled = true;
+            targetBtn.innerHTML = '<span class="inline-block animate-spin mr-1">↻</span> Fetching...';
+        }
+
+        try {
+            const url = new URL('{{ route("admin.cashbook.settings.shop.demo.real-data", ["shop" => $currentShop->shop_id]) }}', window.location.origin);
+            url.searchParams.set('date', selectedDate);
+            url.searchParams.set('days', mode === '3days' ? '3' : '1');
+
+            const response = await fetch(url.toString(), {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Server returned status ' + response.status);
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to fetch real shop data');
+            }
+
+            if (mode === '3days') {
+                const dateKeys = Object.keys(data.days || {});
+                [1, 2, 3].forEach((dayNum, idx) => {
+                    const dateKey = dateKeys[idx];
+                    const dayData = (dateKey && data.days[dateKey]) ? data.days[dateKey] : null;
+
+                    demoState[dayNum] = { notes: {}, productRows: {} };
+                    settings.forEach(s => {
+                        demoState[dayNum][s.id] = 0;
+                    });
+
+                    if (dayData && dayData.amounts) {
+                        Object.entries(dayData.amounts).forEach(([sId, amt]) => {
+                            demoState[dayNum][sId] = Number(amt) || 0;
+                        });
+                        if (dayData.notes) {
+                            Object.entries(dayData.notes).forEach(([sId, note]) => {
+                                if (note) demoState[dayNum].notes[sId] = note;
+                            });
+                        }
+                    }
+                });
+
+                dateKeys.forEach((dKey, idx) => {
+                    const dayNum = idx + 1;
+                    const tabBtn = document.getElementById('tab-day-' + dayNum);
+                    if (tabBtn && data.days[dKey]?.formatted_date) {
+                        const span = tabBtn.querySelector('span');
+                        if (span) span.textContent = `Day ${dayNum} (${data.days[dKey].formatted_date})`;
+                    }
+                });
+
+                const firstDayData = data.days[dateKeys[0]];
+                if (firstDayData && typeof firstDayData.opening_cash === 'number') {
+                    openingBalances.shopBalance = firstDayData.opening_cash;
+                    const sbInput = document.getElementById('input-open-shop-balance');
+                    if (sbInput) sbInput.value = firstDayData.opening_cash;
+                }
+
+                markDemoDirty();
+                saveDemoToLocalStorage();
+                loadDayIntoInputs(activeDay);
+                recalculateDemo();
+
+                updateStorageStatusText(`Loaded 3 real days starting ${selectedDate}`, 'saved');
+            } else {
+                const single = data.single || (data.days && Object.values(data.days)[0]) || null;
+                if (!single) {
+                    alert('No transactions found for ' + selectedDate);
+                    return;
+                }
+
+                demoState[activeDay] = { notes: {}, productRows: {} };
+                settings.forEach(s => {
+                    demoState[activeDay][s.id] = 0;
+                });
+
+                if (single.amounts) {
+                    Object.entries(single.amounts).forEach(([sId, amt]) => {
+                        demoState[activeDay][sId] = Number(amt) || 0;
+                    });
+                }
+                if (single.notes) {
+                    Object.entries(single.notes).forEach(([sId, note]) => {
+                        if (note) demoState[activeDay].notes[sId] = note;
+                    });
+                }
+
+                const tabBtn = document.getElementById('tab-day-' + activeDay);
+                if (tabBtn && single.formatted_date) {
+                    const span = tabBtn.querySelector('span');
+                    if (span) span.textContent = `Day ${activeDay} (${single.formatted_date})`;
+                }
+
+                if (activeDay === 1 && typeof single.opening_cash === 'number') {
+                    openingBalances.shopBalance = single.opening_cash;
+                    const sbInput = document.getElementById('input-open-shop-balance');
+                    if (sbInput) sbInput.value = single.opening_cash;
+                }
+
+                markDemoDirty();
+                saveDemoToLocalStorage();
+                loadDayIntoInputs(activeDay);
+                recalculateDemo();
+
+                updateStorageStatusText(`Loaded real data for ${single.formatted_date} (${single.entry_count} entries)`, 'saved');
+            }
+        } catch (err) {
+            console.error('Error fetching real shop data:', err);
+            alert('Could not fetch real shop data: ' + (err.message || 'Unknown error'));
+        } finally {
+            if (targetBtn && originalHtml) {
+                targetBtn.disabled = false;
+                targetBtn.innerHTML = originalHtml;
+                if (window.lucide) lucide.createIcons();
+            }
+        }
     }
 
     function toggleOpeningBalances() {
@@ -1562,16 +1693,37 @@
         recalculateDemo();
     }
 
-    function switchDay(day) {
-        // Preserve activeDay notes before switching
-        document.querySelectorAll('.demo-note-input').forEach(input => {
-            const sId = parseInt(input.getAttribute('data-setting-id'));
-            if (sId) {
-                demoState[activeDay] = demoState[activeDay] || {};
-                demoState[activeDay].notes = demoState[activeDay].notes || {};
-                demoState[activeDay].notes[sId] = input.value;
+    function loadDayIntoInputs(day) {
+        day = day || activeDay;
+        settings.forEach(s => {
+            const input = document.getElementById('input-s-' + s.id);
+            if (input) {
+                const val = (demoState[day] && demoState[day][s.id] !== undefined) ? demoState[day][s.id] : 0;
+                input.value = (val !== undefined && val !== null && val > 0) ? val : '';
+            }
+            const noteInput = document.getElementById('input-note-' + s.id);
+            if (noteInput) {
+                const noteVal = (demoState[day] && demoState[day].notes && demoState[day].notes[s.id]) || '';
+                noteInput.value = noteVal;
             }
         });
+
+        renderAllProductRowsForActiveDay();
+        validateDemoNotes();
+    }
+
+    function switchDay(day) {
+        if (activeDay !== day) {
+            // Preserve activeDay notes before switching
+            document.querySelectorAll('.demo-note-input').forEach(input => {
+                const sId = parseInt(input.getAttribute('data-setting-id'));
+                if (sId) {
+                    demoState[activeDay] = demoState[activeDay] || {};
+                    demoState[activeDay].notes = demoState[activeDay].notes || {};
+                    demoState[activeDay].notes[sId] = input.value;
+                }
+            });
+        }
 
         activeDay = day;
 
@@ -1591,21 +1743,7 @@
             label.innerHTML = 'Active View: <span class="text-slate-950 font-black">Day ' + day + '</span>';
         }
 
-        // Sync input values for activeDay
-        settings.forEach(s => {
-            const input = document.getElementById('input-s-' + s.id);
-            if (input) {
-                const val = demoState[day][s.id];
-                input.value = (val !== undefined && val !== null && val > 0) ? val : '';
-            }
-            const noteInput = document.getElementById('input-note-' + s.id);
-            if (noteInput) {
-                const noteVal = (demoState[day].notes && demoState[day].notes[s.id]) || '';
-                noteInput.value = noteVal;
-            }
-        });
-
-        renderAllProductRowsForActiveDay();
+        loadDayIntoInputs(day);
         recalculateDemo();
     }
 
@@ -1802,10 +1940,15 @@
                 const amt = parseFloat(dayAmounts[s.id]) || 0;
                 if (amt <= 0) return;
 
-                if (s.is_sales_deduction) {
+                const isMinus = s.is_sales_deduction || s.payable_direction === 'minus';
+
+                if (isMinus) {
                     daySales -= amt;
-                    cashCollectedAtShop += amt;
-                    shopHeldSalesEntries.push({ name: `${s.name} (Transfer)`, amount: -amt });
+                    const src = s.funding_source;
+                    if (src === 'sales' || src === 'shop_balance' || src === 'shop_cash' || !s.company_account_id) {
+                        cashCollectedAtShop -= amt;
+                        shopHeldSalesEntries.push({ name: `${s.name} (Deduction)`, amount: -amt });
+                    }
                 } else if (s.is_income) {
                     daySales += amt;
                     if (s.company_account_id) {
@@ -1950,32 +2093,48 @@
 
             let incomeHeaderSummary = [];
             let expenseHeaderSummary = [];
+            let totalIncome = 0;
+            let totalExpense = 0;
 
             headers.forEach(h => {
                 let hTotal = 0;
+                const isIncome = (h.type || '').toLowerCase() === 'income';
 
                 (h.setting_ids || []).forEach(sId => {
-                    hTotal += (parseFloat(dayAmounts[sId]) || 0);
+                    const amt = parseFloat(dayAmounts[sId]) || 0;
+                    const s = settings.find(item => item.id === sId);
+                    const isMinus = !isIncome || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
+                    if (isMinus) {
+                        hTotal -= amt;
+                    } else {
+                        hTotal += amt;
+                    }
                 });
 
                 const pRows = (dayAmounts.productRows && dayAmounts.productRows[h.id]) || [];
                 pRows.forEach(pr => {
-                    hTotal += (parseFloat(pr.amount) || 0);
+                    const pAmt = parseFloat(pr.amount) || 0;
+                    if (!isIncome) {
+                        hTotal -= pAmt;
+                    } else {
+                        hTotal += pAmt;
+                    }
                 });
 
-                if (hTotal > 0) {
-                    if (h.type === 'income') {
+                if (Math.abs(hTotal) > 0.0001) {
+                    if (isIncome) {
                         incomeHeaderSummary.push({ id: h.id, name: h.name, amount: hTotal, isMirrored: false });
+                        totalIncome += hTotal;
                     } else {
-                        expenseHeaderSummary.push({ id: h.id, name: h.name, amount: hTotal, isMirrored: false });
+                        expenseHeaderSummary.push({ id: h.id, name: h.name, amount: Math.abs(hTotal), isMirrored: false });
+                        totalExpense += Math.abs(hTotal);
                     }
                 }
 
-                const isLegacyCashPurchase = h.type === 'expense' && (h.name || '').toLowerCase().includes('cash purchase');
-                const showsBoth = (h.show_both_sides === true) || isLegacyCashPurchase;
+                const showsBoth = (h.show_both_sides === true);
 
-                if (showsBoth && hTotal > 0) {
-                    const isExpenseHeader = h.type === 'expense';
+                if (showsBoth && Math.abs(hTotal) > 0.0001) {
+                    const isExpenseHeader = !isIncome;
                     const oppositeSide = isExpenseHeader ? 'income' : 'expense';
 
                     headerAddBacks.push({
@@ -1984,23 +2143,24 @@
                         header_type: h.type,
                         opposite_side: oppositeSide,
                         label: h.name,
-                        amount: hTotal
+                        amount: Math.abs(hTotal)
                     });
 
-                    totalAddBacks += hTotal;
+                    totalAddBacks += Math.abs(hTotal);
                     if (isExpenseHeader) {
-                        totalIncomeAddBacks += hTotal;
-                        incomeHeaderSummary.push({ id: 'mirror_' + h.id, name: h.name, amount: hTotal, isMirrored: true });
+                        totalIncomeAddBacks += Math.abs(hTotal);
+                        incomeHeaderSummary.push({ id: 'mirror_' + h.id, name: h.name, amount: Math.abs(hTotal), isMirrored: true });
                     } else {
-                        totalExpenseAddBacks += hTotal;
-                        expenseHeaderSummary.push({ id: 'mirror_' + h.id, name: h.name, amount: hTotal, isMirrored: true });
+                        totalExpenseAddBacks += Math.abs(hTotal);
+                        expenseHeaderSummary.push({ id: 'mirror_' + h.id, name: h.name, amount: Math.abs(hTotal), isMirrored: true });
                     }
                 }
             });
 
-            const displayTotalIncome = daySales + totalIncomeAddBacks;
-            const displayTotalExpense = dayExpenses + dayCashPurchase + totalExpenseAddBacks;
-            const todayNetActivity = displayTotalIncome - displayTotalExpense;
+            const settlementResult = CashbookSettlementSummary.calculate(summaryRelations, dayAmounts);
+            const displayTotalIncome = settlementResult.income;
+            const displayTotalExpense = settlementResult.expense;
+            const todayNetActivity = settlementResult.netBalance;
             const netActivity = todayNetActivity;
 
             dayResults[d] = {
@@ -2018,6 +2178,9 @@
                 displayTotalExpense: displayTotalExpense,
                 todayNetActivity: todayNetActivity,
                 netActivity: netActivity,
+                settlementSummary: settlementResult.settlements,
+                netBalance: settlementResult.netBalance,
+                netBalanceLabel: settlementResult.netLabel,
                 incomeHeaderSummary: incomeHeaderSummary,
                 expenseHeaderSummary: expenseHeaderSummary,
                 relationSummaryName: relations.length > 0 ? (relations[0].name || 'Supermarket Settlement') : null,
@@ -2341,15 +2504,26 @@
         // Update Section Subtotals per Header
         headers.forEach(h => {
             let headerTotal = 0;
+            const isIncome = (h.type || '').toLowerCase() === 'income';
             (h.setting_ids || []).forEach(sId => {
                 const amt = parseFloat(dayAmounts[sId]) || 0;
-                if (amt > 0) headerTotal += amt;
+                const s = settings.find(item => item.id === sId);
+                const isMinus = !isIncome || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
+                if (isMinus) {
+                    headerTotal -= amt;
+                } else {
+                    headerTotal += amt;
+                }
             });
 
             const pRows = (dayAmounts.productRows && dayAmounts.productRows[h.id]) || [];
             pRows.forEach(pr => {
                 const pAmt = parseFloat(pr.amount) || 0;
-                if (pAmt > 0) headerTotal += pAmt;
+                if (!isIncome) {
+                    headerTotal -= pAmt;
+                } else {
+                    headerTotal += pAmt;
+                }
             });
 
             const el = document.getElementById('header-total-' + h.id);
@@ -2371,7 +2545,8 @@
 
         const secSum = document.getElementById('demo-section-total-summary');
         if (secSum) {
-            secSum.textContent = formatCurrency(res.netActivity);
+            secSum.textContent = CashbookSettlementSummary.formatAmount(res.netBalance || 0);
+            secSum.className = `font-mono text-sm font-black px-2.5 py-1 rounded-xl border ${res.netBalance < 0 ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`;
         }
 
         // Render Single-Line Mirrored Headers on Opposite Side
@@ -2485,107 +2660,65 @@
             }
         }
 
-        // Daily Net Position Box (Dynamic Header Summary)
         const dynNetContent = document.getElementById('dynamic-net-position-content');
         if (dynNetContent) {
-            let incRowsHtml = '';
-            const incList = res.incomeHeaderSummary || [];
-            if (incList.length > 0) {
-                incRowsHtml = incList.map(item => `
-                    <div class="flex justify-between items-center py-0.5">
-                        <span class="truncate pr-2">${escapeHtml(item.name)}</span>
-                        <span class="font-mono text-emerald-700 font-bold">${formatCurrency(item.amount)}</span>
-                    </div>
-                `).join('');
+            const settlementList = res.settlementSummary || [];
+            if (settlementList.length === 0) {
+                dynNetContent.innerHTML = '<p class="text-xs text-slate-500 italic p-2 bg-slate-50 rounded-xl border border-slate-100">No enabled settlements. Configure a settlement to show its result here.</p>';
             } else {
-                incRowsHtml = '<div class="text-[11px] text-slate-400 font-normal py-0.5">No income entries</div>';
-            }
+                dynNetContent.innerHTML = settlementList.map(settlement => {
+                    const sId = settlement.id;
+                    const isExpanded = settlementOptionCollapseState[sId] === true;
+                    const items = settlement.items || [];
+                    const hasItems = items.length > 0;
+                    const amountClass = settlement.amount < 0 ? 'text-rose-700' : 'text-indigo-700';
 
-            let expRowsHtml = '';
-            const expList = res.expenseHeaderSummary || [];
-            if (expList.length > 0) {
-                expRowsHtml = expList.map(item => `
-                    <div class="flex justify-between items-center py-0.5">
-                        <span class="truncate pr-2">${escapeHtml(item.name)}</span>
-                        <span class="font-mono text-rose-700 font-bold">-${formatCurrency(item.amount)}</span>
-                    </div>
-                `).join('');
-            } else {
-                expRowsHtml = '<div class="text-[11px] text-slate-400 font-normal py-0.5">No expense entries</div>';
-            }
-
-            let settlementBlockHtml = '';
-            if (res.relationSettled && res.relationSettled !== 0) {
-                const settleName = res.relationSummaryName || 'Supermarket Settlement';
-                const isPrev = (res.relationRule || 'previous_day_balance') === 'previous_day_balance';
-                const subLabel = isPrev ? 'From: Previous Shop Balance' : 'From: Current-Day Balance';
-                settlementBlockHtml = `
-                    <div class="pt-2 border-t border-slate-200/60 space-y-1">
-                        <div class="text-[10px] font-black uppercase tracking-wider text-purple-800 flex justify-between">
-                            <span>BALANCE MOVEMENTS</span>
-                        </div>
-                        <div class="flex justify-between items-center py-0.5 text-xs font-semibold text-slate-700">
-                            <div>
-                                <span class="truncate block font-bold text-slate-900">${escapeHtml(settleName)}</span>
-                                <span class="text-[10px] text-slate-400 font-medium block">${escapeHtml(subLabel)}</span>
+                    let itemsHtml = '';
+                    if (hasItems) {
+                        itemsHtml = items.map(item => {
+                            const settingObj = (settings || []).find(s => String(s.id) === String(item.setting_id));
+                            const itemName = item.name && !item.name.startsWith('Category #') ? item.name : (settingObj ? settingObj.name : item.name);
+                            return `
+                            <div class="flex items-center justify-between text-slate-600 font-medium py-1 px-1">
+                                <span class="flex items-center gap-1.5 min-w-0 pr-2">
+                                    <span class="font-mono font-bold ${item.role === 'subtract' ? 'text-rose-600' : 'text-emerald-600'}">${item.role === 'subtract' ? '−' : '+'}</span>
+                                    <span class="truncate text-slate-700">${escapeHtml(itemName)}</span>
+                                </span>
+                                <span class="shrink-0 font-mono font-semibold ${item.role === 'subtract' ? 'text-rose-700' : 'text-slate-800'}">${formatCurrency(item.amount)}</span>
                             </div>
-                            <span class="font-mono text-purple-700 font-bold">-${formatCurrency(res.relationSettled)}</span>
+                        `;
+                        }).join('');
+                    }
+
+                    return `
+                        <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5 transition">
+                            <div class="flex items-center justify-between gap-3 ${hasItems ? 'cursor-pointer select-none' : ''}" ${hasItems ? `onclick="toggleSettlementOptionSplit('${sId}')"` : ''}>
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="font-bold text-slate-900 truncate">${escapeHtml(settlement.name)}</span>
+                                    ${hasItems ? `
+                                        <button type="button" onclick="event.stopPropagation(); toggleSettlementOptionSplit('${sId}')" class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-slate-800 bg-white px-2 py-0.5 rounded-lg border border-slate-200 shadow-2xs transition">
+                                            <span id="settlement-opt-btn-text-${sId}">${isExpanded ? 'Hide Split' : 'Show Split'}</span>
+                                            <i id="settlement-opt-chevron-${sId}" data-lucide="${isExpanded ? 'chevron-up' : 'chevron-down'}" class="h-3 w-3"></i>
+                                        </button>
+                                    ` : ''}
+                                </div>
+                                <span class="shrink-0 font-mono font-bold ${amountClass}">${CashbookSettlementSummary.formatAmount(settlement.amount)}</span>
+                            </div>
+                            ${hasItems ? `
+                                <div id="settlement-opt-split-${sId}" class="${isExpanded ? '' : 'hidden'} mt-2.5 pt-2 border-t border-slate-200/80 space-y-1 text-xs">
+                                    ${itemsHtml}
+                                </div>
+                            ` : ''}
                         </div>
-                    </div>
-                `;
+                    `;
+                }).join('');
             }
-
-            dynNetContent.innerHTML = `
-                <div class="space-y-3">
-                    <div class="space-y-1">
-                        <div class="text-[10px] font-black uppercase tracking-wider text-emerald-800 border-b border-slate-200/60 pb-1">
-                            INCOME
-                        </div>
-                        <div class="space-y-0.5 text-xs font-semibold text-slate-700">
-                            ${incRowsHtml}
-                        </div>
-                        <div class="pt-1.5 flex justify-between text-xs font-black text-slate-900 border-t border-slate-200/60">
-                            <span>Total Income</span>
-                            <span class="font-mono text-emerald-700">${formatCurrency(res.displayTotalIncome)}</span>
-                        </div>
-                    </div>
-
-                    <div class="space-y-1">
-                        <div class="text-[10px] font-black uppercase tracking-wider text-rose-800 border-b border-slate-200/60 pb-1">
-                            EXPENSE
-                        </div>
-                        <div class="space-y-0.5 text-xs font-semibold text-slate-700">
-                            ${expRowsHtml}
-                        </div>
-                        <div class="pt-1.5 flex justify-between text-xs font-black text-slate-900 border-t border-slate-200/60">
-                            <span>Total Expense</span>
-                            <span class="font-mono text-rose-700">-${formatCurrency(res.displayTotalExpense)}</span>
-                        </div>
-                    </div>
-
-                    <div class="pt-1.5 flex justify-between text-xs font-black text-slate-900 border-t-2 border-slate-300">
-                        <span>TODAY NET ACTIVITY</span>
-                        <span class="font-mono ${res.todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700'}">${formatCurrency(res.todayNetActivity)}</span>
-                    </div>
-
-                    ${settlementBlockHtml}
-                </div>
-            `;
         }
 
-        const netActEl = document.getElementById('bill-net-activity');
-        if (netActEl) netActEl.textContent = formatCurrency(res.todayNetActivity || res.netActivity);
-
-        // Shop Balance Footer
-        document.getElementById('sb-opening').textContent = formatCurrency(res.openingPayable);
-        document.getElementById('sb-settlement').textContent = '-' + formatCurrency(res.relationSettled);
-        const sbSub = document.getElementById('sb-settlement-sub');
-        if (sbSub) {
-            const isPrev = (res.relationRule || 'previous_day_balance') === 'previous_day_balance';
-            sbSub.textContent = isPrev ? 'From Previous Shop Balance' : 'From Current-Day Balance';
-        }
-        document.getElementById('sb-shop-held').textContent = '+' + formatCurrency(res.cashCollectedAtShop - res.expensesPaidFromShopCash);
-        document.getElementById('sb-closing').textContent = formatCurrency(res.closingPayable);
+        const netBalanceEl = document.getElementById('settlement-net-balance');
+        netBalanceEl.textContent = CashbookSettlementSummary.formatAmount(res.netBalance || 0);
+        netBalanceEl.className = `font-mono text-lg font-black ${res.netBalance < 0 ? 'text-rose-700' : 'text-emerald-700'}`;
+        document.getElementById('settlement-net-label').textContent = res.netBalanceLabel;
 
         // 1. Payable to Company (Right Side Card)
         document.getElementById('move-open-payable').textContent = formatCurrency(res.openingPayable);
@@ -2696,6 +2829,13 @@
         if (setRem) setRem.textContent = formatCurrency(res.relationRemaining);
     }
 
+    function settlementPeriodTotals(dayResults) {
+        return summaryRelations.filter(relation => relation.enabled).map(relation => ({
+            name: relation.name,
+            amount: Object.values(dayResults).reduce((cents, day) => cents + Math.round((day.settlementSummary?.find(settlement => settlement.id === relation.id)?.amount || 0) * 100), 0) / 100
+        }));
+    }
+
     function render3DayOverviewUI(dayResults) {
         let sumSales = 0;
         let sumExpenses = 0;
@@ -2711,7 +2851,7 @@
         for (let d = 1; d <= 3; d++) {
             const r = dayResults[d] || {};
             sumSales += (r.displayTotalIncome !== undefined ? r.displayTotalIncome : (r.totalSales || 0));
-            sumExpenses += (r.totalExpenses || 0);
+            sumExpenses += (r.displayTotalExpense || 0);
             sumCashPurchase += (r.totalCashPurchase || 0);
             sumSettlementCalc += (r.relationNet || 0);
 
@@ -2722,10 +2862,16 @@
             sumCompanyPaid += (r.expensesPaidDirectlyByCompany || 0);
         }
 
-        document.getElementById('sum3-sales').textContent = formatCurrency(sumSales);
-        document.getElementById('sum3-expenses').textContent = '-' + formatCurrency(sumExpenses);
-        document.getElementById('sum3-cash-purchase').textContent = '-' + formatCurrency(sumCashPurchase);
-        document.getElementById('sum3-settlement-calc').textContent = formatCurrency(sumSettlementCalc);
+        const periodSettlements = settlementPeriodTotals(dayResults);
+        document.getElementById('settlement-three-day-summary').innerHTML = periodSettlements.map(settlement => `
+            <div class="flex items-center justify-between gap-3">
+                <span>${escapeHtml(settlement.name)}</span>
+                <span class="shrink-0 font-mono font-bold ${settlement.amount < 0 ? 'text-rose-700' : 'text-indigo-700'}">${CashbookSettlementSummary.formatAmount(settlement.amount)}</span>
+            </div>
+        `).join('') || '<p>No enabled settlements.</p>';
+        const periodNet = document.getElementById('settlement-three-day-net');
+        periodNet.textContent = CashbookSettlementSummary.formatAmount(sumSales - sumExpenses);
+        periodNet.className = `font-mono text-lg font-black ${sumSales - sumExpenses < 0 ? 'text-rose-700' : 'text-emerald-700'}`;
 
         document.getElementById('sum3-direct-company').textContent = formatCurrency(sumDirectCompany);
         document.getElementById('sum3-shop-collections').textContent = formatCurrency(sumShopCollections);
@@ -2858,6 +3004,32 @@
         if (window.lucide) lucide.createIcons();
     }
 
+    const settlementOptionCollapseState = {};
+
+    function toggleSettlementOptionSplit(sId) {
+        settlementOptionCollapseState[sId] = !settlementOptionCollapseState[sId];
+        const isExpanded = !!settlementOptionCollapseState[sId];
+        const bodyEl = document.getElementById('settlement-opt-split-' + sId);
+        const textEl = document.getElementById('settlement-opt-btn-text-' + sId);
+        const chevronEl = document.getElementById('settlement-opt-chevron-' + sId);
+
+        if (bodyEl) {
+            if (isExpanded) {
+                bodyEl.classList.remove('hidden');
+            } else {
+                bodyEl.classList.add('hidden');
+            }
+        }
+        if (textEl) {
+            textEl.textContent = isExpanded ? 'Hide Split' : 'Show Split';
+        }
+        if (chevronEl) {
+            chevronEl.setAttribute('data-lucide', isExpanded ? 'chevron-up' : 'chevron-down');
+        }
+
+        if (window.lucide) lucide.createIcons();
+    }
+
     // DEMO TXT EXPORT ENGINE
     function formatTxtMoney(amount) {
         const val = parseFloat(amount) || 0;
@@ -2897,7 +3069,12 @@
                 if (!s) return;
 
                 const amt = parseFloat(dayAmounts[sId]) || 0;
-                headerTotal += amt;
+                const isMinus = s.is_sales_deduction || s.payable_direction === 'minus';
+                if (isMinus) {
+                    headerTotal -= amt;
+                } else {
+                    headerTotal += amt;
+                }
                 const note = notesMap[sId] ? String(notesMap[sId]).trim() : '';
                 const dest = s.company_account_name ? `${s.company_account_name} · Direct Company` : 'Held at Shop';
 
@@ -3082,9 +3259,8 @@
         lines.push('SUMMARY');
         lines.push('================================');
         lines.push('');
-        lines.push(`Total Income: ${formatTxtMoney(res.displayTotalIncome || 0)}`);
-        lines.push(`Total Expense: -${formatTxtMoney(res.displayTotalExpense || 0)}`);
-        lines.push(`Today Net Activity: ${formatTxtMoney(res.todayNetActivity || res.netActivity || 0)}`);
+        (res.settlementSummary || []).forEach(settlement => lines.push(`${settlement.name}: ${formatTxtMoney(settlement.amount)}`));
+        lines.push(`Net Balance (${res.netBalanceLabel}): ${formatTxtMoney(res.netBalance || 0)}`);
         lines.push('');
         if (res.relationSettled && res.relationSettled !== 0) {
             const isPrev = (res.relationRule || 'previous_day_balance') === 'previous_day_balance';
@@ -3198,10 +3374,8 @@
         lines.push('3-DAY SUMMARY');
         lines.push('================================');
         lines.push('');
-        lines.push(`Total Income: ${formatTxtMoney(sumSales)}`);
-        lines.push(`Total Expense: ${formatTxtMoney(sumExpenses)}`);
-        lines.push(`Total Settlement: ${formatTxtMoney(sumSettlement)}`);
-        lines.push(`Net Activity: ${formatTxtMoney(sumSales - sumExpenses - sumSettlement)}`);
+        settlementPeriodTotals(dayResults).forEach(settlement => lines.push(`${settlement.name}: ${formatTxtMoney(settlement.amount)}`));
+        lines.push(`Net Balance: ${formatTxtMoney(sumSales - sumExpenses)}`);
         lines.push('');
         lines.push(`Direct to Company: ${formatTxtMoney(sumDirectCompany)}`);
         lines.push(`Shop-Held Collections: ${formatTxtMoney(sumShopCollections)}`);

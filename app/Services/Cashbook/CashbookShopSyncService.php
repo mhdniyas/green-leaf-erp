@@ -31,6 +31,7 @@ class CashbookShopSyncService
     public function __construct(
         private readonly InvoiceCashbookProjectionService $invoiceProjectionService,
         private readonly StaffPaymentCashbookProjectionService $staffPaymentProjectionService,
+        private readonly ShopSettlementService $settlements,
     ) {}
 
     /**
@@ -91,6 +92,7 @@ class CashbookShopSyncService
 
                 $this->syncPresetSettingsToShop($profile, $preset);
                 $this->ensureOtherEntriesForShop($erpShop->id);
+                $this->settlements->ensureDefaults($profile);
             }
         });
 

@@ -40,7 +40,7 @@ class ShopCashbookRelation extends Model
 
     public function shop(): BelongsTo
     {
-        return $this->belongsTo(Shop::class, 'shop_id', 'shop_id');
+        return $this->belongsTo(Shop::class, 'shop_id', 'id');
     }
 
     public function items(): HasMany

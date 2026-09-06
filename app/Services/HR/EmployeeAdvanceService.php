@@ -5,13 +5,19 @@ declare(strict_types=1);
 namespace App\Services\HR;
 
 use App\Models\Cashbook\CompanyAccount;
+use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAdvanceRule;
+use App\Models\JournalEntry;
+use App\Models\PayrollPayment;
 use App\Models\PayrollRunItem;
 use App\Models\Shop;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopStaffPayment;
 use App\Models\User;
+use App\Services\Cashbook\BalanceCalculator;
 use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
 use App\Services\Finance\OwnedShopAccountingService;
 use Carbon\CarbonImmutable;
@@ -30,6 +36,7 @@ class EmployeeAdvanceService
         private readonly SalaryAvailabilityService $salaryAvailabilityService,
         private readonly PayrollPaymentService $payrollPaymentService,
         private readonly StaffPaymentCashbookProjectionService $staffPaymentProjectionService,
+        private readonly BalanceCalculator $balanceCalculator,
     ) {}
 
     /**
@@ -647,5 +654,162 @@ class EmployeeAdvanceService
             ->sum('amount');
 
         return round(max(0, (float) $payable['amount'] - $paid), 2);
+    }
+
+    public function updateAdvance(
+        EmployeeAdvanceRequest $advanceRequest,
+        float $amount,
+        Carbon $requestedOn,
+        User $actor,
+        ?string $note = null
+    ): EmployeeAdvanceRequest {
+        return DB::transaction(function () use ($advanceRequest, $amount, $requestedOn, $actor, $note): EmployeeAdvanceRequest {
+            /** @var EmployeeAdvanceRequest $advanceRequest */
+            $advanceRequest = EmployeeAdvanceRequest::query()
+                ->with(['employee', 'shop', 'shopStaffPayment', 'payrollPayment'])
+                ->whereKey($advanceRequest->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $amount = round($amount, 2);
+            if ($amount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'amount' => 'The advance amount must be greater than zero.',
+                ]);
+            }
+
+            $month = $requestedOn->copy()->startOfMonth();
+
+            if ($advanceRequest->status === 'pending') {
+                $advanceRequest->fill([
+                    'requested_amount' => $amount,
+                    'requested_on' => $requestedOn->toDateString(),
+                    'payroll_month' => $month->toDateString(),
+                ]);
+                if ($note !== null) {
+                    $advanceRequest->request_note = $note;
+                }
+                $advanceRequest->save();
+            } else {
+                $advanceRequest->fill([
+                    'requested_amount' => $amount,
+                    'approved_amount' => $amount,
+                    'requested_on' => $requestedOn->toDateString(),
+                    'payroll_month' => $month->toDateString(),
+                ]);
+                if ($note !== null) {
+                    $advanceRequest->review_note = $note;
+                }
+                $advanceRequest->save();
+
+                if ($advanceRequest->shopStaffPayment instanceof ShopStaffPayment) {
+                    $payment = $advanceRequest->shopStaffPayment;
+                    $previousPaidOn = $payment->paid_on ? Carbon::parse($payment->paid_on->toDateString()) : null;
+                    $shop = $payment->shop;
+
+                    $payment->forceFill([
+                        'amount' => $amount,
+                        'paid_on' => $requestedOn->toDateString(),
+                    ]);
+                    if ($note !== null) {
+                        $payment->notes = $note;
+                    }
+                    $payment->save();
+
+                    if ($shop instanceof Shop && $shop->isOwnedAccountingEnabled()) {
+                        $this->ownedShopAccountingService->postShopStaffPaymentToCashbook($payment, (int) $actor->id);
+                        if ($previousPaidOn && $previousPaidOn->toDateString() !== $requestedOn->toDateString()) {
+                            $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate($shop, $previousPaidOn, (int) $actor->id);
+                        }
+                        $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate($shop, $requestedOn, (int) $actor->id);
+                    }
+
+                    $this->staffPaymentProjectionService->syncPayment($payment, (int) $actor->id);
+                }
+
+                if ($advanceRequest->payrollPayment instanceof PayrollPayment) {
+                    $payrollPayment = $advanceRequest->payrollPayment;
+                    $payrollPayment->forceFill([
+                        'amount' => $amount,
+                        'paid_on' => $requestedOn->toDateString(),
+                    ]);
+                    if ($note !== null) {
+                        $payrollPayment->notes = $note;
+                    }
+                    $payrollPayment->save();
+                }
+            }
+
+            return $advanceRequest->fresh(['employee', 'shop', 'shopStaffPayment.cashbookLine.entry', 'payrollPayment', 'requestedBy', 'reviewedBy']);
+        }, 3);
+    }
+
+    public function deleteAdvance(EmployeeAdvanceRequest $advanceRequest, User $actor): void
+    {
+        DB::transaction(function () use ($advanceRequest, $actor): void {
+            /** @var EmployeeAdvanceRequest $advanceRequest */
+            $advanceRequest = EmployeeAdvanceRequest::query()
+                ->with(['employee', 'shop', 'shopStaffPayment', 'payrollPayment'])
+                ->whereKey($advanceRequest->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($advanceRequest->shopStaffPayment instanceof ShopStaffPayment) {
+                $payment = $advanceRequest->shopStaffPayment;
+                $shop = $payment->shop;
+                $paidOn = $payment->paid_on ? Carbon::parse($payment->paid_on->toDateString()) : null;
+
+                $entryLines = ShopAccountingEntryLine::query()
+                    ->where('source_type', ShopStaffPayment::class)
+                    ->where('source_id', $payment->id)
+                    ->get();
+
+                foreach ($entryLines as $line) {
+                    $line->delete();
+                }
+
+                if ($shop instanceof Shop && $paidOn && $shop->isOwnedAccountingEnabled()) {
+                    $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate($shop, $paidOn, (int) $actor->id);
+                }
+
+                $ledgerTx = ShopLedgerTransaction::query()
+                    ->where('reference_type', ShopStaffPayment::class)
+                    ->where('reference_id', $payment->id)
+                    ->get();
+
+                foreach ($ledgerTx as $tx) {
+                    $txDate = $tx->business_date?->toDateString();
+                    $txShopId = $tx->shop_id;
+                    $tx->delete();
+                    if ($txShopId && $txDate) {
+                        $this->balanceCalculator->recalculate($txShopId, $txDate);
+                    }
+                }
+
+                $payment->delete();
+            }
+
+            if ($advanceRequest->payrollPayment instanceof PayrollPayment) {
+                $payrollPayment = $advanceRequest->payrollPayment;
+
+                CompanyAccountStatementEntry::query()
+                    ->where('source_type', PayrollPayment::class)
+                    ->where('source_id', $payrollPayment->id)
+                    ->update([
+                        'source_type' => null,
+                        'source_id' => null,
+                        'journal_entry_id' => null,
+                        'status' => 'unmatched',
+                    ]);
+
+                if ($payrollPayment->journal_entry_id) {
+                    JournalEntry::query()->where('id', $payrollPayment->journal_entry_id)->delete();
+                }
+
+                $payrollPayment->delete();
+            }
+
+            $advanceRequest->delete();
+        }, 3);
     }
 }

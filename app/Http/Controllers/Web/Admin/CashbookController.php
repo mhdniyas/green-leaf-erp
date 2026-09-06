@@ -90,6 +90,7 @@ use App\Services\Cashbook\ReconciliationTransactionQuery;
 use App\Services\Cashbook\ShopCollectionAutoMatchService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use App\Services\Cashbook\ShopPettyFundingService;
+use App\Services\Cashbook\ShopSettlementService;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\PurchaserFinanceService;
@@ -102,6 +103,7 @@ use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchasePriceReportingService;
 use App\Services\Purchasing\PurchaseReportingService;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
@@ -685,7 +687,12 @@ final class CashbookController extends Controller
             );
         }
 
+        $configuredSettlements = app(ShopSettlementService::class)->summary(
+            $shopId, $isDayDetail ? $businessDate : $monthStart, $isDayDetail ? $businessDate : $monthEnd
+        );
+
         return view('admin.cashbook.shops.show', compact(
+            'configuredSettlements',
             'shops',
             'company',
             'currentShop',
@@ -2757,6 +2764,8 @@ final class CashbookController extends Controller
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client');
 
+        app(ShopSettlementService::class)->ensureDefaults($currentShop);
+
         $headerGroups = ShopLedgerHeaderGroup::query()
             ->where('shop_id', $currentShop->shop_id)
             ->where('enabled', true)
@@ -2817,6 +2826,88 @@ final class CashbookController extends Controller
         return view('admin.cashbook.settings.demo', compact(
             'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settings', 'headerGroups', 'relations', 'incomeSettings', 'expenseSettings', 'transferSettings', 'allEntryTypes', 'allShopSettings', 'isFreshDemo'
         ));
+    }
+
+    public function shopDemoRealData(Request $request, int|string $shop): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+        $dateStr = Carbon::parse((string) $request->input('date', today()->toDateString()))->toDateString();
+        $daysCount = (int) $request->input('days', 1);
+        $daysCount = max(1, min(7, $daysCount));
+
+        $this->shopSyncService->syncAndGetProfiles();
+
+        $settings = ShopLedgerEntrySetting::query()
+            ->with(['entryType', 'headerGroup'])
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->get();
+
+        $dates = [];
+        $baseDate = Carbon::parse($dateStr);
+        for ($i = 0; $i < $daysCount; $i++) {
+            $dates[] = $baseDate->copy()->addDays($i)->toDateString();
+        }
+
+        $allTransactions = ShopLedgerTransaction::query()
+            ->with('entryType')
+            ->where('shop_id', $shopId)
+            ->whereIn('business_date', $dates)
+            ->where('status', 'posted')
+            ->get();
+
+        $results = [];
+
+        foreach ($dates as $d) {
+            $dayTxs = $allTransactions->filter(function ($tx) use ($d): bool {
+                $txDate = $tx->business_date;
+
+                return ($txDate instanceof CarbonInterface ? $txDate->toDateString() : (string) $txDate) === $d;
+            });
+            $amounts = [];
+            $notes = [];
+
+            foreach ($dayTxs as $tx) {
+                if ($tx->entry_type_id) {
+                    $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
+                    if ($setting) {
+                        $amounts[$setting->id] = ($amounts[$setting->id] ?? 0.0) + (float) $tx->amount;
+                        if ($tx->notes) {
+                            $notes[$setting->id] = isset($notes[$setting->id])
+                                ? $notes[$setting->id].'; '.$tx->notes
+                                : $tx->notes;
+                        }
+                    }
+                }
+            }
+
+            $summary = $this->ledgerService->dailySummary($shopId, $d);
+
+            $results[$d] = [
+                'date' => $d,
+                'formatted_date' => Carbon::parse($d)->format('d M Y'),
+                'amounts' => $amounts,
+                'notes' => $notes,
+                'productRows' => (object) [],
+                'entry_count' => count($amounts),
+                'opening_cash' => (float) ($summary->opening_petty ?? 0.0),
+                'closing_cash' => (float) ($summary->closing_petty ?? 0.0),
+                'total_income' => (float) ($summary->total_income ?? 0.0),
+                'total_expense' => (float) ($summary->total_expense ?? 0.0),
+                'net_sales' => (float) ($summary->total_sales ?? 0.0),
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'shop_id' => $shopId,
+            'shop_name' => $currentShop->name,
+            'single' => $results[$dateStr] ?? null,
+            'days' => $results,
+        ]);
     }
 
     private function getFreshDemoStructure(): array
@@ -2904,7 +2995,69 @@ final class CashbookController extends Controller
             $settings->push($setting);
         }
 
-        $relations = collect([]);
+        $balanceRelation = new ShopCashbookRelation([
+            'id' => -201,
+            'name' => 'Balance',
+            'relation_type' => 'default_balance',
+            'enabled' => true,
+            'display_order' => -2,
+        ]);
+        $balanceItems = collect();
+        foreach ($settings as $s) {
+            $isIncome = (bool) ($s->include_in_income || $s->include_in_sales);
+            $isExpense = (bool) $s->include_in_expense;
+            if ($isIncome) {
+                $item = new ShopCashbookRelationItem([
+                    'id' => $tempId--,
+                    'shop_ledger_entry_setting_id' => $s->id,
+                    'role' => 'add',
+                ]);
+                $item->setRelation('setting', $s);
+                $balanceItems->push($item);
+            } elseif ($isExpense) {
+                $item = new ShopCashbookRelationItem([
+                    'id' => $tempId--,
+                    'shop_ledger_entry_setting_id' => $s->id,
+                    'role' => 'subtract',
+                ]);
+                $item->setRelation('setting', $s);
+                $balanceItems->push($item);
+            }
+        }
+        $balanceRelation->setRelation('items', $balanceItems);
+
+        $payableRelation = new ShopCashbookRelation([
+            'id' => -202,
+            'name' => 'Company Payable',
+            'relation_type' => 'default_company_payable',
+            'enabled' => true,
+            'display_order' => -1,
+        ]);
+        $payableItems = collect();
+        foreach ($settings as $s) {
+            $isIncome = (bool) ($s->include_in_income || $s->include_in_sales);
+            $isExpense = (bool) $s->include_in_expense;
+            if ($isIncome) {
+                $item = new ShopCashbookRelationItem([
+                    'id' => $tempId--,
+                    'shop_ledger_entry_setting_id' => $s->id,
+                    'role' => 'add',
+                ]);
+                $item->setRelation('setting', $s);
+                $payableItems->push($item);
+            } elseif ($isExpense) {
+                $item = new ShopCashbookRelationItem([
+                    'id' => $tempId--,
+                    'shop_ledger_entry_setting_id' => $s->id,
+                    'role' => 'subtract',
+                ]);
+                $item->setRelation('setting', $s);
+                $payableItems->push($item);
+            }
+        }
+        $payableRelation->setRelation('items', $payableItems);
+
+        $relations = collect([$balanceRelation, $payableRelation]);
 
         return [
             'headerGroups' => $headerGroups,

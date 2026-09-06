@@ -17,6 +17,7 @@ use App\Http\Requests\Web\Admin\StorePayrollPaymentRequest;
 use App\Http\Requests\Web\Admin\StorePayrollRunRequest;
 use App\Http\Requests\Web\Admin\StoreShopEmployeeAssignmentRequest;
 use App\Http\Requests\Web\Admin\StoreShopStaffPaymentRequest;
+use App\Http\Requests\Web\Admin\UpdateEmployeeAdvanceRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryLeaveRulesRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeRequest;
@@ -1395,6 +1396,38 @@ class StaffManagementController extends Controller
             $reviewedAdvance->status === 'approved' ? 'success' : 'warning',
             $reviewedAdvance->status === 'approved' ? 'Advance approved and paid.' : 'Advance request rejected.',
         );
+    }
+
+    public function updateEmployeeAdvance(UpdateEmployeeAdvanceRequest $request, EmployeeAdvanceRequest $advanceRequest): RedirectResponse
+    {
+        $requestedOn = Carbon::parse((string) $request->validated('requested_on'));
+        $amount = (float) $request->validated('amount');
+        $note = $request->validated('note');
+
+        $updatedAdvance = $this->employeeAdvanceService->updateAdvance(
+            $advanceRequest,
+            $amount,
+            $requestedOn,
+            $request->user(),
+            $note,
+        );
+
+        return redirect()->route('admin.staff.advance-payments.index', [
+            'payroll_month' => $updatedAdvance->payroll_month->format('Y-m'),
+        ])->with('success', 'Advance payment details updated successfully.');
+    }
+
+    public function destroyEmployeeAdvance(Request $request, EmployeeAdvanceRequest $advanceRequest): RedirectResponse
+    {
+        Gate::authorize('create', PayrollRun::class);
+
+        $payrollMonth = $advanceRequest->payroll_month?->format('Y-m') ?? today()->format('Y-m');
+
+        $this->employeeAdvanceService->deleteAdvance($advanceRequest, $request->user());
+
+        return redirect()->route('admin.staff.advance-payments.index', [
+            'payroll_month' => $payrollMonth,
+        ])->with('success', 'Advance request deleted successfully.');
     }
 
     public function storeContractWorkerPayment(StoreContractWorkerPaymentRequest $request): RedirectResponse

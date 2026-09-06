@@ -522,48 +522,7 @@
             </div>
         </div>
 
-        <!-- Month KPI Summary Cards -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <div class="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Month Collections</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-slate-900 mt-1">
-                    ₹{{ number_format($monthlyData['summary']['total_collections'], 2) }}
-                </div>
-                <span class="text-[10px] text-slate-400 font-bold mt-1 block">Audit / total shop collections</span>
-            </div>
-
-            <div class="p-5 rounded-3xl bg-white border border-indigo-200 shadow-sm">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-indigo-700">Company Payable</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-indigo-800 mt-1">
-                    ₹{{ number_format($monthlyData['summary']['company_payable'], 2) }}
-                </div>
-                <span class="text-[10px] text-indigo-600 font-bold mt-1 block">Configured payable collections</span>
-            </div>
-
-            <div class="p-5 rounded-3xl bg-white border border-emerald-200 shadow-sm">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Company Received</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-emerald-800 mt-1">
-                    ₹{{ number_format($monthlyData['summary']['company_received'], 2) }}
-                </div>
-                <span class="text-[10px] text-emerald-600 font-bold mt-1 block">Verified &amp; reconciled</span>
-            </div>
-
-            <div class="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-sm">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-400">Still To Receive</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-amber-400 mt-1">
-                    ₹{{ number_format($monthlyData['summary']['still_to_receive'], 2) }}
-                </div>
-                <span class="text-[10px] text-slate-400 font-bold mt-1 block">Awaiting receipt from shop</span>
-            </div>
-
-            <div class="p-5 rounded-3xl bg-white border border-purple-200 shadow-sm col-span-2 sm:col-span-1">
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-purple-700">Non-Payable Audit</span>
-                <div class="text-xl sm:text-2xl font-black font-mono text-purple-800 mt-1">
-                    ₹{{ number_format($monthlyData['summary']['non_payable_audit'], 2) }}
-                </div>
-                <span class="text-[10px] text-purple-600 font-bold mt-1 block">CP &amp; secondary audit entries</span>
-            </div>
-        </div>
+        @include('admin.cashbook.settings.settlements.summary')
 
         <!-- Daily Summary Rows Table/List -->
         <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
@@ -962,6 +921,7 @@
         </div>
 
     @else
+        @include('admin.cashbook.settings.settlements.summary')
         <!-- ══════════════════════════════════════════════════════════════════ -->
         <!-- ── 1. PAGE HEADER & DATE NAVIGATION ────────────────────────── -->
         <!-- ══════════════════════════════════════════════════════════════════ -->
