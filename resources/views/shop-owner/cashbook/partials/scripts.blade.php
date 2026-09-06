@@ -994,6 +994,19 @@
         }
     }
 
+    let replacingProductId = null;
+
+    function changeOwnerProductRow(hId, oldProductId) {
+        replacingProductId = oldProductId;
+        const h = ownerHeadersData.find(header => String(header.id) === String(hId));
+        openOwnerProductModal(hId, h ? h.name : 'Header');
+        const titleEl = document.getElementById('owner-product-modal-title');
+        if (titleEl) {
+            titleEl.innerHTML = `<i data-lucide="arrow-left-right" class="h-4 w-4 text-emerald-600"></i> <span>Change Product for ${escapeHtml(h ? h.name : 'Header')}</span>`;
+        }
+        if (window.lucide) lucide.createIcons();
+    }
+
     function selectOwnerProduct(productId, productName, sku, defaultUnit, unitsJson) {
         const hId = activeProductHeaderId;
         if (!hId) return;
@@ -1010,17 +1023,41 @@
         const unit = defaultUnit || (units.length > 0 ? units[0].unit : 'unit');
 
         productRowsState[hId] = productRowsState[hId] || [];
-        if (!productRowsState[hId].some(r => r.productId === productId)) {
-            productRowsState[hId].push({
-                productId,
-                productName,
-                sku,
-                qty: '',
-                unit: unit,
-                units: units,
-                amount: 0,
-                avgPrice: null
-            });
+
+        if (replacingProductId !== null) {
+            const idx = productRowsState[hId].findIndex(r => r.productId === replacingProductId);
+            if (idx !== -1) {
+                const oldRow = productRowsState[hId][idx];
+                productRowsState[hId][idx] = {
+                    productId,
+                    productName,
+                    sku,
+                    qty: oldRow.qty || '',
+                    unit: unit,
+                    units: units,
+                    amount: oldRow.amount || 0,
+                    avgPrice: oldRow.avgPrice || null
+                };
+                const qty = parseFloat(oldRow.qty);
+                const amt = parseFloat(oldRow.amount) || 0;
+                if (!isNaN(qty) && qty > 0 && amt > 0) {
+                    productRowsState[hId][idx].avgPrice = Math.round((amt / qty) * 100) / 100;
+                }
+            }
+            replacingProductId = null;
+        } else {
+            if (!productRowsState[hId].some(r => r.productId === productId)) {
+                productRowsState[hId].push({
+                    productId,
+                    productName,
+                    sku,
+                    qty: '',
+                    unit: unit,
+                    units: units,
+                    amount: 0,
+                    avgPrice: null
+                });
+            }
         }
         closeOwnerProductModal();
         renderOwnerProductRows(hId);
@@ -1067,9 +1104,15 @@
                                 ${escapeHtml(avgStr)}
                             </span>
                         </div>
-                        <button type="button" onclick="removeOwnerProductRow('${hId}', ${r.productId})" class="w-6 h-6 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition shrink-0 cursor-pointer" title="Remove product">
-                            <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
-                        </button>
+                        <div class="flex items-center gap-1 shrink-0">
+                            <button type="button" onclick="changeOwnerProductRow('${hId}', ${r.productId})" class="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 text-[10px] font-extrabold transition cursor-pointer" title="Change to another product">
+                                <i data-lucide="arrow-left-right" class="h-3 w-3 text-slate-500"></i>
+                                <span>Change</span>
+                            </button>
+                            <button type="button" onclick="removeOwnerProductRow('${hId}', ${r.productId})" class="w-6 h-6 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition shrink-0 cursor-pointer" title="Remove product">
+                                <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                            </button>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-12 gap-2 items-center">
