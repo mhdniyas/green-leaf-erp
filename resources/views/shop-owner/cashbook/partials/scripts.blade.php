@@ -1037,9 +1037,10 @@
         recalculateOwnerCashbook();
     }
 
-    function formatCurrency(amount) {
+    function formatCurrency(amount, preserveSign = true) {
         const val = parseFloat(amount) || 0;
-        return '₹' + Math.abs(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const prefix = (preserveSign && val < -0.0001) ? '−' : '';
+        return prefix + '₹' + Math.abs(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     function escapeHtml(str) {
