@@ -400,6 +400,10 @@ class ShopOwnerStaffController extends Controller
 
         abort_unless($request->user()->ownedShopAssignments()->where('shop_id', $shop->id)->exists(), 403, 'This shop is outside your scope.');
 
+        $payrollMonth = $request->filled('payroll_month')
+            ? Carbon::createFromFormat('Y-m', $request->string('payroll_month')->toString())->startOfMonth()
+            : null;
+
         $this->employeeAdvanceService->recordShopSalaryPayment(
             $employee,
             $shop,
@@ -409,10 +413,14 @@ class ShopOwnerStaffController extends Controller
             $request->user(),
             $request->validated('notes'),
             $request->validated('request_uuid'),
+            $payrollMonth,
         );
 
-        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'salary'])
-            ->with('success', 'Staff salary payment recorded.');
+        return redirect()->route('shop-owner.staff.index', [
+            'shop' => $shop->code,
+            'tab' => 'salary',
+            'month' => $request->filled('payroll_month') ? $request->string('payroll_month')->toString() : null,
+        ])->with('success', 'Staff salary payment recorded.');
     }
 
     public function storeAdvanceRequest(StoreEmployeeAdvanceRequest $request): RedirectResponse

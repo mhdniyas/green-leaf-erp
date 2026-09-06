@@ -79,6 +79,7 @@
         <form method="POST" action="{{ route('shop-owner.staff.salary-payments.store') }}" id="salary-payment-form" class="space-y-4 {{ $defaultMode === 'advance' ? 'hidden' : '' }}">
             @csrf
             <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
+            <input type="hidden" name="payroll_month" value="{{ $calendarMonth->format('Y-m') }}">
             <input type="hidden" name="request_uuid" id="sal_request_uuid" value="{{ old('request_uuid', (string) \Illuminate\Support\Str::uuid()) }}">
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">

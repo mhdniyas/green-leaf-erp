@@ -172,9 +172,22 @@ class EmployeeAdvanceService
         }
     }
 
-    public function recordShopSalaryPayment(Employee $employee, Shop $shop, float $amount, string $fundSource, Carbon $paidOn, User $actor, ?string $notes = null, ?string $requestUuid = null): ShopStaffPayment
-    {
-        if ($paidOn->day !== $paidOn->daysInMonth) {
+    public function recordShopSalaryPayment(
+        Employee $employee,
+        Shop $shop,
+        float $amount,
+        string $fundSource,
+        Carbon $paidOn,
+        User $actor,
+        ?string $notes = null,
+        ?string $requestUuid = null,
+        ?Carbon $payrollMonth = null
+    ): ShopStaffPayment {
+        $effectivePayrollMonth = $payrollMonth ? $payrollMonth->copy()->startOfMonth() : $paidOn->copy()->startOfMonth();
+        $payrollMonthEnd = $effectivePayrollMonth->copy()->endOfMonth()->startOfDay();
+
+        // Salary payment can only be recorded on or after the last day of the target payroll month
+        if ($paidOn->copy()->startOfDay()->lt($payrollMonthEnd)) {
             throw ValidationException::withMessages([
                 'paid_on' => 'Salary payments can only be recorded on the last day of the month or later. Use an advance payment for earlier dates.',
             ]);
@@ -182,7 +195,7 @@ class EmployeeAdvanceService
 
         $this->ensureShopEmployee($employee, $shop, $paidOn);
 
-        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $paidOn, $actor, $notes, $requestUuid): ShopStaffPayment {
+        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $paidOn, $actor, $notes, $requestUuid, $effectivePayrollMonth): ShopStaffPayment {
             Employee::query()->where('id', $employee->id)->lockForUpdate()->first();
 
             if ($requestUuid !== null && trim($requestUuid) !== '') {
@@ -194,21 +207,21 @@ class EmployeeAdvanceService
                 }
             }
 
-            $month = $paidOn->copy()->startOfMonth();
+            $month = $effectivePayrollMonth->copy()->startOfMonth();
             ShopStaffPayment::query()
                 ->where('employee_id', $employee->id)
                 ->whereDate('paid_on', '>=', $month->toDateString())
                 ->lockForUpdate()
                 ->get();
 
-            $payrollMonth = CarbonImmutable::parse($month->toDateString());
+            $payrollMonthImmutable = CarbonImmutable::parse($month->toDateString());
             $calculationDate = CarbonImmutable::parse($paidOn->toDateString());
-            $recoveryDebt = $this->resolveEmployeeRecoveryDebt($employee, $payrollMonth);
+            $recoveryDebt = $this->resolveEmployeeRecoveryDebt($employee, $payrollMonthImmutable);
             $shopAllocatedRecovery = ($recoveryDebt !== null && $recoveryDebt <= 0.0001) ? 0.0 : null;
 
             $availability = $this->salaryAvailabilityService->calculate(
                 $employee,
-                $payrollMonth,
+                $payrollMonthImmutable,
                 $calculationDate,
                 (int) $shop->id,
                 openingRecovery: $recoveryDebt,

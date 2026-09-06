@@ -32,6 +32,7 @@ class StoreShopStaffSalaryPaymentRequest extends FormRequest
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'paid_on' => ['required', 'date'],
+            'payroll_month' => ['nullable', 'string', 'max:7'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'fund_source' => ['required', 'string', Rule::in(['petty_cash', 'sales_income'])],
             'notes' => ['nullable', 'string', 'max:1000'],
