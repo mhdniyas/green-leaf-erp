@@ -220,11 +220,12 @@
         const header = headers.find(h => String(h.id) === activeHeaderId);
         if (!header) return;
 
+        const isExpense = (header.type || '').toLowerCase() === 'expense';
         let total = 0;
         (header.setting_ids || []).forEach(sId => {
             const amt = parseFloat(activeDayData[sId]) || 0;
             const s = settings.find(item => item.id === sId);
-            const isMinus = s && (s.is_sales_deduction || s.payable_direction === 'minus');
+            const isMinus = isExpense || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
             if (isMinus) {
                 total -= amt;
             } else {
@@ -234,11 +235,19 @@
 
         const pRows = productRowsState[activeHeaderId] || [];
         pRows.forEach(pr => {
-            total += parseFloat(pr.amount) || 0;
+            const pAmt = parseFloat(pr.amount) || 0;
+            if (isExpense) {
+                total -= pAmt;
+            } else {
+                total += pAmt;
+            }
         });
 
         const subEl = document.getElementById('entry-sheet-subtotal');
-        if (subEl) subEl.textContent = formatCurrency(total);
+        if (subEl) {
+            subEl.textContent = formatCurrency(total);
+            subEl.className = 'font-mono text-xs font-black px-2.5 py-1 rounded-full border ' + (total < 0 || isExpense ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-950 border-slate-200/60');
+        }
     }
 
     function toggleNoteInput(settingId) {
@@ -329,13 +338,15 @@
         const headerActiveCounts = {};
 
         headers.forEach(h => {
+            const isIncome = (h.type || '').toLowerCase() === 'income';
+            const isExpenseHeader = !isIncome;
             let headerTotal = 0;
             let headerCount = 0;
 
             (h.setting_ids || []).forEach(sId => {
                 const amt = parseFloat(activeDayData[sId]) || 0;
                 const s = settings.find(item => item.id === sId);
-                const isMinus = s && (s.is_sales_deduction || s.payable_direction === 'minus');
+                const isMinus = isExpenseHeader || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
 
                 if (isMinus) {
                     headerTotal -= amt;
@@ -375,12 +386,19 @@
             pRows.forEach(pr => {
                 const pAmt = parseFloat(pr.amount) || 0;
                 if (pAmt > 0) {
-                    headerTotal += pAmt;
+                    if (isExpenseHeader) {
+                        headerTotal -= pAmt;
+                    } else {
+                        headerTotal += pAmt;
+                    }
                     headerCount++;
                     activeEntryCount++;
-                    if (h.type === 'expense') {
+                    if (isExpenseHeader) {
                         totalExpense += pAmt;
                         expensesPaidFromShopCash += pAmt;
+                    } else {
+                        totalIncome += pAmt;
+                        cashCollectedAtShop += pAmt;
                     }
                 }
             });
@@ -534,7 +552,7 @@
         const orderedHeaders = [...incomeHeaders, ...expenseHeaders];
 
         container.innerHTML = orderedHeaders.map(h => {
-            const isIncome = h.type === 'income';
+            const isIncome = (h.type || '').toLowerCase() === 'income';
             let hTotal = 0;
 
             const childItems = [];
@@ -543,7 +561,7 @@
                 const s = settings.find(item => item.id === sId);
                 if (!s) return;
 
-                const isMinus = s.is_sales_deduction || s.payable_direction === 'minus';
+                const isMinus = !isIncome || s.is_sales_deduction || s.payable_direction === 'minus';
                 if (isMinus) {
                     hTotal -= amt;
                 } else {
@@ -558,7 +576,7 @@
                         <div class="flex items-center justify-between py-1 text-xs text-slate-600">
                             <span class="truncate pr-2">${escapeHtml(name)}</span>
                             <span class="font-mono ${signClass} shrink-0">
-                                ${signPrefix} ${formatCurrency(amt)}
+                                ${signPrefix} ${formatCurrency(amt, false)}
                             </span>
                         </div>
                     `);
@@ -570,22 +588,27 @@
                 const pAmt = parseFloat(pr.amount) || 0;
                 const pQty = parseFloat(pr.qty);
                 const hasQty = !isNaN(pQty) && pQty > 0;
-                hTotal += pAmt;
+                if (!isIncome) {
+                    hTotal -= pAmt;
+                } else {
+                    hTotal += pAmt;
+                }
                 if (pAmt > 0 || hasQty) {
                     const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
                     const detailStr = hasQty ? ` <span class="text-[10px] font-semibold text-slate-400">(${pQty} ${escapeHtml(pr.unit || '')}${avgStr})</span>` : '';
+                    const itemSign = isIncome ? '+ ' : '− ';
+                    const itemClass = isIncome ? 'text-slate-900' : 'text-rose-600 font-bold';
                     childItems.push(`
                         <div class="flex items-center justify-between py-1 text-xs text-slate-600">
                             <span class="truncate pr-2">${escapeHtml(pr.productName)}${detailStr}</span>
-                            <span class="font-mono font-bold text-slate-900 shrink-0">+ ${formatCurrency(pAmt)}</span>
+                            <span class="font-mono font-bold ${itemClass} shrink-0">${itemSign}${formatCurrency(pAmt, false)}</span>
                         </div>
                     `);
                 }
             });
 
-            const signPrefix = isIncome ? '' : '−';
-            const signTextClass = isIncome ? 'text-emerald-700' : 'text-rose-700';
-            const formattedTotal = `${signPrefix}${formatCurrency(Math.abs(hTotal))}`;
+            const signTextClass = isIncome ? 'text-emerald-700' : 'text-rose-700 font-black';
+            const formattedTotal = formatCurrency(hTotal);
 
             const childItemsHtml = childItems.length > 0
                 ? childItems.join('')
@@ -638,7 +661,7 @@
         const orderedHeaders = [...incomeHeaders, ...expenseHeaders];
 
         container.innerHTML = orderedHeaders.map(h => {
-            const isIncome = h.type === 'income';
+            const isIncome = (h.type || '').toLowerCase() === 'income';
             let hTotal = 0;
 
             const childLines = (h.setting_ids || []).map(sId => {
@@ -646,7 +669,7 @@
                 const s = settings.find(item => item.id === sId);
                 if (!s) return '';
 
-                const isMinus = s.is_sales_deduction || s.payable_direction === 'minus';
+                const isMinus = !isIncome || s.is_sales_deduction || s.payable_direction === 'minus';
                 if (isMinus) {
                     hTotal -= amt;
                 } else {
@@ -679,7 +702,7 @@
                             ${note ? `<span class="text-[10px] text-emerald-600 font-medium block leading-tight mt-0.5 ml-5 truncate">${escapeHtml(note)}</span>` : ''}
                         </div>
                         <span class="font-mono text-xs font-black shrink-0 ${amt > 0 ? (isMinus ? 'text-rose-600' : 'text-slate-900') : 'text-slate-400'}">
-                            ${amt > 0 ? `<span class="${signTextClass} mr-0.5 font-bold">${signPrefix}</span>${formatCurrency(amt)}` : formatCurrency(amt)}
+                            ${amt > 0 ? `<span class="${signTextClass} mr-0.5 font-bold">${signPrefix}</span>${formatCurrency(amt, false)}` : formatCurrency(amt, false)}
                         </span>
                     </div>
                 `;
@@ -690,20 +713,31 @@
                 const pAmt = parseFloat(pr.amount) || 0;
                 const pQty = parseFloat(pr.qty);
                 const hasQty = !isNaN(pQty) && pQty > 0;
-                hTotal += pAmt;
+                if (!isIncome) {
+                    hTotal -= pAmt;
+                } else {
+                    hTotal += pAmt;
+                }
                 const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
                 const qtySubtitle = hasQty ? `${pQty} ${escapeHtml(pr.unit || '')}${avgStr}` : (pr.sku || '');
+                const itemBadge = isIncome
+                    ? '<span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>'
+                    : '<span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-rose-100 text-rose-700 shrink-0">−</span>';
+                const signSpan = isIncome
+                    ? `<span class="text-emerald-700 mr-0.5 font-bold">+</span>`
+                    : `<span class="text-rose-600 mr-0.5 font-bold">−</span>`;
+                const amtTextClass = isIncome ? 'text-slate-900' : 'text-rose-600 font-bold';
                 return `
                     <div class="flex items-start justify-between gap-2 py-1">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5">
-                                <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>
+                                ${itemBadge}
                                 <span class="text-xs font-bold text-slate-800 leading-tight truncate">${escapeHtml(pr.productName)}</span>
                             </div>
                             ${qtySubtitle ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 ml-5 truncate">${escapeHtml(qtySubtitle)}</span>` : ''}
                         </div>
-                        <span class="font-mono text-xs font-black text-slate-900 shrink-0 ${pAmt > 0 ? '' : 'text-slate-400'}">
-                            ${pAmt > 0 ? `<span class="text-emerald-700 mr-0.5 font-bold">+</span>${formatCurrency(pAmt)}` : formatCurrency(pAmt)}
+                        <span class="font-mono text-xs font-black shrink-0 ${pAmt > 0 ? amtTextClass : 'text-slate-400'}">
+                            ${pAmt > 0 ? `${signSpan}${formatCurrency(pAmt, false)}` : formatCurrency(pAmt, false)}
                         </span>
                     </div>
                 `;
@@ -712,6 +746,9 @@
             const noProductsPrompt = (h.product_tagging_enabled && pRows.length === 0 && (h.setting_ids || []).length === 0)
                 ? `<div class="py-1 text-[11px] text-slate-400 italic">No products recorded yet (tap to add)</div>`
                 : '';
+
+            const headerTotalFormatted = formatCurrency(hTotal);
+            const headerTotalClass = isIncome ? 'text-emerald-700' : 'text-rose-700 font-black';
 
             return `
                 <div onclick='selectHeaderForEntry(${JSON.stringify(h.id)})'
@@ -723,8 +760,8 @@
                             <span class="text-xs sm:text-sm font-black uppercase text-slate-900 group-hover:text-emerald-700 transition truncate">${escapeHtml(h.name)}</span>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
-                            <span class="font-mono text-xs sm:text-sm font-black ${isIncome ? 'text-emerald-700' : 'text-slate-900'}">
-                                ${formatCurrency(hTotal)}
+                            <span class="font-mono text-xs sm:text-sm font-black ${headerTotalClass}">
+                                ${headerTotalFormatted}
                             </span>
                             <span class="inline-flex items-center text-[10px] font-bold text-slate-400 group-hover:text-emerald-700 transition">
                                 <span>Edit</span>
@@ -741,7 +778,7 @@
 
                     <div class="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
                         <span>Total ${escapeHtml(h.name)}</span>
-                        <span class="font-mono font-bold text-slate-900">${formatCurrency(hTotal)}</span>
+                        <span class="font-mono font-bold ${headerTotalClass}">${headerTotalFormatted}</span>
                     </div>
                 </div>
             `;
@@ -753,6 +790,7 @@
         if (!container) return;
 
         const headerSections = headers.map(h => {
+            const isIncome = (h.type || '').toLowerCase() === 'income';
             let hTotal = 0;
 
             const settingLines = (h.setting_ids || []).map(sId => {
@@ -760,7 +798,7 @@
                 if (amt <= 0) return '';
                 const s = settings.find(item => item.id === sId);
                 const name = s ? s.name : 'Item';
-                const isMinus = s && (s.is_sales_deduction || s.payable_direction === 'minus');
+                const isMinus = !isIncome || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
 
                 if (isMinus) {
                     hTotal -= amt;
@@ -777,7 +815,7 @@
                             <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black ${signBadgeClass} shrink-0">${signPrefix}</span>
                             <span class="truncate">${escapeHtml(name)}</span>
                         </div>
-                        <span class="font-mono font-bold ${isMinus ? 'text-rose-600' : 'text-slate-900'}">${isMinus ? '− ' : '+ '}${formatCurrency(amt)}</span>
+                        <span class="font-mono font-bold ${isMinus ? 'text-rose-600' : 'text-slate-900'}">${isMinus ? '− ' : '+ '}${formatCurrency(amt, false)}</span>
                     </div>
                 `;
             }).filter(Boolean).join('');
@@ -788,16 +826,25 @@
                 const pQty = parseFloat(pr.qty);
                 const hasQty = !isNaN(pQty) && pQty > 0;
                 if (pAmt <= 0 && !hasQty) return '';
-                hTotal += pAmt;
+                if (!isIncome) {
+                    hTotal -= pAmt;
+                } else {
+                    hTotal += pAmt;
+                }
                 const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
                 const qtySubtitle = hasQty ? ` <span class="text-[10px] text-slate-400 font-normal">(${pQty} ${escapeHtml(pr.unit || '')}${avgStr})</span>` : '';
+                const itemBadge = isIncome
+                    ? '<span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>'
+                    : '<span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-rose-100 text-rose-700 shrink-0">−</span>';
+                const itemSign = isIncome ? '+ ' : '− ';
+                const itemClass = isIncome ? 'text-slate-900' : 'text-rose-600 font-bold';
                 return `
                     <div class="flex justify-between py-1 text-slate-700 font-medium">
                         <div class="flex items-center gap-1.5 min-w-0">
-                            <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>
+                            ${itemBadge}
                             <span class="truncate">${escapeHtml(pr.productName)}${qtySubtitle}</span>
                         </div>
-                        <span class="font-mono font-bold text-slate-900">+ ${formatCurrency(pAmt)}</span>
+                        <span class="font-mono font-bold ${itemClass}">${itemSign}${formatCurrency(pAmt, false)}</span>
                     </div>
                 `;
             }).filter(Boolean).join('');
@@ -806,11 +853,14 @@
                 return '';
             }
 
+            const headerTotalFormatted = formatCurrency(hTotal);
+            const headerTotalClass = isIncome ? 'text-slate-900' : 'text-rose-700 font-black';
+
             return `
                 <div class="space-y-2">
                     <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
                         <span class="text-xs font-black uppercase tracking-wide text-slate-900">${escapeHtml(h.name)}</span>
-                        <span class="font-mono text-xs font-black text-slate-900">${formatCurrency(hTotal)}</span>
+                        <span class="font-mono text-xs font-black ${headerTotalClass}">${headerTotalFormatted}</span>
                     </div>
                     <div class="space-y-0.5 text-xs">
                         ${settingLines}
@@ -818,7 +868,7 @@
                     </div>
                     <div class="flex justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
                         <span>Subtotal</span>
-                        <span class="font-mono font-bold text-slate-900">${formatCurrency(hTotal)}</span>
+                        <span class="font-mono font-bold ${headerTotalClass}">${headerTotalFormatted}</span>
                     </div>
                 </div>
             `;
@@ -1077,6 +1127,9 @@
         const container = document.getElementById('product-rows-container-' + hId);
         if (!container) return;
 
+        const header = headers.find(h => String(h.id) === String(hId));
+        const isExpense = header && (header.type || '').toLowerCase() === 'expense';
+
         const rows = productRowsState[hId] || [];
         if (rows.length === 0) {
             container.innerHTML = '';
@@ -1089,14 +1142,22 @@
             const hasAvg = !isNaN(qty) && qty > 0 && amt > 0;
             const avgStr = hasAvg ? `Avg: ₹${(amt / qty).toFixed(2)} / ${escapeHtml(r.unit || 'unit')}` : (r.sku || 'Tagged Item');
             const avgClass = hasAvg
-                ? 'inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-800'
+                ? (isExpense
+                    ? 'inline-flex items-center gap-1 rounded-md bg-rose-50 border border-rose-200 px-1.5 py-0.5 text-[10px] font-black text-rose-800'
+                    : 'inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-800')
                 : 'text-[10px] text-slate-400 font-semibold truncate';
 
             const unitsList = r.units || [];
             const hasMultipleUnits = unitsList.length > 1;
 
+            const signPrefixLabel = isExpense ? '− ₹' : '₹';
+            const signPrefixClass = isExpense ? 'text-rose-500 font-black' : 'text-slate-400 font-bold';
+            const amountInputClass = isExpense
+                ? 'h-8 w-full rounded-lg border border-rose-200 bg-rose-50/30 pl-7 pr-2 text-right text-xs sm:text-sm font-black font-mono text-rose-950 focus:bg-white focus:border-rose-500 focus:outline-none transition'
+                : 'h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-5 pr-2 text-right text-xs sm:text-sm font-black font-mono text-slate-950 focus:bg-white focus:border-emerald-500 focus:outline-none transition';
+
             return `
-                <div class="p-2.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs space-y-2" data-product-row="${r.productId}">
+                <div class="p-2.5 rounded-xl bg-white border ${isExpense ? 'border-rose-100/90' : 'border-slate-200/90'} shadow-2xs space-y-2" data-product-row="${r.productId}">
                     <div class="flex items-center justify-between gap-2">
                         <div class="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
                             <span class="text-xs font-bold text-slate-900 truncate">${escapeHtml(r.productName)}</span>
@@ -1137,12 +1198,12 @@
                         </div>
 
                         <div class="col-span-6 relative">
-                            <span class="absolute inset-y-0 left-0 pl-2 flex items-center text-slate-400 font-bold text-xs pointer-events-none">₹</span>
+                            <span class="absolute inset-y-0 left-0 pl-2 flex items-center ${signPrefixClass} text-xs pointer-events-none">${signPrefixLabel}</span>
                             <input type="number" inputmode="decimal" min="0" step="0.01"
                                    value="${r.amount || ''}"
                                    oninput="onOwnerProductAmountChange('${hId}', ${r.productId}, this)"
                                    placeholder="0.00"
-                                   class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-5 pr-2 text-right text-xs sm:text-sm font-black font-mono text-slate-950 focus:bg-white focus:border-emerald-500 focus:outline-none transition">
+                                   class="${amountInputClass}">
                         </div>
                     </div>
                 </div>
@@ -1202,11 +1263,15 @@
     function updateProductAvgPriceBadge(hId, productId, row) {
         const badgeEl = document.getElementById(`avg-price-badge-${hId}-${productId}`);
         if (!badgeEl) return;
+        const header = headers.find(h => String(h.id) === String(hId));
+        const isExpense = header && (header.type || '').toLowerCase() === 'expense';
         const qty = parseFloat(row.qty);
         const amt = parseFloat(row.amount) || 0;
         if (!isNaN(qty) && qty > 0 && amt > 0) {
             const avg = (amt / qty).toFixed(2);
-            badgeEl.className = 'inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-800';
+            badgeEl.className = isExpense
+                ? 'inline-flex items-center gap-1 rounded-md bg-rose-50 border border-rose-200 px-1.5 py-0.5 text-[10px] font-black text-rose-800'
+                : 'inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-800';
             badgeEl.textContent = `Avg: ₹${avg} / ${row.unit || 'unit'}`;
         } else {
             badgeEl.className = 'text-[10px] text-slate-400 font-semibold truncate';
