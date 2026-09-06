@@ -118,22 +118,25 @@
             </div>
 
             {{-- Employee Summary Card --}}
-            <div id="salary-summary-card" class="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2.5" data-salary-summary>
-                <div class="flex items-center justify-between text-xs font-bold text-slate-600">
-                    <span>Select an employee to see current salary remaining balance.</span>
+            <div id="salary-summary-card" class="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5" data-salary-summary>
+                <div class="py-2 text-center text-xs font-bold text-slate-500">
+                    <span>Select an employee to view monthly salary balance.</span>
                 </div>
             </div>
 
-            {{-- Amount & Helper --}}
+            {{-- Amount to Pay --}}
             <div>
                 <div class="flex items-center justify-between mb-1">
-                    <label for="sal_amount" class="block text-xs font-black uppercase tracking-wider text-slate-700">Salary Amount (₹)</label>
+                    <label for="sal_amount" class="block text-xs font-black uppercase tracking-wider text-slate-700">Amount to Pay (₹)</label>
                     <span id="sal_amount_helper" class="text-[11px] font-bold text-slate-500"></span>
                 </div>
-                <input type="number" step="0.01" min="0.01" name="amount" id="sal_amount"
-                       value="{{ old('amount') }}" placeholder="0.00"
-                       class="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600"
-                       data-salary-amount required>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-bold text-sm pointer-events-none">₹</span>
+                    <input type="number" step="0.01" min="0.01" name="amount" id="sal_amount"
+                           value="{{ old('amount') }}" placeholder="0.00"
+                           class="h-10 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-sm font-black font-mono text-slate-900 focus:border-emerald-600 focus:ring-emerald-600"
+                           data-salary-amount required>
+                </div>
                 @error('amount')
                     <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p>
                 @enderror
@@ -172,7 +175,7 @@
             <div>
                 <label for="sal_notes" class="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">Note / Description (Optional)</label>
                 <input type="text" name="notes" id="sal_notes" value="{{ old('notes') }}"
-                       placeholder="e.g. September salary payout"
+                       placeholder="e.g. August salary payout"
                        class="h-10 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600">
                 @error('notes')
                     <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p>
@@ -181,7 +184,7 @@
 
             <button type="submit" id="salary-submit-btn"
                     class="h-11 w-full rounded-xl bg-emerald-600 text-xs font-black uppercase tracking-wider text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition cursor-pointer">
-                <span>Record Salary Paid</span>
+                <span>Pay Salary</span>
             </button>
         </form>
 
@@ -227,29 +230,32 @@
             </div>
 
             {{-- Employee Summary Card --}}
-            <div id="advance-summary-card" class="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2.5" data-advance-summary>
-                <div class="flex items-center justify-between text-xs font-bold text-slate-600">
-                    <span>Select an employee to see availability & attendance breakdown.</span>
+            <div id="advance-summary-card" class="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5" data-advance-summary>
+                <div class="py-2 text-center text-xs font-bold text-slate-500">
+                    <span>Select an employee to view accrued salary and advance limits.</span>
                 </div>
             </div>
 
-            {{-- Amount & Helper --}}
+            {{-- Advance Amount --}}
             <div>
                 <div class="flex items-center justify-between mb-1">
-                    <label for="adv_amount" class="block text-xs font-black uppercase tracking-wider text-slate-700">Requested Amount (₹)</label>
+                    <label for="adv_amount" class="block text-xs font-black uppercase tracking-wider text-slate-700">Advance Amount (₹)</label>
                     <span id="adv_amount_helper" class="text-[11px] font-bold text-slate-500"></span>
                 </div>
-                <input type="number" step="0.01" min="0.01" name="amount" id="adv_amount"
-                       value="{{ old('amount') }}" placeholder="0.00"
-                       class="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600"
-                       data-advance-amount required>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-bold text-sm pointer-events-none">₹</span>
+                    <input type="number" step="0.01" min="0.01" name="amount" id="adv_amount"
+                           value="{{ old('amount') }}" placeholder="0.00"
+                           class="h-10 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-sm font-black font-mono text-slate-900 focus:border-emerald-600 focus:ring-emerald-600"
+                           data-advance-amount required>
+                </div>
                 @error('amount')
                     <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p>
                 @enderror
             </div>
 
             {{-- Dynamic Decision Feedback --}}
-            <div id="adv_decision_box" class="hidden rounded-xl border p-2.5 text-xs font-bold flex items-center gap-2" data-advance-decision></div>
+            <div id="adv_decision_box" class="hidden rounded-xl border p-3 text-xs" data-advance-decision></div>
 
             {{-- Visible Funding Source Selection --}}
             <fieldset class="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
@@ -280,11 +286,13 @@
                 @enderror
             </fieldset>
 
-            {{-- Request Note --}}
+            {{-- Reason (Required for HR overage requests) --}}
             <div>
-                <label for="adv_request_note" class="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">Reason / Note (Required if exception)</label>
+                <label for="adv_request_note" class="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1" id="adv_reason_label">
+                    Reason <span id="adv_reason_asterisk" class="text-rose-500 hidden">*</span>
+                </label>
                 <input type="text" name="request_note" id="adv_request_note" value="{{ old('request_note') }}"
-                       placeholder="e.g. Festival advance request"
+                       placeholder="e.g. Medical emergency or family need"
                        class="h-10 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600">
                 @error('request_note')
                     <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p>
@@ -292,8 +300,8 @@
             </div>
 
             <button type="submit" id="advance-submit-btn"
-                    class="h-11 w-full rounded-xl bg-slate-950 text-xs font-black uppercase tracking-wider text-white shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 transition cursor-pointer">
-                <span>Give Advance / Submit Request</span>
+                    class="h-11 w-full rounded-xl bg-emerald-600 text-xs font-black uppercase tracking-wider text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition cursor-pointer">
+                <span>Give Advance</span>
             </button>
         </form>
     </article>

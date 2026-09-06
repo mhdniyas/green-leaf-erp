@@ -529,101 +529,193 @@
                 const renderAdvance = () => {
                     if (!advanceEmployee || !advanceSummary) return;
                     const option = advanceOptions[advanceEmployee.value];
+                    const submitBtn = document.getElementById('advance-submit-btn');
+                    const reasonAsterisk = document.getElementById('adv_reason_asterisk');
+                    const reasonInput = document.getElementById('adv_request_note');
+
                     if (!option) {
-                        advanceSummary.innerHTML = '<span class="text-xs font-bold text-slate-500">Select an employee to see availability & attendance breakdown.</span>';
+                        advanceSummary.innerHTML = '<div class="py-2 text-center text-xs font-bold text-slate-400">Select an employee to view accrued salary and advance limits.</div>';
                         if (advanceDecision) advanceDecision.classList.add('hidden');
                         if (advanceAmountHelper) advanceAmountHelper.textContent = '';
+                        if (submitBtn) {
+                            submitBtn.className = 'h-11 w-full rounded-xl bg-emerald-600 text-xs font-black uppercase tracking-wider text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition cursor-pointer';
+                            submitBtn.innerHTML = '<span>Give Advance</span>';
+                        }
+                        if (reasonAsterisk) reasonAsterisk.classList.add('hidden');
                         return;
                     }
 
-                    if (advanceAmountHelper) {
-                        advanceAmountHelper.textContent = `Direct payout ceiling: ₹${money.format(option.available_amount)}`;
-                    }
+                    const earned = Number(option.earned_amount || 0);
+                    const ceiling = Number(option.advance_ceiling || Math.round(earned * 0.5 * 100) / 100);
+                    const alreadyAdvanced = Number(option.already_advanced_amount || 0);
+                    const available = Number(option.available_amount || 0);
 
-                    // Render Complete Employee Summary Card
+                    // Clean Advance Card
                     advanceSummary.innerHTML = `
-                        <div class="flex items-start justify-between border-b border-slate-200 pb-2">
-                            <div>
-                                <h3 class="text-xs font-black text-slate-900 uppercase">${escapeHtml(option.employee_name)} · ${escapeHtml(option.role)}</h3>
-                                <p class="text-[10px] font-semibold text-slate-500">Salary: ₹${money.format(option.monthly_salary)} /mo · Daily: ₹${money.format(option.daily_rate)}</p>
+                        <div class="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs space-y-2.5">
+                            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                                <div>
+                                    <h3 class="text-xs font-black uppercase text-slate-900">${escapeHtml(option.employee_name)}</h3>
+                                    <p class="text-[10px] font-semibold text-slate-400">${escapeHtml(option.role)} · Base: ₹${money.format(option.monthly_salary)}</p>
+                                </div>
+                                <span class="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                                    ${option.payable_units} Days Accrued
+                                </span>
                             </div>
-                            <span class="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-black text-emerald-700">
-                                ${option.payable_units} Payable Units
-                            </span>
+
+                            <div class="space-y-1.5 text-xs">
+                                <div class="flex items-center justify-between font-bold text-slate-700">
+                                    <span>Accrued Salary</span>
+                                    <span class="font-mono text-slate-950 font-black">₹${money.format(earned)}</span>
+                                </div>
+                                <div class="flex items-center justify-between font-medium text-slate-600">
+                                    <span>Manager Advance Limit (50%)</span>
+                                    <span class="font-mono text-slate-800">₹${money.format(ceiling)}</span>
+                                </div>
+                                <div class="flex items-center justify-between font-medium text-slate-600">
+                                    <span>Already Advanced</span>
+                                    <span class="font-mono ${alreadyAdvanced > 0 ? 'text-rose-600 font-bold' : 'text-slate-500'}">
+                                        ${alreadyAdvanced > 0 ? '−' : ''}₹${money.format(alreadyAdvanced)}
+                                    </span>
+                                </div>
+                                <div class="border-t border-slate-100 pt-2 flex items-center justify-between text-xs font-black">
+                                    <span class="text-slate-900">Available Without HR</span>
+                                    <span class="font-mono text-sm ${available > 0 ? 'text-emerald-700' : 'text-slate-400'}">₹${money.format(available)}</span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Earned To Date</span>
-                                <span class="font-black text-slate-900">₹${money.format(option.earned_amount)}</span>
-                            </div>
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Advances Paid</span>
-                                <span class="font-black text-amber-700">₹${money.format(option.already_advanced_amount)}</span>
-                            </div>
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Available Advance</span>
-                                <span class="font-black text-emerald-700">₹${money.format(option.available_amount)}</span>
-                            </div>
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Salary Remaining</span>
-                                <span class="font-black text-cyan-700">₹${money.format(option.remaining_salary)}</span>
-                            </div>
-                        </div>
-                        ${Number(option.opening_recovery) > 0 ? `<p class="text-[10px] font-bold text-rose-600 pt-1">Previous Recoverable Balance: ₹${money.format(option.opening_recovery)}</p>` : ''}
                     `;
 
                     const amount = Number(advanceAmount?.value || 0);
+                    if (advanceAmountHelper) {
+                        advanceAmountHelper.textContent = `Direct Limit: ₹${money.format(available)}`;
+                    }
+
                     if (amount <= 0 || !advanceDecision) {
                         if (advanceDecision) advanceDecision.classList.add('hidden');
+                        if (submitBtn) {
+                            submitBtn.className = 'h-11 w-full rounded-xl bg-emerald-600 text-xs font-black uppercase tracking-wider text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition cursor-pointer';
+                            submitBtn.innerHTML = '<span>Give Advance</span>';
+                        }
+                        if (reasonAsterisk) reasonAsterisk.classList.add('hidden');
+                        if (reasonInput) reasonInput.required = false;
                         return;
                     }
-                    const needsApproval = amount > Number(option.available_amount || 0);
-                    advanceDecision.textContent = needsApproval
-                        ? 'Requires HR Approval: Requested amount exceeds the manager 50% advance ceiling.'
-                        : 'Direct Payout: Within permitted manager ceiling (Auto-approved on submission).';
-                    advanceDecision.className = `rounded-xl border p-2.5 text-xs font-bold ${needsApproval ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`;
-                    advanceDecision.classList.remove('hidden');
+
+                    const isAboveLimit = amount > available;
+                    const overage = amount - available;
+
+                    if (!isAboveLimit) {
+                        // Within 50% limit - Direct manager payout
+                        advanceDecision.className = 'rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-xs font-bold text-emerald-900 space-y-1 block';
+                        advanceDecision.innerHTML = `
+                            <div class="flex items-center justify-between">
+                                <span class="flex items-center gap-1.5 font-black text-emerald-800">
+                                    <span>✓ Direct Advance (Instant Payout)</span>
+                                </span>
+                                <span class="font-mono font-black text-emerald-700">₹${money.format(amount)}</span>
+                            </div>
+                            <p class="text-[11px] font-medium text-emerald-700">Within manager 50% accrued ceiling. Auto-approved and recorded to shop till.</p>
+                        `;
+                        advanceDecision.classList.remove('hidden');
+
+                        if (submitBtn) {
+                            submitBtn.className = 'h-11 w-full rounded-xl bg-emerald-600 text-xs font-black uppercase tracking-wider text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition cursor-pointer';
+                            submitBtn.innerHTML = '<span>Give Advance</span>';
+                        }
+                        if (reasonAsterisk) reasonAsterisk.classList.add('hidden');
+                        if (reasonInput) reasonInput.required = false;
+                    } else {
+                        // Exceeds 50% limit - Requires HR Approval
+                        advanceDecision.className = 'rounded-xl border border-amber-200 bg-amber-50/90 p-3 text-xs text-amber-950 space-y-1.5 block shadow-xs';
+                        advanceDecision.innerHTML = `
+                            <div class="flex items-center justify-between text-xs font-black border-b border-amber-200/70 pb-1.5 text-amber-900">
+                                <span>Advance Breakdown</span>
+                                <span class="rounded bg-amber-200/70 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">Requires HR</span>
+                            </div>
+                            <div class="space-y-1 text-xs">
+                                <div class="flex items-center justify-between font-bold text-slate-700">
+                                    <span>Requested Advance</span>
+                                    <span class="font-mono font-black text-slate-900">₹${money.format(amount)}</span>
+                                </div>
+                                <div class="flex items-center justify-between text-slate-600">
+                                    <span>Manager Limit</span>
+                                    <span class="font-mono font-bold text-slate-800">₹${money.format(available)}</span>
+                                </div>
+                                <div class="border-t border-amber-200/70 pt-1 flex items-center justify-between font-black text-rose-700">
+                                    <span>Needs HR Approval</span>
+                                    <span class="font-mono font-black text-rose-700">+₹${money.format(overage)}</span>
+                                </div>
+                            </div>
+                        `;
+                        advanceDecision.classList.remove('hidden');
+
+                        if (submitBtn) {
+                            submitBtn.className = 'h-11 w-full rounded-xl bg-amber-600 text-xs font-black uppercase tracking-wider text-white shadow-sm hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition cursor-pointer';
+                            submitBtn.innerHTML = '<span>Send to HR for Approval</span>';
+                        }
+                        if (reasonAsterisk) reasonAsterisk.classList.remove('hidden');
+                        if (reasonInput) reasonInput.required = true;
+                    }
                 };
 
                 const renderSalary = () => {
                     if (!salaryEmployee || !salarySummary) return;
                     const option = salaryOptions[salaryEmployee.value];
                     if (!option) {
-                        salarySummary.innerHTML = '<span class="text-xs font-bold text-slate-500">Select an employee to see current salary remaining balance.</span>';
+                        salarySummary.innerHTML = '<div class="py-2 text-center text-xs font-bold text-slate-400">Select an employee to view monthly salary balance.</div>';
                         if (salaryAmountHelper) salaryAmountHelper.textContent = '';
                         return;
                     }
 
+                    const earned = Number(option.earned_amount || 0);
+                    const advancesPaid = Number(option.already_advanced_amount || 0);
+                    const previousSalaryPaid = Number(option.paid_amount || 0);
+                    const salaryBalance = Number(option.remaining_amount || 0);
+
                     if (salaryAmountHelper) {
-                        salaryAmountHelper.textContent = `Max remaining: ₹${money.format(option.remaining_amount)}`;
+                        salaryAmountHelper.textContent = `Salary Balance: ₹${money.format(salaryBalance)}`;
+                    }
+
+                    // Pre-fill amount to pay with exact remaining balance
+                    if (salaryAmount && (!salaryAmount.value || salaryAmount.dataset.autoFilled === 'true')) {
+                        salaryAmount.value = salaryBalance > 0 ? salaryBalance.toFixed(2) : '0.00';
+                        salaryAmount.dataset.autoFilled = 'true';
                     }
 
                     salarySummary.innerHTML = `
-                        <div class="flex items-start justify-between border-b border-slate-200 pb-2">
-                            <div>
-                                <h3 class="text-xs font-black text-slate-900 uppercase">${escapeHtml(option.employee_name)} · ${escapeHtml(option.role)}</h3>
-                                <p class="text-[10px] font-semibold text-slate-500">Salary: ₹${money.format(option.monthly_salary)} /mo · Daily: ₹${money.format(option.daily_rate)}</p>
+                        <div class="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs space-y-2.5">
+                            <div class="flex items-start justify-between border-b border-slate-100 pb-2">
+                                <div>
+                                    <h3 class="text-xs font-black uppercase text-slate-900">${escapeHtml(option.employee_name)}</h3>
+                                    <p class="text-[10px] font-semibold text-slate-400">${escapeHtml(option.role)} · Base: ₹${money.format(option.monthly_salary)}</p>
+                                </div>
+                                <span class="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-black text-emerald-800">
+                                    ${option.payable_units} Days Payable
+                                </span>
                             </div>
-                            <span class="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-black text-emerald-700">
-                                ${option.payable_units} Payable Units
-                            </span>
-                        </div>
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Earned Salary</span>
-                                <span class="font-black text-slate-900">₹${money.format(option.earned_amount)}</span>
-                            </div>
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Advances Paid</span>
-                                <span class="font-black text-amber-700">₹${money.format(option.already_advanced_amount)}</span>
-                            </div>
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Salary Paid</span>
-                                <span class="font-black text-slate-700">₹${money.format(option.paid_amount)}</span>
-                            </div>
-                            <div class="rounded-lg bg-white p-2 border border-slate-200 shadow-xs">
-                                <span class="block text-[9px] font-black uppercase text-slate-400">Remaining Salary</span>
-                                <span class="font-black text-emerald-700">₹${money.format(option.remaining_amount)}</span>
+
+                            <div class="space-y-1.5 text-xs">
+                                <div class="flex items-center justify-between font-bold text-slate-700">
+                                    <span>Accrued Salary</span>
+                                    <span class="font-mono text-slate-950 font-black">₹${money.format(earned)}</span>
+                                </div>
+                                <div class="flex items-center justify-between font-medium text-slate-600">
+                                    <span>Advances Paid</span>
+                                    <span class="font-mono ${advancesPaid > 0 ? 'text-amber-700 font-bold' : 'text-slate-500'}">
+                                        ${advancesPaid > 0 ? '−' : ''}₹${money.format(advancesPaid)}
+                                    </span>
+                                </div>
+                                <div class="flex items-center justify-between font-medium text-slate-600">
+                                    <span>Previous Salary Payments</span>
+                                    <span class="font-mono ${previousSalaryPaid > 0 ? 'text-slate-700 font-bold' : 'text-slate-500'}">
+                                        ${previousSalaryPaid > 0 ? '−' : ''}₹${money.format(previousSalaryPaid)}
+                                    </span>
+                                </div>
+                                <div class="border-t border-slate-100 pt-2 flex items-center justify-between text-xs font-black">
+                                    <span class="text-slate-900">Salary Balance</span>
+                                    <span class="font-mono text-sm ${salaryBalance > 0 ? 'text-emerald-700' : 'text-slate-400'}">₹${money.format(salaryBalance)}</span>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -650,6 +742,9 @@
                 advanceEmployee?.addEventListener('change', renderAdvance);
                 advanceAmount?.addEventListener('input', renderAdvance);
                 salaryEmployee?.addEventListener('change', renderSalary);
+                salaryAmount?.addEventListener('input', () => {
+                    if (salaryAmount) salaryAmount.dataset.autoFilled = 'false';
+                });
 
                 setupSubmitAndUuid('advance-request-form', 'advance-submit-btn', 'adv_request_uuid');
                 setupSubmitAndUuid('salary-payment-form', 'salary-submit-btn', 'sal_request_uuid');
