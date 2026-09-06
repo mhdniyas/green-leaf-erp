@@ -108,7 +108,7 @@ class ShopOwnerStaffController extends Controller
         $availabilityMap = collect();
         if ($selectedShop !== null) {
             $allStaffEmployees = $advanceEmployees->concat($quickEmployees)->unique('id')->values();
-            $payrollMonth = CarbonImmutable::parse($selectedDate->toDateString())->startOfMonth();
+            $payrollMonth = CarbonImmutable::parse($calendarMonth->toDateString())->startOfMonth();
             $calculationDate = CarbonImmutable::parse($selectedDate->toDateString());
             $employeeIds = $allStaffEmployees->pluck('id')->values()->all();
             $recoveryDebts = $this->employeeAdvanceService->resolveEmployeesRecoveryDebt($employeeIds, $payrollMonth);

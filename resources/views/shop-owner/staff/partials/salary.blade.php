@@ -10,20 +10,36 @@
     <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4 lg:col-span-7">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div>
-                <h2 class="text-sm font-black uppercase tracking-wider text-slate-800" id="form-title">Salary & Advance Window</h2>
+                <div class="flex items-center gap-2">
+                    <h2 class="text-sm font-black uppercase tracking-wider text-slate-800" id="form-title">Salary & Advance Window</h2>
+                    <span class="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">
+                        {{ $calendarMonth->format('M Y') }}
+                    </span>
+                </div>
                 <p class="text-xs font-medium text-slate-500 mt-0.5" id="form-desc">Disburse mid-month advance or record month-end salary.</p>
             </div>
 
-            <!-- Mode Selector Switch -->
-            <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 self-start sm:self-auto" role="tablist">
-                <button type="button" id="tab-btn-salary" onclick="switchSalaryMode('salary')"
-                        class="px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer {{ $defaultMode === 'salary' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
-                    Pay Salary
-                </button>
-                <button type="button" id="tab-btn-advance" onclick="switchSalaryMode('advance')"
-                        class="px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer {{ $defaultMode === 'advance' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
-                    Give Advance
-                </button>
+            <div class="flex flex-wrap items-center gap-2">
+                <!-- Payroll Month Selector -->
+                <div class="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 shadow-2xs">
+                    <label for="sal_filter_month" class="text-[10px] font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Month:</label>
+                    <input type="month" id="sal_filter_month" name="month"
+                           value="{{ $calendarMonth->format('Y-m') }}"
+                           onchange="window.location.href = '{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'salary']) }}&month=' + this.value"
+                           class="h-6 bg-transparent border-none p-0 text-xs font-black text-slate-800 focus:ring-0 cursor-pointer">
+                </div>
+
+                <!-- Mode Selector Switch -->
+                <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 self-start sm:self-auto" role="tablist">
+                    <button type="button" id="tab-btn-salary" onclick="switchSalaryMode('salary')"
+                            class="px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer {{ $defaultMode === 'salary' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                        Pay Salary
+                    </button>
+                    <button type="button" id="tab-btn-advance" onclick="switchSalaryMode('advance')"
+                            class="px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer {{ $defaultMode === 'advance' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
+                        Give Advance
+                    </button>
+                </div>
             </div>
         </div>
 
