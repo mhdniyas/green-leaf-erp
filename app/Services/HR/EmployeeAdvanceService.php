@@ -18,6 +18,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class EmployeeAdvanceService
@@ -410,7 +411,7 @@ class EmployeeAdvanceService
             } catch (QueryException $e) {
                 if ($requestUuid !== null && trim($requestUuid) !== '') {
                     $winner = EmployeeAdvanceRequest::query()->where('request_uuid', $requestUuid)->first();
-                    if ($winner) {
+                    if ($winner && ($winner->status !== 'approved' || $winner->shop_staff_payment_id !== null || $winner->payroll_payment_id !== null)) {
                         $this->validateAdvanceRequestFingerprint($winner, $employee, $shop, $amount, $fundSource, $requestedOn, $month);
 
                         return $winner->fresh(['employee', 'shop', 'shopStaffPayment', 'requestedBy', 'reviewedBy']);
@@ -555,7 +556,7 @@ class EmployeeAdvanceService
                     advanceRequestId: $advanceRequest->id,
                     allowAdvanceOverage: true,
                     companyAccountId: $companyAccountId,
-                    requestUuid: $advanceRequest->request_uuid ? $advanceRequest->request_uuid.'-co-pmt' : null,
+                    requestUuid: $advanceRequest->request_uuid ? (string) Str::uuid() : null,
                 );
 
                 $advanceRequest->forceFill(['payroll_payment_id' => $payrollPayment->id])->save();
@@ -598,7 +599,7 @@ class EmployeeAdvanceService
             'fund_source' => $advanceRequest->approved_fund_source ?? $advanceRequest->fund_source,
             'status' => 'paid',
             'notes' => $advanceRequest->request_note,
-            'request_uuid' => $advanceRequest->request_uuid ? $advanceRequest->request_uuid.'-pmt' : null,
+            'request_uuid' => $advanceRequest->request_uuid ? (string) Str::uuid() : null,
         ]);
 
         $this->ownedShopAccountingService->postShopStaffPaymentToCashbook($payment, (int) $actor->id);

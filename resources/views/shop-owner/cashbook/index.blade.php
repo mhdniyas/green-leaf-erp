@@ -209,9 +209,11 @@
             if ($tx->entry_type_id) {
                 $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
                 if ($setting) {
-                    $initialTxAmounts[$setting->id] = (float) $tx->amount;
+                    $initialTxAmounts[$setting->id] = ($initialTxAmounts[$setting->id] ?? 0.0) + (float) $tx->amount;
                     if ($tx->notes) {
-                        $initialTxNotes[$setting->id] = $tx->notes;
+                        $initialTxNotes[$setting->id] = isset($initialTxNotes[$setting->id])
+                            ? $initialTxNotes[$setting->id] . '; ' . $tx->notes
+                            : $tx->notes;
                     }
                 }
             }

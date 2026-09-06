@@ -299,7 +299,7 @@ class CashbookShopSyncService
             ]
         );
 
-        ShopLedgerEntrySetting::query()->firstOrCreate(
+        ShopLedgerEntrySetting::query()->updateOrCreate(
             [
                 'shop_id' => $shopId,
                 'entry_type_id' => $salaryType->id,
