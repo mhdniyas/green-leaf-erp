@@ -998,7 +998,7 @@
 
     function changeOwnerProductRow(hId, oldProductId) {
         replacingProductId = oldProductId;
-        const h = ownerHeadersData.find(header => String(header.id) === String(hId));
+        const h = headers.find(header => String(header.id) === String(hId));
         openOwnerProductModal(hId, h ? h.name : 'Header');
         const titleEl = document.getElementById('owner-product-modal-title');
         if (titleEl) {
