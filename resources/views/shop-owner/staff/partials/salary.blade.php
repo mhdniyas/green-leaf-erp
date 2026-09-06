@@ -306,40 +306,83 @@
         </form>
     </article>
 
-    {{-- Recent Payments & Payouts Column --}}
-    <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 lg:col-span-5">
-        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div>
-                <h2 class="text-sm font-black uppercase tracking-wider text-slate-800">Recent Payouts</h2>
-                <p class="text-xs font-medium text-slate-500 mt-0.5">Staff payments recorded for this shop.</p>
+    {{-- Staff Summary & Recent Payouts Column --}}
+    <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4 lg:col-span-5 flex flex-col justify-between">
+        <div>
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                    <h2 class="text-sm font-black uppercase tracking-wider text-slate-800">Staff Summary</h2>
+                    <p class="text-xs font-medium text-slate-500 mt-0.5">Accrued salary and advances for {{ $calendarMonth->format('M Y') }}.</p>
+                </div>
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history']) }}"
+                   class="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 underline shrink-0">
+                    History →
+                </a>
             </div>
-            <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history']) }}"
-               class="text-[11px] font-bold text-emerald-600 hover:text-emerald-800 underline">
-                View All →
-            </a>
+
+            <!-- STAFF ACCRUED & ADVANCE TABLE -->
+            <div class="mt-3 overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            <th class="pb-2">Employee</th>
+                            <th class="pb-2 text-right">Accrued</th>
+                            <th class="pb-2 text-right">Advance</th>
+                            <th class="pb-2 text-right">Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($salaryOptions as $empId => $opt)
+                            <tr class="hover:bg-slate-50 transition cursor-pointer group" onclick="selectStaffFromTable({{ $empId }})" title="Click to select this employee">
+                                <td class="py-2.5 pr-2">
+                                    <p class="font-black text-slate-900 group-hover:text-emerald-700 transition truncate">{{ $opt['employee_name'] }}</p>
+                                    <p class="text-[10px] font-semibold text-slate-400">{{ $opt['role'] ?? 'Staff' }} · {{ $opt['payable_units'] ?? 0 }}d</p>
+                                </td>
+                                <td class="py-2.5 px-2 text-right font-mono font-bold text-slate-900">
+                                    ₹{{ number_format((float) ($opt['earned_amount'] ?? 0), 2) }}
+                                </td>
+                                <td class="py-2.5 px-2 text-right font-mono font-bold {{ ($opt['already_advanced_amount'] ?? 0) > 0 ? 'text-amber-700' : 'text-slate-400' }}">
+                                    {{ ($opt['already_advanced_amount'] ?? 0) > 0 ? '₹'.number_format((float) $opt['already_advanced_amount'], 2) : '—' }}
+                                </td>
+                                <td class="py-2.5 pl-2 text-right font-mono font-black {{ ($opt['remaining_amount'] ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-400' }}">
+                                    ₹{{ number_format((float) ($opt['remaining_amount'] ?? 0), 2) }}
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" class="py-6 text-center text-xs font-semibold text-slate-400">
+                                    No staff assigned to this shop for {{ $calendarMonth->format('M Y') }}.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
 
-        <div class="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
-            @forelse($recentPayrollPayments as $payment)
-                <div class="py-2.5 flex items-center justify-between text-xs gap-2">
-                    <div class="min-w-0 flex-1">
-                        <p class="font-black text-slate-950 truncate">{{ $payment->employee?->name }}</p>
-                        <p class="text-[10px] font-semibold text-slate-400 truncate">
-                            {{ $payment->paid_on->format('d M Y') }} · {{ str_replace('_', ' ', (string) $payment->fund_source) }}
-                        </p>
+        {{-- Recent Payouts List --}}
+        <div class="border-t border-slate-100 pt-3">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Recent Payouts</span>
+                <span class="text-[10px] font-bold text-slate-400">{{ $recentPayrollPayments->total() }} recorded</span>
+            </div>
+            <div class="divide-y divide-slate-100 max-h-[150px] overflow-y-auto">
+                @forelse($recentPayrollPayments->take(5) as $payment)
+                    <div class="py-1.5 flex items-center justify-between text-xs gap-2">
+                        <div class="min-w-0 flex-1">
+                            <p class="font-bold text-slate-900 text-xs truncate">{{ $payment->employee?->name }}</p>
+                            <p class="text-[9px] font-medium text-slate-400 truncate">
+                                {{ $payment->paid_on->format('d M Y') }} · {{ $payment->payment_type }} · {{ str_replace('_', ' ', (string) $payment->fund_source) }}
+                            </p>
+                        </div>
+                        <div class="text-right shrink-0">
+                            <span class="font-mono font-black text-slate-900 text-xs">₹{{ number_format((float) $payment->amount, 2) }}</span>
+                        </div>
                     </div>
-                    <div class="text-right shrink-0">
-                        <p class="font-black text-slate-950">₹{{ number_format((float) $payment->amount, 2) }}</p>
-                        <span class="inline-block rounded px-1.5 py-0.5 text-[9px] font-black uppercase border {{ $payment->payment_type === 'advance' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800' }}">
-                            {{ $payment->payment_type ?? 'salary' }}
-                        </span>
-                    </div>
-                </div>
-            @empty
-                <div class="py-8 text-center text-xs font-semibold text-slate-400">
-                    <p>No salary or advance payments recorded yet.</p>
-                </div>
-            @endforelse
+                @empty
+                    <p class="text-center py-2 text-[11px] font-semibold text-slate-400">No payout records.</p>
+                @endforelse
+            </div>
         </div>
     </article>
 </section>
@@ -371,6 +414,19 @@
             salaryBtn?.classList.add('text-slate-600', 'hover:text-slate-900');
             if (formTitle) formTitle.textContent = 'Request Advance / Give Advance';
             if (formDesc) formDesc.textContent = 'Disburse salary advance within 50% ceiling or submit for HR approval.';
+        }
+    }
+
+    function selectStaffFromTable(empId) {
+        const salaryEmp = document.getElementById('sal_employee_id');
+        const advEmp = document.getElementById('adv_employee_id');
+        if (salaryEmp) {
+            salaryEmp.value = empId;
+            salaryEmp.dispatchEvent(new Event('change'));
+        }
+        if (advEmp) {
+            advEmp.value = empId;
+            advEmp.dispatchEvent(new Event('change'));
         }
     }
 </script>
