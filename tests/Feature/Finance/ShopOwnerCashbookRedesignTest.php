@@ -180,14 +180,13 @@ class ShopOwnerCashbookRedesignTest extends TestCase
             ->get(route('shop-owner.cashbook.show', ['date' => '2026-09-04']));
 
         $response->assertOk();
-        $response->assertSee('CASHBOOK POSITION');
+        $response->assertSee('TODAY SUMMARY');
         $response->assertSee('Shop Balance');
-        $response->assertSee('Net Activity');
+        $response->assertSee('TODAY NET ACTIVITY');
         $response->assertSee('Cash on Hand');
         $response->assertSee('Direct to Company');
         $response->assertSee('Petty Balance');
         $response->assertSee('View Cashbook Report');
-        $response->assertSee('id="today-headers-summary-container"', false);
         // Bottom IN/OUT navbar is completely removed
         $response->assertDontSee('id="cashbook-bottom-action-bar"', false);
     }

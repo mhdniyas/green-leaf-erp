@@ -568,11 +568,15 @@
             const pRows = productRowsState[h.id] || [];
             pRows.forEach(pr => {
                 const pAmt = parseFloat(pr.amount) || 0;
+                const pQty = parseFloat(pr.qty);
+                const hasQty = !isNaN(pQty) && pQty > 0;
                 hTotal += pAmt;
-                if (pAmt > 0) {
+                if (pAmt > 0 || hasQty) {
+                    const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
+                    const detailStr = hasQty ? ` <span class="text-[10px] font-semibold text-slate-400">(${pQty} ${escapeHtml(pr.unit || '')}${avgStr})</span>` : '';
                     childItems.push(`
                         <div class="flex items-center justify-between py-1 text-xs text-slate-600">
-                            <span class="truncate pr-2">${escapeHtml(pr.productName)}</span>
+                            <span class="truncate pr-2">${escapeHtml(pr.productName)}${detailStr}</span>
                             <span class="font-mono font-bold text-slate-900 shrink-0">+ ${formatCurrency(pAmt)}</span>
                         </div>
                     `);
@@ -684,7 +688,11 @@
             const pRows = productRowsState[h.id] || [];
             const productLines = pRows.map(pr => {
                 const pAmt = parseFloat(pr.amount) || 0;
+                const pQty = parseFloat(pr.qty);
+                const hasQty = !isNaN(pQty) && pQty > 0;
                 hTotal += pAmt;
+                const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
+                const qtySubtitle = hasQty ? `${pQty} ${escapeHtml(pr.unit || '')}${avgStr}` : (pr.sku || '');
                 return `
                     <div class="flex items-start justify-between gap-2 py-1">
                         <div class="min-w-0 flex-1">
@@ -692,7 +700,7 @@
                                 <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>
                                 <span class="text-xs font-bold text-slate-800 leading-tight truncate">${escapeHtml(pr.productName)}</span>
                             </div>
-                            ${pr.sku ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 ml-5 truncate">${escapeHtml(pr.sku)}</span>` : ''}
+                            ${qtySubtitle ? `<span class="text-[10px] text-slate-400 font-medium block leading-tight mt-0.5 ml-5 truncate">${escapeHtml(qtySubtitle)}</span>` : ''}
                         </div>
                         <span class="font-mono text-xs font-black text-slate-900 shrink-0 ${pAmt > 0 ? '' : 'text-slate-400'}">
                             ${pAmt > 0 ? `<span class="text-emerald-700 mr-0.5 font-bold">+</span>${formatCurrency(pAmt)}` : formatCurrency(pAmt)}
@@ -777,13 +785,17 @@
             const pRows = productRowsState[h.id] || [];
             const productLines = pRows.map(pr => {
                 const pAmt = parseFloat(pr.amount) || 0;
-                if (pAmt <= 0) return '';
+                const pQty = parseFloat(pr.qty);
+                const hasQty = !isNaN(pQty) && pQty > 0;
+                if (pAmt <= 0 && !hasQty) return '';
                 hTotal += pAmt;
+                const avgStr = (hasQty && pAmt > 0) ? ` @ ₹${(pAmt / pQty).toFixed(2)}/${escapeHtml(pr.unit || 'unit')}` : '';
+                const qtySubtitle = hasQty ? ` <span class="text-[10px] text-slate-400 font-normal">(${pQty} ${escapeHtml(pr.unit || '')}${avgStr})</span>` : '';
                 return `
                     <div class="flex justify-between py-1 text-slate-700 font-medium">
                         <div class="flex items-center gap-1.5 min-w-0">
                             <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black bg-emerald-100 text-emerald-700 shrink-0">+</span>
-                            <span class="truncate">${escapeHtml(pr.productName)}</span>
+                            <span class="truncate">${escapeHtml(pr.productName)}${qtySubtitle}</span>
                         </div>
                         <span class="font-mono font-bold text-slate-900">+ ${formatCurrency(pAmt)}</span>
                     </div>
@@ -947,6 +959,10 @@
                 const existing = productRowsState[activeProductHeaderId] || [];
                 container.innerHTML = data.products.map(p => {
                     const isAdded = existing.some(r => r.productId === p.id);
+                    const unitsJsonStr = escapeJsString(JSON.stringify(p.units || []));
+                    const defUnit = escapeJsString(p.unit || 'unit');
+                    const unitsCount = (p.units || []).length;
+                    const unitBadge = unitsCount > 1 ? `${unitsCount} units` : (p.unit ? p.unit.toUpperCase() : 'UNIT');
                     return `
                         <div class="p-3 rounded-2xl bg-slate-50/70 border border-slate-100 flex items-center justify-between gap-3">
                             <div class="flex items-center gap-2.5 min-w-0 flex-1">
@@ -954,12 +970,15 @@
                                     <i data-lucide="package" class="h-4 w-4 text-emerald-600"></i>
                                 </div>
                                 <div class="min-w-0 flex-1">
-                                    <span class="text-xs font-bold text-slate-900 block truncate">${escapeHtml(p.name)}</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-bold text-slate-900 truncate">${escapeHtml(p.name)}</span>
+                                        <span class="text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">${escapeHtml(unitBadge)}</span>
+                                    </div>
                                     <span class="text-[10px] font-semibold text-slate-400 block">${escapeHtml(p.sku || 'N/A')}</span>
                                 </div>
                             </div>
                             ${isAdded ? '<span class="text-[10px] font-bold text-slate-400 bg-slate-200/60 px-2.5 py-1 rounded-full">Added</span>' : `
-                                <button type="button" onclick="selectOwnerProduct(${p.id}, '${escapeJsString(p.name)}', '${escapeJsString(p.sku || '')}')"
+                                <button type="button" onclick="selectOwnerProduct(${p.id}, '${escapeJsString(p.name)}', '${escapeJsString(p.sku || '')}', '${defUnit}', '${unitsJsonStr}')"
                                         class="inline-flex items-center justify-center rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold text-white hover:bg-emerald-700 active:scale-95 transition cursor-pointer shadow-2xs">
                                     Select
                                 </button>
@@ -975,13 +994,33 @@
         }
     }
 
-    function selectOwnerProduct(productId, productName, sku) {
+    function selectOwnerProduct(productId, productName, sku, defaultUnit, unitsJson) {
         const hId = activeProductHeaderId;
         if (!hId) return;
 
+        let units = [];
+        try {
+            units = typeof unitsJson === 'string' ? JSON.parse(unitsJson) : (unitsJson || []);
+        } catch (e) {
+            units = [];
+        }
+        if (units.length === 0 && defaultUnit) {
+            units = [{ unit: defaultUnit, label: defaultUnit.toUpperCase(), is_base: true }];
+        }
+        const unit = defaultUnit || (units.length > 0 ? units[0].unit : 'unit');
+
         productRowsState[hId] = productRowsState[hId] || [];
         if (!productRowsState[hId].some(r => r.productId === productId)) {
-            productRowsState[hId].push({ productId, productName, sku, amount: 0 });
+            productRowsState[hId].push({
+                productId,
+                productName,
+                sku,
+                qty: '',
+                unit: unit,
+                units: units,
+                amount: 0,
+                avgPrice: null
+            });
         }
         closeOwnerProductModal();
         renderOwnerProductRows(hId);
@@ -1007,34 +1046,129 @@
             return;
         }
 
-        container.innerHTML = rows.map(r => `
-            <div class="p-2 sm:p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs flex items-center justify-between gap-2">
-                <div class="min-w-0 flex-1">
-                    <span class="text-xs font-bold text-slate-900 block truncate">${escapeHtml(r.productName)}</span>
-                    <span class="text-[10px] text-slate-400 font-semibold block">${escapeHtml(r.sku || 'Tagged Item')}</span>
+        container.innerHTML = rows.map(r => {
+            const qty = parseFloat(r.qty);
+            const amt = parseFloat(r.amount) || 0;
+            const hasAvg = !isNaN(qty) && qty > 0 && amt > 0;
+            const avgStr = hasAvg ? `Avg: ₹${(amt / qty).toFixed(2)} / ${escapeHtml(r.unit || 'unit')}` : (r.sku || 'Tagged Item');
+            const avgClass = hasAvg
+                ? 'inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-800'
+                : 'text-[10px] text-slate-400 font-semibold truncate';
+
+            const unitsList = r.units || [];
+            const hasMultipleUnits = unitsList.length > 1;
+
+            return `
+                <div class="p-2.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs space-y-2" data-product-row="${r.productId}">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
+                            <span class="text-xs font-bold text-slate-900 truncate">${escapeHtml(r.productName)}</span>
+                            <span class="${avgClass}" id="avg-price-badge-${hId}-${r.productId}">
+                                ${escapeHtml(avgStr)}
+                            </span>
+                        </div>
+                        <button type="button" onclick="removeOwnerProductRow('${hId}', ${r.productId})" class="w-6 h-6 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition shrink-0 cursor-pointer" title="Remove product">
+                            <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-12 gap-2 items-center">
+                        <div class="col-span-6 flex items-center gap-1">
+                            <div class="relative flex-1">
+                                <input type="number" inputmode="decimal" min="0" step="any"
+                                       value="${r.qty !== null && r.qty !== undefined && r.qty !== '' ? r.qty : ''}"
+                                       oninput="onOwnerProductQtyChange('${hId}', ${r.productId}, this)"
+                                       placeholder="Qty"
+                                       class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-right text-xs font-black font-mono text-slate-950 focus:bg-white focus:border-emerald-500 focus:outline-none transition">
+                            </div>
+                            ${hasMultipleUnits ? `
+                                <select onchange="onOwnerProductUnitChange('${hId}', ${r.productId}, this)"
+                                        class="h-8 rounded-lg border border-slate-200 bg-white px-1.5 text-[11px] font-black text-slate-800 uppercase focus:border-emerald-500 focus:outline-none cursor-pointer shrink-0">
+                                    ${unitsList.map(u => `<option value="${escapeHtml(u.unit)}" ${u.unit.toLowerCase() === (r.unit || '').toLowerCase() ? 'selected' : ''}>${escapeHtml(u.label || u.unit.toUpperCase())}</option>`).join('')}
+                                </select>
+                            ` : `
+                                <span class="h-8 inline-flex items-center justify-center rounded-lg bg-slate-100 border border-slate-200/80 px-2 text-[10px] font-black text-slate-700 uppercase shrink-0">
+                                    ${escapeHtml(r.unit ? r.unit.toUpperCase() : 'UNIT')}
+                                </span>
+                            `}
+                        </div>
+
+                        <div class="col-span-6 relative">
+                            <span class="absolute inset-y-0 left-0 pl-2 flex items-center text-slate-400 font-bold text-xs pointer-events-none">₹</span>
+                            <input type="number" inputmode="decimal" min="0" step="0.01"
+                                   value="${r.amount || ''}"
+                                   oninput="onOwnerProductAmountChange('${hId}', ${r.productId}, this)"
+                                   placeholder="0.00"
+                                   class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-5 pr-2 text-right text-xs sm:text-sm font-black font-mono text-slate-950 focus:bg-white focus:border-emerald-500 focus:outline-none transition">
+                        </div>
+                    </div>
                 </div>
-                <div class="relative shrink-0 w-28 sm:w-32">
-                    <span class="absolute inset-y-0 left-0 pl-2 flex items-center text-slate-400 font-bold text-xs pointer-events-none">₹</span>
-                    <input type="number" inputmode="decimal" min="0" step="0.01" value="${r.amount || ''}"
-                           oninput="onOwnerProductAmountChange('${hId}', ${r.productId}, this)"
-                           placeholder="0.00"
-                           class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-5 pr-2 text-right text-sm font-black font-mono text-slate-950 focus:bg-white focus:border-emerald-500 focus:outline-none transition">
-                </div>
-                <button type="button" onclick="removeOwnerProductRow('${hId}', ${r.productId})" class="w-7 h-7 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition shrink-0 cursor-pointer">
-                    <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
-                </button>
-            </div>
-        `).join('');
+            `;
+        }).join('');
         if (window.lucide) lucide.createIcons();
     }
 
-    function onOwnerProductAmountChange(hId, productId, inputEl) {
-        const val = parseFloat(inputEl.value) || 0;
+    function onOwnerProductQtyChange(hId, productId, inputEl) {
+        const qtyVal = inputEl.value.trim();
+        const qty = parseFloat(qtyVal);
         const rows = productRowsState[hId] || [];
         const row = rows.find(r => r.productId === productId);
-        if (row) row.amount = val;
+        if (row) {
+            row.qty = isNaN(qty) ? '' : qty;
+            const amt = parseFloat(row.amount) || 0;
+            if (row.qty > 0 && amt > 0) {
+                row.avgPrice = Math.round((amt / row.qty) * 100) / 100;
+            } else {
+                row.avgPrice = null;
+            }
+            updateProductAvgPriceBadge(hId, productId, row);
+        }
         updateActiveHeaderSubtotal();
         recalculateOwnerCashbook();
+    }
+
+    function onOwnerProductAmountChange(hId, productId, inputEl) {
+        const amt = parseFloat(inputEl.value) || 0;
+        const rows = productRowsState[hId] || [];
+        const row = rows.find(r => r.productId === productId);
+        if (row) {
+            row.amount = amt;
+            const qty = parseFloat(row.qty);
+            if (!isNaN(qty) && qty > 0 && amt > 0) {
+                row.avgPrice = Math.round((amt / qty) * 100) / 100;
+            } else {
+                row.avgPrice = null;
+            }
+            updateProductAvgPriceBadge(hId, productId, row);
+        }
+        updateActiveHeaderSubtotal();
+        recalculateOwnerCashbook();
+    }
+
+    function onOwnerProductUnitChange(hId, productId, selectEl) {
+        const rows = productRowsState[hId] || [];
+        const row = rows.find(r => r.productId === productId);
+        if (row) {
+            row.unit = selectEl.value;
+            updateProductAvgPriceBadge(hId, productId, row);
+        }
+        updateActiveHeaderSubtotal();
+        recalculateOwnerCashbook();
+    }
+
+    function updateProductAvgPriceBadge(hId, productId, row) {
+        const badgeEl = document.getElementById(`avg-price-badge-${hId}-${productId}`);
+        if (!badgeEl) return;
+        const qty = parseFloat(row.qty);
+        const amt = parseFloat(row.amount) || 0;
+        if (!isNaN(qty) && qty > 0 && amt > 0) {
+            const avg = (amt / qty).toFixed(2);
+            badgeEl.className = 'inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-800';
+            badgeEl.textContent = `Avg: ₹${avg} / ${row.unit || 'unit'}`;
+        } else {
+            badgeEl.className = 'text-[10px] text-slate-400 font-semibold truncate';
+            badgeEl.textContent = row.sku || 'Tagged Item';
+        }
     }
 
     function formatCurrency(amount, preserveSign = true) {

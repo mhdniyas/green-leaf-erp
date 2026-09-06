@@ -1470,16 +1470,60 @@ class ShopOwnerController extends Controller
     {
         $shop = $this->ownedAccountingShop($request);
         $q = trim((string) $request->input('q', ''));
+        $headerId = $request->input('header_id') ? (int) $request->input('header_id') : null;
+
         $query = Product::query()->active();
+
+        if ($headerId) {
+            $header = ShopLedgerHeaderGroup::with('allowedProducts')->find($headerId);
+            if ($header && $header->allowedProducts->isNotEmpty()) {
+                $allowedIds = $header->allowedProducts->pluck('id')->all();
+                $query->whereIn('id', $allowedIds);
+            }
+        }
 
         if ($q !== '') {
             $query->where(function ($sub) use ($q): void {
                 $sub->where('name', 'LIKE', "%{$q}%")
                     ->orWhere('sku', 'LIKE', "%{$q}%");
+                if (is_numeric($q)) {
+                    $sub->orWhere('id', (int) $q);
+                }
             });
         }
 
-        $products = $query->orderBy('name')->limit(50)->get(['id', 'name', 'sku', 'unit', 'base_price']);
+        $products = $query->with('orderUnits')->orderBy('name')->limit(50)->get(['id', 'name', 'sku', 'unit', 'base_price'])
+            ->map(function (Product $product): array {
+                $units = [];
+                $baseUnit = strtolower(trim((string) ($product->unit ?: 'unit')));
+                $units[] = [
+                    'unit' => $baseUnit,
+                    'label' => strtoupper($baseUnit),
+                    'conversion_to_base' => 1.0,
+                    'is_base' => true,
+                ];
+
+                foreach ($product->orderUnits as $ou) {
+                    $ouUnit = strtolower(trim((string) $ou->unit));
+                    if ($ouUnit !== '' && ! collect($units)->contains('unit', $ouUnit)) {
+                        $units[] = [
+                            'unit' => $ouUnit,
+                            'label' => $ou->label ?: strtoupper($ouUnit),
+                            'conversion_to_base' => $ou->conversion_to_base !== null ? (float) $ou->conversion_to_base : 1.0,
+                            'is_base' => (bool) $ou->is_base,
+                        ];
+                    }
+                }
+
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'sku' => $product->sku,
+                    'unit' => $baseUnit,
+                    'base_price' => (float) ($product->base_price ?? 0),
+                    'units' => $units,
+                ];
+            });
 
         return response()->json([
             'success' => true,
