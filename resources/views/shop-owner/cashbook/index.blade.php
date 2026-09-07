@@ -46,7 +46,7 @@
     if ($unassignedSettings->isNotEmpty()) {
         $unassignedTransfers = $unassignedSettings->filter(function ($s) {
             $cat = strtolower((string) ($s->entryType?->category ?? ''));
-            return $cat === 'transfer' || $cat === 'settlement' || (! $s->include_in_sales && ! $s->include_in_income && ! $s->include_in_expense);
+            return $cat === 'transfer' || $cat === 'settlement';
         })->values();
 
         $unassignedIncome = $unassignedSettings->filter(function ($s) use ($unassignedTransfers) {
@@ -80,6 +80,18 @@
                 'product_tagging_enabled' => false,
                 'show_both_sides' => false,
                 'settings' => $unassignedExpense,
+            ]);
+        }
+
+        if ($unassignedTransfers->isNotEmpty()) {
+            $ownerHeaderSections->push([
+                'id' => 'unassigned_transfers',
+                'name' => 'TRANSFERS & SETTLEMENTS',
+                'type' => 'expense',
+                'display_order' => 10000,
+                'product_tagging_enabled' => false,
+                'show_both_sides' => false,
+                'settings' => $unassignedTransfers,
             ]);
         }
     }

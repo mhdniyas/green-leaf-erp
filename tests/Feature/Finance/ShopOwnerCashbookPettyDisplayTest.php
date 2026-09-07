@@ -203,4 +203,47 @@ class ShopOwnerCashbookPettyDisplayTest extends TestCase
         $this->assertNotNull($salesTx);
         $this->assertEquals(82676.0, (float) $salesTx['amount']);
     }
+
+    public function test_enabled_sales_to_petty_setting_is_shown_under_transfers_and_settlements(): void
+    {
+        $salesToPettyType = LedgerEntryType::query()->create([
+            'code' => 'sales_to_petty',
+            'name' => 'Sales to Petty',
+            'category' => 'transfer',
+            'active' => true,
+            'display_order' => 3,
+        ]);
+
+        $setting = ShopLedgerEntrySetting::query()->create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salesToPettyType->id,
+            'enabled' => true,
+            'effective_from' => '2026-01-01',
+            'default_funding_source' => 'sales',
+            'settlement_behavior' => 'decrease',
+            'petty_behavior' => 'increase',
+            'include_in_pl' => false,
+            'display_order' => 3,
+        ]);
+
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show', [
+            'date' => '2026-09-07',
+            'tab' => 'cashbook',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('TRANSFERS & SETTLEMENTS');
+        $response->assertSee('Sales to Petty');
+
+        $setting->update(['enabled' => false]);
+
+        $this->actingAs($this->shopUser)
+            ->get(route('shop-owner.cashbook.show', [
+                'date' => '2026-09-07',
+                'tab' => 'cashbook',
+            ]))
+            ->assertOk()
+            ->assertDontSee('TRANSFERS & SETTLEMENTS')
+            ->assertDontSee('Sales to Petty');
+    }
 }
