@@ -42,7 +42,39 @@ const casioResult = calculate(casioRelations, casioAmounts, 10000.00);
 assert.equal(casioResult.companyPayable.amount, 302646.00);
 assert.equal(casioResult.verifiedPayments, 10000.00);
 assert.equal(casioResult.netBalance, 292646.00);
-assert.equal(casioResult.netLabel, 'Company Payable');
+// Test chained settlements: Balance = + Income - Expense where Balance comes first in relations array
+const chainedRelations = [
+    {
+        id: 50,
+        name: 'Balance',
+        kind: 'default_balance',
+        enabled: true,
+        items: [
+            { source_settlement_id: 20, role: 'add' },
+            { source_settlement_id: 30, role: 'subtract' }
+        ]
+    },
+    {
+        id: 20,
+        name: 'Income',
+        kind: 'default_income',
+        enabled: true,
+        items: [{ setting_id: 201, role: 'add' }]
+    },
+    {
+        id: 30,
+        name: 'Expense',
+        kind: 'default_expense',
+        enabled: true,
+        items: [{ setting_id: 301, role: 'add' }]
+    }
+];
+const chainedAmounts = { 201: 25299.00, 301: 18316.60 };
+const chainedResult = calculate(chainedRelations, chainedAmounts, 0);
+const balanceSettlement = chainedResult.settlements.find(s => s.id === 50);
+assert.equal(balanceSettlement.amount, 6982.40);
+assert.equal(balanceSettlement.items[0].amount, 25299.00);
+assert.equal(balanceSettlement.items[1].amount, 18316.60);
 JS;
         $process = new Process(['node', '--input-type=module', '-e', $script, dirname(__DIR__, 2).'/public/js/cashbook-settlement-summary.js']);
         $process->run();

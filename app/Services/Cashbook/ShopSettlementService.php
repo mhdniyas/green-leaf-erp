@@ -375,7 +375,40 @@ class ShopSettlementService
 
         $companyPayableSummary = $this->calculateCompanyPayable($shopId, $startDate, $endDate);
 
-        return $relations->map(function (ShopCashbookRelation $relation) use (&$amounts, $companyPayableSummary): array {
+        $relationsMap = $relations->keyBy('id');
+        $computed = [];
+        $visiting = [];
+
+        $computeRelation = function (ShopCashbookRelation $relation) use (&$computeRelation, &$computed, &$visiting, &$amounts, $relationsMap, $companyPayableSummary): array {
+            $rId = (int) $relation->id;
+            if (isset($computed[$rId])) {
+                return $computed[$rId];
+            }
+            if (isset($visiting[$rId])) {
+                return [
+                    'relation_id' => $relation->id,
+                    'public_uuid' => $relation->public_uuid,
+                    'name' => $relation->name,
+                    'relation_type' => $relation->relation_type,
+                    'is_company_payable' => (bool) $relation->is_company_payable || $relation->relation_type === 'default_company_payable',
+                    'enabled' => (bool) $relation->enabled,
+                    'grossAdditions' => 0.0,
+                    'grossDeductions' => 0.0,
+                    'netSettlement' => 0.0,
+                    'items' => [],
+                ];
+            }
+            $visiting[$rId] = true;
+
+            foreach ($relation->items as $item) {
+                $sourceId = $item->source_settlement_id ? (int) $item->source_settlement_id : null;
+                if ($sourceId !== null && isset($relationsMap[$sourceId])) {
+                    $sourceRelation = $relationsMap[$sourceId];
+                    $sourceRes = $computeRelation($sourceRelation);
+                    $amounts['settlement_'.$sourceId] = $sourceRes['netSettlement'];
+                }
+            }
+
             $res = $this->calculator->calculate($relation, $amounts);
             $amounts['settlement_'.$relation->id] = $res['netSettlement'];
             $isPayable = (bool) $relation->is_company_payable || $relation->relation_type === 'default_company_payable';
@@ -386,8 +419,13 @@ class ShopSettlementService
                 $res['payments'] = $companyPayableSummary['payments'];
             }
 
+            unset($visiting[$rId]);
+            $computed[$rId] = $res;
+
             return $res;
-        })->all();
+        };
+
+        return $relations->map(fn (ShopCashbookRelation $relation): array => $computeRelation($relation))->all();
     }
 
     public function copyToShop(ShopCashbookRelation $sourceRelation, ShopLedgerProfile $targetProfile): ShopCashbookRelation

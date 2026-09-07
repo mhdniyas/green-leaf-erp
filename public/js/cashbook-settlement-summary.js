@@ -7,11 +7,39 @@
         },
 
         calculate(relations, amounts, verifiedPayments = 0) {
-            const rawSettlements = (relations || []).filter(relation => relation.enabled).map(relation => {
+            amounts = amounts || {};
+            const relationsMap = new Map();
+            (relations || []).forEach(r => {
+                relationsMap.set(String(r.id), r);
+            });
+
+            const computedResults = new Map();
+            const visiting = new Set();
+
+            function computeRelation(relation) {
+                const rId = String(relation.id);
+                if (computedResults.has(rId)) {
+                    return computedResults.get(rId);
+                }
+                if (visiting.has(rId)) {
+                    return { id: relation.id, name: relation.name, kind: relation.kind || relation.relation_type, amount: 0, items: [] };
+                }
+                visiting.add(rId);
+
                 const getItemInfo = (item) => {
                     if (item.source_settlement_id) {
-                        const amt = Number(amounts['settlement_' + item.source_settlement_id]) || 0;
-                        return { name: item.name || ('Settlement #' + item.source_settlement_id), amount: Math.max(0, amt) };
+                        const targetId = String(item.source_settlement_id);
+                        let amt = 0;
+                        let targetName = item.name;
+                        if (relationsMap.has(targetId)) {
+                            const targetRel = relationsMap.get(targetId);
+                            const targetComputed = computeRelation(targetRel);
+                            amt = targetComputed.amount;
+                            targetName = 'Settlement: ' + targetRel.name;
+                        } else if (amounts['settlement_' + targetId] !== undefined) {
+                            amt = Number(amounts['settlement_' + targetId]) || 0;
+                        }
+                        return { name: targetName || ('Settlement #' + targetId), amount: Math.max(0, amt) };
                     }
                     if (item.header_group_id) {
                         const taggedAmt = Number(amounts['header_tagged_product_' + item.header_group_id]) || 0;
@@ -55,7 +83,7 @@
                 const amt = cents / 100;
                 amounts['settlement_' + relation.id] = amt;
 
-                return {
+                const res = {
                     id: relation.id,
                     name: relation.name,
                     kind: relation.kind || relation.relation_type,
@@ -63,6 +91,14 @@
                     amount: amt,
                     items: breakdown
                 };
+
+                visiting.delete(rId);
+                computedResults.set(rId, res);
+                return res;
+            }
+
+            const rawSettlements = (relations || []).filter(relation => relation.enabled).map(relation => {
+                return computeRelation(relation);
             });
 
             const companyPayable = rawSettlements.find(s => s.is_company_payable || s.kind === 'default_company_payable' || (s.name && s.name.toLowerCase().includes('company payable')));

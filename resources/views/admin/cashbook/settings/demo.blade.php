@@ -1359,7 +1359,7 @@
     </div>
 </div>
 
-<script src="{{ asset('js/cashbook-settlement-summary.js') }}"></script>
+<script src="{{ asset('js/cashbook-settlement-summary.js') }}?v={{ file_exists(public_path('js/cashbook-settlement-summary.js')) ? filemtime(public_path('js/cashbook-settlement-summary.js')) : time() }}"></script>
 <script>
     let activeDay = 1;
 

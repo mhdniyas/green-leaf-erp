@@ -33,28 +33,31 @@ class RelationSettlementCalculator
             $sourceSettlementId = $item->source_settlement_id ? (int) $item->source_settlement_id : null;
             $headerMode = $item->header_mode ?? 'all_categories';
 
-            if ($sourceSettlementId !== null && $item->sourceSettlement) {
+            if ($sourceSettlementId !== null) {
                 $rawAmt = (float) ($entryAmounts['settlement_'.$sourceSettlementId] ?? 0.0);
-                $name = 'Settlement: '.$item->sourceSettlement->name;
+                $name = 'Settlement: '.($item->sourceSettlement?->name ?? ('#'.$sourceSettlementId));
                 $category = 'settlement';
-            } elseif ($headerGroupId !== null && $item->headerGroup) {
+            } elseif ($headerGroupId !== null) {
                 $taggedProductAmt = (float) ($entryAmounts['header_tagged_product_'.$headerGroupId] ?? 0.0);
                 $categoriesAmt = 0.0;
-                foreach ($item->headerGroup->entrySettings as $setting) {
-                    $categoriesAmt += (float) ($entryAmounts[$setting->id] ?? 0.0);
+                if ($item->headerGroup) {
+                    foreach ($item->headerGroup->entrySettings as $setting) {
+                        $categoriesAmt += (float) ($entryAmounts[$setting->id] ?? 0.0);
+                    }
                 }
 
+                $hgName = $item->headerGroup?->name ?? ('Header #'.$headerGroupId);
                 if ($headerMode === 'tagged_products_only') {
                     $rawAmt = $taggedProductAmt;
-                    $name = $item->headerGroup->name.' (Product Total Only)';
+                    $name = $hgName.' (Product Total Only)';
                 } elseif ($headerMode === 'categories_and_products') {
                     $rawAmt = $categoriesAmt + $taggedProductAmt;
-                    $name = $item->headerGroup->name.' (Categories + Product Total)';
+                    $name = $hgName.' (Categories + Product Total)';
                 } else {
                     $rawAmt = $categoriesAmt;
-                    $name = $item->headerGroup->name.' (All Categories Only)';
+                    $name = $hgName.' (All Categories Only)';
                 }
-                $category = strtolower((string) ($item->headerGroup->type ?? 'header'));
+                $category = strtolower((string) ($item->headerGroup?->type ?? 'header'));
             } else {
                 $rawAmt = (float) ($entryAmounts[$settingId] ?? 0.0);
                 $name = $item->setting?->displayName() ?? $item->setting?->entryType?->name ?? 'Unknown Entry';
