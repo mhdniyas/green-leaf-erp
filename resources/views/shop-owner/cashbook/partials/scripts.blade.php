@@ -21,7 +21,7 @@
 
     function toggleSettlementCardSplit(sId) {
         settlementCardCollapseState[sId] = !settlementCardCollapseState[sId];
-        recalculateTotals();
+        recalculateOwnerCashbook();
     }
 
     function renderSettlementCardsHtml(settlementList) {
@@ -30,31 +30,12 @@
         }
 
         return settlementList.map(settlement => {
-            const sId = settlement.id;
-            const isExpanded = settlementCardCollapseState[sId] === true;
-            const items = settlement.items || [];
-            const hasItems = items.length > 0;
+            const isExpanded = !!settlementCardCollapseState[settlement.id];
+            const hasItems = settlement.items && settlement.items.length > 0;
             const amountClass = settlement.amount < 0 ? 'text-rose-700' : (settlement.is_net_balance ? 'text-emerald-700 font-black' : 'text-indigo-700');
             const cardBgClass = settlement.is_net_balance
                 ? 'bg-emerald-50/50 border-emerald-200'
                 : (settlement.is_company_payable ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50/80 border-slate-200');
-
-            let itemsHtml = '';
-            if (hasItems) {
-                itemsHtml = items.map(item => {
-                    const settingObj = (settings || []).find(s => String(s.id) === String(item.setting_id));
-                    const itemName = item.name && !item.name.startsWith('Category #') ? item.name : (settingObj ? settingObj.name : item.name);
-                    return `
-                        <div class="flex items-center justify-between text-slate-600 font-medium py-1 px-1">
-                            <span class="flex items-center gap-1.5 min-w-0 pr-2">
-                                <span class="font-mono font-bold ${item.role === 'subtract' ? 'text-rose-600' : 'text-emerald-600'}">${item.role === 'subtract' ? '−' : '+'}</span>
-                                <span class="truncate text-slate-700">${escapeHtml(itemName)}</span>
-                            </span>
-                            <span class="shrink-0 font-mono font-semibold ${item.role === 'subtract' ? 'text-rose-700' : 'text-slate-800'}">${formatCurrency(item.amount)}</span>
-                        </div>
-                    `;
-                }).join('');
-            }
 
             const cpBadge = settlement.is_company_payable
                 ? '<span class="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-black text-amber-800 border border-amber-300">★ Company Payable</span>'
@@ -63,24 +44,44 @@
                 ? '<span class="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-black text-emerald-800 border border-emerald-300">Net Balance</span>'
                 : '';
 
+            let itemsHtml = '';
+            if (hasItems) {
+                itemsHtml = settlement.items.map(item => {
+                    const isSubtract = item.role === 'subtract';
+                    const sign = isSubtract ? '−' : '+';
+                    const signClass = isSubtract ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold';
+                    return `
+                        <div class="flex items-center justify-between py-1 text-xs text-slate-600">
+                            <span class="truncate pr-2">${sign} ${escapeHtml(item.name)}</span>
+                            <span class="font-mono ${signClass} shrink-0">${CashbookSettlementSummary.formatAmount(item.amount)}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            const splitBtnHtml = hasItems ? `
+                <button type="button" onclick="event.stopPropagation(); toggleSettlementCardSplit('${settlement.id}')"
+                        class="text-[10px] font-bold text-slate-600 hover:text-slate-900 px-2 py-0.5 rounded-md bg-white hover:bg-slate-100 transition border border-slate-200 shadow-2xs inline-flex items-center gap-1 cursor-pointer">
+                    <span>${isExpanded ? 'Hide Split' : 'Show Split'}</span>
+                    <i data-lucide="chevron-${isExpanded ? 'up' : 'down'}" class="h-3 w-3 inline"></i>
+                </button>
+            ` : '';
+
             return `
-                <div class="rounded-2xl border ${cardBgClass} p-3.5 transition">
-                    <div class="flex items-center justify-between gap-3 ${hasItems ? 'cursor-pointer select-none' : ''}" ${hasItems ? `onclick="toggleSettlementCardSplit('${sId}')"` : ''}>
-                        <div class="flex items-center gap-2 min-w-0">
+                <div class="rounded-2xl border ${cardBgClass} p-3.5 space-y-2 transition">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
                             <span class="font-bold text-slate-900 truncate">${escapeHtml(settlement.name)}</span>
                             ${cpBadge}
                             ${nbBadge}
-                            ${hasItems ? `
-                                <button type="button" onclick="event.stopPropagation(); toggleSettlementCardSplit('${sId}')" class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-slate-800 bg-white px-2 py-0.5 rounded-lg border border-slate-200 shadow-2xs transition">
-                                    <span>${isExpanded ? 'Hide Split' : 'Show Split'}</span>
-                                    <i data-lucide="${isExpanded ? 'chevron-up' : 'chevron-down'}" class="h-3 w-3"></i>
-                                </button>
-                            ` : ''}
                         </div>
-                        <span class="shrink-0 font-mono font-bold ${amountClass}">${CashbookSettlementSummary.formatAmount(settlement.amount)}</span>
+                        <div class="flex items-center gap-2 shrink-0">
+                            ${splitBtnHtml}
+                            <span class="font-mono font-bold ${amountClass}">${CashbookSettlementSummary.formatAmount(settlement.amount)}</span>
+                        </div>
                     </div>
-                    ${hasItems ? `
-                        <div class="${isExpanded ? '' : 'hidden'} mt-2.5 pt-2 border-t border-slate-200/80 space-y-1 text-xs">
+                    ${(hasItems && isExpanded) ? `
+                        <div class="pt-2 border-t border-slate-200/80 space-y-1">
                             ${itemsHtml}
                         </div>
                     ` : ''}
@@ -486,6 +487,64 @@
             if (outTotalEl) outTotalEl.textContent = formatCurrency(headerTotal);
         });
 
+        // Calculate Header Add-Backs for headers with show_both_sides enabled & cash purchase settings
+        let headerAddBacks = [];
+        let totalIncomeAddBacks = 0;
+        let totalExpenseAddBacks = 0;
+
+        headers.forEach(h => {
+            const isIncome = (h.type || '').toLowerCase() === 'income';
+            const hTotal = headerTotals[h.id] || 0;
+            const absTotal = Math.abs(hTotal);
+            const showsBoth = (h.show_both_sides === true);
+
+            if (showsBoth && absTotal > 0.0001) {
+                const isExpenseHeader = !isIncome;
+                const oppositeSide = isExpenseHeader ? 'income' : 'expense';
+
+                headerAddBacks.push({
+                    header_id: h.id,
+                    header_name: h.name,
+                    header_type: h.type,
+                    opposite_side: oppositeSide,
+                    label: h.name,
+                    amount: absTotal
+                });
+
+                if (isExpenseHeader) {
+                    totalIncomeAddBacks += absTotal;
+                    totalIncome += absTotal;
+                } else {
+                    totalExpenseAddBacks += absTotal;
+                    totalExpense += absTotal;
+                }
+            }
+        });
+
+        settings.forEach(s => {
+            if (s.is_cash_purchase) {
+                const amt = parseFloat(activeDayData[s.id]) || 0;
+                const h = headers.find(item => item.id === s.header_id);
+                if (amt > 0 && (!h || !h.show_both_sides)) {
+                    const exists = headerAddBacks.some(ab => ab.label === s.name);
+                    if (!exists) {
+                        headerAddBacks.push({
+                            header_id: s.header_id || ('cp_' + s.id),
+                            header_name: s.name,
+                            header_type: 'expense',
+                            opposite_side: 'income',
+                            label: s.name,
+                            amount: amt
+                        });
+                        totalIncomeAddBacks += amt;
+                        totalIncome += amt;
+                    }
+                }
+            }
+        });
+
+        activeDayData.headerAddBacks = headerAddBacks;
+
         // Compute tagged product sums per header for settlement calculations
         headers.forEach(h => {
             const pRows = productRowsState[h.id] || [];
@@ -503,10 +562,12 @@
 
         const todayNetActivity = settlementResult.netBalance;
 
-        // Render Settlement Cards HTML
+        // Render Settlement Cards HTML into Dashboard View and Report View
         const settlementCardsHtml = renderSettlementCardsHtml(settlementResult.settlements || []);
 
-        // Render Settlement Cards into Report View only
+        const dashRelEl = document.getElementById('dashboard-settlements-breakdown');
+        if (dashRelEl) dashRelEl.innerHTML = settlementCardsHtml;
+
         const repRelContainer = document.getElementById('report-relations-container');
         const repRelEl = document.getElementById('report-relations-breakdown');
         if (repRelEl) repRelEl.innerHTML = settlementCardsHtml;
@@ -651,7 +712,7 @@
             });
 
             const signTextClass = isIncome ? 'text-emerald-700' : 'text-rose-700 font-black';
-            const formattedTotal = formatCurrency(hTotal);
+            const formattedTotal = formatCurrency(Math.abs(hTotal));
 
             const childItemsHtml = childItems.length > 0
                 ? childItems.join('')
@@ -703,7 +764,7 @@
         const expenseHeaders = headers.filter(h => h.type === 'expense');
         const orderedHeaders = [...incomeHeaders, ...expenseHeaders];
 
-        container.innerHTML = orderedHeaders.map(h => {
+        const normalCardsHtml = orderedHeaders.map(h => {
             const isIncome = (h.type || '').toLowerCase() === 'income';
             let hTotal = 0;
 
@@ -790,7 +851,7 @@
                 ? `<div class="py-1 text-[11px] text-slate-400 italic">No products recorded yet (tap to add)</div>`
                 : '';
 
-            const headerTotalFormatted = formatCurrency(hTotal);
+            const headerTotalFormatted = formatCurrency(Math.abs(hTotal));
             const headerTotalClass = isIncome ? 'text-emerald-700' : 'text-rose-700 font-black';
 
             return `
@@ -826,6 +887,46 @@
                 </div>
             `;
         }).join('');
+
+        const mirroredCardsHtml = (activeDayData.headerAddBacks || []).map(ab => {
+            const isIncomeSide = ab.opposite_side === 'income';
+            const cardBgClass = isIncomeSide ? 'border-emerald-200 bg-white' : 'border-rose-200 bg-white';
+            const badgeBg = isIncomeSide ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200';
+            const totalClass = isIncomeSide ? 'text-emerald-700 font-black' : 'text-rose-700 font-black';
+            const signPrefix = isIncomeSide ? '+' : '−';
+            const formattedAmt = formatCurrency(ab.amount);
+
+            return `
+                <div class="rounded-xl sm:rounded-2xl border ${cardBgClass} p-3.5 sm:p-4 shadow-xs space-y-2 select-none">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-xs sm:text-sm font-black uppercase text-slate-900 truncate">${escapeHtml(ab.header_name)}</span>
+                            <span class="rounded-full px-2 py-0.5 text-[10px] font-bold border ${badgeBg}">Mirrored</span>
+                        </div>
+                        <span class="text-[10px] font-semibold text-slate-400">Header Total Only</span>
+                    </div>
+
+                    <div class="flex items-start justify-between gap-2 py-1">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-1.5">
+                                <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black ${isIncomeSide ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'} shrink-0">${signPrefix}</span>
+                                <span class="text-xs font-bold text-slate-800 leading-tight truncate">${escapeHtml(ab.header_name)}</span>
+                            </div>
+                        </div>
+                        <span class="font-mono text-xs font-black shrink-0 ${totalClass}">
+                            <span class="${isIncomeSide ? 'text-emerald-700' : 'text-rose-600'} mr-0.5 font-bold">${signPrefix}</span>${formatCurrency(ab.amount, false)}
+                        </span>
+                    </div>
+
+                    <div class="flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
+                        <span>Total ${escapeHtml(ab.header_name)}</span>
+                        <span class="font-mono font-bold ${totalClass}">${formattedAmt}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = normalCardsHtml + mirroredCardsHtml;
     }
 
     function renderReportBreakdown() {
@@ -917,8 +1018,43 @@
             `;
         }).filter(Boolean);
 
-        if (headerSections.length > 0) {
-            container.innerHTML = headerSections.join('<div class="border-t border-dashed border-slate-200 my-4"></div>');
+        const mirroredSections = (activeDayData.headerAddBacks || []).map(ab => {
+            const isIncomeSide = ab.opposite_side === 'income';
+            const badgeBg = isIncomeSide ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200';
+            const totalClass = isIncomeSide ? 'text-slate-900' : 'text-rose-700 font-black';
+            const signPrefix = isIncomeSide ? '+' : '−';
+            const formattedAmt = formatCurrency(ab.amount);
+
+            return `
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-black uppercase tracking-wide text-slate-900">${escapeHtml(ab.header_name)}</span>
+                            <span class="rounded-full px-2 py-0.5 text-[10px] font-bold border ${badgeBg}">Mirrored</span>
+                        </div>
+                        <span class="text-[10px] font-semibold text-slate-400">Header Total Only</span>
+                    </div>
+                    <div class="space-y-0.5 text-xs">
+                        <div class="flex justify-between py-1 text-slate-700 font-medium">
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black ${isIncomeSide ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'} shrink-0">${signPrefix}</span>
+                                <span class="truncate">${escapeHtml(ab.header_name)}</span>
+                            </div>
+                            <span class="font-mono font-bold ${totalClass}">${signPrefix} ${formatCurrency(ab.amount, false)}</span>
+                        </div>
+                    </div>
+                    <div class="flex justify-between border-t border-slate-100 pt-1.5 text-[11px] font-bold text-slate-500">
+                        <span>Subtotal</span>
+                        <span class="font-mono font-bold ${totalClass}">${formattedAmt}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        const allSections = [...headerSections, ...mirroredSections];
+
+        if (allSections.length > 0) {
+            container.innerHTML = allSections.join('<div class="border-t border-dashed border-slate-200 my-4"></div>');
         } else {
             container.innerHTML = `
                 <div class="py-6 text-center text-xs font-medium text-slate-400">

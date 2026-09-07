@@ -116,9 +116,9 @@
         }
     }
 
-    // Priority Sort: Income headers first, then Expense headers
-    $incomeHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'income')->sortBy('display_order')->values();
-    $expenseHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'expense')->sortBy('display_order')->values();
+    // Priority Sort: Income headers first, then Expense headers (include show_both_sides in both)
+    $incomeHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'income' || ! empty($h['show_both_sides']))->sortBy('display_order')->values();
+    $expenseHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'expense' || ! empty($h['show_both_sides']))->sortBy('display_order')->values();
 
     // Serialize metadata for JS calculation engine
     $settingsJson = $settings->map(function ($s) {
