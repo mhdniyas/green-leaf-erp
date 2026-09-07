@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Cashbook\TransactionStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
@@ -1118,7 +1119,8 @@ class ShopOwnerController extends Controller
 
         $txQuery = ShopLedgerTransaction::query()
             ->with('entryType')
-            ->where('shop_id', (int) $shop->id);
+            ->where('shop_id', (int) $shop->id)
+            ->where('status', '!=', TransactionStatus::Void->value);
 
         if ($tab === 'reports') {
             if ($timeframe === 'monthly') {
@@ -1237,7 +1239,8 @@ class ShopOwnerController extends Controller
 
         $query = ShopLedgerTransaction::query()
             ->with('entryType')
-            ->where('shop_id', (int) $shop->id);
+            ->where('shop_id', (int) $shop->id)
+            ->where('status', '!=', TransactionStatus::Void->value);
 
         if ($timeframe === 'weekly') {
             $query->whereBetween('business_date', [$startOfWeek, $endOfWeek]);
@@ -1256,7 +1259,8 @@ class ShopOwnerController extends Controller
 
         $monthTransactionsQuery = ShopLedgerTransaction::query()
             ->with('entryType')
-            ->where('shop_id', (int) $shop->id);
+            ->where('shop_id', (int) $shop->id)
+            ->where('status', '!=', TransactionStatus::Void->value);
 
         if (in_array($timeframe, ['weekly', 'monthly', 'custom'], true)) {
             $monthTransactionsQuery->whereBetween('business_date', [$syncStartDate, $syncEndDate]);

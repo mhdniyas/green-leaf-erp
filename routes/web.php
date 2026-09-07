@@ -276,6 +276,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/staff/leave-requests', [ShopOwnerStaffController::class, 'storeLeave'])->name('staff.leave-requests.store');
         Route::post('/staff/sync-cashbook', [ShopOwnerStaffController::class, 'syncCashbook'])->name('staff.sync-cashbook');
         Route::post('/staff/delete-cashbook-orphan', [ShopOwnerStaffController::class, 'deleteCashbookOrphan'])->name('staff.delete-cashbook-orphan');
+        Route::put('/staff/payments/{payment}', [ShopOwnerStaffController::class, 'updateStaffPayment'])->name('staff.payments.update');
+        Route::delete('/staff/payments/{payment}', [ShopOwnerStaffController::class, 'destroyStaffPayment'])->name('staff.payments.destroy');
     });
 
     // ── Inventory ──────────────────────────────────────────────────────────

@@ -957,4 +957,48 @@ class ShopOwnerStaffController extends Controller
             'month' => $request->input('month'),
         ]))->with('success', 'Selected orphan Cashbook entry deleted successfully.');
     }
+
+    public function updateStaffPayment(Request $request, ShopStaffPayment $payment): RedirectResponse
+    {
+        $this->ensureOwnerAccess($request);
+
+        $ownedShops = $request->user()->ownedShopAssignments()->pluck('shop_id');
+        abort_unless($ownedShops->contains($payment->shop_id), 403, 'This staff payment is outside your authorized shops.');
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'paid_on' => ['required', 'date'],
+            'payment_type' => ['required', 'in:salary,advance'],
+            'fund_source' => ['required', 'in:sales,petty_cash,company,petty'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $this->employeeAdvanceService->updateShopStaffPayment($payment, $validated, $request->user());
+
+        return redirect()->route('shop-owner.staff.index', array_filter([
+            'shop' => $payment->shop?->code,
+            'tab' => 'history',
+            'date' => Carbon::parse($validated['paid_on'])->toDateString(),
+            'month' => Carbon::parse($validated['paid_on'])->format('Y-m'),
+        ]))->with('success', 'Staff payment updated and synchronized with Cashbook.');
+    }
+
+    public function destroyStaffPayment(Request $request, ShopStaffPayment $payment): RedirectResponse
+    {
+        $this->ensureOwnerAccess($request);
+
+        $ownedShops = $request->user()->ownedShopAssignments()->pluck('shop_id');
+        abort_unless($ownedShops->contains($payment->shop_id), 403, 'This staff payment is outside your authorized shops.');
+
+        $shopCode = $payment->shop?->code;
+        $paidDate = $payment->paid_on?->toDateString();
+
+        $this->employeeAdvanceService->deleteShopStaffPayment($payment, $request->user());
+
+        return redirect()->route('shop-owner.staff.index', array_filter([
+            'shop' => $shopCode,
+            'tab' => 'history',
+            'date' => $paidDate,
+        ]))->with('success', 'Staff payment record deleted. Any remaining Cashbook entry will be detected during sync.');
+    }
 }

@@ -238,6 +238,9 @@
     $initialTxNotes = [];
     if (isset($todayTransactions) && $todayTransactions->isNotEmpty()) {
         foreach ($todayTransactions as $tx) {
+            if ($tx->status === 'void' || $tx->status === \App\Enums\Cashbook\TransactionStatus::Void->value) {
+                continue;
+            }
             if ($tx->entry_type_id) {
                 $setting = $settings->firstWhere('entry_type_id', $tx->entry_type_id);
                 if ($setting) {

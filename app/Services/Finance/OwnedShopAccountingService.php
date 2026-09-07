@@ -90,15 +90,16 @@ class OwnedShopAccountingService
             $line = ShopAccountingEntryLine::query()
                 ->where('source_type', ShopStaffPayment::class)
                 ->where('source_id', $payment->id)
-                ->where('source_event', $sourceEvent)
                 ->lockForUpdate()
                 ->first();
+
+            $previousEntry = $line instanceof ShopAccountingEntryLine ? $line->entry : null;
+            $previousDate = $previousEntry?->business_date?->toDateString();
 
             if (! $line instanceof ShopAccountingEntryLine) {
                 $line = new ShopAccountingEntryLine([
                     'source_type' => ShopStaffPayment::class,
                     'source_id' => $payment->id,
-                    'source_event' => $sourceEvent,
                 ]);
             }
 
@@ -108,6 +109,7 @@ class OwnedShopAccountingService
             };
 
             $line->fill([
+                'source_event' => $sourceEvent,
                 'shop_accounting_entry_id' => $entry->id,
                 'shop_accounting_category_id' => $category->id,
                 'type' => 'expense',
@@ -121,6 +123,9 @@ class OwnedShopAccountingService
             $line->save();
 
             $this->syncStoredClosingBalanceForDate($shop, Carbon::parse($businessDate), $userId);
+            if ($previousDate !== null && $previousDate !== $businessDate) {
+                $this->syncStoredClosingBalanceForDate($shop, Carbon::parse($previousDate), $userId);
+            }
 
             return $line->fresh(['entry', 'category']) ?? $line;
         });

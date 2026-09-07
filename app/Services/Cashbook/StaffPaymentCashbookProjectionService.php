@@ -47,7 +47,21 @@ class StaffPaymentCashbookProjectionService
         try {
             $setting = $this->ruleResolver->resolve((int) $payment->shop_id, (int) $entryType->id, $businessDate);
         } catch (RuntimeException) {
-            return null;
+            if ($entryType->code !== 'salary') {
+                $salaryType = LedgerEntryType::query()->where('code', 'salary')->where('active', true)->first();
+                if ($salaryType instanceof LedgerEntryType) {
+                    try {
+                        $setting = $this->ruleResolver->resolve((int) $payment->shop_id, (int) $salaryType->id, $businessDate);
+                        $entryType = $salaryType;
+                    } catch (RuntimeException) {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            } else {
+                return null;
+            }
         }
 
         return DB::transaction(function () use ($payment, $entryType, $businessDate, $amount, $shouldVoid, $userId, $setting): ShopLedgerTransaction {
@@ -87,6 +101,7 @@ class StaffPaymentCashbookProjectionService
 
             $transaction->fill([
                 'business_date' => $businessDate,
+                'entry_type_id' => $entryType->id,
                 'amount' => $amount,
                 'direction' => $direction->value,
                 'funding_source' => $fundingSource->value,
@@ -142,13 +157,12 @@ class StaffPaymentCashbookProjectionService
             ->when($from, fn ($query) => $query->whereDate('paid_on', '>=', $from))
             ->when($to, fn ($query) => $query->whereDate('paid_on', '<=', $to))
             ->orderBy('id')
-            ->chunkById(200, function ($payments) use (&$summary, $salaryEntryType, $apply, $userId): void {
+            ->chunkById(200, function ($payments) use (&$summary, $apply, $userId): void {
                 foreach ($payments as $payment) {
                     $summary['checked']++;
 
                     $transaction = ShopLedgerTransaction::query()
                         ->where('shop_id', $payment->shop_id)
-                        ->where('entry_type_id', $salaryEntryType->id)
                         ->where('reference_type', ShopStaffPayment::class)
                         ->where('reference_id', $payment->id)
                         ->first();
@@ -240,9 +254,16 @@ class StaffPaymentCashbookProjectionService
         $payments = $query->orderBy('id')->get();
 
         foreach ($payments as $payment) {
+            $targetCode = match ((string) $payment->payment_type) {
+                'advance' => 'staff_advance',
+                default => 'salary',
+            };
+
+            $entryType = LedgerEntryType::query()->where('code', $targetCode)->where('active', true)->first()
+                ?? LedgerEntryType::query()->where('code', 'salary')->where('active', true)->first();
+
             $transaction = ShopLedgerTransaction::query()
                 ->where('shop_id', $shopId)
-                ->where('entry_type_id', $salaryEntryType->id)
                 ->where('reference_type', ShopStaffPayment::class)
                 ->where('reference_id', $payment->id)
                 ->first();
@@ -279,6 +300,9 @@ class StaffPaymentCashbookProjectionService
                 $txSource = $transaction->funding_source;
 
                 $mismatches = [];
+                if ($entryType && (int) $transaction->entry_type_id !== (int) $entryType->id) {
+                    $mismatches[] = "Category ({$transaction->entryType?->name} → {$entryType->name})";
+                }
                 if ($txAmount !== $expectedAmount) {
                     $mismatches[] = "Amount (₹{$txAmount} → ₹{$expectedAmount})";
                 }

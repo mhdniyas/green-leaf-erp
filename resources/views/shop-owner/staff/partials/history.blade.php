@@ -248,11 +248,34 @@
                                 @if($payment->notes) · Note: {{ $payment->notes }} @endif
                             </p>
                         </div>
-                        <div class="text-right shrink-0">
+                        <div class="text-right shrink-0 space-y-1">
                             <p class="font-black text-slate-950">₹{{ number_format((float) $payment->amount, 2) }}</p>
                             <span class="inline-block text-[9px] font-bold text-emerald-600">
                                 ✓ Cashbook Synced
                             </span>
+                            <div class="flex items-center justify-end gap-1.5 pt-0.5">
+                                <button type="button" 
+                                        onclick="openEditPaymentModal({{ json_encode([
+                                            'id' => $payment->id,
+                                            'employee_name' => $payment->employee?->name ?? 'Staff',
+                                            'amount' => (float) $payment->amount,
+                                            'paid_on' => $payment->paid_on?->format('Y-m-d') ?? today()->format('Y-m-d'),
+                                            'payment_type' => $payment->payment_type ?? 'salary',
+                                            'fund_source' => $payment->fund_source ?? 'sales',
+                                            'notes' => $payment->notes ?? '',
+                                            'update_url' => route('shop-owner.staff.payments.update', $payment),
+                                        ]) }})"
+                                        class="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition cursor-pointer">
+                                    Edit
+                                </button>
+                                <form action="{{ route('shop-owner.staff.payments.destroy', $payment) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this payment record? Any linked Cashbook entry will be detected during sync.');" class="inline">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100 hover:text-rose-900 transition cursor-pointer">
+                                        Delete
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 @empty
@@ -317,4 +340,93 @@
             @endif
         </article>
     </section>
+
+    {{-- Edit Staff Payment Modal --}}
+    <div id="edit-staff-payment-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div class="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-xl transition-all border border-slate-200 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="text-sm font-black uppercase tracking-wider text-slate-900">Edit Staff Payment</h3>
+                    <p id="edit-payment-employee-name" class="text-xs font-semibold text-slate-500 mt-0.5"></p>
+                </div>
+                <button type="button" onclick="closeEditPaymentModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <form id="edit-staff-payment-form" method="POST" class="space-y-3">
+                @csrf
+                @method('PUT')
+                <input type="hidden" name="shop" value="{{ $selectedShop?->code }}">
+
+                <div>
+                    <label for="edit-payment-amount" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Amount (₹)</label>
+                    <input type="number" step="0.01" min="0.01" name="amount" id="edit-payment-amount" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label for="edit-payment-date" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Date</label>
+                        <input type="date" name="paid_on" id="edit-payment-date" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                    </div>
+
+                    <div>
+                        <label for="edit-payment-type" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Category</label>
+                        <select name="payment_type" id="edit-payment-type" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                            <option value="salary">Salary</option>
+                            <option value="advance">Staff Advance</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="edit-payment-fund-source" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Fund Source</label>
+                    <select name="fund_source" id="edit-payment-fund-source" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                        <option value="sales">Shop Cash / Daily Sales</option>
+                        <option value="petty_cash">Petty Cash</option>
+                        <option value="company">Company Account</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="edit-payment-notes" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Notes / Remarks</label>
+                    <textarea name="notes" id="edit-payment-notes" rows="2" class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500" placeholder="Optional payment note"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                    <button type="button" onclick="closeEditPaymentModal()" class="rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
+                        Cancel
+                    </button>
+                    <button type="submit" class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700 active:scale-95 transition cursor-pointer shadow-xs">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openEditPaymentModal(data) {
+            const modal = document.getElementById('edit-staff-payment-modal');
+            const form = document.getElementById('edit-staff-payment-form');
+            if (!modal || !form) return;
+
+            document.getElementById('edit-payment-employee-name').textContent = data.employee_name;
+            document.getElementById('edit-payment-amount').value = data.amount;
+            document.getElementById('edit-payment-date').value = data.paid_on;
+            document.getElementById('edit-payment-type').value = data.payment_type;
+            document.getElementById('edit-payment-fund-source').value = (data.fund_source === 'petty' ? 'petty_cash' : data.fund_source);
+            document.getElementById('edit-payment-notes').value = data.notes || '';
+            form.action = data.update_url;
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeEditPaymentModal() {
+            const modal = document.getElementById('edit-staff-payment-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+    </script>
 </div>

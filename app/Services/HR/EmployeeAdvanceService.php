@@ -812,4 +812,123 @@ class EmployeeAdvanceService
             $advanceRequest->delete();
         }, 3);
     }
+
+    /**
+     * @param  array{amount?: float|numeric-string, paid_on?: string|Carbon, payment_type?: string, fund_source?: string, notes?: ?string}  $data
+     */
+    public function updateShopStaffPayment(
+        ShopStaffPayment $payment,
+        array $data,
+        User $actor,
+    ): ShopStaffPayment {
+        return DB::transaction(function () use ($payment, $data, $actor): ShopStaffPayment {
+            /** @var ShopStaffPayment $payment */
+            $payment = ShopStaffPayment::query()
+                ->with(['employee', 'shop', 'advanceRequest', 'payrollRunItem'])
+                ->whereKey($payment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $amount = round((float) ($data['amount'] ?? $payment->amount), 2);
+            if ($amount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'amount' => 'The payment amount must be greater than zero.',
+                ]);
+            }
+
+            $paidOn = isset($data['paid_on']) ? Carbon::parse((string) $data['paid_on']) : ($payment->paid_on ?? today());
+            $paymentType = isset($data['payment_type']) ? (string) $data['payment_type'] : (string) $payment->payment_type;
+            $fundSource = isset($data['fund_source']) ? (string) $data['fund_source'] : (string) $payment->fund_source;
+            $notes = array_key_exists('notes', $data) ? $data['notes'] : $payment->notes;
+
+            $previousPaidOn = $payment->paid_on ? Carbon::parse($payment->paid_on->toDateString()) : null;
+            $shop = $payment->shop;
+
+            $payment->forceFill([
+                'amount' => $amount,
+                'paid_on' => $paidOn->toDateString(),
+                'payment_type' => $paymentType,
+                'fund_source' => $fundSource,
+                'notes' => $notes,
+            ]);
+            $payment->save();
+
+            if ($payment->advanceRequest instanceof EmployeeAdvanceRequest) {
+                $advanceRequest = $payment->advanceRequest;
+                $advanceRequest->forceFill([
+                    'requested_amount' => $amount,
+                    'approved_amount' => $amount,
+                    'requested_on' => $paidOn->toDateString(),
+                    'payroll_month' => $paidOn->copy()->startOfMonth()->toDateString(),
+                ]);
+                if ($notes !== null) {
+                    $advanceRequest->review_note = $notes;
+                }
+                $advanceRequest->save();
+            }
+
+            if ($shop instanceof Shop && $shop->isOwnedAccountingEnabled()) {
+                $this->ownedShopAccountingService->postShopStaffPaymentToCashbook($payment, (int) $actor->id);
+                if ($previousPaidOn && $previousPaidOn->toDateString() !== $paidOn->toDateString()) {
+                    $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate($shop, $previousPaidOn, (int) $actor->id);
+                }
+                $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate($shop, $paidOn, (int) $actor->id);
+            }
+
+            $this->staffPaymentProjectionService->syncPayment($payment, (int) $actor->id);
+
+            return $payment->fresh(['employee', 'shop', 'payrollRunItem', 'advanceRequest', 'cashbookLine.entry']);
+        }, 3);
+    }
+
+    public function deleteShopStaffPayment(ShopStaffPayment $payment, User $actor, bool $preserveCashbookAsOrphan = true): void
+    {
+        DB::transaction(function () use ($payment, $actor, $preserveCashbookAsOrphan): void {
+            /** @var ShopStaffPayment $payment */
+            $payment = ShopStaffPayment::query()
+                ->with(['employee', 'shop', 'advanceRequest'])
+                ->whereKey($payment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $shop = $payment->shop;
+            $paidOn = $payment->paid_on ? Carbon::parse($payment->paid_on->toDateString()) : null;
+
+            $entryLines = ShopAccountingEntryLine::query()
+                ->where('source_type', ShopStaffPayment::class)
+                ->where('source_id', $payment->id)
+                ->get();
+
+            foreach ($entryLines as $line) {
+                $line->delete();
+            }
+
+            if ($shop instanceof Shop && $paidOn && $shop->isOwnedAccountingEnabled()) {
+                $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate($shop, $paidOn, (int) $actor->id);
+            }
+
+            if ($payment->advanceRequest instanceof EmployeeAdvanceRequest) {
+                $payment->advanceRequest->delete();
+            }
+
+            if (! $preserveCashbookAsOrphan) {
+                $ledgerTxs = ShopLedgerTransaction::query()
+                    ->where('shop_id', $payment->shop_id)
+                    ->where('reference_type', ShopStaffPayment::class)
+                    ->where('reference_id', $payment->id)
+                    ->get();
+
+                foreach ($ledgerTxs as $tx) {
+                    $txDate = $tx->business_date?->toDateString();
+                    $txShopId = $tx->shop_id;
+                    $tx->delete();
+                    if ($txShopId && $txDate) {
+                        $this->balanceCalculator->recalculate($txShopId, $txDate);
+                    }
+                }
+            }
+
+            $payment->delete();
+        }, 3);
+    }
 }
