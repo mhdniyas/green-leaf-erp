@@ -2782,7 +2782,7 @@ final class CashbookController extends Controller
             ->values();
 
         $relations = ShopCashbookRelation::query()
-            ->with(['items.setting.entryType', 'items.setting.companyAccount'])
+            ->with(['items.setting.entryType', 'items.setting.companyAccount', 'items.headerGroup', 'items.sourceSettlement'])
             ->where('shop_id', $currentShop->shop_id)
             ->where('enabled', true)
             ->orderBy('display_order')

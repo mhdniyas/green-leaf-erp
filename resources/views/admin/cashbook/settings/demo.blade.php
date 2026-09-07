@@ -194,17 +194,21 @@
         'kind' => $relation->relation_type,
         'enabled' => (bool) $relation->enabled,
         'is_company_payable' => (bool) $relation->is_company_payable,
-        'items' => $relation->items->map(function ($item) use ($settingsMap, $settingsByHeader) {
+        'items' => $relation->items->map(function ($item) use ($settingsMap, $settingsByHeader, $headerGroupList, $summaryRelations) {
             $settingId = (int) $item->shop_ledger_entry_setting_id;
             $headerId = (int) $item->header_group_id;
             $sourceSettlementId = (int) $item->source_settlement_id;
             $headerSettingIds = $headerId ? ($settingsByHeader->get($headerId, collect())->pluck('id')->map(fn ($id) => (int) $id)->all()) : [];
 
             $name = '';
-            if ($sourceSettlementId && $item->sourceSettlement) {
-                $name = 'Settlement: '.$item->sourceSettlement->name;
-            } elseif ($headerId && $item->headerGroup) {
-                $hName = 'Header: '.$item->headerGroup->name;
+            if ($sourceSettlementId) {
+                $targetRel = $item->sourceSettlement ?? $summaryRelations->firstWhere('id', $sourceSettlementId);
+                $sName = $targetRel?->name ?? ('Settlement #'.$sourceSettlementId);
+                $name = 'Settlement: '.$sName;
+            } elseif ($headerId) {
+                $targetHg = $item->headerGroup ?? $headerGroupList->firstWhere('id', $headerId);
+                $hgName = $targetHg?->name ?? ('Header #'.$headerId);
+                $hName = 'Header: '.$hgName;
                 $mode = $item->header_mode ?? 'all_categories';
                 if ($mode === 'tagged_products_only') {
                     $name = $hName.' (Product Total Only)';

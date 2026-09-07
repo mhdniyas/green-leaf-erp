@@ -366,19 +366,18 @@ class ShopSettlementService
             ->whereNull('voided_at')
             ->selectRaw('entry_type_id, SUM(amount) as total')
             ->groupBy('entry_type_id')->pluck('total', 'entry_type_id');
+
         $amounts = [];
-        foreach ($relations as $relation) {
-            foreach ($relation->items as $item) {
-                if ($item->setting && (int) $item->setting->shop_id === $shopId) {
-                    $amounts[$item->shop_ledger_entry_setting_id] = (float) ($totals[$item->setting->entry_type_id] ?? 0);
-                }
-            }
+        $allSettings = ShopLedgerEntrySetting::where('shop_id', $shopId)->get();
+        foreach ($allSettings as $setting) {
+            $amounts[$setting->id] = (float) ($totals[$setting->entry_type_id] ?? 0);
         }
 
         $companyPayableSummary = $this->calculateCompanyPayable($shopId, $startDate, $endDate);
 
-        return $relations->map(function (ShopCashbookRelation $relation) use ($amounts, $companyPayableSummary): array {
+        return $relations->map(function (ShopCashbookRelation $relation) use (&$amounts, $companyPayableSummary): array {
             $res = $this->calculator->calculate($relation, $amounts);
+            $amounts['settlement_'.$relation->id] = $res['netSettlement'];
             $isPayable = (bool) $relation->is_company_payable || $relation->relation_type === 'default_company_payable';
             $res['is_company_payable'] = $isPayable;
             if ($isPayable) {
