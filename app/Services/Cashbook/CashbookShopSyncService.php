@@ -209,6 +209,7 @@ class CashbookShopSyncService
                 'effective_from' => min($effectiveFrom, self::DEFAULT_EFFECTIVE_FROM),
                 'effective_to' => null,
                 'enabled' => $presetSetting->enabled,
+                'show_in_summary' => $presetSetting->show_in_summary ?? true,
                 'default_funding_source' => $presetSetting->default_funding_source,
                 'allowed_funding_sources' => $presetSetting->allowed_funding_sources,
                 'include_in_sales' => $presetSetting->include_in_sales,

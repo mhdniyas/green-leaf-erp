@@ -50,15 +50,22 @@
                 </span>
                 <h3 class="font-extrabold text-sm leading-snug transition truncate {{ $isEnabled ? 'text-slate-950 group-hover:text-indigo-700' : 'text-slate-500' }}">{{ $setting->displayName() }}</h3>
             </div>
-            @if($isEnabled)
-                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 shrink-0 border border-emerald-200">
-                    <i data-lucide="circle-check" class="h-3 w-3 text-emerald-600"></i> Active
-                </span>
-            @else
-                <span class="inline-flex items-center gap-1 rounded-full bg-slate-200/60 px-2 py-0.5 text-[10px] font-bold text-slate-500 shrink-0 border border-slate-300">
-                    <i data-lucide="circle-off" class="h-3 w-3 text-slate-400"></i> Disabled
-                </span>
-            @endif
+            <div class="flex items-center gap-1 shrink-0">
+                @if($isEnabled)
+                    <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 border border-emerald-200" title="Visible in shop cashbook entry form">
+                        <i data-lucide="circle-check" class="h-3 w-3 text-emerald-600"></i> Cashbook
+                    </span>
+                @else
+                    <span class="inline-flex items-center gap-1 rounded-full bg-slate-200/60 px-2 py-0.5 text-[10px] font-bold text-slate-500 border border-slate-300">
+                        <i data-lucide="circle-off" class="h-3 w-3 text-slate-400"></i> Disabled
+                    </span>
+                @endif
+                @if($setting->show_in_summary ?? true)
+                    <span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700 border border-indigo-200" title="Included in summary & reports">
+                        Summary
+                    </span>
+                @endif
+            </div>
         </div>
         <div class="mt-1 font-mono text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-5">
             {{ $setting->entryType->category }}

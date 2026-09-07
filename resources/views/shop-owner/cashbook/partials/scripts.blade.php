@@ -1,3 +1,4 @@
+<script src="{{ asset('js/cashbook-settlement-summary.js') }}?v={{ file_exists(public_path('js/cashbook-settlement-summary.js')) ? filemtime(public_path('js/cashbook-settlement-summary.js')) : time() }}"></script>
 <script>
     let activeDayData = {};
 
@@ -15,6 +16,78 @@
     let productQuery = '';
     let productSearchDebounceTimer = null;
     let productRowsState = {};
+
+    let settlementCardCollapseState = {};
+
+    function toggleSettlementCardSplit(sId) {
+        settlementCardCollapseState[sId] = !settlementCardCollapseState[sId];
+        recalculateTotals();
+    }
+
+    function renderSettlementCardsHtml(settlementList) {
+        if (!settlementList || settlementList.length === 0) {
+            return '<div class="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-xl border border-slate-100">No active settlements configured.</div>';
+        }
+
+        return settlementList.map(settlement => {
+            const sId = settlement.id;
+            const isExpanded = settlementCardCollapseState[sId] === true;
+            const items = settlement.items || [];
+            const hasItems = items.length > 0;
+            const amountClass = settlement.amount < 0 ? 'text-rose-700' : (settlement.is_net_balance ? 'text-emerald-700 font-black' : 'text-indigo-700');
+            const cardBgClass = settlement.is_net_balance
+                ? 'bg-emerald-50/50 border-emerald-200'
+                : (settlement.is_company_payable ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50/80 border-slate-200');
+
+            let itemsHtml = '';
+            if (hasItems) {
+                itemsHtml = items.map(item => {
+                    const settingObj = (settings || []).find(s => String(s.id) === String(item.setting_id));
+                    const itemName = item.name && !item.name.startsWith('Category #') ? item.name : (settingObj ? settingObj.name : item.name);
+                    return `
+                        <div class="flex items-center justify-between text-slate-600 font-medium py-1 px-1">
+                            <span class="flex items-center gap-1.5 min-w-0 pr-2">
+                                <span class="font-mono font-bold ${item.role === 'subtract' ? 'text-rose-600' : 'text-emerald-600'}">${item.role === 'subtract' ? '−' : '+'}</span>
+                                <span class="truncate text-slate-700">${escapeHtml(itemName)}</span>
+                            </span>
+                            <span class="shrink-0 font-mono font-semibold ${item.role === 'subtract' ? 'text-rose-700' : 'text-slate-800'}">${formatCurrency(item.amount)}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            const cpBadge = settlement.is_company_payable
+                ? '<span class="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-black text-amber-800 border border-amber-300">★ Company Payable</span>'
+                : '';
+            const nbBadge = settlement.is_net_balance
+                ? '<span class="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-black text-emerald-800 border border-emerald-300">Net Balance</span>'
+                : '';
+
+            return `
+                <div class="rounded-2xl border ${cardBgClass} p-3.5 transition">
+                    <div class="flex items-center justify-between gap-3 ${hasItems ? 'cursor-pointer select-none' : ''}" ${hasItems ? `onclick="toggleSettlementCardSplit('${sId}')"` : ''}>
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="font-bold text-slate-900 truncate">${escapeHtml(settlement.name)}</span>
+                            ${cpBadge}
+                            ${nbBadge}
+                            ${hasItems ? `
+                                <button type="button" onclick="event.stopPropagation(); toggleSettlementCardSplit('${sId}')" class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-slate-800 bg-white px-2 py-0.5 rounded-lg border border-slate-200 shadow-2xs transition">
+                                    <span>${isExpanded ? 'Hide Split' : 'Show Split'}</span>
+                                    <i data-lucide="${isExpanded ? 'chevron-up' : 'chevron-down'}" class="h-3 w-3"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                        <span class="shrink-0 font-mono font-bold ${amountClass}">${CashbookSettlementSummary.formatAmount(settlement.amount)}</span>
+                    </div>
+                    ${hasItems ? `
+                        <div class="${isExpanded ? '' : 'hidden'} mt-2.5 pt-2 border-t border-slate-200/80 space-y-1 text-xs">
+                            ${itemsHtml}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+    }
 
     document.addEventListener('DOMContentLoaded', function () {
         // Populate initial amounts and notes from existing transactions
@@ -413,68 +486,32 @@
             if (outTotalEl) outTotalEl.textContent = formatCurrency(headerTotal);
         });
 
-        const todayNetActivity = totalIncome - totalExpense;
-
-        // Relations settlement
-        let relationSettled = 0;
-        let relationRule = 'previous_day_balance';
-        let relHtml = '';
-
-        if (relations.length > 0) {
-            const rel = relations[0];
-            relationRule = rel.eligibility_rule || 'previous_day_balance';
-            let grossAdd = 0;
-            let grossSub = 0;
-
-            (rel.items || []).forEach(item => {
-                const itemAmt = parseFloat(activeDayData[item.setting_id]) || 0;
-                if (item.role === 'subtract') grossSub += itemAmt;
-                else grossAdd += itemAmt;
+        // Compute tagged product sums per header for settlement calculations
+        headers.forEach(h => {
+            const pRows = productRowsState[h.id] || [];
+            let hTaggedSum = 0;
+            pRows.forEach(pr => {
+                hTaggedSum += parseFloat(pr.amount) || 0;
             });
+            activeDayData['header_tagged_product_' + h.id] = hTaggedSum;
+        });
 
-            const netRel = grossAdd - grossSub;
-            const openingPayable = {{ (float) ($snapshot->closing_shop_position ?? 15000) }};
-            const eligible = relationRule === 'previous_day_balance' ? Math.max(0, openingPayable) : Math.max(0, openingPayable + cashCollectedAtShop - expensesPaidFromShopCash);
+        // Compute settlements dynamically using CashbookSettlementSummary
+        const settlementResult = (typeof CashbookSettlementSummary !== 'undefined' && relations && relations.length > 0)
+            ? CashbookSettlementSummary.calculate(relations, activeDayData, 0)
+            : { settlements: [], netBalance: totalIncome - totalExpense, netLabel: 'Net Activity' };
 
-            let pendingAmount = 0;
-            if (netRel > 0) {
-                relationSettled = Math.min(netRel, eligible);
-                pendingAmount = netRel - relationSettled;
-            } else {
-                relationSettled = netRel;
-                pendingAmount = 0;
-            }
+        const todayNetActivity = settlementResult.netBalance;
 
-            if (relationSettled > 0 || Math.abs(netRel) > 0) {
-                relHtml = `
-                    <div class="flex justify-between py-1 text-xs">
-                        <div>
-                            <span class="block font-bold text-slate-900">${escapeHtml(rel.name || 'Supermarket Settlement')}</span>
-                            <span class="text-[10px] text-slate-400 font-medium block">From: Previous Shop Balance</span>
-                        </div>
-                        <span class="font-mono text-rose-700 font-black">−${formatCurrency(relationSettled)}</span>
-                    </div>
-                `;
-            }
-        }
+        // Render Settlement Cards HTML
+        const settlementCardsHtml = renderSettlementCardsHtml(settlementResult.settlements || []);
 
-        // Update Summary Bill Relations
-        const summaryRelContainer = document.getElementById('summary-bill-relations-container');
-        const summaryRelContent = document.getElementById('summary-bill-relations-content');
-        if (summaryRelContainer && summaryRelContent) {
-            if (relHtml.trim().length > 0) {
-                summaryRelContainer.classList.remove('hidden');
-                summaryRelContent.innerHTML = relHtml;
-            } else {
-                summaryRelContainer.classList.add('hidden');
-            }
-        }
-
+        // Render Settlement Cards into Report View only
         const repRelContainer = document.getElementById('report-relations-container');
         const repRelEl = document.getElementById('report-relations-breakdown');
-        if (repRelEl) repRelEl.innerHTML = relHtml;
+        if (repRelEl) repRelEl.innerHTML = settlementCardsHtml;
         if (repRelContainer) {
-            if (relHtml.trim().length > 0) {
+            if ((settlementResult.settlements || []).length > 0) {
                 repRelContainer.classList.remove('hidden');
             } else {
                 repRelContainer.classList.add('hidden');
@@ -484,7 +521,7 @@
         // Top KPIs
         const shopHeldNet = Math.max(0, cashCollectedAtShop - expensesPaidFromShopCash);
         const openShopBal = {{ (float) ($snapshot->closing_shop_position ?? 15000) }};
-        const closingShopBal = openShopBal - relationSettled + shopHeldNet;
+        const closingShopBal = openShopBal + shopHeldNet;
         const openingPetty = {{ (float) ($snapshot->petty_balance ?? 5440) }};
         const closingPetty = Math.max(0, openingPetty - expensesPaidFromPetty);
 
@@ -492,9 +529,12 @@
         const kpiShopBal = document.getElementById('kpi-shop-balance');
         if (kpiShopBal) kpiShopBal.textContent = formatCurrency(closingShopBal);
 
+        const kpiNetLabel = document.getElementById('kpi-today-net-label');
+        if (kpiNetLabel) kpiNetLabel.textContent = settlementResult.netLabel ? settlementResult.netLabel.toUpperCase() : 'TODAY NET ACTIVITY';
+
         const kpiNet = document.getElementById('kpi-today-net-activity');
         if (kpiNet) {
-            kpiNet.textContent = formatCurrency(todayNetActivity);
+            kpiNet.textContent = CashbookSettlementSummary.formatAmount(todayNetActivity);
             kpiNet.className = 'font-mono text-base sm:text-xl font-black ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
         }
 
@@ -517,9 +557,12 @@
         renderReportBreakdown();
 
         // Update Report View Elements
+        const repNetLabel = document.getElementById('report-net-activity-label');
+        if (repNetLabel) repNetLabel.textContent = settlementResult.netLabel || 'Net Activity';
+
         const repNet = document.getElementById('report-net-activity');
         if (repNet) {
-            repNet.textContent = formatCurrency(todayNetActivity);
+            repNet.textContent = CashbookSettlementSummary.formatAmount(todayNetActivity);
             repNet.className = 'font-mono text-xs sm:text-sm font-black ' + (todayNetActivity >= 0 ? 'text-emerald-700' : 'text-rose-700');
         }
 

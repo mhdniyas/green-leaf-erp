@@ -23,7 +23,7 @@
 
     {{-- TODAY NET ACTIVITY (Highlight Divider & Strongest Number) --}}
     <div class="flex items-center justify-between border-t-2 border-slate-900 pt-2.5">
-        <span class="text-xs sm:text-sm font-black uppercase tracking-wide text-slate-950">
+        <span class="text-xs sm:text-sm font-black uppercase tracking-wide text-slate-950" id="kpi-today-net-label">
             TODAY NET ACTIVITY
         </span>
         <span class="font-mono text-base sm:text-xl font-black text-emerald-700" id="kpi-today-net-activity">
@@ -56,15 +56,6 @@
         </div>
     </div>
 
-    {{-- BALANCE MOVEMENT Section (Only visible when active) --}}
-    <div id="summary-bill-relations-container" class="pt-2 space-y-1.5 hidden">
-        <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">
-            BALANCE MOVEMENT
-        </div>
-        <div id="summary-bill-relations-content" class="bg-slate-50/90 p-3 rounded-xl border border-slate-100 text-xs font-semibold text-slate-700 space-y-1">
-            <!-- Populated by JS -->
-        </div>
-    </div>
 
     {{-- Bill Footer --}}
     <div class="pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400">

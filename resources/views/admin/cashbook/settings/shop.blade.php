@@ -812,13 +812,26 @@
                     <!-- Status Toggle -->
                     <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div>
-                            <div class="text-xs font-extrabold text-slate-900">Enable Entry for Shop</div>
-                            <div class="text-[11px] font-semibold text-slate-500">Active entries appear in daily cashbook forms.</div>
+                            <div class="text-xs font-extrabold text-slate-900">Show in Shop Cashbook</div>
+                            <div class="text-[11px] font-semibold text-slate-500">Active categories appear in daily cashbook forms.</div>
                         </div>
                         <input type="hidden" name="enabled" value="0">
                         <label class="relative inline-flex cursor-pointer items-center">
                             <input type="checkbox" name="enabled" value="1" @checked($setting->enabled) class="sr-only peer">
                             <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                    </div>
+
+                    <!-- Show in Summary Toggle -->
+                    <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div>
+                            <div class="text-xs font-extrabold text-slate-900">Show in Summary & Reports</div>
+                            <div class="text-[11px] font-semibold text-slate-500">Include this category in shop summary cards and financial reports.</div>
+                        </div>
+                        <input type="hidden" name="show_in_summary" value="0">
+                        <label class="relative inline-flex cursor-pointer items-center">
+                            <input type="checkbox" name="show_in_summary" value="1" @checked($setting->show_in_summary ?? true) class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                         </label>
                     </div>
 

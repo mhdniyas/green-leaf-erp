@@ -17,11 +17,19 @@ class ShopOwnerRegistrationController extends Controller
 {
     public function create(): View
     {
+        if (config('app.env') === 'local') {
+            abort(404);
+        }
+
         return view('auth.shop-owner-register');
     }
 
     public function store(StoreShopOwnerRegistrationRequest $request): RedirectResponse
     {
+        if (config('app.env') === 'local') {
+            abort(404);
+        }
+
         $validated = $request->validated();
 
         DB::transaction(function () use ($validated): void {

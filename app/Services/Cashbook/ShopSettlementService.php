@@ -8,6 +8,7 @@ use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Shop;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -15,8 +16,15 @@ class ShopSettlementService
 {
     public function __construct(private readonly RelationSettlementCalculator $calculator) {}
 
-    public function ensureDefaults(ShopLedgerProfile $profile): void
+    public function ensureDefaults(ShopLedgerProfile|Shop $profileOrShop): void
     {
+        $profile = $profileOrShop instanceof Shop
+            ? ShopLedgerProfile::query()->where('shop_id', (int) $profileOrShop->id)->first()
+            : $profileOrShop;
+
+        if (! $profile) {
+            return;
+        }
         if (ShopCashbookRelation::where('shop_id', $profile->shop_id)->whereIn('relation_type', ['default_balance', 'default_income', 'default_expense', 'default_company_payable'])->distinct()->count('relation_type') === 4) {
             return;
         }

@@ -104,7 +104,7 @@
                 </p>
             </div>
             <div class="text-right">
-                <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Net Activity</span>
+                <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400" id="report-net-activity-label">Net Activity</span>
                 <span class="font-mono text-xs sm:text-sm font-black text-slate-900" id="report-net-activity">₹0.00</span>
             </div>
         </div>
@@ -117,9 +117,9 @@
         {{-- Balance Movements Section (Only rendered when active) --}}
         <div id="report-relations-container" class="space-y-2 pt-2 border-t border-slate-200 hidden">
             <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                BALANCE MOVEMENTS
+                SETTLEMENTS & BALANCE MOVEMENTS
             </div>
-            <div id="report-relations-breakdown" class="space-y-1.5 text-xs font-semibold text-slate-700">
+            <div id="report-relations-breakdown" class="space-y-2">
                 <!-- Rendered by JS -->
             </div>
         </div>

@@ -157,6 +157,7 @@
             'requires_note' => $requiresNote,
             'note_enabled' => $noteEnabled,
             'show_note_field' => $showNoteField,
+            'show_in_summary' => (bool) ($s->show_in_summary ?? true),
             'company_account_id' => $companyAccountId,
             'company_account_name' => $compAccName,
             'funding_source' => $fundingSource,
@@ -173,18 +174,48 @@
         ];
     })->values()->all();
 
-    $relationJson = $relationList->map(function ($r) {
+    $relationJson = $relationList->map(function ($r) use ($settingsByHeader, $headerGroupList) {
         return [
             'id' => (int) $r->id,
-            'name' => $r->name,
+            'public_uuid' => (string) $r->public_uuid,
+            'name' => (string) $r->name,
+            'kind' => $r->relation_type,
+            'enabled' => (bool) $r->enabled,
+            'is_company_payable' => (bool) $r->is_company_payable,
+            'is_net_balance' => (bool) $r->is_net_balance,
+            'display_order' => (int) ($r->display_order ?? 0),
             'settlement_source' => $r->settlement_source ?? 'shop_balance',
             'eligibility_rule' => $r->eligibility_rule ?? 'previous_day_balance',
-            'enabled' => (bool) $r->enabled,
-            'items' => $r->items->map(function ($i) {
+            'items' => $r->items->map(function ($item) use ($settingsByHeader, $headerGroupList) {
+                $settingId = $item->shop_ledger_entry_setting_id;
+                $headerGroupId = $item->header_group_id;
+                $sourceSettlementId = $item->source_settlement_id;
+                $headerSettingIds = [];
+                if ($headerGroupId) {
+                    $hg = $headerGroupList->firstWhere('id', $headerGroupId);
+                    $hSettings = $settingsByHeader->get((int) $headerGroupId, collect());
+                    $headerSettingIds = $hSettings->pluck('id')->map(fn ($id) => (int) $id)->all();
+                }
+
+                $itemName = 'Item';
+                if ($sourceSettlementId) {
+                    $targetRel = $item->sourceSettlement;
+                    $itemName = 'Settlement: '.($targetRel?->name ?? ('#'.$sourceSettlementId));
+                } elseif ($headerGroupId) {
+                    $hg = $item->headerGroup ?? $headerGroupList->firstWhere('id', $headerGroupId);
+                    $itemName = 'Header: '.($hg?->name ?? ('#'.$headerGroupId));
+                } elseif ($settingId) {
+                    $itemName = $item->setting?->displayName() ?? ('Category #'.$settingId);
+                }
+
                 return [
-                    'setting_id' => (int) $i->shop_ledger_entry_setting_id,
-                    'role' => strtolower((string) ($i->role ?? 'add')),
-                    'name' => $i->setting?->displayName() ?? 'Unknown',
+                    'setting_id' => $settingId ? (int) $settingId : null,
+                    'header_group_id' => $headerGroupId ? (int) $headerGroupId : null,
+                    'header_setting_ids' => $headerSettingIds,
+                    'header_mode' => $item->header_mode ?? 'all_categories',
+                    'source_settlement_id' => $sourceSettlementId ? (int) $sourceSettlementId : null,
+                    'role' => strtolower((string) ($item->role ?? 'add')),
+                    'name' => $itemName,
                 ];
             })->values()->all(),
         ];

@@ -16,7 +16,7 @@ class ShopLedgerEntrySetting extends Model
 
     protected $fillable = [
         'shop_id', 'entry_type_id', 'display_name', 'header_group_id', 'header_display_order', 'company_account_id', 'version', 'effective_from', 'effective_to',
-        'enabled', 'note_enabled', 'default_funding_source', 'allowed_funding_sources',
+        'enabled', 'show_in_summary', 'note_enabled', 'default_funding_source', 'allowed_funding_sources',
         'include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl',
         'include_in_payable', 'payable_direction',
         'settlement_behavior', 'petty_behavior', 'company_pending_behavior',
@@ -31,6 +31,7 @@ class ShopLedgerEntrySetting extends Model
         'effective_from' => 'date',
         'effective_to' => 'date',
         'enabled' => 'boolean',
+        'show_in_summary' => 'boolean',
         'note_enabled' => 'boolean',
         'allowed_funding_sources' => 'array',
         'include_in_sales' => 'boolean',
