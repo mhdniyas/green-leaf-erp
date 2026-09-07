@@ -184,6 +184,8 @@ class ShopOwnerCashbookRedesignTest extends TestCase
         $response->assertOk();
         $response->assertSee('SETTLEMENTS & BALANCE MOVEMENTS', false);
         $response->assertSee('View Cashbook Report');
+        // Settlements & Balance Movements is displayed at the bottom, after Daily Entries & Headers
+        $response->assertSeeInOrder(['Daily Entries & Headers', 'SETTLEMENTS & BALANCE MOVEMENTS'], false);
         // Bottom IN/OUT navbar is completely removed
         $response->assertDontSee('id="cashbook-bottom-action-bar"', false);
     }

@@ -327,8 +327,8 @@
     {{-- MAIN CASHBOOK DASHBOARD VIEW --}}
     <div id="cashbook-dashboard-view" @class(['space-y-3 sm:space-y-4', 'hidden' => $isReportTab])>
         @include('shop-owner.cashbook.partials.header')
-        @include('shop-owner.cashbook.partials.position-summary')
         @include('shop-owner.cashbook.partials.header-bill-list')
+        @include('shop-owner.cashbook.partials.position-summary')
     </div>
 
     {{-- DETAILED REPORT VIEW --}}
