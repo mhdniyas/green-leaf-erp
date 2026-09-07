@@ -64,6 +64,11 @@ class ShopLedgerHeaderGroup extends Model
             ->withTimestamps();
     }
 
+    public function productEntries(): HasMany
+    {
+        return $this->hasMany(ShopLedgerProductEntry::class, 'header_group_id');
+    }
+
     public function isNoteEnabled(): bool
     {
         return (bool) $this->note_enabled;

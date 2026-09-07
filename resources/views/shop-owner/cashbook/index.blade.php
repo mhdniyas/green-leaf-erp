@@ -251,6 +251,51 @@
         }
     }
 
+    // Map existing product rows to initial JS state
+    $initialProductRows = [];
+    $productEntriesList = $productEntries ?? collect();
+    foreach ($productEntriesList as $pe) {
+        $hId = (string) $pe->header_group_id;
+        $units = [];
+        $baseUnit = strtolower(trim((string) ($pe->unit ?: $pe->product?->unit ?: 'unit')));
+        $units[] = [
+            'unit' => $baseUnit,
+            'label' => strtoupper($baseUnit),
+            'conversion_to_base' => 1.0,
+            'is_base' => true,
+        ];
+        if ($pe->product) {
+            foreach ($pe->product->orderUnits as $ou) {
+                $ouUnit = strtolower(trim((string) $ou->unit));
+                if ($ouUnit !== '' && ! collect($units)->contains('unit', $ouUnit)) {
+                    $units[] = [
+                        'unit' => $ouUnit,
+                        'label' => $ou->label ?: strtoupper($ouUnit),
+                        'conversion_to_base' => $ou->conversion_to_base !== null ? (float) $ou->conversion_to_base : 1.0,
+                        'is_base' => (bool) $ou->is_base,
+                    ];
+                }
+            }
+        }
+        $qty = (float) $pe->quantity;
+        $amt = (float) $pe->amount;
+        $avgPrice = ($qty > 0 && $amt > 0) ? round($amt / $qty, 2) : null;
+        $initialProductRows[$hId][] = [
+            'productId' => (int) $pe->product_id,
+            'product_id' => (int) $pe->product_id,
+            'productName' => (string) ($pe->product_name ?: ($pe->product?->name ?? '')),
+            'product_name' => (string) ($pe->product_name ?: ($pe->product?->name ?? '')),
+            'sku' => (string) ($pe->product_sku ?: ($pe->product?->sku ?? '')),
+            'product_sku' => (string) ($pe->product_sku ?: ($pe->product?->sku ?? '')),
+            'qty' => $qty > 0 ? $qty : '',
+            'quantity' => $qty,
+            'unit' => $pe->unit ?: $baseUnit,
+            'units' => $units,
+            'amount' => $amt,
+            'avgPrice' => $avgPrice,
+        ];
+    }
+
     $isReportTab = ($activeTab ?? 'cashbook') === 'reports';
 @endphp
 

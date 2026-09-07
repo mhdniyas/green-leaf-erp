@@ -6,7 +6,10 @@ namespace Tests\Feature\Admin;
 
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\User;
 use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
@@ -133,5 +136,54 @@ class ShopLedgerDemoRealDataTest extends TestCase
         $this->assertNotNull($activeSetting);
         $this->assertEquals(5000.0, (float) $dayData['amounts'][$activeSetting->id]);
         $this->assertEquals('Evening register batch', $dayData['notes'][$activeSetting->id]);
+    }
+
+    public function test_admin_can_fetch_real_shop_data_including_saved_product_rows(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'CASH PURCHASE',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'display_order' => 3,
+            'enabled' => true,
+        ]);
+
+        $product = Product::factory()->create([
+            'name' => 'Green Apple',
+            'sku' => 'APL-01',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+
+        ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-01',
+            'header_group_id' => $header->id,
+            'product_id' => $product->id,
+            'product_name' => 'Green Apple',
+            'product_sku' => 'APL-01',
+            'quantity' => 25.5,
+            'unit' => 'kg',
+            'amount' => 4500.00,
+            'entered_by' => $this->admin->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)->getJson(route('admin.cashbook.settings.shop.demo.real-data', [
+            'shop' => $this->shop->id,
+            'date' => '2026-09-01',
+            'days' => 1,
+        ]));
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $productRows = $response->json("days.2026-09-01.productRows.{$header->id}");
+        $this->assertIsArray($productRows);
+        $this->assertCount(1, $productRows);
+        $this->assertEquals($product->id, $productRows[0]['productId']);
+        $this->assertEquals('Green Apple', $productRows[0]['productName']);
+        $this->assertEquals(25.5, (float) $productRows[0]['quantity']);
+        $this->assertEquals(4500.00, (float) $productRows[0]['amount']);
     }
 }

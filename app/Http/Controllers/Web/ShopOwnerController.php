@@ -14,6 +14,7 @@ use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
@@ -1142,6 +1143,12 @@ class ShopOwnerController extends Controller
 
         $snapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $syncEndDate);
 
+        $productEntries = ShopLedgerProductEntry::query()
+            ->with(['product.orderUnits'])
+            ->where('shop_id', (int) $shop->id)
+            ->where('business_date', $date)
+            ->get();
+
         return view('shop-owner.cashbook.index', [
             'shop' => $shop,
             'selectedDate' => Carbon::parse($date),
@@ -1151,6 +1158,7 @@ class ShopOwnerController extends Controller
             'relations' => $relations,
             'companyAccounts' => $companyAccounts,
             'todayTransactions' => $todayTransactions,
+            'productEntries' => $productEntries,
             'collectionGroups' => $collectionGroups,
             'snapshot' => $snapshot,
             'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
@@ -1411,6 +1419,13 @@ class ShopOwnerController extends Controller
             ->orderBy('id', 'asc')
             ->get();
 
+        $productEntries = ShopLedgerProductEntry::query()
+            ->with(['product.orderUnits'])
+            ->where('shop_id', (int) $shop->id)
+            ->where('business_date', $date)
+            ->get();
+        $productRowsMap = $this->formatProductRowsByHeader($productEntries);
+
         return response()->json([
             'success' => true,
             'snapshot' => $snapshot,
@@ -1432,8 +1447,64 @@ class ShopOwnerController extends Controller
             'payable_received_total' => $effectiveReceived,
             'payable_balance' => $payableBalance,
             'payable_by_category' => $payableByCategory,
+            'product_rows' => $productRowsMap,
+            'productRows' => $productRowsMap,
             'timeframe' => $timeframe,
         ]);
+    }
+
+    /**
+     * @param  Collection<int, ShopLedgerProductEntry>  $productEntries
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function formatProductRowsByHeader(Collection $productEntries): array
+    {
+        $rowsByHeader = [];
+        foreach ($productEntries as $pe) {
+            $hId = (string) $pe->header_group_id;
+            $units = [];
+            $baseUnit = strtolower(trim((string) ($pe->unit ?: $pe->product?->unit ?: 'unit')));
+            $units[] = [
+                'unit' => $baseUnit,
+                'label' => strtoupper($baseUnit),
+                'conversion_to_base' => 1.0,
+                'is_base' => true,
+            ];
+            if ($pe->product) {
+                foreach ($pe->product->orderUnits as $ou) {
+                    $ouUnit = strtolower(trim((string) $ou->unit));
+                    if ($ouUnit !== '' && ! collect($units)->contains('unit', $ouUnit)) {
+                        $units[] = [
+                            'unit' => $ouUnit,
+                            'label' => $ou->label ?: strtoupper($ouUnit),
+                            'conversion_to_base' => $ou->conversion_to_base !== null ? (float) $ou->conversion_to_base : 1.0,
+                            'is_base' => (bool) $ou->is_base,
+                        ];
+                    }
+                }
+            }
+
+            $qty = (float) $pe->quantity;
+            $amt = (float) $pe->amount;
+            $avgPrice = ($qty > 0 && $amt > 0) ? round($amt / $qty, 2) : null;
+
+            $rowsByHeader[$hId][] = [
+                'productId' => (int) $pe->product_id,
+                'product_id' => (int) $pe->product_id,
+                'productName' => (string) ($pe->product_name ?: ($pe->product?->name ?? '')),
+                'product_name' => (string) ($pe->product_name ?: ($pe->product?->name ?? '')),
+                'sku' => (string) ($pe->product_sku ?: ($pe->product?->sku ?? '')),
+                'product_sku' => (string) ($pe->product_sku ?: ($pe->product?->sku ?? '')),
+                'qty' => $qty > 0 ? $qty : '',
+                'quantity' => $qty,
+                'unit' => $pe->unit ?: $baseUnit,
+                'units' => $units,
+                'amount' => $amt,
+                'avgPrice' => $avgPrice,
+            ];
+        }
+
+        return $rowsByHeader;
     }
 
     private function syncApprovedInvoiceBillsToCashbook(Shop $shop, string $startDate, string $endDate, int $userId): void
@@ -1540,92 +1611,207 @@ class ShopOwnerController extends Controller
         $shop = $this->ownedAccountingShop($request);
         $validated = $request->validate([
             'business_date' => ['required', 'date_format:Y-m-d'],
-            'entries' => ['required', 'array', 'min:1'],
+            'header_group_id' => ['nullable', 'integer'],
+            'entries' => ['nullable', 'array'],
             'entries.*.entry_type_code' => ['required', 'string', 'exists:ledger_entry_types,code'],
             'entries.*.amount' => ['required', 'numeric', 'min:0'],
             'entries.*.funding_source' => ['nullable', 'string', 'in:sales,petty,company,bank,external,company_later,none'],
             'entries.*.notes' => ['nullable', 'string', 'max:255'],
+            'product_rows' => ['nullable', 'array'],
+            'product_rows.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'product_rows.*.quantity' => ['required', 'numeric', 'min:0'],
+            'product_rows.*.unit' => ['required', 'string', 'max:40'],
+            'product_rows.*.amount' => ['required', 'numeric', 'min:0'],
         ]);
+
+        if (empty($validated['entries']) && ! $request->filled('header_group_id') && ! $request->has('product_rows')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The entries field is required when no header group is specified.',
+                'errors' => ['entries' => ['The entries field is required.']],
+            ], 422);
+        }
+
+        $headerGroup = null;
+        if ($request->filled('header_group_id')) {
+            $headerGroupId = (int) $request->input('header_group_id');
+            $headerGroup = ShopLedgerHeaderGroup::with('allowedProducts')->find($headerGroupId);
+
+            if (! $headerGroup || (int) $headerGroup->shop_id !== (int) $shop->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The selected header group does not belong to this shop.',
+                ], 403);
+            }
+
+            if (! $headerGroup->enabled) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The selected header group is disabled.',
+                ], 422);
+            }
+
+            $submittedProductRows = $validated['product_rows'] ?? null;
+            if (! empty($submittedProductRows) && ! $headerGroup->product_tagging_enabled) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product tagging is not enabled for this header group.',
+                ], 422);
+            }
+
+            if (! empty($submittedProductRows) && $headerGroup->allowedProducts->isNotEmpty()) {
+                $allowedIds = $headerGroup->allowedProducts->pluck('id')->map(fn ($id) => (int) $id)->all();
+                foreach ($submittedProductRows as $pRow) {
+                    if (! in_array((int) $pRow['product_id'], $allowedIds, true)) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Product #{$pRow['product_id']} is not allowed for this header group.",
+                        ], 422);
+                    }
+                }
+            }
+        } elseif (! empty($validated['product_rows'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'header_group_id is required when product rows are provided.',
+            ], 422);
+        }
 
         $created = [];
         $userId = (int) ($request->user()?->id ?? 1);
 
-        $entryTypes = LedgerEntryType::query()
-            ->whereIn('code', array_column($validated['entries'], 'entry_type_code'))
-            ->get()
-            ->keyBy('code');
+        DB::transaction(function () use ($shop, $validated, $userId, $headerGroup, &$created): void {
+            $entries = $validated['entries'] ?? [];
+            if (! empty($entries)) {
+                $entryTypes = LedgerEntryType::query()
+                    ->whereIn('code', array_column($entries, 'entry_type_code'))
+                    ->get()
+                    ->keyBy('code');
 
-        $existingTxMap = ShopLedgerTransaction::query()
-            ->where('shop_id', (int) $shop->id)
-            ->where('business_date', $validated['business_date'])
-            ->where('generated_by_rule', false)
-            ->whereNull('reference_type')
-            ->get()
-            ->keyBy(fn ($t) => (int) $t->entry_type_id);
+                $existingTxMap = ShopLedgerTransaction::query()
+                    ->where('shop_id', (int) $shop->id)
+                    ->where('business_date', $validated['business_date'])
+                    ->where('generated_by_rule', false)
+                    ->whereNull('reference_type')
+                    ->get()
+                    ->keyBy(fn ($t) => (int) $t->entry_type_id);
 
-        foreach ($validated['entries'] as $item) {
-            $code = (string) $item['entry_type_code'];
-            // Skip automated invoice bill entry codes if any
-            if (in_array($code, ['gl_bill', 'purchase_bill'], true)) {
-                continue;
-            }
+                foreach ($entries as $item) {
+                    $code = (string) $item['entry_type_code'];
+                    // Skip automated invoice bill entry codes if any
+                    if (in_array($code, ['gl_bill', 'purchase_bill'], true)) {
+                        continue;
+                    }
 
-            $entryType = $entryTypes->get($code);
-            if (! $entryType) {
-                continue;
-            }
+                    $entryType = $entryTypes->get($code);
+                    if (! $entryType) {
+                        continue;
+                    }
 
-            $amount = (float) $item['amount'];
-            $fundingSource = (! empty($item['funding_source']) && $item['funding_source'] !== 'none') ? (string) $item['funding_source'] : null;
-            $notes = $item['notes'] ?? null;
+                    $amount = (float) $item['amount'];
+                    $fundingSource = (! empty($item['funding_source']) && $item['funding_source'] !== 'none') ? (string) $item['funding_source'] : null;
+                    $notes = $item['notes'] ?? null;
 
-            $existingTx = $existingTxMap->get((int) $entryType->id);
+                    $existingTx = $existingTxMap->get((int) $entryType->id);
 
-            if ($existingTx) {
-                if (! $existingTx->isReconciled()) {
-                    if ($amount > 0) {
-                        $result = $this->dailyLedgerService->updateEntry(
-                            $existingTx->id,
-                            $amount,
-                            $fundingSource,
-                            $notes,
-                            $userId
-                        );
-                        if (! empty($result['transaction'])) {
-                            $created[] = $result['transaction'];
+                    if ($existingTx) {
+                        if (! $existingTx->isReconciled()) {
+                            if ($amount > 0) {
+                                $result = $this->dailyLedgerService->updateEntry(
+                                    $existingTx->id,
+                                    $amount,
+                                    $fundingSource,
+                                    $notes,
+                                    $userId
+                                );
+                                if (! empty($result['transaction'])) {
+                                    $created[] = $result['transaction'];
+                                }
+                            } else {
+                                $this->dailyLedgerService->deleteEntry($existingTx->id);
+                            }
                         }
                     } else {
-                        $this->dailyLedgerService->deleteEntry($existingTx->id);
-                    }
-                }
-            } else {
-                if ($amount > 0) {
-                    $payload = [
-                        'shop_id' => (int) $shop->id,
-                        'business_date' => $validated['business_date'],
-                        'entry_type_code' => $code,
-                        'amount' => $amount,
-                        'entered_by' => $userId,
-                        'notes' => $notes,
-                    ];
-                    if ($fundingSource) {
-                        $payload['funding_source'] = $fundingSource;
-                    }
-                    $result = $this->dailyLedgerService->recordEntry($payload);
-                    if (! empty($result['transaction'])) {
-                        $created[] = $result['transaction'];
+                        if ($amount > 0) {
+                            $payload = [
+                                'shop_id' => (int) $shop->id,
+                                'business_date' => $validated['business_date'],
+                                'entry_type_code' => $code,
+                                'amount' => $amount,
+                                'entered_by' => $userId,
+                                'notes' => $notes,
+                            ];
+                            if ($fundingSource) {
+                                $payload['funding_source'] = $fundingSource;
+                            }
+                            $result = $this->dailyLedgerService->recordEntry($payload);
+                            if (! empty($result['transaction'])) {
+                                $created[] = $result['transaction'];
+                            }
+                        }
                     }
                 }
             }
-        }
+
+            if ($headerGroup && $headerGroup->product_tagging_enabled && array_key_exists('product_rows', $validated)) {
+                $submittedProductRows = collect($validated['product_rows'] ?? []);
+                $submittedProductIds = $submittedProductRows->pluck('product_id')->map(fn ($id) => (int) $id)->all();
+
+                ShopLedgerProductEntry::query()
+                    ->where('shop_id', (int) $shop->id)
+                    ->where('business_date', $validated['business_date'])
+                    ->where('header_group_id', (int) $headerGroup->id)
+                    ->whereNotIn('product_id', $submittedProductIds)
+                    ->delete();
+
+                if ($submittedProductRows->isNotEmpty()) {
+                    $products = Product::query()
+                        ->whereIn('id', $submittedProductIds)
+                        ->get()
+                        ->keyBy('id');
+
+                    foreach ($submittedProductRows as $row) {
+                        $productId = (int) $row['product_id'];
+                        $product = $products->get($productId);
+
+                        ShopLedgerProductEntry::query()->updateOrCreate(
+                            [
+                                'shop_id' => (int) $shop->id,
+                                'business_date' => $validated['business_date'],
+                                'header_group_id' => (int) $headerGroup->id,
+                                'product_id' => $productId,
+                            ],
+                            [
+                                'product_name' => $product?->name ?? (string) ($row['product_name'] ?? 'Product'),
+                                'product_sku' => $product?->sku ?? ($row['product_sku'] ?? ($row['sku'] ?? null)),
+                                'quantity' => (float) ($row['quantity'] ?? 0),
+                                'unit' => (string) ($row['unit'] ?? ($product?->unit ?: 'unit')),
+                                'amount' => (float) ($row['amount'] ?? 0),
+                                'entered_by' => $userId,
+                            ]
+                        );
+                    }
+                }
+            }
+        });
 
         $snapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $validated['business_date']);
+
+        $savedProductEntries = ShopLedgerProductEntry::query()
+            ->with(['product.orderUnits'])
+            ->where('shop_id', (int) $shop->id)
+            ->where('business_date', $validated['business_date'])
+            ->get();
+
+        $productRowsMap = $this->formatProductRowsByHeader($savedProductEntries);
 
         return response()->json([
             'success' => true,
             'message' => count($created).' entries saved successfully.',
             'count' => count($created),
             'snapshot' => $snapshot,
+            'product_rows' => $productRowsMap,
+            'productRows' => $productRowsMap,
         ]);
     }
 

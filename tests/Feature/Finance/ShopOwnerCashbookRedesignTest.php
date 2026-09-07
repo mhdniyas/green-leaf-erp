@@ -7,7 +7,9 @@ namespace Tests\Feature\Finance;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
@@ -279,5 +281,300 @@ class ShopOwnerCashbookRedesignTest extends TestCase
         $response->assertSee('onclick="closeOutHeaderModal()"', false);
         $response->assertSee('onclick="closeHeaderEntrySheet()"', false);
         $response->assertSee('onclick="closeOwnerProductModal()"', false);
+    }
+
+    public function test_shop_owner_can_save_and_reload_cashbook_with_product_rows(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'CASH PURCHASE',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $product = Product::factory()->create([
+            'name' => 'Akash Black',
+            'sku' => '177',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->postJson(route('shop-owner.cashbook.api.bulk-record-entries'), [
+                'business_date' => '2026-09-04',
+                'header_group_id' => $header->id,
+                'entries' => [],
+                'product_rows' => [
+                    [
+                        'product_id' => $product->id,
+                        'quantity' => 11.0,
+                        'unit' => 'kg',
+                        'amount' => 10000.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('success', true);
+        $response->assertJsonStructure([
+            'success',
+            'product_rows' => [
+                (string) $header->id => [
+                    '*' => ['product_id', 'quantity', 'unit', 'amount'],
+                ],
+            ],
+        ]);
+
+        $this->assertDatabaseHas('shop_ledger_product_entries', [
+            'shop_id' => $this->shop->id,
+            'header_group_id' => $header->id,
+            'business_date' => '2026-09-04',
+            'product_id' => $product->id,
+            'product_name' => 'Akash Black',
+            'product_sku' => '177',
+            'quantity' => '11.0000',
+            'unit' => 'kg',
+            'amount' => '10000.00',
+        ]);
+
+        // Reload cashbook view and verify product row is rendered
+        $reloadResponse = $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->get(route('shop-owner.cashbook.show', ['date' => '2026-09-04']));
+
+        $reloadResponse->assertOk();
+        $reloadResponse->assertSee('Akash Black');
+        $reloadResponse->assertSee('10000');
+    }
+
+    public function test_shop_owner_can_replace_product_preserving_quantity_and_amount(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'CASH PURCHASE',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $productA = Product::factory()->create(['name' => 'Old Product', 'sku' => 'OLD1', 'unit' => 'kg']);
+        $productB = Product::factory()->create(['name' => 'New Product', 'sku' => 'NEW2', 'unit' => 'kg']);
+
+        // Save initial row with Product A
+        $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->postJson(route('shop-owner.cashbook.api.bulk-record-entries'), [
+                'business_date' => '2026-09-04',
+                'header_group_id' => $header->id,
+                'entries' => [],
+                'product_rows' => [
+                    [
+                        'product_id' => $productA->id,
+                        'quantity' => 15.0,
+                        'unit' => 'kg',
+                        'amount' => 7500.00,
+                    ],
+                ],
+            ])->assertOk();
+
+        $this->assertDatabaseHas('shop_ledger_product_entries', [
+            'shop_id' => $this->shop->id,
+            'header_group_id' => $header->id,
+            'product_id' => $productA->id,
+            'quantity' => '15.0000',
+            'amount' => '7500.00',
+        ]);
+
+        // Replace Product A with Product B while preserving quantity and amount
+        $response = $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->postJson(route('shop-owner.cashbook.api.bulk-record-entries'), [
+                'business_date' => '2026-09-04',
+                'header_group_id' => $header->id,
+                'entries' => [],
+                'product_rows' => [
+                    [
+                        'product_id' => $productB->id,
+                        'quantity' => 15.0,
+                        'unit' => 'kg',
+                        'amount' => 7500.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertOk();
+
+        // Product B exists with same qty and amount; Product A deleted
+        $this->assertDatabaseHas('shop_ledger_product_entries', [
+            'shop_id' => $this->shop->id,
+            'header_group_id' => $header->id,
+            'product_id' => $productB->id,
+            'product_name' => 'New Product',
+            'quantity' => '15.0000',
+            'amount' => '7500.00',
+        ]);
+
+        $this->assertDatabaseMissing('shop_ledger_product_entries', [
+            'shop_id' => $this->shop->id,
+            'header_group_id' => $header->id,
+            'product_id' => $productA->id,
+        ]);
+    }
+
+    public function test_shop_owner_can_delete_product_rows_via_synchronization(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'CASH PURCHASE',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $product = Product::factory()->create();
+
+        ShopLedgerProductEntry::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => '2026-09-04',
+            'header_group_id' => $header->id,
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'product_sku' => $product->sku,
+            'quantity' => 5.0,
+            'unit' => 'kg',
+            'amount' => 1200.00,
+            'entered_by' => $this->owner->id,
+        ]);
+
+        // Submit empty product_rows to synchronize deletion
+        $response = $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->postJson(route('shop-owner.cashbook.api.bulk-record-entries'), [
+                'business_date' => '2026-09-04',
+                'header_group_id' => $header->id,
+                'entries' => [],
+                'product_rows' => [],
+            ]);
+
+        $response->assertOk();
+
+        $this->assertDatabaseMissing('shop_ledger_product_entries', [
+            'shop_id' => $this->shop->id,
+            'header_group_id' => $header->id,
+            'business_date' => '2026-09-04',
+        ]);
+    }
+
+    public function test_cross_shop_header_save_is_rejected(): void
+    {
+        $otherShop = Shop::factory()->create([
+            'name' => 'Other Shop',
+            'code' => 'OTHER-01',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        $otherHeader = ShopLedgerHeaderGroup::create([
+            'shop_id' => $otherShop->id,
+            'name' => 'OTHER CASH PURCHASE',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $product = Product::factory()->create();
+
+        $response = $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->postJson(route('shop-owner.cashbook.api.bulk-record-entries'), [
+                'business_date' => '2026-09-04',
+                'header_group_id' => $otherHeader->id,
+                'entries' => [],
+                'product_rows' => [
+                    [
+                        'product_id' => $product->id,
+                        'quantity' => 1.0,
+                        'unit' => 'unit',
+                        'amount' => 100.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertForbidden();
+    }
+
+    public function test_saving_product_rows_for_header_with_disabled_product_tagging_is_rejected(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'OFFICE EXPENSE',
+            'type' => 'expense',
+            'product_tagging_enabled' => false,
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $product = Product::factory()->create();
+
+        $response = $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->postJson(route('shop-owner.cashbook.api.bulk-record-entries'), [
+                'business_date' => '2026-09-04',
+                'header_group_id' => $header->id,
+                'entries' => [],
+                'product_rows' => [
+                    [
+                        'product_id' => $product->id,
+                        'quantity' => 1.0,
+                        'unit' => 'unit',
+                        'amount' => 100.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+    }
+
+    public function test_saving_product_rows_with_disallowed_product_is_rejected(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'RESTRICTED PURCHASE',
+            'type' => 'expense',
+            'product_tagging_enabled' => true,
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $allowedProduct = Product::factory()->create();
+        $disallowedProduct = Product::factory()->create();
+
+        $header->allowedProducts()->attach($allowedProduct->id);
+
+        $response = $this->actingAs($this->owner)
+            ->withSession(['active_shop_id' => $this->shop->id])
+            ->postJson(route('shop-owner.cashbook.api.bulk-record-entries'), [
+                'business_date' => '2026-09-04',
+                'header_group_id' => $header->id,
+                'entries' => [],
+                'product_rows' => [
+                    [
+                        'product_id' => $disallowedProduct->id,
+                        'quantity' => 2.0,
+                        'unit' => 'kg',
+                        'amount' => 200.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
     }
 }

@@ -8,6 +8,7 @@
     const headers = @json($headersJson);
     const initialTxAmounts = @json($initialTxAmounts);
     const initialTxNotes = @json($initialTxNotes);
+    const initialProductRows = @json($initialProductRows ?? []);
     const shopName = @json($shop->name);
 
     let isSubmitting = false;
@@ -15,7 +16,7 @@
     let activeProductHeaderId = null;
     let productQuery = '';
     let productSearchDebounceTimer = null;
-    let productRowsState = {};
+    let productRowsState = JSON.parse(JSON.stringify(initialProductRows || {}));
 
     let settlementCardCollapseState = {};
 
@@ -107,6 +108,12 @@
                     const wrapper = document.getElementById('note-wrapper-' + s.id);
                     if (wrapper) wrapper.classList.remove('hidden');
                 }
+            }
+        });
+
+        headers.forEach(h => {
+            if (h.product_tagging_enabled) {
+                renderOwnerProductRows(h.id);
             }
         });
 
@@ -276,6 +283,10 @@
 
         document.getElementById('entry-sheet-title').textContent = header.name;
         document.getElementById('save-active-header-text').textContent = 'Save ' + header.name;
+
+        if (header.product_tagging_enabled) {
+            renderOwnerProductRows(activeHeaderId);
+        }
 
         updateActiveHeaderSubtotal();
         document.getElementById('header-entry-sheet').classList.remove('hidden');
@@ -1094,6 +1105,25 @@
             }
         });
 
+        const productRowsPayload = header.product_tagging_enabled
+            ? (productRowsState[activeHeaderId] || []).map(r => ({
+                product_id: parseInt(r.productId || r.product_id),
+                quantity: parseFloat(r.qty !== undefined && r.qty !== '' ? r.qty : (r.quantity || 0)) || 0,
+                unit: r.unit || 'unit',
+                amount: parseFloat(r.amount) || 0
+            }))
+            : [];
+
+        const requestPayload = {
+            business_date: '{{ $selectedDate->toDateString() }}',
+            header_group_id: parseInt(activeHeaderId),
+            entries: entriesPayload
+        };
+
+        if (header.product_tagging_enabled) {
+            requestPayload.product_rows = productRowsPayload;
+        }
+
         const btn = document.getElementById('save-active-header-btn');
         const textEl = document.getElementById('save-active-header-text');
         if (btn) btn.disabled = true;
@@ -1108,10 +1138,7 @@
                     'Accept': 'application/json',
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
                 },
-                body: JSON.stringify({
-                    business_date: '{{ $selectedDate->toDateString() }}',
-                    entries: entriesPayload
-                })
+                body: JSON.stringify(requestPayload)
             });
 
             const data = await response.json();
@@ -1125,6 +1152,12 @@
                         delete initialTxAmounts[s.id];
                     }
                 });
+
+                if (data.productRows && typeof data.productRows === 'object' && data.productRows[activeHeaderId] !== undefined) {
+                    productRowsState[activeHeaderId] = data.productRows[activeHeaderId];
+                } else if (data.product_rows && typeof data.product_rows === 'object' && data.product_rows[activeHeaderId] !== undefined) {
+                    productRowsState[activeHeaderId] = data.product_rows[activeHeaderId];
+                }
 
                 closeHeaderEntrySheet();
                 recalculateOwnerCashbook();
@@ -1156,6 +1189,7 @@
 
     function closeOwnerProductModal() {
         document.getElementById('owner-product-modal').classList.add('hidden');
+        replacingProductId = null;
         syncModalOpenState();
     }
 
@@ -1254,20 +1288,23 @@
         productRowsState[hId] = productRowsState[hId] || [];
 
         if (replacingProductId !== null) {
-            const idx = productRowsState[hId].findIndex(r => r.productId === replacingProductId);
+            const idx = productRowsState[hId].findIndex(r => Number(r.productId || r.product_id) === Number(replacingProductId));
             if (idx !== -1) {
                 const oldRow = productRowsState[hId][idx];
                 productRowsState[hId][idx] = {
-                    productId,
+                    productId: Number(productId),
+                    product_id: Number(productId),
                     productName,
+                    product_name: productName,
                     sku,
-                    qty: oldRow.qty || '',
+                    product_sku: sku,
+                    qty: (oldRow.qty !== undefined && oldRow.qty !== null && oldRow.qty !== '') ? oldRow.qty : (oldRow.quantity !== undefined && oldRow.quantity !== null && oldRow.quantity !== '' ? oldRow.quantity : ''),
                     unit: unit,
                     units: units,
                     amount: oldRow.amount || 0,
                     avgPrice: oldRow.avgPrice || null
                 };
-                const qty = parseFloat(oldRow.qty);
+                const qty = parseFloat(productRowsState[hId][idx].qty);
                 const amt = parseFloat(oldRow.amount) || 0;
                 if (!isNaN(qty) && qty > 0 && amt > 0) {
                     productRowsState[hId][idx].avgPrice = Math.round((amt / qty) * 100) / 100;
@@ -1275,11 +1312,14 @@
             }
             replacingProductId = null;
         } else {
-            if (!productRowsState[hId].some(r => r.productId === productId)) {
+            if (!productRowsState[hId].some(r => Number(r.productId || r.product_id) === Number(productId))) {
                 productRowsState[hId].push({
-                    productId,
+                    productId: Number(productId),
+                    product_id: Number(productId),
                     productName,
+                    product_name: productName,
                     sku,
+                    product_sku: sku,
                     qty: '',
                     unit: unit,
                     units: units,
@@ -1296,7 +1336,7 @@
 
     function removeOwnerProductRow(hId, productId) {
         if (!productRowsState[hId]) return;
-        productRowsState[hId] = productRowsState[hId].filter(r => r.productId !== productId);
+        productRowsState[hId] = productRowsState[hId].filter(r => Number(r.productId || r.product_id) !== Number(productId));
         renderOwnerProductRows(hId);
         updateActiveHeaderSubtotal();
         recalculateOwnerCashbook();
@@ -1316,10 +1356,13 @@
         }
 
         container.innerHTML = rows.map(r => {
-            const qty = parseFloat(r.qty);
+            const pId = Number(r.productId || r.product_id);
+            const pName = r.productName || r.product_name || '';
+            const pSku = r.sku || r.product_sku || '';
+            const qty = parseFloat(r.qty !== undefined && r.qty !== '' ? r.qty : (r.quantity || 0));
             const amt = parseFloat(r.amount) || 0;
             const hasAvg = !isNaN(qty) && qty > 0 && amt > 0;
-            const avgStr = hasAvg ? `Avg: ₹${(amt / qty).toFixed(2)} / ${escapeHtml(r.unit || 'unit')}` : (r.sku || 'Tagged Item');
+            const avgStr = hasAvg ? `Avg: ₹${(amt / qty).toFixed(2)} / ${escapeHtml(r.unit || 'unit')}` : (pSku || 'Tagged Item');
             const avgClass = hasAvg
                 ? (isExpense
                     ? 'inline-flex items-center gap-1 rounded-md bg-rose-50 border border-rose-200 px-1.5 py-0.5 text-[10px] font-black text-rose-800'
@@ -1336,20 +1379,20 @@
                 : 'h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-5 pr-2 text-right text-xs sm:text-sm font-black font-mono text-slate-950 focus:bg-white focus:border-emerald-500 focus:outline-none transition';
 
             return `
-                <div class="p-2.5 rounded-xl bg-white border ${isExpense ? 'border-rose-100/90' : 'border-slate-200/90'} shadow-2xs space-y-2" data-product-row="${r.productId}">
+                <div class="p-2.5 rounded-xl bg-white border ${isExpense ? 'border-rose-100/90' : 'border-slate-200/90'} shadow-2xs space-y-2" data-product-row="${pId}">
                     <div class="flex items-center justify-between gap-2">
                         <div class="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
-                            <span class="text-xs font-bold text-slate-900 truncate">${escapeHtml(r.productName)}</span>
-                            <span class="${avgClass}" id="avg-price-badge-${hId}-${r.productId}">
+                            <span class="text-xs font-bold text-slate-900 truncate">${escapeHtml(pName)}</span>
+                            <span class="${avgClass}" id="avg-price-badge-${hId}-${pId}">
                                 ${escapeHtml(avgStr)}
                             </span>
                         </div>
                         <div class="flex items-center gap-1 shrink-0">
-                            <button type="button" onclick="changeOwnerProductRow('${hId}', ${r.productId})" class="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 text-[10px] font-extrabold transition cursor-pointer" title="Change to another product">
+                            <button type="button" onclick="changeOwnerProductRow('${hId}', ${pId})" class="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 text-[10px] font-extrabold transition cursor-pointer" title="Change to another product">
                                 <i data-lucide="arrow-left-right" class="h-3 w-3 text-slate-500"></i>
                                 <span>Change</span>
                             </button>
-                            <button type="button" onclick="removeOwnerProductRow('${hId}', ${r.productId})" class="w-6 h-6 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition shrink-0 cursor-pointer" title="Remove product">
+                            <button type="button" onclick="removeOwnerProductRow('${hId}', ${pId})" class="w-6 h-6 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition shrink-0 cursor-pointer" title="Remove product">
                                 <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
                             </button>
                         </div>
@@ -1359,13 +1402,13 @@
                         <div class="col-span-6 flex items-center gap-1">
                             <div class="relative flex-1">
                                 <input type="number" inputmode="decimal" min="0" step="any"
-                                       value="${r.qty !== null && r.qty !== undefined && r.qty !== '' ? r.qty : ''}"
-                                       oninput="onOwnerProductQtyChange('${hId}', ${r.productId}, this)"
+                                       value="${r.qty !== null && r.qty !== undefined && r.qty !== '' ? r.qty : (r.quantity ? r.quantity : '')}"
+                                       oninput="onOwnerProductQtyChange('${hId}', ${pId}, this)"
                                        placeholder="Qty"
                                        class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-right text-xs font-black font-mono text-slate-950 focus:bg-white focus:border-emerald-500 focus:outline-none transition">
                             </div>
                             ${hasMultipleUnits ? `
-                                <select onchange="onOwnerProductUnitChange('${hId}', ${r.productId}, this)"
+                                <select onchange="onOwnerProductUnitChange('${hId}', ${pId}, this)"
                                         class="h-8 rounded-lg border border-slate-200 bg-white px-1.5 text-[11px] font-black text-slate-800 uppercase focus:border-emerald-500 focus:outline-none cursor-pointer shrink-0">
                                     ${unitsList.map(u => `<option value="${escapeHtml(u.unit)}" ${u.unit.toLowerCase() === (r.unit || '').toLowerCase() ? 'selected' : ''}>${escapeHtml(u.label || u.unit.toUpperCase())}</option>`).join('')}
                                 </select>
@@ -1380,7 +1423,7 @@
                             <span class="absolute inset-y-0 left-0 pl-2 flex items-center ${signPrefixClass} text-xs pointer-events-none">${signPrefixLabel}</span>
                             <input type="number" inputmode="decimal" min="0" step="0.01"
                                    value="${r.amount || ''}"
-                                   oninput="onOwnerProductAmountChange('${hId}', ${r.productId}, this)"
+                                   oninput="onOwnerProductAmountChange('${hId}', ${pId}, this)"
                                    placeholder="0.00"
                                    class="${amountInputClass}">
                         </div>
@@ -1395,9 +1438,10 @@
         const qtyVal = inputEl.value.trim();
         const qty = parseFloat(qtyVal);
         const rows = productRowsState[hId] || [];
-        const row = rows.find(r => r.productId === productId);
+        const row = rows.find(r => Number(r.productId || r.product_id) === Number(productId));
         if (row) {
             row.qty = isNaN(qty) ? '' : qty;
+            row.quantity = isNaN(qty) ? 0 : qty;
             const amt = parseFloat(row.amount) || 0;
             if (row.qty > 0 && amt > 0) {
                 row.avgPrice = Math.round((amt / row.qty) * 100) / 100;
@@ -1413,10 +1457,10 @@
     function onOwnerProductAmountChange(hId, productId, inputEl) {
         const amt = parseFloat(inputEl.value) || 0;
         const rows = productRowsState[hId] || [];
-        const row = rows.find(r => r.productId === productId);
+        const row = rows.find(r => Number(r.productId || r.product_id) === Number(productId));
         if (row) {
             row.amount = amt;
-            const qty = parseFloat(row.qty);
+            const qty = parseFloat(row.qty !== undefined && row.qty !== '' ? row.qty : (row.quantity || 0));
             if (!isNaN(qty) && qty > 0 && amt > 0) {
                 row.avgPrice = Math.round((amt / qty) * 100) / 100;
             } else {
@@ -1430,7 +1474,7 @@
 
     function onOwnerProductUnitChange(hId, productId, selectEl) {
         const rows = productRowsState[hId] || [];
-        const row = rows.find(r => r.productId === productId);
+        const row = rows.find(r => Number(r.productId || r.product_id) === Number(productId));
         if (row) {
             row.unit = selectEl.value;
             updateProductAvgPriceBadge(hId, productId, row);
@@ -1440,11 +1484,12 @@
     }
 
     function updateProductAvgPriceBadge(hId, productId, row) {
-        const badgeEl = document.getElementById(`avg-price-badge-${hId}-${productId}`);
+        const pId = Number(productId);
+        const badgeEl = document.getElementById(`avg-price-badge-${hId}-${pId}`);
         if (!badgeEl) return;
         const header = headers.find(h => String(h.id) === String(hId));
         const isExpense = header && (header.type || '').toLowerCase() === 'expense';
-        const qty = parseFloat(row.qty);
+        const qty = parseFloat(row.qty !== undefined && row.qty !== '' ? row.qty : (row.quantity || 0));
         const amt = parseFloat(row.amount) || 0;
         if (!isNaN(qty) && qty > 0 && amt > 0) {
             const avg = (amt / qty).toFixed(2);
@@ -1454,7 +1499,7 @@
             badgeEl.textContent = `Avg: ₹${avg} / ${row.unit || 'unit'}`;
         } else {
             badgeEl.className = 'text-[10px] text-slate-400 font-semibold truncate';
-            badgeEl.textContent = row.sku || 'Tagged Item';
+            badgeEl.textContent = row.sku || row.product_sku || 'Tagged Item';
         }
     }
 

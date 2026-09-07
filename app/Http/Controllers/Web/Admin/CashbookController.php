@@ -43,6 +43,7 @@ use App\Models\Cashbook\ShopLedgerCollectionGroup;
 use App\Models\Cashbook\ShopLedgerCollectionGroupEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
+use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
@@ -2860,6 +2861,12 @@ final class CashbookController extends Controller
             ->where('status', 'posted')
             ->get();
 
+        $allProductEntries = ShopLedgerProductEntry::query()
+            ->with('product')
+            ->where('shop_id', $shopId)
+            ->whereIn('business_date', $dates)
+            ->get();
+
         $results = [];
 
         foreach ($dates as $d) {
@@ -2885,6 +2892,29 @@ final class CashbookController extends Controller
                 }
             }
 
+            $dayProductEntries = $allProductEntries->filter(function ($pe) use ($d): bool {
+                $peDate = $pe->business_date;
+
+                return ($peDate instanceof CarbonInterface ? $peDate->toDateString() : (string) $peDate) === $d;
+            });
+
+            $productRowsByHeader = [];
+            foreach ($dayProductEntries as $pe) {
+                $hId = (string) $pe->header_group_id;
+                $productRowsByHeader[$hId][] = [
+                    'productId' => (int) $pe->product_id,
+                    'product_id' => (int) $pe->product_id,
+                    'productName' => (string) ($pe->product_name ?: ($pe->product?->name ?? '')),
+                    'product_name' => (string) ($pe->product_name ?: ($pe->product?->name ?? '')),
+                    'sku' => (string) ($pe->product_sku ?: ($pe->product?->sku ?? '')),
+                    'product_sku' => (string) ($pe->product_sku ?: ($pe->product?->sku ?? '')),
+                    'quantity' => (float) $pe->quantity,
+                    'qty' => (float) $pe->quantity,
+                    'unit' => (string) $pe->unit,
+                    'amount' => (float) $pe->amount,
+                ];
+            }
+
             $summary = $this->ledgerService->dailySummary($shopId, $d);
 
             $results[$d] = [
@@ -2892,7 +2922,7 @@ final class CashbookController extends Controller
                 'formatted_date' => Carbon::parse($d)->format('d M Y'),
                 'amounts' => $amounts,
                 'notes' => $notes,
-                'productRows' => (object) [],
+                'productRows' => empty($productRowsByHeader) ? (object) [] : $productRowsByHeader,
                 'entry_count' => count($amounts),
                 'opening_cash' => (float) ($summary->opening_petty ?? 0.0),
                 'closing_cash' => (float) ($summary->closing_petty ?? 0.0),
