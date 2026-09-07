@@ -204,7 +204,7 @@
                                     })
                                     <td class="border-b border-r border-slate-200 p-1 text-center {{ $day->isSameDay($selectedDate) ? 'bg-emerald-50/60' : ($day->isWeekend() ? 'bg-slate-50' : 'bg-white') }}">
                                         <button type="button"
-                                                class="js-open-attendance-modal flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 {{ $statusStyles[2] }}"
+                                                class="js-attendance-cell js-open-attendance-modal flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 {{ $statusStyles[2] }}"
                                                 title="{{ $employee->name }} — {{ $day->format('d M') }}: {{ $statusStyles[1] }}"
                                                 aria-label="{{ $employee->name }}, {{ $day->format('d F Y') }}, {{ $statusStyles[1] }}"
                                                 data-employee-id="{{ $employee->id }}"
@@ -479,7 +479,8 @@
                 if (attModal) attModal.classList.add('hidden');
             }
 
-            document.querySelectorAll('.js-open-attendance-modal').forEach(function (button) {
+            // Standalone buttons (e.g. "+ Add Attendance" button in header)
+            document.querySelectorAll('.js-open-attendance-modal:not(.js-attendance-cell)').forEach(function (button) {
                 button.addEventListener('click', function (e) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -490,6 +491,156 @@
                     const shopId = button.getAttribute('data-shop-id') || '';
                     const status = button.getAttribute('data-status') || 'present';
                     const notes = button.getAttribute('data-notes') || '';
+
+                    openAttendanceModal(empId, empName, attendanceDate, shopId, status, notes);
+                });
+            });
+
+            // Attendance Register Cell Interactions (Single click = Quick P, Double click = Edit Modal)
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
+                || attModal?.querySelector('input[name="_token"]')?.value
+                || '';
+            const attendanceStoreUrl = "{{ route('admin.staff.attendance.store') }}";
+            const DOUBLE_CLICK_DELAY = 250;
+
+            let toastTimeout = null;
+            function showAttendanceToast(message, isError = false) {
+                let toast = document.getElementById('attendance-toast');
+                if (!toast) {
+                    toast = document.createElement('div');
+                    toast.id = 'attendance-toast';
+                    document.body.appendChild(toast);
+                }
+                toast.textContent = message;
+                toast.className = 'fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold shadow-lg transition-all duration-300 transform pointer-events-none ' +
+                    (isError ? 'bg-rose-600 text-white translate-y-0 opacity-100' : 'bg-slate-950 text-white translate-y-0 opacity-100');
+
+                if (toastTimeout) clearTimeout(toastTimeout);
+                toastTimeout = setTimeout(function () {
+                    if (toast) {
+                        toast.className = 'fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold shadow-lg transition-all duration-300 transform translate-y-2 opacity-0 pointer-events-none ' +
+                            (isError ? 'bg-rose-600 text-white' : 'bg-slate-950 text-white');
+                    }
+                }, 2500);
+            }
+
+            async function markPresent(cell) {
+                const empId = cell.getAttribute('data-employee-id');
+                const empName = cell.getAttribute('data-employee-name') || 'Staff';
+                const attendanceDate = cell.getAttribute('data-attendance-date');
+                const shopId = cell.getAttribute('data-shop-id') || '';
+                const originalContent = cell.innerHTML;
+                const originalTitle = cell.getAttribute('title') || '';
+                const originalAriaLabel = cell.getAttribute('aria-label') || '';
+                const originalClassName = cell.className;
+
+                // Loading State
+                cell.disabled = true;
+                cell.innerHTML = '<svg class="animate-spin h-3.5 w-3.5 text-current inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>';
+                cell.classList.add('cursor-wait', 'opacity-70');
+
+                try {
+                    const response = await fetch(attendanceStoreUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: JSON.stringify({
+                            employee_id: empId,
+                            attendance_date: attendanceDate,
+                            shop_id: shopId ? parseInt(shopId, 10) : null,
+                            status: 'present',
+                            notes: null,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || 'Failed to save attendance');
+                    }
+
+                    // Saved State
+                    cell.disabled = false;
+                    cell.innerHTML = 'P';
+                    cell.classList.remove('cursor-wait', 'opacity-70');
+
+                    const statusClassesToRemove = [
+                        'bg-rose-600', 'hover:bg-rose-700',
+                        'bg-orange-500', 'hover:bg-orange-600',
+                        'bg-slate-950', 'hover:bg-black',
+                        'bg-slate-100', 'text-slate-400', 'hover:bg-slate-200', 'hover:text-slate-700',
+                        'text-white', 'ring-2', 'ring-rose-500', 'ring-emerald-400', 'ring-offset-1',
+                    ];
+                    statusClassesToRemove.forEach(function (c) { cell.classList.remove(c); });
+                    cell.classList.add('bg-emerald-600', 'text-white', 'hover:bg-emerald-700');
+
+                    cell.setAttribute('data-status', 'present');
+                    cell.setAttribute('data-notes', '');
+                    cell.setAttribute('title', empName + ' — ' + attendanceDate + ': Present');
+                    cell.setAttribute('aria-label', empName + ', ' + attendanceDate + ', Present');
+
+                    // Temporary visual pulse / ring confirmation
+                    cell.classList.add('ring-2', 'ring-emerald-400', 'ring-offset-1');
+                    setTimeout(function () {
+                        cell.classList.remove('ring-2', 'ring-emerald-400', 'ring-offset-1');
+                    }, 1200);
+
+                    showAttendanceToast('Marked ' + empName + ' as Present (P)');
+                } catch (err) {
+                    // Error State
+                    cell.disabled = false;
+                    cell.className = originalClassName;
+                    cell.innerHTML = originalContent;
+                    cell.setAttribute('title', originalTitle);
+                    cell.setAttribute('aria-label', originalAriaLabel);
+
+                    cell.classList.add('ring-2', 'ring-rose-500', 'ring-offset-1');
+                    setTimeout(function () {
+                        cell.classList.remove('ring-2', 'ring-rose-500', 'ring-offset-1');
+                    }, 2000);
+
+                    showAttendanceToast(err.message || 'Error saving attendance', true);
+                }
+            }
+
+            document.querySelectorAll('.js-attendance-cell').forEach(function (cell) {
+                let clickTimer = null;
+
+                cell.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (clickTimer) {
+                        // Double-click detected: cancel pending single-click action
+                        clearTimeout(clickTimer);
+                        clickTimer = null;
+                        return;
+                    }
+
+                    clickTimer = setTimeout(function () {
+                        clickTimer = null;
+                        markPresent(cell);
+                    }, DOUBLE_CLICK_DELAY);
+                });
+
+                cell.addEventListener('dblclick', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (clickTimer) {
+                        clearTimeout(clickTimer);
+                        clickTimer = null;
+                    }
+
+                    const empId = cell.getAttribute('data-employee-id') || '';
+                    const empName = cell.getAttribute('data-employee-name') || '';
+                    const attendanceDate = cell.getAttribute('data-attendance-date') || '';
+                    const shopId = cell.getAttribute('data-shop-id') || '';
+                    const status = cell.getAttribute('data-status') || 'present';
+                    const notes = cell.getAttribute('data-notes') || '';
 
                     openAttendanceModal(empId, empName, attendanceDate, shopId, status, notes);
                 });

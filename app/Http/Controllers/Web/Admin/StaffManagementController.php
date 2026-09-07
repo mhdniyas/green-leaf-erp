@@ -1042,7 +1042,7 @@ class StaffManagementController extends Controller
         ]);
     }
 
-    public function storeAttendance(UpsertEmployeeAttendanceRequest $request): RedirectResponse
+    public function storeAttendance(UpsertEmployeeAttendanceRequest $request): RedirectResponse|JsonResponse
     {
         $employee = Employee::query()->with('category')->findOrFail($request->integer('employee_id'));
         Gate::authorize('create', EmployeeAttendance::class);
@@ -1119,6 +1119,21 @@ class StaffManagementController extends Controller
             (string) ($notes ?? ''),
             $request->user(),
         );
+
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Attendance saved successfully.',
+                'attendance' => [
+                    'id' => $attendance->id,
+                    'employee_id' => $employee->id,
+                    'attendance_date' => $attendanceDate->toDateString(),
+                    'status' => $attendance->status,
+                    'shop_id' => $attendance->shop_id,
+                    'notes' => $attendance->notes,
+                ],
+            ]);
+        }
 
         if ($request->input('redirect_to') === 'profile') {
             return redirect()->route('admin.staff.show', [

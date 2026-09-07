@@ -25,12 +25,15 @@ class StaffPaymentCashbookProjectionService
 
     public function syncPayment(ShopStaffPayment $payment, ?int $userId = null): ?ShopLedgerTransaction
     {
-        $salaryEntryType = LedgerEntryType::query()
-            ->where('code', 'salary')
-            ->where('active', true)
-            ->first();
+        $targetCode = match ((string) $payment->payment_type) {
+            'advance' => 'staff_advance',
+            default => 'salary',
+        };
 
-        if (! $salaryEntryType instanceof LedgerEntryType) {
+        $entryType = LedgerEntryType::query()->where('code', $targetCode)->where('active', true)->first()
+            ?? LedgerEntryType::query()->where('code', 'salary')->where('active', true)->first();
+
+        if (! $entryType instanceof LedgerEntryType) {
             return null;
         }
 
@@ -42,15 +45,14 @@ class StaffPaymentCashbookProjectionService
         $shouldVoid = $payment->status === 'cancelled' || $amount <= 0.0;
 
         try {
-            $setting = $this->ruleResolver->resolve((int) $payment->shop_id, (int) $salaryEntryType->id, $businessDate);
+            $setting = $this->ruleResolver->resolve((int) $payment->shop_id, (int) $entryType->id, $businessDate);
         } catch (RuntimeException) {
             return null;
         }
 
-        return DB::transaction(function () use ($payment, $salaryEntryType, $businessDate, $amount, $shouldVoid, $userId, $setting): ShopLedgerTransaction {
+        return DB::transaction(function () use ($payment, $entryType, $businessDate, $amount, $shouldVoid, $userId, $setting): ShopLedgerTransaction {
             $transaction = ShopLedgerTransaction::query()
                 ->where('shop_id', $payment->shop_id)
-                ->where('entry_type_id', $salaryEntryType->id)
                 ->where('reference_type', ShopStaffPayment::class)
                 ->where('reference_id', $payment->id)
                 ->lockForUpdate()
@@ -59,7 +61,7 @@ class StaffPaymentCashbookProjectionService
             if (! $transaction instanceof ShopLedgerTransaction) {
                 $transaction = new ShopLedgerTransaction([
                     'shop_id' => $payment->shop_id,
-                    'entry_type_id' => $salaryEntryType->id,
+                    'entry_type_id' => $entryType->id,
                     'reference_type' => ShopStaffPayment::class,
                     'reference_id' => $payment->id,
                     'entered_by' => $userId ?? $payment->paid_by,

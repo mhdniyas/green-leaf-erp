@@ -369,4 +369,192 @@ class AdminStaffAttendanceRedesignTest extends TestCase
         $response->assertDontSee('Daily Salary');
         $this->assertSame(633.33, $response->viewData('totalPendingPayment'));
     }
+
+    public function test_single_click_ajax_endpoint_saves_present_attendance(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-07 10:00:00', 'Asia/Kolkata'));
+
+        $response = $this->actingAs($this->admin)
+            ->postJson(route('admin.staff.attendance.store'), [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-07',
+                'status' => 'present',
+                'shop_id' => $this->shop1->id,
+            ]);
+
+        $response->assertOk();
+        $response->assertJson([
+            'success' => true,
+            'message' => 'Attendance saved successfully.',
+            'attendance' => [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-07',
+                'status' => 'present',
+                'shop_id' => $this->shop1->id,
+            ],
+        ]);
+
+        $this->assertDatabaseHas('employee_attendances', [
+            'employee_id' => $this->approvedStaff->id,
+            'attendance_date' => '2026-09-07 00:00:00',
+            'status' => 'present',
+            'shop_id' => $this->shop1->id,
+            'source' => 'admin',
+        ]);
+    }
+
+    public function test_double_click_and_register_elements_are_wired_to_prevent_conflicting_save(): void
+    {
+        // Existing attendance is Absent
+        EmployeeAttendance::query()->create([
+            'employee_id' => $this->approvedStaff->id,
+            'shop_id' => $this->shop1->id,
+            'attendance_date' => '2026-09-07',
+            'status' => 'absent',
+            'notes' => 'Sick leave',
+            'source' => 'admin',
+            'marked_at' => now(),
+            'marked_by' => $this->admin->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.staff.attendance', ['date' => '2026-09-07']));
+
+        $response->assertOk();
+
+        // Verify cell has the required interaction classes and data attributes
+        $response->assertSee('js-attendance-cell');
+        $response->assertSee('DOUBLE_CLICK_DELAY', false);
+        $response->assertSee('clickTimer', false);
+        $response->assertSee('clearTimeout(clickTimer)', false);
+        $response->assertSee('data-status="absent"', false);
+        $response->assertSee('data-attendance-date="2026-09-07"', false);
+
+        // Verify the database record remains Absent and was not inadvertently marked Present
+        $attendance = EmployeeAttendance::query()
+            ->where('employee_id', $this->approvedStaff->id)
+            ->whereDate('attendance_date', '2026-09-07')
+            ->firstOrFail();
+        $this->assertSame('absent', $attendance->status);
+    }
+
+    public function test_existing_attendance_values_remain_editable_via_popup_flow(): void
+    {
+        EmployeeAttendance::query()->create([
+            'employee_id' => $this->approvedStaff->id,
+            'shop_id' => $this->shop1->id,
+            'attendance_date' => '2026-09-07',
+            'status' => 'absent',
+            'notes' => 'Initial absence',
+            'source' => 'admin',
+            'marked_at' => now(),
+            'marked_by' => $this->admin->id,
+        ]);
+
+        // Edit via standard modal submission
+        $response = $this->actingAs($this->admin)
+            ->post(route('admin.staff.attendance.store'), [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-07',
+                'status' => 'half_day',
+                'shop_id' => $this->shop1->id,
+                'notes' => 'Came in for afternoon shift',
+            ]);
+
+        $response->assertRedirect(route('admin.staff.attendance', ['date' => '2026-09-07']));
+
+        $fresh = EmployeeAttendance::query()
+            ->where('employee_id', $this->approvedStaff->id)
+            ->whereDate('attendance_date', '2026-09-07')
+            ->firstOrFail();
+
+        $this->assertSame('half_day', $fresh->status);
+        $this->assertSame('Came in for afternoon shift', $fresh->notes);
+
+        $this->assertDatabaseHas('hr_overrides', [
+            'override_type' => 'attendance',
+            'employee_id' => $this->approvedStaff->id,
+            'overridden_by' => $this->admin->id,
+        ]);
+    }
+
+    public function test_repeated_clicks_do_not_create_duplicate_attendance_records(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-07 11:00:00', 'Asia/Kolkata'));
+
+        // First click
+        $resp1 = $this->actingAs($this->admin)
+            ->postJson(route('admin.staff.attendance.store'), [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-07',
+                'status' => 'present',
+                'shop_id' => $this->shop1->id,
+            ]);
+        $resp1->assertOk();
+
+        // Second click
+        $resp2 = $this->actingAs($this->admin)
+            ->postJson(route('admin.staff.attendance.store'), [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-07',
+                'status' => 'present',
+                'shop_id' => $this->shop1->id,
+            ]);
+        $resp2->assertOk();
+
+        // Third click
+        $resp3 = $this->actingAs($this->admin)
+            ->postJson(route('admin.staff.attendance.store'), [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-07',
+                'status' => 'present',
+                'shop_id' => $this->shop1->id,
+            ]);
+        $resp3->assertOk();
+
+        $count = EmployeeAttendance::query()
+            ->where('employee_id', $this->approvedStaff->id)
+            ->whereDate('attendance_date', '2026-09-07')
+            ->count();
+
+        $this->assertSame(1, $count);
+    }
+
+    public function test_attendance_endpoint_preserves_authorization_and_selected_date_scope(): void
+    {
+        $unauthorizedUser = User::factory()->create();
+
+        // Unauthorized user is forbidden
+        $responseForbidden = $this->actingAs($unauthorizedUser)
+            ->postJson(route('admin.staff.attendance.store'), [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-07',
+                'status' => 'present',
+                'shop_id' => $this->shop1->id,
+            ]);
+
+        $responseForbidden->assertForbidden();
+
+        // Authorized admin marks with exact date and shop
+        $responseAuthorized = $this->actingAs($this->admin)
+            ->postJson(route('admin.staff.attendance.store'), [
+                'employee_id' => $this->approvedStaff->id,
+                'attendance_date' => '2026-09-15',
+                'status' => 'present',
+                'shop_id' => $this->shop1->id,
+            ]);
+
+        $responseAuthorized->assertOk();
+
+        $this->assertDatabaseHas('employee_attendances', [
+            'employee_id' => $this->approvedStaff->id,
+            'attendance_date' => '2026-09-15 00:00:00',
+            'status' => 'present',
+            'shop_id' => $this->shop1->id,
+        ]);
+        $this->assertDatabaseMissing('employee_attendances', [
+            'employee_id' => $this->approvedStaff->id,
+            'attendance_date' => '2026-09-16 00:00:00',
+        ]);
+    }
 }
