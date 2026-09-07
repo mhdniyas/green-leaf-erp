@@ -1090,6 +1090,10 @@
         const entriesPayload = [];
         // Include entries for all configured settings in active state (new/updated and zeroed out)
         settings.forEach(s => {
+            if (s.is_readonly) {
+                return;
+            }
+
             const amt = parseFloat(activeDayData[s.id]) || 0;
             const wasRecorded = initialTxAmounts[s.id] !== undefined && initialTxAmounts[s.id] > 0;
             const isInActiveHeader = header.setting_ids && header.setting_ids.includes(s.id);

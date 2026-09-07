@@ -162,6 +162,7 @@
             'company_account_name' => $compAccName,
             'funding_source' => $fundingSource,
             'destination_label' => $resolver->resolveDestinationLabel($s),
+            'is_readonly' => (bool) ($s->is_readonly || in_array($code, ['salary', 'staff_advance', 'advance'], true)),
         ];
     })->values()->all();
 

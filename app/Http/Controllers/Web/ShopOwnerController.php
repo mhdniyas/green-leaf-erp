@@ -1680,8 +1680,48 @@ class ShopOwnerController extends Controller
         $created = [];
         $userId = (int) ($request->user()?->id ?? 1);
 
-        DB::transaction(function () use ($shop, $validated, $userId, $headerGroup, &$created): void {
-            $entries = $validated['entries'] ?? [];
+        $entries = $validated['entries'] ?? [];
+        if (! empty($entries)) {
+            $submittedCodes = array_column($entries, 'entry_type_code');
+            $entryTypes = LedgerEntryType::query()
+                ->whereIn('code', $submittedCodes)
+                ->get()
+                ->keyBy('code');
+
+            $shopSettingsMap = ShopLedgerEntrySetting::query()
+                ->where('shop_id', (int) $shop->id)
+                ->whereIn('entry_type_id', $entryTypes->pluck('id')->all())
+                ->get()
+                ->keyBy('entry_type_id');
+
+            foreach ($entries as $item) {
+                $code = (string) $item['entry_type_code'];
+                if (in_array($code, ['gl_bill', 'purchase_bill'], true)) {
+                    continue;
+                }
+
+                $entryType = $entryTypes->get($code);
+                if (! $entryType) {
+                    continue;
+                }
+
+                $setting = $shopSettingsMap->get((int) $entryType->id);
+                $isStaffCode = in_array(strtolower($code), ['salary', 'staff_advance', 'advance'], true);
+                $isReadonly = (bool) ($setting?->is_readonly);
+
+                if ($isReadonly || $isStaffCode) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Manual cashbook entry for {$entryType->name} is prohibited. Salary payments and staff advances must be created and updated only from the Staff section.",
+                        'errors' => [
+                            'entries' => ["Manual entry for {$entryType->name} is not allowed from Cashbook."],
+                        ],
+                    ], 422);
+                }
+            }
+        }
+
+        DB::transaction(function () use ($shop, $validated, $userId, $headerGroup, &$created, $entries): void {
             if (! empty($entries)) {
                 $entryTypes = LedgerEntryType::query()
                     ->whereIn('code', array_column($entries, 'entry_type_code'))

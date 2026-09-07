@@ -33,6 +33,7 @@
                     @foreach($hSec['settings'] as $s)
                         @php
                             $cat = strtolower((string) ($s->entryType?->category ?? ''));
+                            $code = strtolower((string) ($s->entryType?->code ?? ''));
                             $isSalesDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $cat === 'transfer');
                             $isIncome = ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
                             $isMinus = $isSalesDeduction || $s->payable_direction === 'minus';
@@ -46,6 +47,7 @@
                             $displayName = $rawName;
                             $displaySub = (strtolower($displayName) === 'cash' || strtolower($displayName) === 'cash sales') ? 'Remaining cash in shop' : $destLabel;
                             $firstLetter = strtoupper(substr($displayName, 0, 1));
+                            $isReadonlyCategory = (bool) ($s->is_readonly || in_array($code, ['salary', 'staff_advance', 'advance'], true));
                         @endphp
 
                         <div class="p-2 sm:p-2.5 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200/80 transition space-y-1" data-entry-row="{{ $s->id }}">
@@ -55,11 +57,14 @@
                                         {{ $firstLetter }}
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="flex items-center gap-1.5">
+                                        <div class="flex items-center gap-1.5 flex-wrap">
                                             <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black {{ $isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }} shrink-0">
                                                 {{ $signPrefix }}
                                             </span>
                                             <span class="text-xs font-bold text-slate-900 truncate leading-none">{{ $displayName }}</span>
+                                            @if($isReadonlyCategory)
+                                                <span class="rounded bg-amber-100 border border-amber-200 text-amber-800 text-[9px] font-extrabold px-1.5 py-0.5 shrink-0">Readonly (Staff Section)</span>
+                                            @endif
                                         </div>
                                         <span class="text-[10px] font-medium text-slate-400 block truncate leading-none mt-0.5 ml-5">{{ $displaySub }}</span>
                                     </div>
@@ -74,10 +79,9 @@
                                            step="0.01"
                                            id="input-s-{{ $s->id }}"
                                            data-setting-id="{{ $s->id }}"
-                                           oninput="onOwnerInputChange(this)"
-                                           onblur="formatInputOnBlur(this)"
+                                           @if($isReadonlyCategory) disabled readonly @else oninput="onOwnerInputChange(this)" onblur="formatInputOnBlur(this)" @endif
                                            placeholder="0.00"
-                                           class="h-8 w-full rounded-lg border {{ $isMinus ? 'border-rose-200 focus:border-rose-500 focus:ring-rose-500/20 text-rose-700' : 'border-slate-200 focus:border-emerald-500 focus:ring-emerald-500/20 text-slate-950' }} bg-white pl-7 pr-2 text-right text-sm font-black font-mono focus:ring-1 focus:outline-none shadow-2xs transition">
+                                           class="h-8 w-full rounded-lg border {{ $isMinus ? 'border-rose-200 text-rose-700' : 'border-slate-200 text-slate-950' }} {{ $isReadonlyCategory ? 'bg-slate-100 cursor-not-allowed opacity-75' : 'bg-white focus:border-emerald-500 focus:ring-emerald-500/20 focus:ring-1' }} pl-7 pr-2 text-right text-sm font-black font-mono focus:outline-none shadow-2xs transition">
                                 </div>
                             </div>
 

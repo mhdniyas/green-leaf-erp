@@ -848,6 +848,19 @@
                         </label>
                     </div>
 
+                    <!-- Readonly Category Toggle -->
+                    <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div>
+                            <div class="text-xs font-extrabold text-slate-900">Readonly Category</div>
+                            <div class="text-[11px] font-semibold text-slate-500">Prevent manual cashbook entry. Values can only be created/updated via Staff or System projections.</div>
+                        </div>
+                        <input type="hidden" name="is_readonly" value="0">
+                        <label class="relative inline-flex cursor-pointer items-center">
+                            <input type="checkbox" name="is_readonly" value="1" @checked($setting->is_readonly) class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                        </label>
+                    </div>
+
                     <!-- Funding Source / Paid From -->
                     <div>
                         <label class="block text-xs font-extrabold text-slate-900 mb-1.5">
