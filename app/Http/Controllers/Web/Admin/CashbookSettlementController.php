@@ -11,6 +11,7 @@ use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\ShopSettlementService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -130,5 +131,47 @@ class CashbookSettlementController extends Controller
 
         return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)
             ->with('success', "Settlement '{$relation->name}' successfully copied to {$copiedCount} shop(s).");
+    }
+
+    public function reorder(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+
+        $validated = $request->validate([
+            'order' => ['required', 'array', 'min:1'],
+            'order.*' => ['required', 'string'],
+        ]);
+
+        $this->settlements->reorder($currentShop, $validated['order']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Settlement order saved.',
+        ]);
+    }
+
+    public function setNetBalance(Request $request, string $shop, string $settlement): JsonResponse|RedirectResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+
+        $relation = ShopCashbookRelation::where('shop_id', $currentShop->shop_id)->where('public_uuid', $settlement)->firstOrFail();
+        $this->settlements->setNetBalance($currentShop, $relation);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Settlement '{$relation->name}' is now marked as Net Balance.",
+                'settlement_uuid' => $relation->public_uuid,
+            ]);
+        }
+
+        return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)
+            ->with('success', "Settlement '{$relation->name}' is now marked as Net Balance.");
     }
 }

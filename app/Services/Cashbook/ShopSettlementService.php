@@ -170,6 +170,15 @@ class ShopSettlementService
                     ?? ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('enabled', true)->orderBy('display_order')->first();
                 $target?->update(['is_company_payable' => true]);
             }
+
+            // Ensure exactly one settlement is marked as is_net_balance
+            $hasNetBalance = ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('is_net_balance', true)->exists();
+            if (! $hasNetBalance) {
+                $target = ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('relation_type', 'default_balance')->first()
+                    ?? ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('name', 'like', '%Balance%')->first()
+                    ?? ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('enabled', true)->orderBy('display_order')->first();
+                $target?->update(['is_net_balance' => true]);
+            }
         });
     }
 
@@ -246,6 +255,15 @@ class ShopSettlementService
                 }
             } elseif (! $relation->exists && ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('is_company_payable', true)->doesntExist()) {
                 $relation->is_company_payable = true;
+            }
+
+            if (! empty($data['is_net_balance'])) {
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                    ->where('id', '!=', $relation->id)
+                    ->update(['is_net_balance' => false]);
+                $relation->is_net_balance = true;
+            } elseif (isset($data['is_net_balance']) && ! $data['is_net_balance']) {
+                $relation->is_net_balance = false;
             }
 
             $relation->fill(['name' => $data['name'], 'enabled' => $data['enabled']])->save();
@@ -470,6 +488,43 @@ class ShopSettlementService
             ])->log('Settlement copied to shop');
 
             return $targetRelation;
+        });
+    }
+
+    public function setNetBalance(ShopLedgerProfile $profile, ShopCashbookRelation $relation): void
+    {
+        DB::transaction(function () use ($profile, $relation): void {
+            ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                ->update(['is_net_balance' => false]);
+
+            ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                ->whereKey($relation->id)
+                ->update(['is_net_balance' => true]);
+
+            activity('cashbook_settlement')->performedOn($relation)->withProperties([
+                'shop_id' => $profile->shop_id,
+                'relation_name' => $relation->name,
+            ])->log('Settlement marked as Net Balance');
+        });
+    }
+
+    /**
+     * @param  array<int, string|int>  $relationIdentifiers  Array of public_uuid or id
+     */
+    public function reorder(ShopLedgerProfile $profile, array $relationIdentifiers): void
+    {
+        DB::transaction(function () use ($profile, $relationIdentifiers): void {
+            foreach ($relationIdentifiers as $index => $identifier) {
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                    ->where(function ($query) use ($identifier) {
+                        if (is_numeric($identifier)) {
+                            $query->where('id', (int) $identifier);
+                        } else {
+                            $query->where('public_uuid', (string) $identifier);
+                        }
+                    })
+                    ->update(['display_order' => $index + 1]);
+            }
         });
     }
 }

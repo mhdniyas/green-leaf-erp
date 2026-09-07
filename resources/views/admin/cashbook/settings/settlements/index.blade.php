@@ -10,6 +10,7 @@
     activeSettlement: null,
     targetShops: [],
     selectAllShops: false,
+    activeNetBalanceUuid: @js($relations->firstWhere('is_net_balance', true)?->public_uuid),
     openCopyModal(settlement) {
         this.activeSettlement = settlement;
         this.targetShops = [];
@@ -22,6 +23,31 @@
         } else {
             this.targetShops = [];
         }
+    },
+    async setNetBalance(uuid) {
+        try {
+            const res = await fetch('{{ url('admin/cashbook/settings/shops/'.$shopKey.'/settlements') }}/' + uuid + '/set-net-balance', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name=\'csrf-token\']')?.getAttribute('content') || '{{ csrf_token() }}',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.activeNetBalanceUuid = uuid;
+                if (typeof showToast === 'function') {
+                    showToast(data.message || 'Net Balance settlement updated', 'success');
+                }
+            } else {
+                alert(data.message || 'Failed to update Net Balance');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to set Net Balance.');
+        }
     }
 }">
     <a href="{{ route('admin.cashbook.settings.shop', $shopKey) }}" class="inline-flex py-2 text-sm font-bold text-slate-600 hover:text-indigo-700">&larr; Cashbook Settings</a>
@@ -29,35 +55,75 @@
         <div>
             <p class="text-xs font-bold uppercase tracking-wider text-indigo-700">{{ $currentShop->name }}</p>
             <h1 class="mt-1 text-3xl font-extrabold text-slate-950">Settlements</h1>
-            <p class="mt-2 text-sm text-slate-600">Choose how categories combine. Each enabled settlement appears as one result in the summary.</p>
+            <p class="mt-2 text-sm text-slate-600">Drag to reorder settlement calculation order. Choose which settlement represents the shop's primary Net Balance.</p>
         </div>
         <a href="{{ route('admin.cashbook.settings.shop.settlements.create', $shopKey) }}" class="shrink-0 rounded-xl bg-indigo-700 px-5 py-3 text-center text-sm font-bold text-white hover:bg-indigo-800">Create Settlement</a>
     </div>
+
     @if(session('success'))
         <p role="status" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{{ session('success') }}</p>
     @endif
-    <div class="space-y-4">
-        @foreach($relations as $settlement)
-            <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+    <div id="settlement-status-bar" class="hidden rounded-xl border border-indigo-200 bg-indigo-50/80 px-4 py-2.5 text-xs font-bold text-indigo-900 transition flex items-center justify-between">
+        <span id="settlement-status-text">Saving order...</span>
+    </div>
+
+    <div id="settlements-drag-container" class="space-y-4">
+        @foreach($relations as $index => $settlement)
+            <article data-uuid="{{ $settlement->public_uuid }}" draggable="true" class="settlement-item-card group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md hover:border-indigo-200">
                 <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <h2 class="break-words text-lg font-extrabold text-slate-950">{{ $settlement->name }}</h2>
-                            @if($settlement->is_company_payable)
-                                <span class="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-indigo-900 border border-indigo-300">★ Company Payable</span>
-                            @endif
+                    <div class="flex items-start gap-3 min-w-0">
+                        <!-- Drag Handle & Order Controls -->
+                        <div class="flex flex-col items-center gap-1 shrink-0 pt-0.5 select-none">
+                            <div class="drag-handle cursor-grab active:cursor-grabbing p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition" title="Drag to reorder">
+                                <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-12a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z"/>
+                                </svg>
+                            </div>
+                            <span class="settlement-order-badge px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-mono font-bold text-slate-600">#{{ $index + 1 }}</span>
+                            <div class="flex items-center gap-0.5 sm:hidden">
+                                <button type="button" onclick="moveSettlementCard(this, -1)" class="p-1 rounded text-slate-400 hover:text-slate-700 text-xs font-bold" title="Move Up">&uarr;</button>
+                                <button type="button" onclick="moveSettlementCard(this, 1)" class="p-1 rounded text-slate-400 hover:text-slate-700 text-xs font-bold" title="Move Down">&darr;</button>
+                            </div>
                         </div>
-                        <p class="mt-1 text-xs font-bold {{ $settlement->enabled ? 'text-emerald-700' : 'text-slate-500' }}">{{ $settlement->enabled ? 'Shown in summary' : 'Hidden from summary' }}{{ str_starts_with($settlement->relation_type, 'default_') ? ' · Default settlement' : '' }}</p>
+
+                        <div class="min-w-0 space-y-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h2 class="break-words text-lg font-extrabold text-slate-950">{{ $settlement->name }}</h2>
+
+                                <!-- Net Balance Badge -->
+                                <template x-if="activeNetBalanceUuid === '{{ $settlement->public_uuid }}'">
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-emerald-900 border border-emerald-300">★ Net Balance</span>
+                                </template>
+
+                                @if($settlement->is_company_payable)
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-indigo-900 border border-indigo-300">Company Payable</span>
+                                @endif
+                            </div>
+                            <p class="text-xs font-bold {{ $settlement->enabled ? 'text-emerald-700' : 'text-slate-500' }}">
+                                {{ $settlement->enabled ? 'Shown in summary' : 'Hidden from summary' }}{{ str_starts_with($settlement->relation_type, 'default_') ? ' · Default settlement' : '' }}
+                            </p>
+                        </div>
                     </div>
-                    <div class="flex items-center gap-2">
+
+                    <!-- Right Action Buttons -->
+                    <div class="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
+                        <template x-if="activeNetBalanceUuid !== '{{ $settlement->public_uuid }}'">
+                            <button type="button" @click="setNetBalance('{{ $settlement->public_uuid }}')" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition" title="Designate this settlement as the shop's primary Net Balance">
+                                Set as Net Balance
+                            </button>
+                        </template>
+
                         @if($otherShops->isNotEmpty())
                             <button type="button" @click="openCopyModal({{ json_encode(['uuid' => $settlement->public_uuid, 'name' => $settlement->name]) }})" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition">
                                 Copy to Shops &rarr;
                             </button>
                         @endif
+
                         <a href="{{ route('admin.cashbook.settings.shop.settlements.edit', [$shopKey, $settlement->public_uuid]) }}" aria-label="Edit {{ $settlement->name }}" class="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Edit</a>
                     </div>
                 </div>
+
                 <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm" aria-label="Calculation formula">
                     @forelse($settlement->items as $item)
                         @php
@@ -87,7 +153,8 @@
             </article>
         @endforeach
     </div>
-    <p class="text-sm text-slate-600">Formulas apply to the selected day or period. A category can be used in different settlements; results are shown separately.</p>
+
+    <p class="text-sm text-slate-600">Formulas apply to the selected day or period. Drag items to reorder how they are listed and computed. A category can be used in different settlements; results are shown separately.</p>
 
     <!-- Copy Settlement to Other Shops Modal -->
     <div x-show="copyModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4" @click.self="copyModalOpen = false">
@@ -129,5 +196,111 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const container = document.getElementById('settlements-drag-container');
+    if (!container) return;
+
+    let draggedItem = null;
+
+    function refreshBadges() {
+        const cards = container.querySelectorAll('.settlement-item-card');
+        cards.forEach((card, idx) => {
+            const badge = card.querySelector('.settlement-order-badge');
+            if (badge) badge.textContent = '#' + (idx + 1);
+        });
+    }
+
+    async function saveOrder() {
+        const cards = container.querySelectorAll('.settlement-item-card[data-uuid]');
+        const order = Array.from(cards).map(card => card.getAttribute('data-uuid'));
+        const statusBar = document.getElementById('settlement-status-bar');
+        const statusText = document.getElementById('settlement-status-text');
+
+        if (statusBar && statusText) {
+            statusBar.classList.remove('hidden');
+            statusText.textContent = 'Saving settlement order...';
+        }
+
+        try {
+            const res = await fetch('{{ route('admin.cashbook.settings.shop.settlements.reorder', $shopKey) }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ order })
+            });
+            const data = await res.json();
+            if (statusBar && statusText) {
+                if (data.success) {
+                    statusText.textContent = 'Settlement order saved.';
+                    setTimeout(() => { statusBar.classList.add('hidden'); }, 2000);
+                } else {
+                    statusText.textContent = data.message || 'Failed to save order';
+                }
+            }
+        } catch (err) {
+            console.error(err);
+            if (statusBar && statusText) {
+                statusText.textContent = 'Network error saving order.';
+            }
+        }
+    }
+
+    container.addEventListener('dragstart', (e) => {
+        const card = e.target.closest('.settlement-item-card');
+        if (!card) return;
+        draggedItem = card;
+        card.classList.add('opacity-40', 'border-indigo-400');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', card.getAttribute('data-uuid') || '');
+    });
+
+    container.addEventListener('dragend', (e) => {
+        const card = e.target.closest('.settlement-item-card');
+        if (card) {
+            card.classList.remove('opacity-40', 'border-indigo-400');
+        }
+        container.querySelectorAll('.settlement-item-card').forEach(c => {
+            c.classList.remove('border-t-4', 'border-indigo-600', 'bg-indigo-50/20');
+        });
+        draggedItem = null;
+    });
+
+    container.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const target = e.target.closest('.settlement-item-card');
+        if (!target || target === draggedItem) return;
+
+        const rect = target.getBoundingClientRect();
+        const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+        container.insertBefore(draggedItem, next ? target.nextSibling : target);
+        refreshBadges();
+    });
+
+    container.addEventListener('drop', (e) => {
+        e.preventDefault();
+        refreshBadges();
+        saveOrder();
+    });
+
+    window.moveSettlementCard = function(btn, dir) {
+        const card = btn.closest('.settlement-item-card');
+        if (!card) return;
+        if (dir === -1 && card.previousElementSibling) {
+            container.insertBefore(card, card.previousElementSibling);
+        } else if (dir === 1 && card.nextElementSibling) {
+            container.insertBefore(card.nextElementSibling, card);
+        }
+        refreshBadges();
+        saveOrder();
+    };
+});
+</script>
 @endsection
 

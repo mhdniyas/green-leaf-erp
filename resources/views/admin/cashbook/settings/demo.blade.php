@@ -194,6 +194,8 @@
         'kind' => $relation->relation_type,
         'enabled' => (bool) $relation->enabled,
         'is_company_payable' => (bool) $relation->is_company_payable,
+        'is_net_balance' => (bool) $relation->is_net_balance,
+        'display_order' => (int) ($relation->display_order ?? 0),
         'items' => $relation->items->map(function ($item) use ($settingsMap, $settingsByHeader, $headerGroupList, $summaryRelations) {
             $settingId = (int) $item->shop_ledger_entry_setting_id;
             $headerId = (int) $item->header_group_id;
@@ -2197,8 +2199,11 @@
             });
 
             const settlementResult = CashbookSettlementSummary.calculate(summaryRelations, dayAmounts);
-            const displayTotalIncome = settlementResult.income;
-            const displayTotalExpense = settlementResult.expense;
+            const incomeSettlement = (settlementResult.settlements || []).find(s => s.kind === 'default_income' || (s.name && s.name.toLowerCase() === 'income'));
+            const expenseSettlement = (settlementResult.settlements || []).find(s => s.kind === 'default_expense' || (s.name && s.name.toLowerCase() === 'expense'));
+
+            const displayTotalIncome = incomeSettlement ? incomeSettlement.amount : (settlementResult.income !== undefined && settlementResult.income !== 0 ? settlementResult.income : (totalIncome || daySales));
+            const displayTotalExpense = expenseSettlement ? expenseSettlement.amount : (settlementResult.expense !== undefined && settlementResult.expense !== 0 ? settlementResult.expense : (totalExpense || (dayExpenses + dayCashPurchase)));
             const todayNetActivity = settlementResult.netBalance;
             const netActivity = todayNetActivity;
 
@@ -2574,7 +2579,7 @@
         if (secInc) secInc.textContent = formatCurrency(res.displayTotalIncome);
 
         const secExp = document.getElementById('demo-section-total-expense');
-        if (secExp) secExp.textContent = '-' + formatCurrency(res.displayTotalExpense);
+        if (secExp) secExp.textContent = (res.displayTotalExpense > 0 ? '-' : '') + formatCurrency(res.displayTotalExpense);
 
         const secOth = document.getElementById('demo-section-total-others');
         if (secOth) secOth.textContent = formatCurrency(res.relationNet);

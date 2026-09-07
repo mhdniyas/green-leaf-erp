@@ -19,6 +19,7 @@ class ShopCashbookRelation extends Model
         'relation_type',
         'enabled',
         'is_company_payable',
+        'is_net_balance',
         'display_order',
         'settlement_source',
         'eligibility_rule',
@@ -28,6 +29,7 @@ class ShopCashbookRelation extends Model
         'shop_id' => 'integer',
         'enabled' => 'boolean',
         'is_company_payable' => 'boolean',
+        'is_net_balance' => 'boolean',
         'display_order' => 'integer',
     ];
 

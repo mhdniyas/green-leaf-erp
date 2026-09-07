@@ -834,11 +834,13 @@ Route::middleware('auth')->group(function () {
             Route::post('settings/staff', [CashbookController::class, 'updateStaffSettings'])->name('settings.staff');
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
             Route::get('settings/shops/{shop}/settlements', [CashbookSettlementController::class, 'index'])->name('settings.shop.settlements.index');
+            Route::post('settings/shops/{shop}/settlements/reorder', [CashbookSettlementController::class, 'reorder'])->name('settings.shop.settlements.reorder');
             Route::get('settings/shops/{shop}/settlements/create', [CashbookSettlementController::class, 'create'])->name('settings.shop.settlements.create');
             Route::post('settings/shops/{shop}/settlements', [CashbookSettlementController::class, 'store'])->name('settings.shop.settlements.store');
             Route::get('settings/shops/{shop}/settlements/{settlement}/edit', [CashbookSettlementController::class, 'edit'])->name('settings.shop.settlements.edit');
             Route::put('settings/shops/{shop}/settlements/{settlement}', [CashbookSettlementController::class, 'update'])->name('settings.shop.settlements.update');
             Route::post('settings/shops/{shop}/settlements/{settlement}/copy', [CashbookSettlementController::class, 'copy'])->name('settings.shop.settlements.copy');
+            Route::post('settings/shops/{shop}/settlements/{settlement}/set-net-balance', [CashbookSettlementController::class, 'setNetBalance'])->name('settings.shop.settlements.set-net-balance');
             Route::get('settings/shops/{shop}/demo', [CashbookController::class, 'shopDemoPage'])->name('settings.shop.demo');
             Route::get('settings/shops/{shop}/demo/real-data', [CashbookController::class, 'shopDemoRealData'])->name('settings.shop.demo.real-data');
             Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');

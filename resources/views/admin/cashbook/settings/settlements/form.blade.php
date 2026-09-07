@@ -132,6 +132,14 @@
                 </label>
                 <p class="mt-1 text-xs text-slate-500 ml-8">When selected, this settlement dynamically drives the shop's payable balance and verified payments deduction.</p>
             </div>
+            <div class="border-t border-slate-100 pt-4">
+                <input type="hidden" name="is_net_balance" value="0">
+                <label class="inline-flex items-center gap-3 text-sm font-semibold text-slate-900">
+                    <input type="checkbox" name="is_net_balance" value="1" @checked(old('is_net_balance', $relation?->is_net_balance ?? false)) class="h-5 w-5 rounded border-slate-300 text-emerald-700">
+                    <span>Mark as this shop's <strong>Net Balance</strong> settlement</span>
+                </label>
+                <p class="mt-1 text-xs text-slate-500 ml-8">When selected, this settlement represents the primary Net Balance displayed in reports and cashbook summaries.</p>
+            </div>
         </div>
 
         <section class="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" aria-labelledby="formula-heading">

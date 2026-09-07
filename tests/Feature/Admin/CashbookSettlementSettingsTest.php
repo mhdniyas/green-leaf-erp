@@ -250,6 +250,36 @@ class CashbookSettlementSettingsTest extends TestCase
         $this->assertSame('subtract', $relation->items->last()->role);
     }
 
+    public function test_admin_can_reorder_settlements(): void
+    {
+        $relations = ShopCashbookRelation::where('shop_id', $this->shop->id)->get();
+        $reversedUuids = $relations->reverse()->pluck('public_uuid')->all();
+
+        $this->actingAs($this->admin)
+            ->postJson(route('admin.cashbook.settings.shop.settlements.reorder', $this->profile->slug), [
+                'order' => $reversedUuids,
+            ])
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $freshRelations = ShopCashbookRelation::where('shop_id', $this->shop->id)->orderBy('display_order')->pluck('public_uuid')->all();
+        $this->assertSame($reversedUuids, $freshRelations);
+    }
+
+    public function test_admin_can_set_net_balance_settlement(): void
+    {
+        $income = ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_income')->firstOrFail();
+
+        $this->actingAs($this->admin)
+            ->postJson(route('admin.cashbook.settings.shop.settlements.set-net-balance', [$this->profile->slug, $income->public_uuid]))
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $this->assertTrue($income->fresh()->is_net_balance);
+        $otherNetBalances = ShopCashbookRelation::where('shop_id', $this->shop->id)->where('id', '!=', $income->id)->where('is_net_balance', true)->count();
+        $this->assertSame(0, $otherNetBalances);
+    }
+
     private function category(string $code): ShopLedgerEntrySetting
     {
         $type = LedgerEntryType::create(['code' => 'test_'.$code, 'name' => 'Category '.strtoupper($code), 'category' => 'income', 'active' => true]);

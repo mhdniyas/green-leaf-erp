@@ -88,6 +88,7 @@
                     name: relation.name,
                     kind: relation.kind || relation.relation_type,
                     is_company_payable: !!relation.is_company_payable,
+                    is_net_balance: !!relation.is_net_balance,
                     amount: amt,
                     items: breakdown
                 };
@@ -103,22 +104,33 @@
 
             const companyPayable = rawSettlements.find(s => s.is_company_payable || s.kind === 'default_company_payable' || (s.name && s.name.toLowerCase().includes('company payable')));
             const balance = rawSettlements.find(s => s.kind === 'default_balance' || (s.name && s.name.toLowerCase() === 'balance'));
+            const income = rawSettlements.find(s => s.kind === 'default_income' || (s.name && s.name.toLowerCase() === 'income'));
+            const expense = rawSettlements.find(s => s.kind === 'default_expense' || (s.name && s.name.toLowerCase() === 'expense'));
+
+            const netBalanceSettlement = rawSettlements.find(s => s.is_net_balance)
+                || balance
+                || (companyPayable && !rawSettlements.some(s => s.kind === 'default_balance' || (s.name && s.name.toLowerCase() === 'balance')) ? companyPayable : null)
+                || (rawSettlements.length > 0 ? rawSettlements[0] : null);
 
             let netBalance = 0;
-            let netLabel = 'Company Payable';
+            let netLabel = 'Balance';
             const verifiedAmt = Number(verifiedPayments || 0);
 
-            if (companyPayable) {
-                netBalance = Math.round((companyPayable.amount - verifiedAmt) * 100) / 100;
-                netLabel = companyPayable.name;
-            } else if (rawSettlements.length > 0) {
-                netBalance = Math.round((rawSettlements[0].amount - verifiedAmt) * 100) / 100;
-                netLabel = rawSettlements[0].name;
+            if (netBalanceSettlement) {
+                if (netBalanceSettlement.is_company_payable) {
+                    netBalance = Math.round((netBalanceSettlement.amount - verifiedAmt) * 100) / 100;
+                } else {
+                    netBalance = netBalanceSettlement.amount;
+                }
+                netLabel = netBalanceSettlement.name;
             }
 
             return {
                 settlements: rawSettlements,
                 companyPayable,
+                balance,
+                income: income ? income.amount : 0,
+                expense: expense ? expense.amount : 0,
                 verifiedPayments: verifiedAmt,
                 netBalance,
                 netLabel,
