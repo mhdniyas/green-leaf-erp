@@ -63,7 +63,7 @@
                                             </span>
                                             <span class="text-xs font-bold text-slate-900 truncate leading-none">{{ $displayName }}</span>
                                             @if($isReadonlyCategory)
-                                                <span class="rounded bg-amber-100 border border-amber-200 text-amber-800 text-[9px] font-extrabold px-1.5 py-0.5 shrink-0">Readonly (Staff Section)</span>
+                                                <span class="rounded bg-amber-100 border border-amber-200 text-amber-800 text-[9px] font-extrabold px-1.5 py-0.5 shrink-0">Readonly</span>
                                             @endif
                                         </div>
                                         <span class="text-[10px] font-medium text-slate-400 block truncate leading-none mt-0.5 ml-5">{{ $displaySub }}</span>
