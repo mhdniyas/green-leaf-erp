@@ -59,6 +59,11 @@ class CashbookSettlementSettingsTest extends TestCase
         $this->assertNotNull(ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_income')->first());
         $this->assertNotNull(ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_expense')->first());
         $this->assertNotNull(ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_company_payable')->first());
+
+        $balance->delete();
+        app(CashbookShopSyncService::class)->syncAndGetProfiles();
+        $this->assertDatabaseMissing('shop_cashbook_relations', ['id' => $balance->id]);
+        $this->assertSame(3, ShopCashbookRelation::where('shop_id', $this->shop->id)->count());
     }
 
     public function test_settings_link_to_separate_settlement_pages(): void
@@ -88,6 +93,49 @@ class CashbookSettlementSettingsTest extends TestCase
         $this->assertSame('Custom Settlement', $audit->properties['before']['name']);
         $this->assertSame('Revised Settlement', $audit->properties['after']['name']);
         $this->assertCount(1, $relation->items);
+    }
+
+    public function test_target_dropdown_only_shows_active_items_for_the_current_shop(): void
+    {
+        $activeCategory = $this->category('active_target');
+        $inactiveCategory = $this->category('inactive_target');
+        $inactiveCategory->update(['enabled' => false]);
+        $activeHeader = ShopLedgerHeaderGroup::create(['shop_id' => $this->shop->id, 'name' => 'Active Target Header', 'type' => 'income', 'enabled' => true]);
+        $inactiveHeader = ShopLedgerHeaderGroup::create(['shop_id' => $this->shop->id, 'name' => 'Inactive Target Header', 'type' => 'income', 'enabled' => false]);
+        $activeSettlement = ShopCashbookRelation::create(['shop_id' => $this->shop->id, 'name' => 'Active Target Settlement', 'relation_type' => 'formula', 'enabled' => true]);
+        $inactiveSettlement = ShopCashbookRelation::create(['shop_id' => $this->shop->id, 'name' => 'Inactive Target Settlement', 'relation_type' => 'formula', 'enabled' => false]);
+
+        $response = $this->actingAs($this->admin)->get($this->url('create'));
+
+        $response->assertOk()
+            ->assertSee('value="setting:'.$activeCategory->id.'"', false)
+            ->assertDontSee('value="setting:'.$inactiveCategory->id.'"', false)
+            ->assertSee('value="header:'.$activeHeader->id.'"', false)
+            ->assertDontSee('value="header:'.$inactiveHeader->id.'"', false)
+            ->assertSee('value="settlement:'.$activeSettlement->id.'"', false)
+            ->assertDontSee('value="settlement:'.$inactiveSettlement->id.'"', false);
+
+        $this->postJson($this->url('store'), [
+            'name' => 'Invalid Inactive Target',
+            'enabled' => 1,
+            'items' => [['setting_id' => $inactiveCategory->id, 'role' => 'add']],
+        ])->assertUnprocessable()->assertJsonValidationErrors('items.0.setting_id');
+    }
+
+    public function test_admin_can_delete_configured_and_default_settlements(): void
+    {
+        $custom = ShopCashbookRelation::create(['shop_id' => $this->shop->id, 'name' => 'Default Petty', 'relation_type' => 'default_petty', 'enabled' => true]);
+        $default = ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_income')->firstOrFail();
+
+        $this->actingAs($this->admin)->get($this->url('index'))
+            ->assertSee(route('admin.cashbook.settings.shop.settlements.destroy', [$this->profile->slug, $custom->public_uuid]), false);
+        $this->actingAs($this->admin)->delete($this->url('destroy', $custom))->assertRedirect($this->url('index'));
+        $this->assertModelMissing($custom);
+        $this->assertDatabaseHas('activity_log', ['log_name' => 'cashbook_settlement', 'description' => 'Settlement deleted']);
+
+        $this->delete($this->url('destroy', $default))->assertRedirect($this->url('index'));
+        $this->get($this->url('index'))->assertOk();
+        $this->assertModelMissing($default);
     }
 
     public function test_formula_rejects_foreign_invalid_and_empty_categories_while_allowing_multiple_occurrences(): void

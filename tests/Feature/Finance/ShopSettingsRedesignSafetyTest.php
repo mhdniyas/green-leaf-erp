@@ -1351,4 +1351,127 @@ class ShopSettingsRedesignSafetyTest extends TestCase
             ->assertJson(['success' => true])
             ->assertJsonFragment(['name' => 'Alfonso Mango']);
     }
+
+    public function test_toggle_shop_setting_status_turns_off_and_on(): void
+    {
+        $setting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->casio->id,
+            'entry_type_id' => $this->rentType->id,
+            'company_account_id' => null,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'default_funding_source' => 'petty',
+            'include_in_sales' => false,
+            'include_in_income' => false,
+            'include_in_expense' => true,
+            'include_in_pl' => true,
+            'include_in_payable' => false,
+            'payable_direction' => 'minus',
+            'settlement_behavior' => 'none',
+            'petty_behavior' => 'decrease',
+            'company_pending_behavior' => 'none',
+            'generates_secondary_entry' => false,
+            'secondary_entry_type_id' => null,
+            'secondary_amount_mode' => 'same_amount',
+            'secondary_amount_value' => null,
+        ]);
+
+        // Turn OFF
+        $responseOff = $this->actingAs($this->admin)
+            ->postJson(route('admin.cashbook.api.shop-settings.toggle-status'), [
+                'setting_id' => $setting->id,
+                'enabled' => false,
+            ]);
+
+        $responseOff->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'enabled' => false,
+            ]);
+
+        $this->assertFalse($setting->fresh()->enabled);
+
+        // Turn ON
+        $responseOn = $this->actingAs($this->admin)
+            ->postJson(route('admin.cashbook.api.shop-settings.toggle-status'), [
+                'setting_id' => $setting->id,
+                'enabled' => true,
+            ]);
+
+        $responseOn->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'enabled' => true,
+            ]);
+
+        $this->assertTrue($setting->fresh()->enabled);
+
+        // Auto toggle when enabled is omitted
+        $responseToggle = $this->actingAs($this->admin)
+            ->postJson(route('admin.cashbook.api.shop-settings.toggle-status'), [
+                'setting_id' => $setting->id,
+            ]);
+
+        $responseToggle->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'enabled' => false,
+            ]);
+
+        $this->assertFalse($setting->fresh()->enabled);
+    }
+
+    public function test_toggle_shop_setting_status_authorization(): void
+    {
+        $setting = ShopLedgerEntrySetting::create([
+            'shop_id' => $this->casio->id,
+            'entry_type_id' => $this->rentType->id,
+            'company_account_id' => null,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'default_funding_source' => 'petty',
+            'include_in_sales' => false,
+            'include_in_income' => false,
+            'include_in_expense' => true,
+            'include_in_pl' => true,
+            'include_in_payable' => false,
+            'payable_direction' => 'minus',
+            'settlement_behavior' => 'none',
+            'petty_behavior' => 'decrease',
+            'company_pending_behavior' => 'none',
+            'generates_secondary_entry' => false,
+            'secondary_entry_type_id' => null,
+            'secondary_amount_mode' => 'same_amount',
+            'secondary_amount_value' => null,
+        ]);
+
+        // Unauthenticated -> 401
+        $guestResponse = $this->postJson(route('admin.cashbook.api.shop-settings.toggle-status'), [
+            'setting_id' => $setting->id,
+            'enabled' => false,
+        ]);
+        $guestResponse->assertStatus(401);
+
+        // Unauthorized user -> 403
+        $regularUser = User::factory()->create();
+        $unauthorizedResponse = $this->actingAs($regularUser)
+            ->postJson(route('admin.cashbook.api.shop-settings.toggle-status'), [
+                'setting_id' => $setting->id,
+                'enabled' => false,
+            ]);
+        $unauthorizedResponse->assertStatus(403);
+    }
+
+    public function test_shop_settings_page_renders_toggle_pill_on_cards(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.settings.shop', ['shop' => $this->casio->id]));
+
+        $response->assertStatus(200);
+        $response->assertSee('card-toggle-pill');
+        $response->assertSee('card-toggle-input');
+        $response->assertSee('toggleShopSettingCard');
+    }
 }

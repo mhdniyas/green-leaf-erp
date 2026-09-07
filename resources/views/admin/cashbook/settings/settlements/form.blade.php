@@ -12,7 +12,7 @@
     ])->all() ?: [['setting_id' => '', 'header_group_id' => '', 'source_settlement_id' => '', 'header_mode' => 'all_categories', 'role' => 'add']]);
     $categoryNames = $settings->mapWithKeys(fn ($setting) => [(string) $setting->id => $setting->displayName()])->all();
     $headerGroupNames = $headerGroups->mapWithKeys(fn ($hg) => [(string) $hg->id => $hg->name])->all();
-    $otherRelations = $relations->filter(fn ($r) => $relation === null || (int) $r->id !== (int) $relation->id);
+    $otherRelations = $relations->filter(fn ($r) => $r->enabled && ($relation === null || (int) $r->id !== (int) $relation->id));
     $otherRelationNames = $otherRelations->mapWithKeys(fn ($r) => [(string) $r->id => $r->name])->all();
     $headerGroupDetails = $headerGroups->mapWithKeys(fn ($hg) => [(string) $hg->id => [
         'id' => $hg->id,
@@ -214,7 +214,7 @@
                                 @foreach($settings->groupBy(fn ($setting) => $setting->headerGroup?->name ?? ucfirst($setting->entryType?->category ?? 'Other')) as $group => $groupSettings)
                                     <optgroup label="Category: {{ $group }}">
                                         @foreach($groupSettings as $setting)
-                                            <option value="setting:{{ $setting->id }}">{{ $setting->displayName() }}{{ $setting->enabled ? '' : ' (entry disabled)' }}</option>
+                                            <option value="setting:{{ $setting->id }}">{{ $setting->displayName() }}</option>
                                         @endforeach
                                     </optgroup>
                                 @endforeach

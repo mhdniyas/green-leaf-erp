@@ -2766,8 +2766,6 @@ final class CashbookController extends Controller
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client');
 
-        app(ShopSettlementService::class)->ensureDefaults($currentShop);
-
         $headerGroups = ShopLedgerHeaderGroup::query()
             ->where('shop_id', $currentShop->shop_id)
             ->where('enabled', true)
@@ -8307,6 +8305,40 @@ final class CashbookController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Shop setting saved.',
+                'setting' => $setting->fresh('entryType'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function toggleShopSettingStatus(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'setting_id' => ['required', 'integer', 'exists:shop_ledger_entry_settings,id'],
+            'enabled' => ['nullable', 'boolean'],
+        ]);
+
+        try {
+            $setting = ShopLedgerEntrySetting::query()->findOrFail((int) $validated['setting_id']);
+            $newStatus = array_key_exists('enabled', $validated) && $validated['enabled'] !== null
+                ? (bool) $validated['enabled']
+                : ! (bool) $setting->enabled;
+
+            $setting->update([
+                'enabled' => $newStatus,
+            ]);
+
+            $entryName = $setting->displayName();
+
+            return response()->json([
+                'success' => true,
+                'enabled' => (bool) $setting->enabled,
+                'message' => $setting->enabled
+                    ? "Turned on '{$entryName}' in cashbook"
+                    : "Turned off '{$entryName}' in cashbook",
                 'setting' => $setting->fresh('entryType'),
             ]);
         } catch (Throwable $e) {

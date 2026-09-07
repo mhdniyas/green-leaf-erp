@@ -1601,6 +1601,29 @@ let currentTargetHeaderId = null;
 let draggedCardElement = null;
 let draggedHeaderElement = null;
 
+function updateSectionCountBadges() {
+    const showDisabled = document.getElementById('toggle-show-disabled')?.checked;
+
+    const sections = [
+        { sectionId: 'income-sales', badgeId: 'income-count-badge' },
+        { sectionId: 'expenses', badgeId: 'expense-count-badge' },
+        { sectionId: 'transfers-settlements', badgeId: 'transfer-count-badge' },
+    ];
+
+    sections.forEach(({ sectionId, badgeId }) => {
+        const section = document.getElementById(sectionId);
+        const badge = document.getElementById(badgeId);
+        if (!section || !badge) return;
+
+        const active = section.querySelectorAll('.setting-card[data-enabled="1"]').length;
+        const disabled = section.querySelectorAll('.setting-card[data-enabled="0"]').length;
+
+        badge.setAttribute('data-active', active);
+        badge.setAttribute('data-disabled', disabled);
+        badge.textContent = showDisabled ? `${active} Active · ${disabled} Disabled` : `${active} Active`;
+    });
+}
+
 function toggleShowDisabled(showDisabled) {
     const cards = document.querySelectorAll('.setting-card');
     cards.forEach((card) => {
@@ -1616,18 +1639,146 @@ function toggleShowDisabled(showDisabled) {
         }
     });
 
-    const incomeBadge = document.getElementById('income-count-badge');
-    if (incomeBadge) {
-        const active = incomeBadge.getAttribute('data-active');
-        const disabled = incomeBadge.getAttribute('data-disabled');
-        incomeBadge.textContent = showDisabled ? `${active} Active · ${disabled} Disabled` : `${active} Active`;
+    updateSectionCountBadges();
+}
+
+async function toggleShopSettingCard(event, settingId) {
+    event.stopPropagation();
+    const input = event.target;
+    const isChecked = input.checked;
+    const card = input.closest('.setting-card');
+    const pill = input.closest('.card-toggle-pill');
+    const labelSpan = pill ? pill.querySelector('.card-toggle-label') : null;
+    const trackSpan = pill ? pill.querySelector('.card-toggle-track') : null;
+    const thumbSpan = pill ? pill.querySelector('.card-toggle-thumb') : null;
+    const displayName = input.getAttribute('data-display-name') || 'Entry';
+
+    if (pill) {
+        pill.classList.add('opacity-70', 'pointer-events-none');
     }
 
-    const expenseBadge = document.getElementById('expense-count-badge');
-    if (expenseBadge) {
-        const active = expenseBadge.getAttribute('data-active');
-        const disabled = expenseBadge.getAttribute('data-disabled');
-        expenseBadge.textContent = showDisabled ? `${active} Active · ${disabled} Disabled` : `${active} Active`;
+    try {
+        const response = await fetch('{{ route('admin.cashbook.api.shop-settings.toggle-status') }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({
+                setting_id: settingId,
+                enabled: isChecked,
+            }),
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.message || 'Failed to update status');
+        }
+
+        const enabled = Boolean(data.enabled);
+        input.checked = enabled;
+
+        // Synchronize modal checkbox if present
+        const modal = document.getElementById('config-modal-' + settingId);
+        if (modal) {
+            const modalCheckbox = modal.querySelector('input[name="enabled"][type="checkbox"]');
+            if (modalCheckbox) {
+                modalCheckbox.checked = enabled;
+            }
+        }
+
+        // Update card visual state
+        if (card) {
+            card.setAttribute('data-enabled', enabled ? '1' : '0');
+            const title = card.querySelector('.card-title');
+            const movement = card.querySelector('.card-movement');
+            const footer = card.querySelector('.card-footer');
+
+            if (enabled) {
+                card.classList.remove('bg-slate-50/70', 'text-slate-500');
+                card.classList.add('bg-white', 'hover:border-slate-300', 'hover:shadow-md');
+                if (title) {
+                    title.classList.remove('text-slate-500');
+                    title.classList.add('text-slate-950', 'group-hover:text-indigo-700');
+                }
+                if (movement) {
+                    movement.classList.remove('text-slate-400');
+                    const hasIndigoIcon = movement.querySelector('[data-lucide="arrow-right-left"], [data-lucide="landmark"]');
+                    movement.classList.add(hasIndigoIcon ? 'text-indigo-700' : 'text-slate-600');
+                }
+                if (footer) {
+                    footer.classList.remove('text-slate-400');
+                    footer.classList.add('text-slate-500', 'group-hover:text-slate-950');
+                }
+            } else {
+                card.classList.remove('bg-white', 'hover:border-slate-300', 'hover:shadow-md');
+                card.classList.add('bg-slate-50/70', 'border-slate-200');
+                if (title) {
+                    title.classList.add('text-slate-500');
+                    title.classList.remove('text-slate-950', 'group-hover:text-indigo-700');
+                }
+                if (movement) {
+                    movement.classList.remove('text-indigo-700', 'text-slate-600');
+                    movement.classList.add('text-slate-400');
+                }
+                if (footer) {
+                    footer.classList.remove('text-slate-500', 'group-hover:text-slate-950');
+                    footer.classList.add('text-slate-400');
+                }
+
+                // If show-disabled is not checked, hide the card smoothly
+                const showDisabled = document.getElementById('toggle-show-disabled')?.checked;
+                if (!showDisabled) {
+                    card.style.transition = 'all 0.25s ease-out';
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.96)';
+                    setTimeout(() => {
+                        card.classList.add('hidden');
+                        card.style.opacity = '';
+                        card.style.transform = '';
+                        card.style.transition = '';
+                    }, 250);
+                }
+            }
+        }
+
+        // Update pill UI
+        if (pill) {
+            pill.title = enabled ? 'Active in cashbook · Click to turn off' : 'Disabled · Click to turn on';
+            if (enabled) {
+                pill.classList.remove('bg-slate-100', 'text-slate-500', 'border-slate-300', 'hover:bg-slate-200/70');
+                pill.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200', 'hover:bg-emerald-100/80');
+            } else {
+                pill.classList.remove('bg-emerald-50', 'text-emerald-700', 'border-emerald-200', 'hover:bg-emerald-100/80');
+                pill.classList.add('bg-slate-100', 'text-slate-500', 'border-slate-300', 'hover:bg-slate-200/70');
+            }
+        }
+        if (labelSpan) {
+            labelSpan.textContent = enabled ? 'Cashbook' : 'Off';
+        }
+        if (trackSpan) {
+            trackSpan.className = 'card-toggle-track relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors ' + (enabled ? 'bg-emerald-600' : 'bg-slate-300') + ' peer-checked:bg-emerald-600';
+        }
+        if (thumbSpan) {
+            thumbSpan.className = 'card-toggle-thumb inline-block h-2.5 w-2.5 rounded-full bg-white shadow-xs transition-transform ' + (enabled ? 'translate-x-3' : 'translate-x-0.5') + ' peer-checked:translate-x-3';
+        }
+
+        updateSectionCountBadges();
+
+        if (window.showToast) {
+            showToast(data.message || (enabled ? `Turned on ${displayName}` : `Turned off ${displayName}`), 'success');
+        }
+    } catch (err) {
+        input.checked = !isChecked; // Revert switch
+        if (window.showToast) {
+            showToast(err.message || 'Failed to update status', 'error');
+        }
+    } finally {
+        if (pill) {
+            pill.classList.remove('opacity-70', 'pointer-events-none');
+        }
     }
 }
 

@@ -37,7 +37,6 @@ use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
-use App\Services\Cashbook\ShopSettlementService;
 use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\OwnedShopAccountingService;
@@ -1083,8 +1082,6 @@ class ShopOwnerController extends Controller
             ->where('enabled', true)
             ->orderBy('display_order')
             ->get();
-
-        app(ShopSettlementService::class)->ensureDefaults($shop);
 
         $headerGroups = ShopLedgerHeaderGroup::query()
             ->where('shop_id', (int) $shop->id)

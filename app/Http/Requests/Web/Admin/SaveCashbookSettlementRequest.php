@@ -42,9 +42,9 @@ class SaveCashbookSettlementRequest extends FormRequest
             'is_net_balance' => ['nullable', 'boolean'],
             'items' => ['required', 'array', 'min:1', 'max:200'],
             'items.*' => ['required', 'array'],
-            'items.*.setting_id' => ['nullable', 'required_without_all:items.*.header_group_id,items.*.source_settlement_id', 'integer', Rule::exists('shop_ledger_entry_settings', 'id')->where('shop_id', $profile->shop_id)],
-            'items.*.header_group_id' => ['nullable', 'required_without_all:items.*.setting_id,items.*.source_settlement_id', 'integer', Rule::exists('shop_ledger_header_groups', 'id')->where('shop_id', $profile->shop_id)],
-            'items.*.source_settlement_id' => ['nullable', 'required_without_all:items.*.setting_id,items.*.header_group_id', 'integer', Rule::exists('shop_cashbook_relations', 'id')->where('shop_id', $profile->shop_id)],
+            'items.*.setting_id' => ['nullable', 'required_without_all:items.*.header_group_id,items.*.source_settlement_id', 'integer', Rule::exists('shop_ledger_entry_settings', 'id')->where('shop_id', $profile->shop_id)->where('enabled', true)],
+            'items.*.header_group_id' => ['nullable', 'required_without_all:items.*.setting_id,items.*.source_settlement_id', 'integer', Rule::exists('shop_ledger_header_groups', 'id')->where('shop_id', $profile->shop_id)->where('enabled', true)],
+            'items.*.source_settlement_id' => ['nullable', 'required_without_all:items.*.setting_id,items.*.header_group_id', 'integer', Rule::exists('shop_cashbook_relations', 'id')->where('shop_id', $profile->shop_id)->where('enabled', true)],
             'items.*.header_mode' => ['nullable', Rule::in(['all_categories', 'categories_and_products', 'tagged_products_only'])],
             'items.*.role' => ['required', Rule::in(['add', 'subtract'])],
         ];
@@ -55,9 +55,9 @@ class SaveCashbookSettlementRequest extends FormRequest
     {
         return [
             'items.required' => 'Choose at least one category, header group, or settlement for the formula.',
-            'items.*.setting_id.exists' => 'Choose a category belonging to this shop.',
-            'items.*.header_group_id.exists' => 'Choose a header group belonging to this shop.',
-            'items.*.source_settlement_id.exists' => 'Choose a settlement belonging to this shop.',
+            'items.*.setting_id.exists' => 'Choose an active category belonging to this shop.',
+            'items.*.header_group_id.exists' => 'Choose an active header group belonging to this shop.',
+            'items.*.source_settlement_id.exists' => 'Choose an active settlement belonging to this shop.',
         ];
     }
 }

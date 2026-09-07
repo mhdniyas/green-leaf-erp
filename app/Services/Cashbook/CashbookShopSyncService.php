@@ -78,6 +78,7 @@ class CashbookShopSyncService
                     : null;
 
                 $profile = ShopLedgerProfile::firstOrNew(['shop_id' => $erpShop->id]);
+                $isNewProfile = ! $profile->exists;
                 $profile->fill([
                     'code' => $erpShop->code,
                     'name' => $erpShop->name,
@@ -94,7 +95,9 @@ class CashbookShopSyncService
                 $this->syncPresetSettingsToShop($profile, $preset);
                 $this->ensureOtherEntriesForShop($erpShop->id);
                 $this->ensurePaymentsHeaderAndCategory($erpShop->id);
-                $this->settlements->ensureDefaults($profile);
+                if ($isNewProfile) {
+                    $this->settlements->ensureDefaults($profile);
+                }
             }
         });
 

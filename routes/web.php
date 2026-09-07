@@ -843,6 +843,7 @@ Route::middleware('auth')->group(function () {
             Route::post('settings/shops/{shop}/settlements', [CashbookSettlementController::class, 'store'])->name('settings.shop.settlements.store');
             Route::get('settings/shops/{shop}/settlements/{settlement}/edit', [CashbookSettlementController::class, 'edit'])->name('settings.shop.settlements.edit');
             Route::put('settings/shops/{shop}/settlements/{settlement}', [CashbookSettlementController::class, 'update'])->name('settings.shop.settlements.update');
+            Route::delete('settings/shops/{shop}/settlements/{settlement}', [CashbookSettlementController::class, 'destroy'])->name('settings.shop.settlements.destroy');
             Route::post('settings/shops/{shop}/settlements/{settlement}/copy', [CashbookSettlementController::class, 'copy'])->name('settings.shop.settlements.copy');
             Route::post('settings/shops/{shop}/settlements/{settlement}/set-net-balance', [CashbookSettlementController::class, 'setNetBalance'])->name('settings.shop.settlements.set-net-balance');
             Route::get('settings/shops/{shop}/demo', [CashbookController::class, 'shopDemoPage'])->name('settings.shop.demo');
@@ -890,6 +891,7 @@ Route::middleware('auth')->group(function () {
                 Route::post('presets/collection-group', [CashbookController::class, 'saveCollectionGroup'])->name('presets.collection-group');
                 Route::post('presets/update-setting', [CashbookController::class, 'updatePresetSetting'])->name('presets.update-setting');
                 Route::post('shop-settings/update', [CashbookController::class, 'updateShopSetting'])->name('shop-settings.update');
+                Route::post('shop-settings/toggle-status', [CashbookController::class, 'toggleShopSettingStatus'])->name('shop-settings.toggle-status');
                 Route::post('shop-settings/custom-row', [CashbookController::class, 'createShopCustomRow'])->name('shop-settings.custom-row');
                 Route::post('shop-settings/headers/create', [CashbookController::class, 'createShopHeaderGroup'])->name('shop-settings.headers.create');
                 Route::post('shop-settings/headers/update', [CashbookController::class, 'updateShopHeaderGroup'])->name('shop-settings.headers.update');

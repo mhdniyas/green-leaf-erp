@@ -63,6 +63,9 @@
     @if(session('success'))
         <p role="status" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{{ session('success') }}</p>
     @endif
+    @if(session('error'))
+        <p role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{{ session('error') }}</p>
+    @endif
 
     <div id="settlement-status-bar" class="hidden rounded-xl border border-indigo-200 bg-indigo-50/80 px-4 py-2.5 text-xs font-bold text-indigo-900 transition flex items-center justify-between">
         <span id="settlement-status-text">Saving order...</span>
@@ -121,6 +124,12 @@
                         @endif
 
                         <a href="{{ route('admin.cashbook.settings.shop.settlements.edit', [$shopKey, $settlement->public_uuid]) }}" aria-label="Edit {{ $settlement->name }}" class="rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Edit</a>
+
+                        <form method="POST" action="{{ route('admin.cashbook.settings.shop.settlements.destroy', [$shopKey, $settlement->public_uuid]) }}" onsubmit="return confirm('Delete {{ addslashes($settlement->name) }}? This cannot be undone.')">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="rounded-xl border border-rose-300 px-4 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50">Delete</button>
+                        </form>
                     </div>
                 </div>
 
@@ -303,4 +312,3 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 @endsection
-

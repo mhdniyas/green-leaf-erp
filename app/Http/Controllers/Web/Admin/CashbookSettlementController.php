@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\SaveCashbookSettlementRequest;
 use App\Models\Cashbook\ShopCashbookRelation;
+use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Services\Cashbook\CashbookShopSyncService;
@@ -41,11 +42,14 @@ class CashbookSettlementController extends Controller
         $shops = $this->shopSync->syncAndGetProfiles();
         $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
         abort_unless($currentShop, 404);
-        $this->settlements->ensureDefaults($currentShop);
         $relations = $this->settlements->settlements((int) $currentShop->shop_id);
         $relation = $settlement === null ? null : $relations->firstWhere('public_uuid', $settlement);
         abort_if($settlement !== null && $relation === null, 404);
-        $settings = $currentShop->entrySettings()->with(['entryType', 'headerGroup'])->orderBy('display_order')->get();
+        $settings = $currentShop->entrySettings()
+            ->where('enabled', true)
+            ->with(['entryType', 'headerGroup'])
+            ->orderBy('display_order')
+            ->get();
         $company = config('greenleaf');
 
         $allRelations = ShopCashbookRelation::with(['shop', 'items.setting.entryType'])
@@ -79,6 +83,7 @@ class CashbookSettlementController extends Controller
         })->filter(fn (array $s): bool => ! empty($s['items']))->values()->all();
 
         $headerGroups = ShopLedgerHeaderGroup::where('shop_id', $currentShop->shop_id)
+            ->where('enabled', true)
             ->with('allowedProducts:id,name,sku')
             ->orderBy('display_order')
             ->get();
@@ -100,6 +105,33 @@ class CashbookSettlementController extends Controller
         $this->settlements->save($profile, $request->validated(), $relation);
 
         return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)->with('success', 'Settlement updated.');
+    }
+
+    public function destroy(Request $request, string $shop, string $settlement): RedirectResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+
+        $relation = ShopCashbookRelation::where('shop_id', $currentShop->shop_id)
+            ->where('public_uuid', $settlement)
+            ->firstOrFail();
+
+        if (ShopCashbookRelationItem::where('source_settlement_id', $relation->id)->exists()) {
+            return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)
+                ->with('error', "Settlement '{$relation->name}' cannot be deleted because another settlement uses it.");
+        }
+
+        $name = $relation->name;
+        activity('cashbook_settlement')->performedOn($relation)->withProperties([
+            'shop_id' => $currentShop->shop_id,
+            'before' => $relation->only(['name', 'enabled', 'is_company_payable', 'is_net_balance']) + ['items' => $relation->items()->get()->toArray()],
+        ])->log('Settlement deleted');
+        $relation->delete();
+
+        return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)
+            ->with('success', "Settlement '{$name}' deleted.");
     }
 
     public function copy(Request $request, string $shop, string $settlement): RedirectResponse
