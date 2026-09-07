@@ -44,7 +44,7 @@ class SaveCashbookSettlementRequest extends FormRequest
             'items.*.setting_id' => ['nullable', 'required_without_all:items.*.header_group_id,items.*.source_settlement_id', 'integer', Rule::exists('shop_ledger_entry_settings', 'id')->where('shop_id', $profile->shop_id)],
             'items.*.header_group_id' => ['nullable', 'required_without_all:items.*.setting_id,items.*.source_settlement_id', 'integer', Rule::exists('shop_ledger_header_groups', 'id')->where('shop_id', $profile->shop_id)],
             'items.*.source_settlement_id' => ['nullable', 'required_without_all:items.*.setting_id,items.*.header_group_id', 'integer', Rule::exists('shop_cashbook_relations', 'id')->where('shop_id', $profile->shop_id)],
-            'items.*.header_mode' => ['nullable', Rule::in(['all_categories', 'tagged_products_only'])],
+            'items.*.header_mode' => ['nullable', Rule::in(['all_categories', 'categories_and_products', 'tagged_products_only'])],
             'items.*.role' => ['required', Rule::in(['add', 'subtract'])],
         ];
     }

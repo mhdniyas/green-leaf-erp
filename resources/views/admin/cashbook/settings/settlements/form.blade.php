@@ -78,7 +78,9 @@
                   }
                   if (row.header_group_id && this.headerNames[row.header_group_id]) {
                       const hName = 'Header: ' + this.headerNames[row.header_group_id];
-                      return row.header_mode === 'tagged_products_only' ? hName + ' (Tagged Products Only)' : hName + ' (All Categories)';
+                      if (row.header_mode === 'tagged_products_only') return hName + ' (Product Total Only)';
+                      if (row.header_mode === 'categories_and_products') return hName + ' (Categories + Product Total)';
+                      return hName + ' (All Categories Only)';
                   }
                   if (row.setting_id && this.categoryNames[row.setting_id]) {
                       return this.categoryNames[row.setting_id];
@@ -138,7 +140,7 @@
                 <div class="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-purple-50/90 p-4 space-y-3">
                     <div class="flex items-center justify-between">
                         <p class="text-xs font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
-                            <span>⚡ Quick Settlement Shortcut Builder (On Top)</span>
+                            <span>Quick Settlement Shortcut Builder (On Top)</span>
                         </p>
                         <span class="text-[11px] font-semibold text-indigo-700">Click to add (Settlement 1 − Settlement 2)</span>
                     </div>
@@ -188,16 +190,16 @@
                             <select :id="'target-' + index" :value="getSelectionKey(row)" @change="onSelectionChange(row, $event.target.value)" required class="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm font-medium focus:border-indigo-500">
                                 <option value="">Choose a Settlement, Header Group, or Category...</option>
                                 @if($otherRelations->isNotEmpty())
-                                    <optgroup label="📊 OTHER SETTLEMENTS (SETTLEMENT 1 - SETTLEMENT 2)">
+                                    <optgroup label="OTHER SETTLEMENTS (SETTLEMENT 1 - SETTLEMENT 2)">
                                         @foreach($otherRelations as $otherR)
                                             <option value="settlement:{{ $otherR->id }}">Settlement: {{ $otherR->name }}</option>
                                         @endforeach
                                     </optgroup>
                                 @endif
                                 @if($headerGroups->isNotEmpty())
-                                    <optgroup label="📁 ENTIRE HEADER GROUPS">
+                                    <optgroup label="ENTIRE HEADER GROUPS">
                                         @foreach($headerGroups as $hg)
-                                            <option value="header:{{ $hg->id }}">Header: {{ $hg->name }}{{ $hg->product_tagging_enabled ? ' 🏷️ (Product Tagged)' : '' }}</option>
+                                            <option value="header:{{ $hg->id }}">Header: {{ $hg->name }}{{ $hg->product_tagging_enabled ? ' (Product Tagged)' : '' }}</option>
                                         @endforeach
                                     </optgroup>
                                 @endif
@@ -214,21 +216,25 @@
                             <template x-if="row.header_group_id">
                                 <div class="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3 text-xs space-y-2">
                                     <p class="font-bold text-indigo-900 flex items-center gap-1.5">
-                                        <span>⚙️ Header Calculation Mode for <span x-text="headerNames[row.header_group_id]"></span>:</span>
+                                        <span>Header Calculation Mode for <span x-text="headerNames[row.header_group_id]"></span>:</span>
                                     </p>
                                     <div class="flex flex-wrap gap-4">
                                         <label class="inline-flex items-center gap-1.5 font-semibold text-slate-800 cursor-pointer">
                                             <input type="radio" :name="'items[' + index + '][header_mode]'" value="all_categories" x-model="row.header_mode" class="text-indigo-700">
-                                            <span>All Categories under Header</span>
+                                            <span>All Categories Only</span>
+                                        </label>
+                                        <label class="inline-flex items-center gap-1.5 font-semibold text-slate-800 cursor-pointer">
+                                            <input type="radio" :name="'items[' + index + '][header_mode]'" value="categories_and_products" x-model="row.header_mode" class="text-indigo-700">
+                                            <span>Categories + Product Total</span>
                                         </label>
                                         <label class="inline-flex items-center gap-1.5 font-semibold text-slate-800 cursor-pointer">
                                             <input type="radio" :name="'items[' + index + '][header_mode]'" value="tagged_products_only" x-model="row.header_mode" class="text-indigo-700">
-                                            <span>Tagged Products Total Only</span>
+                                            <span>Product Total Only (total amount of tagged products bought)</span>
                                         </label>
                                     </div>
                                     <template x-if="headerDetails[row.header_group_id] && headerDetails[row.header_group_id].product_tagging_enabled">
                                         <div class="pt-1 text-[11px] text-indigo-800">
-                                            <span class="font-bold">🏷️ Tagged Products:</span>
+                                            <span class="font-bold">Tagged Products:</span>
                                             <span x-text="headerDetails[row.header_group_id].products.length > 0 ? headerDetails[row.header_group_id].products.join(', ') : 'All catalog products enabled'"></span>
                                         </div>
                                     </template>
@@ -242,7 +248,7 @@
             <div class="flex flex-wrap items-center gap-3 pt-2">
                 <button type="button" @click="rows.push({setting_id: '', header_group_id: '', source_settlement_id: '', header_mode: 'all_categories', role: 'add'})" class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-800 hover:bg-indigo-100">+ Add Formula Row</button>
                 <a href="{{ route('admin.cashbook.settings.shop', $shopKey) }}" target="_blank" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5">
-                    <span>⚙️ Manage Headers & Product Tagging</span> ↗
+                    <span>Manage Headers & Product Tagging</span> &rarr;
                 </a>
             </div>
             <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-4" aria-live="polite">

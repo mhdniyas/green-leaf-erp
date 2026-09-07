@@ -38,15 +38,21 @@ class RelationSettlementCalculator
                 $name = 'Settlement: '.$item->sourceSettlement->name;
                 $category = 'settlement';
             } elseif ($headerGroupId !== null && $item->headerGroup) {
+                $taggedProductAmt = (float) ($entryAmounts['header_tagged_product_'.$headerGroupId] ?? 0.0);
+                $categoriesAmt = 0.0;
+                foreach ($item->headerGroup->entrySettings as $setting) {
+                    $categoriesAmt += (float) ($entryAmounts[$setting->id] ?? 0.0);
+                }
+
                 if ($headerMode === 'tagged_products_only') {
-                    $rawAmt = (float) ($entryAmounts['header_tagged_product_'.$headerGroupId] ?? 0.0);
-                    $name = $item->headerGroup->name.' (Tagged Products Only)';
+                    $rawAmt = $taggedProductAmt;
+                    $name = $item->headerGroup->name.' (Product Total Only)';
+                } elseif ($headerMode === 'categories_and_products') {
+                    $rawAmt = $categoriesAmt + $taggedProductAmt;
+                    $name = $item->headerGroup->name.' (Categories + Product Total)';
                 } else {
-                    $rawAmt = 0.0;
-                    foreach ($item->headerGroup->entrySettings as $setting) {
-                        $rawAmt += (float) ($entryAmounts[$setting->id] ?? 0.0);
-                    }
-                    $name = $item->headerGroup->name.' (All Categories)';
+                    $rawAmt = $categoriesAmt;
+                    $name = $item->headerGroup->name.' (All Categories Only)';
                 }
                 $category = strtolower((string) ($item->headerGroup->type ?? 'header'));
             } else {

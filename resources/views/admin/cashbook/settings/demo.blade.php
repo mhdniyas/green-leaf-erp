@@ -193,11 +193,37 @@
         'name' => $relation->name,
         'kind' => $relation->relation_type,
         'enabled' => (bool) $relation->enabled,
-        'items' => $relation->items->map(function ($item) use ($settingsMap) {
+        'is_company_payable' => (bool) $relation->is_company_payable,
+        'items' => $relation->items->map(function ($item) use ($settingsMap, $settingsByHeader) {
             $settingId = (int) $item->shop_ledger_entry_setting_id;
+            $headerId = (int) $item->header_group_id;
+            $sourceSettlementId = (int) $item->source_settlement_id;
+            $headerSettingIds = $headerId ? ($settingsByHeader->get($headerId, collect())->pluck('id')->map(fn ($id) => (int) $id)->all()) : [];
+
+            $name = '';
+            if ($sourceSettlementId && $item->sourceSettlement) {
+                $name = 'Settlement: '.$item->sourceSettlement->name;
+            } elseif ($headerId && $item->headerGroup) {
+                $hName = 'Header: '.$item->headerGroup->name;
+                $mode = $item->header_mode ?? 'all_categories';
+                if ($mode === 'tagged_products_only') {
+                    $name = $hName.' (Product Total Only)';
+                } elseif ($mode === 'categories_and_products') {
+                    $name = $hName.' (Categories + Product Total)';
+                } else {
+                    $name = $hName.' (All Categories Only)';
+                }
+            } else {
+                $name = $settingsMap->get($settingId)?->displayName() ?? $item->setting?->displayName() ?? ('Category #'.$settingId);
+            }
+
             return [
-                'setting_id' => $settingId,
-                'name' => $settingsMap->get($settingId)?->displayName() ?? $item->setting?->displayName() ?? ('Category #'.$settingId),
+                'setting_id' => $settingId ?: null,
+                'header_group_id' => $headerId ?: null,
+                'source_settlement_id' => $sourceSettlementId ?: null,
+                'header_mode' => $item->header_mode ?? 'all_categories',
+                'header_setting_ids' => $headerSettingIds,
+                'name' => $name,
                 'role' => $item->role,
             ];
         })->values()->all(),
@@ -2157,6 +2183,15 @@
                 }
             });
 
+            headers.forEach(h => {
+                const pRows = (dayAmounts.productRows && dayAmounts.productRows[h.id]) || [];
+                let hTaggedSum = 0;
+                pRows.forEach(pr => {
+                    hTaggedSum += parseFloat(pr.amount) || 0;
+                });
+                dayAmounts['header_tagged_product_' + h.id] = hTaggedSum;
+            });
+
             const settlementResult = CashbookSettlementSummary.calculate(summaryRelations, dayAmounts);
             const displayTotalIncome = settlementResult.income;
             const displayTotalExpense = settlementResult.expense;
@@ -2597,8 +2632,6 @@
                 `).join('');
             }
         }
-
-        renderAllProductRowsForActiveDay();
 
         // Relation Settlement Footers
         const relNet = document.getElementById('day-relation-net');
