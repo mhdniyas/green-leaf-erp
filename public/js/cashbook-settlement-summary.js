@@ -80,11 +80,8 @@
                 netLabel = rawSettlements[0].name;
             }
 
-            // Exclude old default balance, income, expense cards from display settlements
-            const settlements = rawSettlements.filter(s => !['default_income', 'default_expense', 'default_balance'].includes(s.kind));
-
             return {
-                settlements: settlements.length > 0 ? settlements : rawSettlements,
+                settlements: rawSettlements,
                 companyPayable,
                 verifiedPayments: verifiedAmt,
                 netBalance,

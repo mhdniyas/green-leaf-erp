@@ -60,8 +60,25 @@
                 </div>
                 <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 p-3 text-sm" aria-label="Calculation formula">
                     @forelse($settlement->items as $item)
+                        @php
+                            $itemName = 'Unavailable category';
+                            if ($item->source_settlement_id) {
+                                $itemName = 'Settlement: ' . ($item->sourceSettlement?->name ?? ('#' . $item->source_settlement_id));
+                            } elseif ($item->header_group_id) {
+                                $hName = 'Header: ' . ($item->headerGroup?->name ?? ('#' . $item->header_group_id));
+                                if ($item->header_mode === 'tagged_products_only') {
+                                    $itemName = $hName . ' (Product Total Only)';
+                                } elseif ($item->header_mode === 'categories_and_products') {
+                                    $itemName = $hName . ' (Categories + Product Total)';
+                                } else {
+                                    $itemName = $hName . ' (All Categories Only)';
+                                }
+                            } elseif ($item->setting) {
+                                $itemName = $item->setting->displayName();
+                            }
+                        @endphp
                         <span class="font-bold {{ $item->role === 'subtract' ? 'text-rose-700' : 'text-emerald-700' }}">{{ $item->role === 'subtract' ? '−' : '+' }}</span>
-                        <span class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800">{{ $item->setting?->displayName() ?? 'Unavailable category' }}</span>
+                        <span class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-800">{{ $itemName }}</span>
                     @empty
                         <span class="text-slate-600">No categories selected. Edit to configure this settlement.</span>
                     @endforelse

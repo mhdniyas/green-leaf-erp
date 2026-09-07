@@ -26,8 +26,8 @@ const relations = [
 ];
 const amounts = {1: 100.10, 2: 25.05, 3: 10.00, 4: 20.25, 999: 999999};
 const result = calculate(relations, amounts, 10.00);
-// Display settlements filter out default_income, default_expense, default_balance
-assert.deepEqual(result.settlements.map(row => row.amount), [79.85]);
+// Display all enabled settlements in summary
+assert.deepEqual(result.settlements.map(row => row.amount), [85.05, 20.25, 79.85]);
 assert.equal(result.companyPayable.amount, 79.85);
 assert.equal(result.verifiedPayments, 10.00);
 assert.equal(result.netBalance, 69.85);
