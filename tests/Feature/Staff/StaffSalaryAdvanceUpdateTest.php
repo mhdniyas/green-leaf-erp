@@ -379,4 +379,20 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         // Verify payment was not modified
         $this->assertEquals(1000.00, (float) $payment->fresh()->amount);
     }
+
+    public function test_salary_tab_defaults_to_give_advance_mode(): void
+    {
+        $response = $this->actingAs($this->owner)->get(route('shop-owner.staff.index', [
+            'shop' => $this->shop->code,
+            'date' => '2026-09-07',
+            'tab' => 'salary',
+        ]));
+
+        $response->assertOk();
+        // Check advance form is active and visible
+        $response->assertSee('Request Advance / Give Advance');
+        $response->assertSee('advance-request-form');
+        $response->assertDontSee('id="advance-request-form" class="space-y-4 hidden"', false);
+        $response->assertSee('id="salary-payment-form" class="space-y-4 hidden"', false);
+    }
 }

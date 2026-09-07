@@ -1,7 +1,9 @@
 <!-- UNIFIED SALARY & ADVANCE WINDOW -->
 @php
-    $defaultMode = old('mode', request('mode', request('tab') === 'advance' ? 'advance' : 'salary'));
-    if ($errors->has('requested_on') || $errors->has('request_note')) {
+    $defaultMode = old('mode', request('mode', 'advance'));
+    if ($errors->has('paid_on') || ($errors->has('amount') && old('payroll_month'))) {
+        $defaultMode = 'salary';
+    } elseif ($errors->has('requested_on') || $errors->has('request_note')) {
         $defaultMode = 'advance';
     }
 @endphp
@@ -11,12 +13,12 @@
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div>
                 <div class="flex items-center gap-2">
-                    <h2 class="text-sm font-black uppercase tracking-wider text-slate-800" id="form-title">Salary & Advance Window</h2>
+                    <h2 class="text-sm font-black uppercase tracking-wider text-slate-800" id="form-title">{{ $defaultMode === 'advance' ? 'Request Advance / Give Advance' : 'Pay Staff Salary / Record Salary Paid' }}</h2>
                     <span class="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-extrabold text-emerald-800">
                         {{ $calendarMonth->format('M Y') }}
                     </span>
                 </div>
-                <p class="text-xs font-medium text-slate-500 mt-0.5" id="form-desc">Disburse mid-month advance or record month-end salary.</p>
+                <p class="text-xs font-medium text-slate-500 mt-0.5" id="form-desc">{{ $defaultMode === 'advance' ? 'Disburse salary advance within 50% ceiling or submit for HR approval.' : 'Pay earned monthly salary up to the current remaining balance.' }}</p>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
