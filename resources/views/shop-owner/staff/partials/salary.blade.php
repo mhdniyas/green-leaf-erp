@@ -101,7 +101,7 @@
                             <option value="">Select staff member</option>
                             @foreach($employees as $employee)
                                 <option value="{{ $employee->id }}" {{ old('employee_id') == $employee->id ? 'selected' : '' }}>
-                                    {{ $employee->name }} · {{ $employee->employee_code }}
+                                    {{ $employee->name }}
                                 </option>
                             @endforeach
                         </select>
@@ -213,7 +213,7 @@
                             <option value="">Select staff member</option>
                             @foreach($advanceEmployees as $employee)
                                 <option value="{{ $employee->id }}" {{ old('employee_id') == $employee->id ? 'selected' : '' }}>
-                                    {{ $employee->name }} · {{ $employee->employee_code }}
+                                    {{ $employee->name }}
                                 </option>
                             @endforeach
                         </select>

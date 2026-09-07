@@ -295,7 +295,7 @@
                         <select id="attendance-modal-employee-id" name="employee_id" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600" required>
                             <option value="">-- Select Employee --</option>
                             @foreach($allActiveEmployees as $empOpt)
-                                <option value="{{ $empOpt->id }}">{{ $empOpt->name }} ({{ $empOpt->employee_code }}) {{ $empOpt->defaultShop ? '· '.$empOpt->defaultShop->name : '' }}</option>
+                                <option value="{{ $empOpt->id }}">{{ $empOpt->name }} {{ $empOpt->defaultShop ? '· '.$empOpt->defaultShop->name : '' }}</option>
                             @endforeach
                         </select>
                     </div>
