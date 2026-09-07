@@ -1473,6 +1473,11 @@ class CompanyPaymentReconciliationService
                     ]);
             }
 
+            app(ShopPaymentLedgerReconciliationService::class)->syncPaymentToCashbook(
+                $paymentRequest->fresh(),
+                $userId
+            );
+
             return $reconciliation->fresh([
                 'paymentRequest',
                 'shop',

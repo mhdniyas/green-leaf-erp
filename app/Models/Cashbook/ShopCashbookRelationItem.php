@@ -12,6 +12,8 @@ class ShopCashbookRelationItem extends Model
     protected $fillable = [
         'relation_id',
         'shop_ledger_entry_setting_id',
+        'header_group_id',
+        'header_mode',
         'role',
         'display_order',
     ];
@@ -19,6 +21,7 @@ class ShopCashbookRelationItem extends Model
     protected $casts = [
         'relation_id' => 'integer',
         'shop_ledger_entry_setting_id' => 'integer',
+        'header_group_id' => 'integer',
         'display_order' => 'integer',
     ];
 
@@ -30,5 +33,10 @@ class ShopCashbookRelationItem extends Model
     public function setting(): BelongsTo
     {
         return $this->belongsTo(ShopLedgerEntrySetting::class, 'shop_ledger_entry_setting_id');
+    }
+
+    public function headerGroup(): BelongsTo
+    {
+        return $this->belongsTo(ShopLedgerHeaderGroup::class, 'header_group_id');
     }
 }

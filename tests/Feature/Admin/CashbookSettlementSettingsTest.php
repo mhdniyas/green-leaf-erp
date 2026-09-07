@@ -7,6 +7,7 @@ namespace Tests\Feature\Admin;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
@@ -64,7 +65,7 @@ class CashbookSettlementSettingsTest extends TestCase
     {
         $this->actingAs($this->admin)->get(route('admin.cashbook.settings.shop', $this->profile->slug))->assertOk()->assertSee('Manage Settlements');
         $this->get($this->url('index'))->assertOk()->assertSee('Create Settlement')->assertSee('Balance')->assertSee('Company Payable');
-        $this->get($this->url('create'))->assertOk()->assertSee('Formula preview')->assertSee('Add Category');
+        $this->get($this->url('create'))->assertOk()->assertSee('Formula preview')->assertSee('Add Formula Row');
     }
 
     public function test_admin_can_create_edit_and_disable_a_multi_category_formula(): void
@@ -194,6 +195,34 @@ class CashbookSettlementSettingsTest extends TestCase
         $this->assertSame('formula', $copied->relation_type);
         $this->assertCount(1, $copied->items);
         $this->assertSame($targetA->id, $copied->items->first()->shop_ledger_entry_setting_id);
+    }
+
+    public function test_admin_can_create_settlement_with_header_group_and_tagged_products_mode(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Header Sales',
+            'type' => 'income',
+            'enabled' => true,
+            'product_tagging_enabled' => true,
+        ]);
+
+        $items = [
+            ['header_group_id' => $header->id, 'header_mode' => 'tagged_products_only', 'role' => 'add'],
+        ];
+
+        $this->actingAs($this->admin)
+            ->post($this->url('store'), [
+                'name' => 'Tagged Products Formula',
+                'enabled' => 1,
+                'items' => $items,
+            ])
+            ->assertRedirect($this->url('index'));
+
+        $relation = ShopCashbookRelation::where('shop_id', $this->shop->id)->where('name', 'Tagged Products Formula')->firstOrFail();
+        $this->assertCount(1, $relation->items);
+        $this->assertSame($header->id, $relation->items->first()->header_group_id);
+        $this->assertSame('tagged_products_only', $relation->items->first()->header_mode);
     }
 
     private function category(string $code): ShopLedgerEntrySetting

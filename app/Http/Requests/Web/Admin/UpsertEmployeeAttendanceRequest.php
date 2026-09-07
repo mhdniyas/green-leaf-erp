@@ -22,14 +22,7 @@ class UpsertEmployeeAttendanceRequest extends FormRequest
             'attendance_date' => ['required', 'date'],
             'status' => ['required', Rule::in(['present', 'half_day', 'absent', 'leave'])],
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
-            'notes' => ['nullable', 'required_if:status,half_day,absent,leave', 'string', 'min:3'],
-        ];
-    }
-
-    public function messages(): array
-    {
-        return [
-            'notes.required_if' => 'A reason is required when marking attendance as Half Day, Absent, or Leave.',
+            'notes' => ['nullable', 'string', 'max:500'],
         ];
     }
 }

@@ -242,9 +242,94 @@ class ShopPaymentLedgerReconciliationService
             ]);
 
             $this->journalService->recordShopPaymentRequest($payment, $userId);
+            $this->syncPaymentToCashbook($payment, $userId);
 
             return $payment;
         }, attempts: 3);
+    }
+
+    /**
+     * Idempotently synchronize a verified shop payment to the cashbook under Payments (shop_paid_company).
+     */
+    public function syncPaymentToCashbook(ShopInvoicePaymentRequest $payment, int $userId): ?ShopLedgerTransaction
+    {
+        $shopId = (int) $payment->shop_id;
+        $amount = $this->resolvePaymentAmount($payment);
+        $isClearedCheque = $payment->payment_method === 'cheque' && ($payment->cheque_status === 'cleared' || $payment->reconciliation_status === 'reconciled');
+        $isPendingCheque = $payment->payment_method === 'cheque' && ! $isClearedCheque;
+        $isRejectedOrCancelled = in_array($payment->status, ['rejected', 'cancelled'], true)
+            || in_array($payment->reconciliation_status, ['rejected', 'cancelled'], true)
+            || $payment->cheque_status === 'bounced';
+
+        $existingTx = ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->where('reference_type', ShopInvoicePaymentRequest::class)
+            ->where('reference_id', $payment->id)
+            ->whereHas('entryType', fn ($q) => $q->where('code', 'shop_paid_company'))
+            ->lockForUpdate()
+            ->first();
+
+        if ($isPendingCheque || $isRejectedOrCancelled || $amount <= 0.0) {
+            if ($existingTx instanceof ShopLedgerTransaction && ! in_array($existingTx->status, ['void', 'voided', 'reversed'], true)) {
+                $existingTx->update([
+                    'status' => 'void',
+                    'void_reason' => $isPendingCheque ? 'Cheque is pending verification' : 'Payment was rejected, bounced, or cancelled',
+                    'voided_by' => $userId,
+                    'voided_at' => now(),
+                ]);
+                $this->dailyLedgerService->dailySummary($shopId, $existingTx->business_date->toDateString());
+            }
+
+            return null;
+        }
+
+        $notes = match ($payment->payment_method) {
+            'cash' => 'Received as Cash',
+            'bank_transfer' => 'Received via Bank Transfer',
+            'online_upi' => 'Received via Online UPI',
+            'cheque' => 'Cheque cleared ('.($payment->cheque_bank_name ?: 'Bank').')',
+            default => 'Payment Received ('.ucfirst((string) $payment->payment_method).')',
+        };
+        if ($payment->payment_reference) {
+            $notes .= ' · Ref: '.$payment->payment_reference;
+        }
+
+        $businessDate = $payment->payment_date?->toDateString() ?? now()->toDateString();
+        $companyAccountId = $payment->company_account_id
+            ?? $payment->reconciliations()->first()?->company_account_id
+            ?? CompanyAccount::where('enabled', true)->where('account_type', $payment->payment_method === 'cash' ? 'cash' : 'bank')->value('id')
+            ?? CompanyAccount::where('enabled', true)->value('id');
+
+        if ($existingTx instanceof ShopLedgerTransaction) {
+            $existingTx->update([
+                'amount' => $amount,
+                'business_date' => $businessDate,
+                'company_account_id' => $companyAccountId,
+                'status' => 'posted',
+                'notes' => $notes,
+                'void_reason' => null,
+                'voided_by' => null,
+                'voided_at' => null,
+            ]);
+            $this->dailyLedgerService->dailySummary($shopId, $businessDate);
+
+            return $existingTx;
+        }
+
+        $result = $this->dailyLedgerService->recordEntry([
+            'shop_id' => $shopId,
+            'business_date' => $businessDate,
+            'entry_type_code' => 'shop_paid_company',
+            'amount' => $amount,
+            'funding_source' => 'sales',
+            'company_account_id' => $companyAccountId,
+            'reference_type' => ShopInvoicePaymentRequest::class,
+            'reference_id' => $payment->id,
+            'notes' => $notes,
+            'entered_by' => $userId,
+        ]);
+
+        return $result['transaction'];
     }
 
     /**
@@ -1052,7 +1137,23 @@ class ShopPaymentLedgerReconciliationService
                 ->lockForUpdate()
                 ->delete();
 
-            // 8. Delete the payment record
+            // 8. Clean up or void linked cashbook transactions
+            $linkedCashbookTxs = ShopLedgerTransaction::query()
+                ->where('reference_type', ShopInvoicePaymentRequest::class)
+                ->where('reference_id', $lockedPayment->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($linkedCashbookTxs as $cbTx) {
+                $cbShopId = (int) $cbTx->shop_id;
+                $cbDate = $cbTx->business_date?->toDateString();
+                $cbTx->delete();
+                if ($cbShopId && $cbDate) {
+                    $this->dailyLedgerService->dailySummary($cbShopId, $cbDate);
+                }
+            }
+
+            // 9. Delete the payment record
             $lockedPayment->delete();
 
             Log::info('Shop payment deleted by admin', [

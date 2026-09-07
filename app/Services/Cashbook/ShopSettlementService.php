@@ -123,6 +123,7 @@ class ShopSettlementService
             ], [
                 'name' => 'Company Payable',
                 'enabled' => true,
+                'is_company_payable' => true,
                 'display_order' => -1,
             ]);
 
@@ -161,6 +162,14 @@ class ShopSettlementService
                     'display_order' => $index,
                 ])->all());
             }
+
+            // Ensure exactly one settlement is marked as is_company_payable
+            $hasPayable = ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('is_company_payable', true)->exists();
+            if (! $hasPayable) {
+                $target = ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('relation_type', 'default_company_payable')->first()
+                    ?? ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('enabled', true)->orderBy('display_order')->first();
+                $target?->update(['is_company_payable' => true]);
+            }
         });
     }
 
@@ -170,12 +179,38 @@ class ShopSettlementService
         return ShopCashbookRelation::query()
             ->where('shop_id', $shopId)
             ->when($enabledOnly, fn ($query) => $query->where('enabled', true))
-            ->with('items.setting.entryType')
+            ->with(['items.setting.entryType', 'items.headerGroup.allowedProducts'])
             ->orderBy('display_order')->orderBy('id')->get();
     }
 
+    public function getCompanyPayableSettlement(int $shopId): ?ShopCashbookRelation
+    {
+        return ShopCashbookRelation::query()
+            ->where('shop_id', $shopId)
+            ->where('is_company_payable', true)
+            ->where('enabled', true)
+            ->with('items.setting.entryType')
+            ->first()
+            ?? ShopCashbookRelation::query()
+                ->where('shop_id', $shopId)
+                ->where('is_company_payable', true)
+                ->with('items.setting.entryType')
+                ->first()
+            ?? ShopCashbookRelation::query()
+                ->where('shop_id', $shopId)
+                ->where('relation_type', 'default_company_payable')
+                ->where('enabled', true)
+                ->with('items.setting.entryType')
+                ->first()
+            ?? ShopCashbookRelation::query()
+                ->where('shop_id', $shopId)
+                ->where('enabled', true)
+                ->with('items.setting.entryType')
+                ->first();
+    }
+
     /**
-     * @param  array{name: string, enabled: bool|string|int, items: array<int, array{setting_id: int|string, role: string}>}  $data
+     * @param  array{name: string, enabled: bool|string|int, is_company_payable?: bool|string|int, items: array<int, array{setting_id: int|string, role: string}>}  $data
      */
     public function save(ShopLedgerProfile $profile, array $data, ?ShopCashbookRelation $relation = null): ShopCashbookRelation
     {
@@ -184,11 +219,41 @@ class ShopSettlementService
             $relation = $relation === null
                 ? new ShopCashbookRelation(['shop_id' => $profile->shop_id, 'relation_type' => 'formula', 'display_order' => (int) ShopCashbookRelation::where('shop_id', $profile->shop_id)->max('display_order') + 1])
                 : ShopCashbookRelation::where('shop_id', $profile->shop_id)->whereKey($relation->id)->lockForUpdate()->firstOrFail();
-            $before = $relation->exists ? $relation->only(['name', 'enabled']) + ['items' => $relation->items()->get(['shop_ledger_entry_setting_id', 'role'])->toArray()] : null;
+            $before = $relation->exists ? $relation->only(['name', 'enabled', 'is_company_payable']) + ['items' => $relation->items()->get(['shop_ledger_entry_setting_id', 'role'])->toArray()] : null;
+
+            $markAsPayable = ! empty($data['is_company_payable']);
+            if ($markAsPayable) {
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                    ->where('id', '!=', $relation->id)
+                    ->update(['is_company_payable' => false]);
+                $relation->is_company_payable = true;
+            } elseif (isset($data['is_company_payable']) && ! $data['is_company_payable']) {
+                $relation->is_company_payable = false;
+                $hasOther = ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                    ->where('id', '!=', $relation->id)
+                    ->where('is_company_payable', true)
+                    ->exists();
+                if (! $hasOther) {
+                    $other = ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                        ->where('id', '!=', $relation->id)
+                        ->where('enabled', true)
+                        ->first();
+                    if ($other) {
+                        $other->update(['is_company_payable' => true]);
+                    } else {
+                        $relation->is_company_payable = true;
+                    }
+                }
+            } elseif (! $relation->exists && ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('is_company_payable', true)->doesntExist()) {
+                $relation->is_company_payable = true;
+            }
+
             $relation->fill(['name' => $data['name'], 'enabled' => $data['enabled']])->save();
             $relation->items()->delete();
             $relation->items()->createMany(collect($data['items'])->values()->map(fn (array $item, int $index): array => [
-                'shop_ledger_entry_setting_id' => $item['setting_id'],
+                'shop_ledger_entry_setting_id' => ! empty($item['setting_id']) ? (int) $item['setting_id'] : null,
+                'header_group_id' => ! empty($item['header_group_id']) ? (int) $item['header_group_id'] : null,
+                'header_mode' => $item['header_mode'] ?? 'all_categories',
                 'role' => $item['role'],
                 'display_order' => $index,
             ])->all());
@@ -196,11 +261,97 @@ class ShopSettlementService
             activity('cashbook_settlement')->performedOn($relation)->withProperties([
                 'shop_id' => $profile->shop_id,
                 'before' => $before,
-                'after' => $relation->only(['name', 'enabled']) + ['items' => $relation->items()->get(['shop_ledger_entry_setting_id', 'role'])->toArray()],
+                'after' => $relation->only(['name', 'enabled', 'is_company_payable']) + ['items' => $relation->items()->get(['shop_ledger_entry_setting_id', 'role'])->toArray()],
             ])->log($before === null ? 'Settlement created' : 'Settlement updated');
 
             return $relation;
         });
+    }
+
+    /**
+     * Authoritative Company Payable calculation based on the dynamic Company Payable settlement formula
+     * minus verified payments received up to the period/date.
+     *
+     * @return array<string, mixed>
+     */
+    public function calculateCompanyPayable(int $shopId, string $startDate, string $endDate, bool $cumulative = false): array
+    {
+        $payableRelation = $this->getCompanyPayableSettlement($shopId);
+
+        $dateConstraintStart = $cumulative ? '2020-01-01' : $startDate;
+        $dateConstraintEnd = $endDate;
+
+        $amounts = [];
+        if ($payableRelation) {
+            $totals = ShopLedgerTransaction::query()
+                ->where('shop_id', $shopId)
+                ->whereBetween('business_date', [$dateConstraintStart, $dateConstraintEnd])
+                ->whereIn('status', ['posted', 'approved'])
+                ->whereNull('voided_at')
+                ->selectRaw('entry_type_id, SUM(amount) as total')
+                ->groupBy('entry_type_id')
+                ->pluck('total', 'entry_type_id');
+
+            foreach ($payableRelation->items as $item) {
+                if ($item->setting && (int) $item->setting->shop_id === $shopId) {
+                    $amounts[$item->shop_ledger_entry_setting_id] = (float) ($totals[$item->setting->entry_type_id] ?? 0);
+                }
+            }
+        }
+
+        $formulaCalc = $payableRelation ? $this->calculator->calculate($payableRelation, $amounts) : [
+            'grossAdditions' => 0.0,
+            'grossDeductions' => 0.0,
+            'netSettlement' => 0.0,
+            'items' => [],
+        ];
+
+        // Verified payments (shop_paid_company transactions that are active and posted/approved)
+        $paymentTransactions = ShopLedgerTransaction::query()
+            ->with(['entryType', 'companyAccount'])
+            ->where('shop_id', $shopId)
+            ->whereHas('entryType', fn ($q) => $q->where('code', 'shop_paid_company'))
+            ->whereBetween('business_date', [$dateConstraintStart, $dateConstraintEnd])
+            ->whereIn('status', ['posted', 'approved'])
+            ->whereNull('voided_at')
+            ->orderBy('business_date', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $verifiedPaymentsTotal = round((float) $paymentTransactions->sum('amount'), 2);
+        $formulaNet = round((float) ($formulaCalc['netSettlement'] ?? 0.0), 2);
+        $remainingPayable = round($formulaNet - $verifiedPaymentsTotal, 2);
+
+        $paymentsList = $paymentTransactions->map(function (ShopLedgerTransaction $tx): array {
+            return [
+                'id' => $tx->id,
+                'amount' => (float) $tx->amount,
+                'business_date' => $tx->business_date?->toDateString(),
+                'payment_method' => $tx->companyAccount?->account_type === 'cash' ? 'Cash' : ($tx->companyAccount?->name ?? 'Direct Payment'),
+                'notes' => $tx->notes ?? 'Payment Received',
+                'status' => $tx->status,
+                'reference' => $tx->reference_id ? '#'.$tx->reference_id : null,
+                'company_account' => $tx->companyAccount?->name,
+            ];
+        })->values()->all();
+
+        return [
+            'relation_id' => $payableRelation?->id,
+            'public_uuid' => $payableRelation?->public_uuid,
+            'name' => $payableRelation?->name ?? 'Company Payable',
+            'is_company_payable' => true,
+            'enabled' => (bool) ($payableRelation?->enabled ?? true),
+            'grossAdditions' => (float) ($formulaCalc['grossAdditions'] ?? 0.0),
+            'grossDeductions' => (float) ($formulaCalc['grossDeductions'] ?? 0.0),
+            'netSettlement' => $formulaNet,
+            'formula_net' => $formulaNet,
+            'items' => $formulaCalc['items'] ?? [],
+            'category_breakdown' => $formulaCalc['items'] ?? [],
+            'verified_payments_total' => $verifiedPaymentsTotal,
+            'verified_payments_received' => $verifiedPaymentsTotal,
+            'remaining_company_payable' => $remainingPayable,
+            'payments' => $paymentsList,
+        ];
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -223,7 +374,20 @@ class ShopSettlementService
             }
         }
 
-        return $relations->map(fn (ShopCashbookRelation $relation): array => $this->calculator->calculate($relation, $amounts))->all();
+        $companyPayableSummary = $this->calculateCompanyPayable($shopId, $startDate, $endDate);
+
+        return $relations->map(function (ShopCashbookRelation $relation) use ($amounts, $companyPayableSummary): array {
+            $res = $this->calculator->calculate($relation, $amounts);
+            $isPayable = (bool) $relation->is_company_payable || $relation->relation_type === 'default_company_payable';
+            $res['is_company_payable'] = $isPayable;
+            if ($isPayable) {
+                $res['verified_payments_total'] = $companyPayableSummary['verified_payments_total'];
+                $res['remaining_company_payable'] = $companyPayableSummary['remaining_company_payable'];
+                $res['payments'] = $companyPayableSummary['payments'];
+            }
+
+            return $res;
+        })->all();
     }
 
     public function copyToShop(ShopCashbookRelation $sourceRelation, ShopLedgerProfile $targetProfile): ShopCashbookRelation

@@ -342,7 +342,7 @@
 
                     <!-- Reason / Notes -->
                     <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">Reason / Note <span class="text-rose-500 font-normal">(Required for Half Day, Leave, Absent)</span></label>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Reason / Note <span class="text-slate-400 font-normal">(Optional for admin)</span></label>
                         <input type="text" id="attendance-modal-notes" name="notes" placeholder="e.g. Personal leave / Sick / Medical" class="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold text-slate-900">
                     </div>
 

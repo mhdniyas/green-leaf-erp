@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\SaveCashbookSettlementRequest;
 use App\Models\Cashbook\ShopCashbookRelation;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\ShopSettlementService;
@@ -76,7 +77,12 @@ class CashbookSettlementController extends Controller
             ];
         })->filter(fn (array $s): bool => ! empty($s['items']))->values()->all();
 
-        return view('admin.cashbook.settings.settlements.'.($editing ? 'form' : 'index'), compact('shops', 'currentShop', 'relations', 'relation', 'settings', 'company', 'importableSettlements'));
+        $headerGroups = ShopLedgerHeaderGroup::where('shop_id', $currentShop->shop_id)
+            ->with('allowedProducts:id,name,sku')
+            ->orderBy('display_order')
+            ->get();
+
+        return view('admin.cashbook.settings.settlements.'.($editing ? 'form' : 'index'), compact('shops', 'currentShop', 'relations', 'relation', 'settings', 'headerGroups', 'company', 'importableSettlements'));
     }
 
     public function store(SaveCashbookSettlementRequest $request, string $shop): RedirectResponse

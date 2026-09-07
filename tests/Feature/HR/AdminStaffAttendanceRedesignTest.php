@@ -130,17 +130,22 @@ class AdminStaffAttendanceRedesignTest extends TestCase
         ]);
     }
 
-    public function test_hr_must_provide_reason_when_marking_half_day_leave_or_absent(): void
+    public function test_hr_can_mark_half_day_leave_or_absent_without_or_with_notes(): void
     {
-        // Half Day without reason should fail validation
+        // Half Day without reason should pass validation and auto-fill notes
         $responseHalfNoReason = $this->actingAs($this->admin)
             ->post(route('admin.staff.attendance.store'), [
                 'employee_id' => $this->approvedStaff->id,
                 'attendance_date' => '2026-09-03',
-                'status' => 'half_day',
+                'status' => 'leave',
             ]);
 
-        $responseHalfNoReason->assertSessionHasErrors('notes');
+        $responseHalfNoReason->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('employee_attendances', [
+            'employee_id' => $this->approvedStaff->id,
+            'status' => 'leave',
+            'notes' => 'Leave marked by admin',
+        ]);
 
         // Half Day with reason passes
         $responseHalfWithReason = $this->actingAs($this->admin)

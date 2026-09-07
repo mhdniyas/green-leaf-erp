@@ -18,6 +18,7 @@ class ShopCashbookRelation extends Model
         'name',
         'relation_type',
         'enabled',
+        'is_company_payable',
         'display_order',
         'settlement_source',
         'eligibility_rule',
@@ -26,6 +27,7 @@ class ShopCashbookRelation extends Model
     protected $casts = [
         'shop_id' => 'integer',
         'enabled' => 'boolean',
+        'is_company_payable' => 'boolean',
         'display_order' => 'integer',
     ];
 

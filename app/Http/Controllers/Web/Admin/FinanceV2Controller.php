@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
+use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use App\Services\Finance\FinanceV2DashboardService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\FinanceAccess;
@@ -249,9 +250,22 @@ class FinanceV2Controller extends Controller
             $payload['status'] = 'rejected';
             $payload['reviewed_by'] = $request->user()?->id;
             $payload['reviewed_at'] = now();
+        } elseif ($validated['cheque_status'] === 'cleared') {
+            $payload['status'] = 'approved';
+            $payload['reconciliation_status'] = 'reconciled';
+            $payload['approved_amount'] = $paymentRequest->requested_amount;
+            $payload['reconciled_amount'] = $paymentRequest->requested_amount;
+            $payload['floating_amount'] = 0.00;
+            $payload['reviewed_by'] = $request->user()?->id;
+            $payload['reviewed_at'] = now();
         }
 
         $paymentRequest->update($payload);
+
+        app(ShopPaymentLedgerReconciliationService::class)->syncPaymentToCashbook(
+            $paymentRequest->fresh(),
+            (int) ($request->user()?->id ?? 1)
+        );
 
         return back()->with('success', 'Cheque status updated.');
     }

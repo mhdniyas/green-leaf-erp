@@ -570,6 +570,7 @@ final class CashbookController extends Controller
             ->where('shop_id', $shopId)
             ->whereNotIn('status', ['void', 'voided', 'reversed'])
             ->where('settlement_delta', '<', 0)
+            ->whereDoesntHave('entryType', fn ($q) => $q->where('code', 'shop_paid_company'))
             ->sum('settlement_delta'));
 
         $netSettlementDue = round(max(0, $totalSettlementDueCumulative - $totalSettlementDeductionsCumulative), 2);

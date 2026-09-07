@@ -121,6 +121,21 @@ class CashbookTransactionReversalService
                             'reconciled_amount' => 0.00,
                             'admin_note' => trim(($recon->paymentRequest->admin_note ?? '')." [Reversed: {$reason}]"),
                         ]);
+
+                        $paymentSettlementTx = ShopLedgerTransaction::query()
+                            ->where('shop_id', $model->shop_id)
+                            ->where('reference_type', ShopInvoicePaymentRequest::class)
+                            ->where('reference_id', $recon->paymentRequest->id)
+                            ->whereHas('entryType', fn ($q) => $q->where('code', 'shop_paid_company'))
+                            ->lockForUpdate()
+                            ->first();
+
+                        if ($paymentSettlementTx instanceof ShopLedgerTransaction) {
+                            $paymentSettlementTx->update([
+                                'status' => 'void',
+                                'notes' => trim(($paymentSettlementTx->notes ?? '')." [Reversed: {$reason}]"),
+                            ]);
+                        }
                     }
                 }
             }

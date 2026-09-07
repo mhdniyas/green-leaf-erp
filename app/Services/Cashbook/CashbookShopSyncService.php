@@ -8,6 +8,7 @@ use App\Models\Cashbook\LedgerClient;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopConfigPreset;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Client;
 use App\Models\Shop;
@@ -92,6 +93,7 @@ class CashbookShopSyncService
 
                 $this->syncPresetSettingsToShop($profile, $preset);
                 $this->ensureOtherEntriesForShop($erpShop->id);
+                $this->ensurePaymentsHeaderAndCategory($erpShop->id);
                 $this->settlements->ensureDefaults($profile);
             }
         });
@@ -322,5 +324,55 @@ class CashbookShopSyncService
                 'company_pending_behavior' => 'none',
             ]
         );
+    }
+
+    public function ensurePaymentsHeaderAndCategory(int $shopId): void
+    {
+        $paymentsHeader = ShopLedgerHeaderGroup::query()->firstOrCreate(
+            ['shop_id' => $shopId, 'name' => 'Payments'],
+            [
+                'type' => 'settlement',
+                'display_order' => 99,
+                'enabled' => true,
+            ]
+        );
+
+        $paidCompanyType = LedgerEntryType::firstOrCreate(
+            ['code' => 'shop_paid_company'],
+            [
+                'name' => 'Payment Received',
+                'category' => 'settlement',
+                'active' => true,
+                'is_system' => true,
+                'display_order' => 99,
+            ]
+        );
+
+        $setting = ShopLedgerEntrySetting::query()->firstOrCreate(
+            [
+                'shop_id' => $shopId,
+                'entry_type_id' => $paidCompanyType->id,
+            ],
+            [
+                'header_group_id' => $paymentsHeader->id,
+                'version' => 1,
+                'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
+                'effective_to' => null,
+                'enabled' => true,
+                'default_funding_source' => 'sales',
+                'allowed_funding_sources' => ['sales', 'bank', 'company', 'shop_cash'],
+                'include_in_sales' => false,
+                'include_in_income' => false,
+                'include_in_expense' => true,
+                'include_in_pl' => false,
+                'settlement_behavior' => 'decrease',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+            ]
+        );
+
+        if ($setting->header_group_id !== $paymentsHeader->id) {
+            $setting->update(['header_group_id' => $paymentsHeader->id]);
+        }
     }
 }

@@ -41,7 +41,12 @@
             <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                     <div class="min-w-0">
-                        <h2 class="break-words text-lg font-extrabold text-slate-950">{{ $settlement->name }}</h2>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 class="break-words text-lg font-extrabold text-slate-950">{{ $settlement->name }}</h2>
+                            @if($settlement->is_company_payable)
+                                <span class="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-indigo-900 border border-indigo-300">★ Company Payable</span>
+                            @endif
+                        </div>
                         <p class="mt-1 text-xs font-bold {{ $settlement->enabled ? 'text-emerald-700' : 'text-slate-500' }}">{{ $settlement->enabled ? 'Shown in summary' : 'Hidden from summary' }}{{ str_starts_with($settlement->relation_type, 'default_') ? ' · Default settlement' : '' }}</p>
                     </div>
                     <div class="flex items-center gap-2">

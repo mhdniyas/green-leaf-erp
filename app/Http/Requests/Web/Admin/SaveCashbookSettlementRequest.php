@@ -38,9 +38,12 @@ class SaveCashbookSettlementRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:80', Rule::unique('shop_cashbook_relations', 'name')->where('shop_id', $profile->shop_id)->ignore($relation)],
             'enabled' => ['required', 'boolean'],
+            'is_company_payable' => ['nullable', 'boolean'],
             'items' => ['required', 'array', 'min:1', 'max:200'],
-            'items.*' => ['required', 'array:setting_id,role'],
-            'items.*.setting_id' => ['required', 'integer', Rule::exists('shop_ledger_entry_settings', 'id')->where('shop_id', $profile->shop_id)],
+            'items.*' => ['required', 'array'],
+            'items.*.setting_id' => ['nullable', 'required_without:items.*.header_group_id', 'integer', Rule::exists('shop_ledger_entry_settings', 'id')->where('shop_id', $profile->shop_id)],
+            'items.*.header_group_id' => ['nullable', 'required_without:items.*.setting_id', 'integer', Rule::exists('shop_ledger_header_groups', 'id')->where('shop_id', $profile->shop_id)],
+            'items.*.header_mode' => ['nullable', Rule::in(['all_categories', 'tagged_products_only'])],
             'items.*.role' => ['required', Rule::in(['add', 'subtract'])],
         ];
     }
@@ -49,8 +52,9 @@ class SaveCashbookSettlementRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'items.required' => 'Choose at least one category for the settlement.',
+            'items.required' => 'Choose at least one category or header group for the settlement.',
             'items.*.setting_id.exists' => 'Choose a category belonging to this shop.',
+            'items.*.header_group_id.exists' => 'Choose a header group belonging to this shop.',
         ];
     }
 }

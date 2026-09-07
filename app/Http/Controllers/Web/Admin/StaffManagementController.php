@@ -1054,15 +1054,53 @@ class StaffManagementController extends Controller
             ->whereDate('attendance_date', $attendanceDate->toDateString())
             ->first();
 
+        $status = $request->string('status')->toString();
+        $notes = $request->input('notes');
+
+        if (blank($notes) && in_array($status, ['leave', 'half_day', 'absent'], true)) {
+            $notes = match ($status) {
+                'leave' => 'Leave marked by admin',
+                'half_day' => 'Half day marked by admin',
+                'absent' => 'Absent marked by admin',
+                default => null,
+            };
+        }
+
         $attendance = $this->attendanceService->upsert(
             $employee,
             $attendanceDate,
-            $request->string('status')->toString(),
+            $status,
             $request->user(),
             'admin',
             $shop,
-            $request->input('notes'),
+            $notes,
         );
+
+        if ($status === 'leave') {
+            LeaveRequestModel::query()
+                ->where('employee_id', $employee->id)
+                ->whereDate('start_date', '<=', $attendanceDate->toDateString())
+                ->whereDate('end_date', '>=', $attendanceDate->toDateString())
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'approved',
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
+                    'review_note' => 'Approved via attendance board',
+                ]);
+        } elseif (in_array($status, ['present', 'half_day', 'absent'], true)) {
+            LeaveRequestModel::query()
+                ->where('employee_id', $employee->id)
+                ->whereDate('start_date', $attendanceDate->toDateString())
+                ->whereDate('end_date', $attendanceDate->toDateString())
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'rejected',
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
+                    'review_note' => 'Overridden by admin attendance status: '.$status,
+                ]);
+        }
 
         $this->hrOverrideService->record(
             'attendance',
@@ -1078,18 +1116,18 @@ class StaffManagementController extends Controller
                 'shop_id' => $attendance->shop_id,
                 'notes' => $attendance->notes,
             ],
-            $request->string('notes')->toString(),
+            (string) ($notes ?? ''),
             $request->user(),
         );
 
         if ($request->input('redirect_to') === 'profile') {
             return redirect()->route('admin.staff.show', [
                 'employee' => $employee,
-                'month' => Carbon::parse($request->string('attendance_date')->toString())->format('Y-m'),
+                'month' => $attendanceDate->format('Y-m'),
             ])->with('success', 'Attendance saved successfully.');
         }
 
-        return redirect()->route('admin.staff.attendance', ['date' => $request->string('attendance_date')->toString()])
+        return redirect()->route('admin.staff.attendance', ['date' => $attendanceDate->toDateString()])
             ->with('success', 'Attendance saved successfully.');
     }
 

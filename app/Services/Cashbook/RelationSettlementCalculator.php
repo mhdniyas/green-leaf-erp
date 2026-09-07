@@ -28,8 +28,28 @@ class RelationSettlementCalculator
         $itemsBreakdown = [];
 
         foreach ($relation->items as $item) {
-            $settingId = (int) $item->shop_ledger_entry_setting_id;
-            $rawAmt = (float) ($entryAmounts[$settingId] ?? 0.0);
+            $settingId = $item->shop_ledger_entry_setting_id ? (int) $item->shop_ledger_entry_setting_id : null;
+            $headerGroupId = $item->header_group_id ? (int) $item->header_group_id : null;
+            $headerMode = $item->header_mode ?? 'all_categories';
+
+            if ($headerGroupId !== null && $item->headerGroup) {
+                if ($headerMode === 'tagged_products_only') {
+                    $rawAmt = (float) ($entryAmounts['header_tagged_product_'.$headerGroupId] ?? 0.0);
+                    $name = $item->headerGroup->name.' (Tagged Products Only)';
+                } else {
+                    $rawAmt = 0.0;
+                    foreach ($item->headerGroup->entrySettings as $setting) {
+                        $rawAmt += (float) ($entryAmounts[$setting->id] ?? 0.0);
+                    }
+                    $name = $item->headerGroup->name.' (All Categories)';
+                }
+                $category = strtolower((string) ($item->headerGroup->type ?? 'header'));
+            } else {
+                $rawAmt = (float) ($entryAmounts[$settingId] ?? 0.0);
+                $name = $item->setting?->displayName() ?? $item->setting?->entryType?->name ?? 'Unknown Entry';
+                $category = $item->setting?->entryType?->category ?? 'other';
+            }
+
             $amount = max(0.0, $rawAmt);
 
             $role = strtolower((string) ($item->role ?? 'add'));
@@ -44,8 +64,10 @@ class RelationSettlementCalculator
             $itemsBreakdown[] = [
                 'item_id' => $item->id,
                 'setting_id' => $settingId,
-                'name' => $item->setting?->entryType?->name ?? 'Unknown Entry',
-                'category' => $item->setting?->entryType?->category ?? 'other',
+                'header_group_id' => $headerGroupId,
+                'header_mode' => $headerMode,
+                'name' => $name,
+                'category' => $category,
                 'role' => $role,
                 'amount' => $amount,
                 'signed_amount' => $signedAmount,
