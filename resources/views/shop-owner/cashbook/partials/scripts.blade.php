@@ -38,13 +38,6 @@
                 ? 'bg-emerald-50/50 border-emerald-200'
                 : (settlement.is_company_payable ? 'bg-amber-50/50 border-amber-200' : 'bg-slate-50/80 border-slate-200');
 
-            const cpBadge = settlement.is_company_payable
-                ? '<span class="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-black text-amber-800 border border-amber-300">★ Company Payable</span>'
-                : '';
-            const nbBadge = settlement.is_net_balance
-                ? '<span class="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-black text-emerald-800 border border-emerald-300">Net Balance</span>'
-                : '';
-
             let itemsHtml = '';
             if (hasItems) {
                 itemsHtml = settlement.items.map(item => {
@@ -62,7 +55,7 @@
 
             const splitBtnHtml = hasItems ? `
                 <button type="button" onclick="event.stopPropagation(); toggleSettlementCardSplit('${settlement.id}')"
-                        class="text-[10px] font-bold text-slate-600 hover:text-slate-900 px-2 py-0.5 rounded-md bg-white hover:bg-slate-100 transition border border-slate-200 shadow-2xs inline-flex items-center gap-1 cursor-pointer">
+                        class="text-[10px] font-bold text-slate-600 hover:text-slate-900 px-2 py-0.5 rounded-md bg-white hover:bg-slate-100 transition border border-slate-200 shadow-2xs inline-flex items-center gap-1 cursor-pointer shrink-0">
                     <span>${isExpanded ? 'Hide Split' : 'Show Split'}</span>
                     <i data-lucide="chevron-${isExpanded ? 'up' : 'down'}" class="h-3 w-3 inline"></i>
                 </button>
@@ -71,10 +64,8 @@
             return `
                 <div class="rounded-2xl border ${cardBgClass} p-3.5 space-y-2 transition">
                     <div class="flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-2 min-w-0 flex-1">
-                            <span class="font-bold text-slate-900 truncate">${escapeHtml(settlement.name)}</span>
-                            ${cpBadge}
-                            ${nbBadge}
+                        <div class="min-w-0 flex-1">
+                            <span class="font-bold text-slate-900 break-words leading-tight">${escapeHtml(settlement.name)}</span>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             ${splitBtnHtml}
