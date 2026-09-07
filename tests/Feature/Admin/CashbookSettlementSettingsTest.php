@@ -225,6 +225,31 @@ class CashbookSettlementSettingsTest extends TestCase
         $this->assertSame('tagged_products_only', $relation->items->first()->header_mode);
     }
 
+    public function test_admin_can_create_settlement_referencing_another_settlement(): void
+    {
+        $target1 = ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_income')->firstOrFail();
+        $target2 = ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_expense')->firstOrFail();
+
+        $items = [
+            ['source_settlement_id' => $target1->id, 'role' => 'add'],
+            ['source_settlement_id' => $target2->id, 'role' => 'subtract'],
+        ];
+
+        $this->actingAs($this->admin)
+            ->post($this->url('store'), [
+                'name' => 'Net Profit Shortcut Formula',
+                'enabled' => 1,
+                'items' => $items,
+            ])
+            ->assertRedirect($this->url('index'));
+
+        $relation = ShopCashbookRelation::where('shop_id', $this->shop->id)->where('name', 'Net Profit Shortcut Formula')->firstOrFail();
+        $this->assertCount(2, $relation->items);
+        $this->assertSame($target1->id, $relation->items->first()->source_settlement_id);
+        $this->assertSame($target2->id, $relation->items->last()->source_settlement_id);
+        $this->assertSame('subtract', $relation->items->last()->role);
+    }
+
     private function category(string $code): ShopLedgerEntrySetting
     {
         $type = LedgerEntryType::create(['code' => 'test_'.$code, 'name' => 'Category '.strtoupper($code), 'category' => 'income', 'active' => true]);

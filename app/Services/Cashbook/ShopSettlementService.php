@@ -179,7 +179,7 @@ class ShopSettlementService
         return ShopCashbookRelation::query()
             ->where('shop_id', $shopId)
             ->when($enabledOnly, fn ($query) => $query->where('enabled', true))
-            ->with(['items.setting.entryType', 'items.headerGroup.allowedProducts'])
+            ->with(['items.setting.entryType', 'items.headerGroup.allowedProducts', 'items.sourceSettlement'])
             ->orderBy('display_order')->orderBy('id')->get();
     }
 
@@ -254,6 +254,7 @@ class ShopSettlementService
                 'shop_ledger_entry_setting_id' => ! empty($item['setting_id']) ? (int) $item['setting_id'] : null,
                 'header_group_id' => ! empty($item['header_group_id']) ? (int) $item['header_group_id'] : null,
                 'header_mode' => $item['header_mode'] ?? 'all_categories',
+                'source_settlement_id' => ! empty($item['source_settlement_id']) ? (int) $item['source_settlement_id'] : null,
                 'role' => $item['role'],
                 'display_order' => $index,
             ])->all());

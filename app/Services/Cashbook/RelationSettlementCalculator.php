@@ -30,9 +30,14 @@ class RelationSettlementCalculator
         foreach ($relation->items as $item) {
             $settingId = $item->shop_ledger_entry_setting_id ? (int) $item->shop_ledger_entry_setting_id : null;
             $headerGroupId = $item->header_group_id ? (int) $item->header_group_id : null;
+            $sourceSettlementId = $item->source_settlement_id ? (int) $item->source_settlement_id : null;
             $headerMode = $item->header_mode ?? 'all_categories';
 
-            if ($headerGroupId !== null && $item->headerGroup) {
+            if ($sourceSettlementId !== null && $item->sourceSettlement) {
+                $rawAmt = (float) ($entryAmounts['settlement_'.$sourceSettlementId] ?? 0.0);
+                $name = 'Settlement: '.$item->sourceSettlement->name;
+                $category = 'settlement';
+            } elseif ($headerGroupId !== null && $item->headerGroup) {
                 if ($headerMode === 'tagged_products_only') {
                     $rawAmt = (float) ($entryAmounts['header_tagged_product_'.$headerGroupId] ?? 0.0);
                     $name = $item->headerGroup->name.' (Tagged Products Only)';

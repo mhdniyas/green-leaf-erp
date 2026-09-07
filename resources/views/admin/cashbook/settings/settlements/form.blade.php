@@ -6,11 +6,14 @@
     $initialItems = old('items', $relation?->items->map(fn ($item) => [
         'setting_id' => $item->shop_ledger_entry_setting_id ? (string) $item->shop_ledger_entry_setting_id : '',
         'header_group_id' => $item->header_group_id ? (string) $item->header_group_id : '',
+        'source_settlement_id' => $item->source_settlement_id ? (string) $item->source_settlement_id : '',
         'header_mode' => $item->header_mode ?? 'all_categories',
         'role' => $item->role,
-    ])->all() ?: [['setting_id' => '', 'header_group_id' => '', 'header_mode' => 'all_categories', 'role' => 'add']]);
+    ])->all() ?: [['setting_id' => '', 'header_group_id' => '', 'source_settlement_id' => '', 'header_mode' => 'all_categories', 'role' => 'add']]);
     $categoryNames = $settings->mapWithKeys(fn ($setting) => [(string) $setting->id => $setting->displayName()])->all();
     $headerGroupNames = $headerGroups->mapWithKeys(fn ($hg) => [(string) $hg->id => $hg->name])->all();
+    $otherRelations = $relations->filter(fn ($r) => $relation === null || (int) $r->id !== (int) $relation->id);
+    $otherRelationNames = $otherRelations->mapWithKeys(fn ($r) => [(string) $r->id => $r->name])->all();
     $headerGroupDetails = $headerGroups->mapWithKeys(fn ($hg) => [(string) $hg->id => [
         'id' => $hg->id,
         'name' => $hg->name,
@@ -23,13 +26,14 @@
     <div>
         <p class="text-xs font-bold uppercase tracking-wider text-indigo-700">{{ $currentShop->name }}</p>
         <h1 class="mt-1 text-3xl font-extrabold text-slate-950">{{ $relation ? 'Edit Settlement' : 'Create Settlement' }}</h1>
-        <p class="mt-2 text-sm text-slate-600">Add or subtract any categories or header groups to calculate one settlement result.</p>
+        <p class="mt-2 text-sm text-slate-600">Add or subtract any categories, header groups, or other settlements to calculate one settlement result.</p>
     </div>
     <form method="POST" action="{{ $relation ? route('admin.cashbook.settings.shop.settlements.update', [$shopKey, $relation->public_uuid]) : route('admin.cashbook.settings.shop.settlements.store', $shopKey) }}"
           class="space-y-6" x-data="{
               rows: @js(array_values($initialItems)),
               categoryNames: @js($categoryNames),
               headerNames: @js($headerGroupNames),
+              settlementNames: @js($otherRelationNames),
               headerDetails: @js($headerGroupDetails),
               settlementName: @js(old('name', $relation?->name ?? '')),
               templates: @js($importableSettlements ?? []),
@@ -37,23 +41,41 @@
               saving: false,
               errors: @js($errors->messages()),
               getSelectionKey(row) {
+                  if (row.source_settlement_id) return 'settlement:' + row.source_settlement_id;
                   if (row.header_group_id) return 'header:' + row.header_group_id;
                   if (row.setting_id) return 'setting:' + row.setting_id;
                   return '';
               },
               onSelectionChange(row, val) {
-                  if (val.startsWith('header:')) {
+                  row.setting_id = '';
+                  row.header_group_id = '';
+                  row.source_settlement_id = '';
+                  if (val.startsWith('settlement:')) {
+                      row.source_settlement_id = val.replace('settlement:', '');
+                  } else if (val.startsWith('header:')) {
                       row.header_group_id = val.replace('header:', '');
-                      row.setting_id = '';
                   } else if (val.startsWith('setting:')) {
                       row.setting_id = val.replace('setting:', '');
-                      row.header_group_id = '';
+                  }
+              },
+              addSettlementShortcut(settlementId, role = 'add') {
+                  if (this.rows.length === 1 && !this.rows[0].setting_id && !this.rows[0].header_group_id && !this.rows[0].source_settlement_id) {
+                      this.rows[0].source_settlement_id = String(settlementId);
+                      this.rows[0].role = role;
                   } else {
-                      row.setting_id = '';
-                      row.header_group_id = '';
+                      this.rows.push({
+                          setting_id: '',
+                          header_group_id: '',
+                          source_settlement_id: String(settlementId),
+                          header_mode: 'all_categories',
+                          role: role
+                      });
                   }
               },
               getRowName(row) {
+                  if (row.source_settlement_id && this.settlementNames[row.source_settlement_id]) {
+                      return 'Settlement: ' + this.settlementNames[row.source_settlement_id];
+                  }
                   if (row.header_group_id && this.headerNames[row.header_group_id]) {
                       const hName = 'Header: ' + this.headerNames[row.header_group_id];
                       return row.header_mode === 'tagged_products_only' ? hName + ' (Tagged Products Only)' : hName + ' (All Categories)';
@@ -66,8 +88,8 @@
               importTemplate() {
                   const t = this.templates.find(item => String(item.id) === String(this.selectedTemplateId));
                   if (!t || !t.items || t.items.length === 0) return;
-                  if (this.rows.length > 0 && this.rows.some(r => r.setting_id || r.header_group_id) && !confirm('Replace current formula rows with items from ' + t.name + '?')) return;
-                  this.rows = t.items.map(i => ({ setting_id: String(i.setting_id || ''), header_group_id: String(i.header_group_id || ''), header_mode: i.header_mode || 'all_categories', role: i.role || 'add' }));
+                  if (this.rows.length > 0 && this.rows.some(r => r.setting_id || r.header_group_id || r.source_settlement_id) && !confirm('Replace current formula rows with items from ' + t.name + '?')) return;
+                  this.rows = t.items.map(i => ({ setting_id: String(i.setting_id || ''), header_group_id: String(i.header_group_id || ''), source_settlement_id: String(i.source_settlement_id || ''), header_mode: i.header_mode || 'all_categories', role: i.role || 'add' }));
                   if (!this.settlementName) {
                       this.settlementName = t.name;
                   }
@@ -81,7 +103,7 @@
                 <p class="font-bold">Please correct the settlement:</p>
                 <ul class="mt-2 list-inside list-disc">
                     @foreach($errors->messages() as $field => $messages)
-                        @php($errorTarget = $field === 'name' ? 'settlement-name' : (preg_match('/^items\.(\d+)\.(setting_id|header_group_id|role)$/', $field, $matches) ? ($matches[2] === 'role' ? 'role-' : 'target-').$matches[1] : 'formula-heading'))
+                        @php($errorTarget = $field === 'name' ? 'settlement-name' : (preg_match('/^items\.(\d+)\.(setting_id|header_group_id|source_settlement_id|role)$/', $field, $matches) ? ($matches[2] === 'role' ? 'role-' : 'target-').$matches[1] : 'formula-heading'))
                         @foreach($messages as $message)<li><a class="underline" href="#{{ $errorTarget }}">{{ $message }}</a></li>@endforeach
                     @endforeach
                 </ul>
@@ -109,11 +131,33 @@
                 <p class="mt-1 text-xs text-slate-500 ml-8">When selected, this settlement dynamically drives the shop's payable balance and verified payments deduction.</p>
             </div>
         </div>
+
         <section class="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" aria-labelledby="formula-heading">
+            <!-- QUICK SETTLEMENT SHORTCUT BAR ON TOP -->
+            @if($otherRelations->isNotEmpty())
+                <div class="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-purple-50/90 p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <p class="text-xs font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
+                            <span>⚡ Quick Settlement Shortcut Builder (On Top)</span>
+                        </p>
+                        <span class="text-[11px] font-semibold text-indigo-700">Click to add (Settlement 1 − Settlement 2)</span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        @foreach($otherRelations as $otherR)
+                            <div class="inline-flex items-center rounded-xl border border-indigo-200 bg-white shadow-xs overflow-hidden text-xs">
+                                <span class="px-2.5 py-1.5 font-bold text-slate-800 border-r border-indigo-100">{{ $otherR->name }}</span>
+                                <button type="button" @click="addSettlementShortcut({{ $otherR->id }}, 'add')" class="px-2 py-1.5 font-black text-emerald-700 hover:bg-emerald-50 transition-colors" title="Add {{ $otherR->name }}">+ Add</button>
+                                <button type="button" @click="addSettlementShortcut({{ $otherR->id }}, 'subtract')" class="px-2 py-1.5 font-black text-rose-700 hover:bg-rose-50 transition-colors border-l border-indigo-100" title="Subtract {{ $otherR->name }}">− Sub</button>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 id="formula-heading" class="text-lg font-extrabold text-slate-950">Calculation</h2>
-                    <p class="mt-1 text-sm text-slate-600">Select an entire Header Group or an individual Category to add or subtract in the formula.</p>
+                    <p class="mt-1 text-sm text-slate-600">Combine whole Settlements (e.g. Settlement 1 − Settlement 2), Header Groups, or individual Categories.</p>
                 </div>
                 <template x-if="templates.length > 0">
                     <div class="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 p-2">
@@ -137,11 +181,19 @@
                             <p :id="'role-error-' + index" x-show="errors['items.' + index + '.role']" x-text="(errors['items.' + index + '.role'] || []).join(' ')" class="mt-1 text-xs text-rose-700"></p>
                         </div>
                         <div class="space-y-2">
-                            <label :for="'target-' + index" class="block text-xs font-bold text-slate-700">Header Group or Category</label>
+                            <label :for="'target-' + index" class="block text-xs font-bold text-slate-700">Target Item (Settlement, Header, or Category)</label>
                             <input type="hidden" :name="'items[' + index + '][setting_id]'" :value="row.setting_id">
                             <input type="hidden" :name="'items[' + index + '][header_group_id]'" :value="row.header_group_id">
+                            <input type="hidden" :name="'items[' + index + '][source_settlement_id]'" :value="row.source_settlement_id">
                             <select :id="'target-' + index" :value="getSelectionKey(row)" @change="onSelectionChange(row, $event.target.value)" required class="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm font-medium focus:border-indigo-500">
-                                <option value="">Choose a Header Group or Category...</option>
+                                <option value="">Choose a Settlement, Header Group, or Category...</option>
+                                @if($otherRelations->isNotEmpty())
+                                    <optgroup label="📊 OTHER SETTLEMENTS (SETTLEMENT 1 - SETTLEMENT 2)">
+                                        @foreach($otherRelations as $otherR)
+                                            <option value="settlement:{{ $otherR->id }}">Settlement: {{ $otherR->name }}</option>
+                                        @endforeach
+                                    </optgroup>
+                                @endif
                                 @if($headerGroups->isNotEmpty())
                                     <optgroup label="📁 ENTIRE HEADER GROUPS">
                                         @foreach($headerGroups as $hg)
@@ -188,14 +240,14 @@
                 </template>
             </div>
             <div class="flex flex-wrap items-center gap-3 pt-2">
-                <button type="button" @click="rows.push({setting_id: '', header_group_id: '', header_mode: 'all_categories', role: 'add'})" class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-800 hover:bg-indigo-100">+ Add Formula Row</button>
+                <button type="button" @click="rows.push({setting_id: '', header_group_id: '', source_settlement_id: '', header_mode: 'all_categories', role: 'add'})" class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-800 hover:bg-indigo-100">+ Add Formula Row</button>
                 <a href="{{ route('admin.cashbook.settings.shop', $shopKey) }}" target="_blank" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5">
                     <span>⚙️ Manage Headers & Product Tagging</span> ↗
                 </a>
             </div>
             <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-4" aria-live="polite">
                 <p class="text-xs font-bold uppercase tracking-wider text-indigo-800">Formula preview</p>
-                <p class="mt-2 break-words text-sm font-semibold text-slate-900" x-text="rows.filter(row => getRowName(row)).map((row, i) => (row.role === 'subtract' ? '− ' : (i ? '+ ' : '')) + getRowName(row)).join(' ') || 'Choose headers or categories to build the formula'"></p>
+                <p class="mt-2 break-words text-sm font-semibold text-slate-900" x-text="rows.filter(row => getRowName(row)).map((row, i) => (row.role === 'subtract' ? '− ' : (i ? '+ ' : '')) + getRowName(row)).join(' ') || 'Choose settlements, headers, or categories to build the formula'"></p>
                 <p class="mt-2 text-xs text-indigo-800">The calculated result contributes to <span class="font-bold" x-text="settlementName || 'this settlement'"></span>.</p>
             </div>
         </section>
