@@ -21,6 +21,7 @@ use App\Models\LeaveType;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
+use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeAdvanceService;
 use App\Services\HR\ImageUploadService;
@@ -43,6 +44,7 @@ class ShopOwnerStaffController extends Controller
         private readonly PayrollService $payrollService,
         private readonly ImageUploadService $imageUploadService,
         private readonly SalaryAvailabilityService $salaryAvailabilityService,
+        private readonly StaffPaymentCashbookProjectionService $projectionService,
     ) {}
 
     public function index(Request $request): View
@@ -878,5 +880,81 @@ class ShopOwnerStaffController extends Controller
             ->whereIn('verification_status', ['pending', 'rejected'])
             ->orderByDesc('id')
             ->get();
+    }
+
+    public function syncCashbook(Request $request): RedirectResponse
+    {
+        $this->ensureOwnerAccess($request);
+
+        $ownedShops = Shop::query()
+            ->whereIn('id', $request->user()->ownedShopAssignments()->pluck('shop_id'))
+            ->orderBy('name')
+            ->get();
+
+        $requestedShopCode = trim($request->string('shop')->toString());
+        if ($requestedShopCode !== '' && ! $ownedShops->contains('code', $requestedShopCode)) {
+            return redirect()->back()->with('error', 'Unauthorized shop selection.');
+        }
+
+        $selectedShop = $this->selectedShop($ownedShops, $requestedShopCode);
+        if (! $selectedShop instanceof Shop) {
+            return redirect()->back()->with('error', 'Unauthorized shop selection.');
+        }
+
+        $date = $request->filled('date') ? trim((string) $request->input('date')) : null;
+        $month = $request->filled('month') ? trim((string) $request->input('month')) : null;
+
+        $results = $this->projectionService->syncAndAuditShopPayments(
+            (int) $selectedShop->id,
+            $date,
+            $month,
+            (int) $request->user()->id
+        );
+
+        $totalActions = count($results['created']) + count($results['updated']) + count($results['orphans']);
+        $message = $totalActions > 0
+            ? "Cashbook sync completed for {$selectedShop->name}."
+            : "Cashbook sync completed for {$selectedShop->name}: All records are matching.";
+
+        return redirect()->route('shop-owner.staff.index', array_filter([
+            'shop' => $selectedShop->code,
+            'tab' => 'history',
+            'date' => $date,
+            'month' => $month,
+        ]))->with('sync_results', $results)->with('success', $message);
+    }
+
+    public function deleteCashbookOrphan(Request $request): RedirectResponse
+    {
+        $this->ensureOwnerAccess($request);
+
+        $ownedShops = Shop::query()
+            ->whereIn('id', $request->user()->ownedShopAssignments()->pluck('shop_id'))
+            ->orderBy('name')
+            ->get();
+
+        $requestedShopCode = trim($request->string('shop')->toString());
+        if ($requestedShopCode !== '' && ! $ownedShops->contains('code', $requestedShopCode)) {
+            return redirect()->back()->with('error', 'Unauthorized shop selection.');
+        }
+
+        $selectedShop = $this->selectedShop($ownedShops, $requestedShopCode);
+        if (! $selectedShop instanceof Shop) {
+            return redirect()->back()->with('error', 'Unauthorized shop selection.');
+        }
+
+        $transactionId = (int) $request->input('transaction_id');
+        $deleted = $this->projectionService->deleteOrphanTransaction($transactionId, (int) $selectedShop->id);
+
+        if (! $deleted) {
+            return redirect()->back()->with('error', 'Orphan transaction not found or access denied.');
+        }
+
+        return redirect()->route('shop-owner.staff.index', array_filter([
+            'shop' => $selectedShop->code,
+            'tab' => 'history',
+            'date' => $request->input('date'),
+            'month' => $request->input('month'),
+        ]))->with('success', 'Selected orphan Cashbook entry deleted successfully.');
     }
 }
