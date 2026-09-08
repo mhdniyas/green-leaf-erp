@@ -20,6 +20,8 @@ class ShopCashbookRelation extends Model
         'enabled',
         'is_company_payable',
         'is_net_balance',
+        'is_payment_payable',
+        'is_payment_paid',
         'display_order',
         'settlement_source',
         'eligibility_rule',
@@ -30,6 +32,8 @@ class ShopCashbookRelation extends Model
         'enabled' => 'boolean',
         'is_company_payable' => 'boolean',
         'is_net_balance' => 'boolean',
+        'is_payment_payable' => 'boolean',
+        'is_payment_paid' => 'boolean',
         'display_order' => 'integer',
     ];
 

@@ -189,7 +189,14 @@
                     </span>
                 </div>
             </a>
-            <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-center text-sm font-bold text-indigo-800 hover:bg-indigo-100">Settlements</a>
+            <div class="grid grid-cols-2 gap-2">
+                <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-center text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition">
+                    Settlements
+                </a>
+                <a href="{{ route('admin.cashbook.settings.shop.payments.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-center text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition">
+                    Payments
+                </a>
+            </div>
             </div>
         @endforeach
     </div>

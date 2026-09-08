@@ -13,10 +13,13 @@ use App\Models\BusinessSetting;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopCashbookRelation;
+use App\Models\Cashbook\ShopDailyLedgerSnapshot;
+use App\Models\Cashbook\ShopDailyProductPrice;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProductEntry;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
@@ -25,7 +28,6 @@ use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopCredit;
-use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
@@ -33,10 +35,12 @@ use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\ShopStaffPayment;
 use App\Models\User;
+use App\Services\Cashbook\BalanceCalculator;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
+use App\Services\Cashbook\ShopSettlementService;
 use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\OwnedShopAccountingService;
@@ -76,6 +80,7 @@ class ShopOwnerController extends Controller
         private readonly CollectionGroupPostingService $collectionGroupPostingService,
         private readonly InvoiceCashbookProjectionService $invoiceCashbookProjectionService,
         private readonly StaffPaymentCashbookProjectionService $staffPaymentCashbookProjectionService,
+        private readonly ShopSettlementService $shopSettlementService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -599,7 +604,190 @@ class ShopOwnerController extends Controller
 
     public function paymentsIndex(Request $request): View
     {
-        return view('shop-owner.payments.index', $this->financeViewData($request, 'payments'));
+        return view('shop-owner.payments.index', $this->paymentsOverviewData($request));
+    }
+
+    public function payExpense(Request $request): RedirectResponse
+    {
+        $activeShop = $this->currentShop($request);
+
+        $validated = $request->validate([
+            'entry_setting_id' => ['required', 'integer', 'exists:shop_ledger_entry_settings,id'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'payment_date' => ['nullable', 'date_format:Y-m-d'],
+            'paid_from_source' => ['required', 'string', 'in:shop_balance,petty_cash'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $setting = ShopLedgerEntrySetting::with('entryType')
+            ->where('shop_id', (int) $activeShop->id)
+            ->where('id', (int) $validated['entry_setting_id'])
+            ->firstOrFail();
+
+        $fundingSource = $validated['paid_from_source'] === 'petty_cash' ? 'petty_cash' : 'shop_cash';
+        $businessDate = ! empty($validated['payment_date']) ? $validated['payment_date'] : now()->toDateString();
+
+        DB::transaction(function () use ($activeShop, $setting, $validated, $fundingSource, $businessDate): void {
+            $tx = ShopLedgerTransaction::create([
+                'shop_id' => $activeShop->id,
+                'entry_type_id' => $setting->entry_type_id,
+                'entry_type_code' => $setting->entryType?->code,
+                'business_date' => $businessDate,
+                'amount' => (float) $validated['amount'],
+                'direction' => 'expense',
+                'funding_source' => $fundingSource,
+                'status' => 'posted',
+                'notes' => $validated['notes'] ?: 'Payment for '.$setting->displayName(),
+                'reference_type' => 'expense_payment',
+            ]);
+
+            // Create payment request to track and allocate across individual open expense bills
+            $paymentRequest = ShopInvoicePaymentRequest::create([
+                'shop_id' => $activeShop->id,
+                'requested_by' => auth()->id() ?? User::query()->whereHas('roles', fn ($q) => $q->where('name', 'shop'))->value('id') ?? 1,
+                'submission_uuid' => (string) Str::uuid(),
+                'request_type' => 'expense_payment',
+                'payment_method' => $validated['paid_from_source'] === 'petty_cash' ? 'cash' : 'shop_balance',
+                'payment_date' => $businessDate,
+                'requested_amount' => (float) $validated['amount'],
+                'approved_amount' => (float) $validated['amount'],
+                'reconciled_amount' => (float) $validated['amount'],
+                'status' => 'approved',
+                'reconciliation_status' => 'reconciled',
+                'shop_note' => $validated['notes'] ?: 'Payment for '.$setting->displayName(),
+                'reviewed_by' => auth()->id(),
+                'reviewed_at' => now(),
+                'last_reconciled_at' => now(),
+            ]);
+
+            // Allocate payment amount across open individual expense transactions oldest-first
+            $openTxs = ShopLedgerTransaction::query()
+                ->where('shop_id', $activeShop->id)
+                ->where('entry_type_id', $setting->entry_type_id)
+                ->where('id', '!=', $tx->id)
+                ->whereIn('status', ['posted', 'approved'])
+                ->whereNull('voided_at')
+                ->where('direction', 'expense')
+                ->whereNull('company_account_id')
+                ->orderBy('business_date', 'asc')
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            $remainingToAllocate = (float) $validated['amount'];
+            foreach ($openTxs as $openTx) {
+                if ($remainingToAllocate <= 0.001) {
+                    break;
+                }
+
+                $alreadyAllocated = (float) ShopPaymentLedgerAllocation::query()
+                    ->where('shop_ledger_transaction_id', $openTx->id)
+                    ->lockForUpdate()
+                    ->sum('amount');
+
+                $txRemaining = max(0.0, (float) $openTx->amount - $alreadyAllocated);
+                if ($txRemaining <= 0.001) {
+                    continue;
+                }
+
+                $allocAmt = min($remainingToAllocate, $txRemaining);
+
+                ShopPaymentLedgerAllocation::create([
+                    'payment_request_id' => $paymentRequest->id,
+                    'shop_id' => $activeShop->id,
+                    'shop_ledger_transaction_id' => $openTx->id,
+                    'amount' => $allocAmt,
+                    'reconciled_by' => auth()->id(),
+                ]);
+
+                $remainingToAllocate = round($remainingToAllocate - $allocAmt, 2);
+            }
+
+            app(BalanceCalculator::class)->recalculate((int) $activeShop->id, $businessDate);
+        });
+
+        return redirect()
+            ->route('shop-owner.payments.index')
+            ->with('success', 'Payment of ₹'.number_format((float) $validated['amount'], 2).' for '.$setting->displayName().' recorded successfully.');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function paymentsOverviewData(Request $request): array
+    {
+        $activeShop = $this->currentShop($request);
+        $this->shopSettlementService->ensureDefaults($activeShop);
+
+        $selectedMonth = (string) $request->input('month', now()->format('Y-m'));
+        if (! preg_match('/^\d{4}-\d{2}$/', $selectedMonth)) {
+            $selectedMonth = now()->format('Y-m');
+        }
+
+        $carbonMonth = Carbon::parse($selectedMonth.'-01');
+        $periodStart = $carbonMonth->copy()->startOfMonth()->toDateString();
+        $periodEnd = $carbonMonth->copy()->endOfMonth()->toDateString();
+        $formattedMonthLabel = $carbonMonth->format('F Y');
+
+        $paymentsData = $this->shopSettlementService->calculateShopPayments((int) $activeShop->id, $periodStart, $periodEnd);
+
+        $payable = (float) $paymentsData['payable'];
+        $paid = (float) $paymentsData['paid'];
+        $directToCompany = (float) ($paymentsData['direct_to_company'] ?? $paymentsData['paid']);
+        $cashInShop = (float) ($paymentsData['cash_in_shop'] ?? 0.0);
+        $totalSales = (float) ($paymentsData['total_sales'] ?? ($directToCompany + $cashInShop));
+        $salesCollectionItems = $paymentsData['sales_collection_items'] ?? [];
+        $cashCollectionItems = $paymentsData['cash_collection_items'] ?? [];
+        $moneyKeptByShop = (float) ($paymentsData['money_kept_by_shop'] ?? 0.0);
+        $expensesPaid = (float) ($paymentsData['expenses_paid'] ?? 0.0);
+        $shopBalance = (float) $paymentsData['shop_balance'];
+        $manualPayments = $paymentsData['manual_payments'] ?? [];
+        $manualTotal = (float) ($paymentsData['manual_total'] ?? 0.0);
+        $manualReceived = (float) ($paymentsData['manual_received'] ?? 0.0);
+        $manualPending = (float) ($paymentsData['manual_pending'] ?? 0.0);
+        $manualRequests = $paymentsData['manual_requests'] ?? collect();
+
+        $previousSnapshot = ShopDailyLedgerSnapshot::query()
+            ->where('shop_id', (int) $activeShop->id)
+            ->where('business_date', '<', $periodStart)
+            ->orderByDesc('business_date')
+            ->first();
+
+        $pettyBalance = round((float) ($previousSnapshot?->closing_petty ?? 0.0), 2);
+
+        return [
+            'activeShop' => $activeShop,
+            'targetMonth' => $selectedMonth,
+            'formattedMonthLabel' => $formattedMonthLabel,
+            'payable' => $payable,
+            'paid' => $paid,
+            'totalSales' => $totalSales,
+            'directToCompany' => $directToCompany,
+            'cashInShop' => $cashInShop,
+            'moneyKeptByShop' => $moneyKeptByShop,
+            'expensesPaid' => $expensesPaid,
+            'shopBalance' => $shopBalance,
+            'currentShopBalance' => $shopBalance,
+            'companyPayable' => $payable,
+            'totalPaid' => $paid,
+            'companyDue' => $shopBalance,
+            'pettyBalance' => $pettyBalance,
+            'payableRelation' => $paymentsData['payable_relation'],
+            'paidRelation' => $paymentsData['paid_relation'],
+            'directRelation' => $paymentsData['direct_relation'] ?? $paymentsData['paid_relation'],
+            'payableItems' => $paymentsData['payable_items'],
+            'expensePayables' => $paymentsData['expense_payables'] ?? [],
+            'settledExpenses' => $paymentsData['settled_expenses'] ?? [],
+            'paidItems' => $paymentsData['paid_items'],
+            'directItems' => $paymentsData['direct_items'] ?? $paymentsData['paid_items'],
+            'salesCollectionItems' => $salesCollectionItems,
+            'cashCollectionItems' => $cashCollectionItems,
+            'manualPayments' => $manualPayments,
+            'manualTotal' => $manualTotal,
+            'manualReceived' => $manualReceived,
+            'manualPending' => $manualPending,
+            'manualRequests' => $manualRequests,
+        ];
     }
 
     /**
@@ -2323,8 +2511,8 @@ class ShopOwnerController extends Controller
                 return back()->withErrors($exception->errors())->withInput();
             }
 
-            return redirect()->route('shop-owner.finance.index', ['tab' => 'payments'])
-                ->with('success', 'Closing balance payment request sent for admin approval.');
+            return redirect()->route('shop-owner.payments.index')
+                ->with('success', 'Payment request submitted for admin approval.');
         }
 
         $invoice = ShopInvoice::query()

@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\ShopCashbookRelation;
+use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Shop;
+use App\Models\ShopInvoicePaymentRequest;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -187,6 +190,47 @@ class ShopSettlementService
                     ?? ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('enabled', true)->orderBy('display_order')->first();
                 $target?->update(['is_net_balance' => true]);
             }
+
+            // Ensure exactly one settlement is marked as is_payment_payable
+            $hasPaymentPayable = ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('is_payment_payable', true)->exists();
+            if (! $hasPaymentPayable) {
+                $target = ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('is_company_payable', true)->first()
+                    ?? ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('relation_type', 'default_company_payable')->first()
+                    ?? ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('enabled', true)->orderBy('display_order')->first();
+                $target?->update(['is_payment_payable' => true]);
+            }
+
+            // Ensure exactly one settlement is marked as is_payment_paid
+            $hasPaymentPaid = ShopCashbookRelation::where('shop_id', $profile->shop_id)->where('is_payment_paid', true)->exists();
+            if (! $hasPaymentPaid) {
+                $paid = ShopCashbookRelation::query()->firstOrCreate([
+                    'shop_id' => $profile->shop_id,
+                    'relation_type' => 'default_payment_paid',
+                ], [
+                    'name' => 'Paid (Company Received)',
+                    'enabled' => true,
+                    'is_payment_paid' => true,
+                    'display_order' => 10,
+                ]);
+
+                if ($paid->wasRecentlyCreated) {
+                    // Seed with direct company payment items and shop_paid_company if available
+                    $paidSettings = $settings->filter(function (ShopLedgerEntrySetting $s): bool {
+                        $code = $s->entryType?->code;
+                        $isDirectBank = (bool) $s->company_account_id;
+
+                        return $isDirectBank || $code === 'shop_paid_company';
+                    });
+
+                    $paid->items()->createMany($paidSettings->values()->map(fn (ShopLedgerEntrySetting $s, int $index): array => [
+                        'shop_ledger_entry_setting_id' => $s->id,
+                        'role' => 'add',
+                        'display_order' => $index,
+                    ])->all());
+                } else {
+                    $paid->update(['is_payment_paid' => true]);
+                }
+            }
         });
     }
 
@@ -221,6 +265,49 @@ class ShopSettlementService
                 ->first()
             ?? ShopCashbookRelation::query()
                 ->where('shop_id', $shopId)
+                ->where('enabled', true)
+                ->with('items.setting.entryType')
+                ->first();
+    }
+
+    public function getDefaultPaymentPayable(int $shopId): ?ShopCashbookRelation
+    {
+        return ShopCashbookRelation::query()
+            ->where('shop_id', $shopId)
+            ->where('is_payment_payable', true)
+            ->where('enabled', true)
+            ->with('items.setting.entryType')
+            ->first()
+            ?? ShopCashbookRelation::query()
+                ->where('shop_id', $shopId)
+                ->where('is_payment_payable', true)
+                ->with('items.setting.entryType')
+                ->first()
+            ?? $this->getCompanyPayableSettlement($shopId);
+    }
+
+    public function getDefaultPaymentPaid(int $shopId): ?ShopCashbookRelation
+    {
+        return ShopCashbookRelation::query()
+            ->where('shop_id', $shopId)
+            ->where('is_payment_paid', true)
+            ->where('enabled', true)
+            ->with('items.setting.entryType')
+            ->first()
+            ?? ShopCashbookRelation::query()
+                ->where('shop_id', $shopId)
+                ->where('is_payment_paid', true)
+                ->with('items.setting.entryType')
+                ->first()
+            ?? ShopCashbookRelation::query()
+                ->where('shop_id', $shopId)
+                ->where('relation_type', 'default_payment_paid')
+                ->where('enabled', true)
+                ->with('items.setting.entryType')
+                ->first()
+            ?? ShopCashbookRelation::query()
+                ->where('shop_id', $shopId)
+                ->where('name', 'like', '%Paid%')
                 ->where('enabled', true)
                 ->with('items.setting.entryType')
                 ->first();
@@ -272,6 +359,24 @@ class ShopSettlementService
                 $relation->is_net_balance = true;
             } elseif (isset($data['is_net_balance']) && ! $data['is_net_balance']) {
                 $relation->is_net_balance = false;
+            }
+
+            if (! empty($data['is_payment_payable'])) {
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                    ->where('id', '!=', $relation->id)
+                    ->update(['is_payment_payable' => false]);
+                $relation->is_payment_payable = true;
+            } elseif (isset($data['is_payment_payable']) && ! $data['is_payment_payable']) {
+                $relation->is_payment_payable = false;
+            }
+
+            if (! empty($data['is_payment_paid'])) {
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                    ->where('id', '!=', $relation->id)
+                    ->update(['is_payment_paid' => false]);
+                $relation->is_payment_paid = true;
+            } elseif (isset($data['is_payment_paid']) && ! $data['is_payment_paid']) {
+                $relation->is_payment_paid = false;
             }
 
             $relation->fill(['name' => $data['name'], 'enabled' => $data['enabled']])->save();
@@ -514,6 +619,691 @@ class ShopSettlementService
                 'relation_name' => $relation->name,
             ])->log('Settlement marked as Net Balance');
         });
+    }
+
+    public function setDefaultPaymentPayable(ShopLedgerProfile $profile, ShopCashbookRelation $relation): void
+    {
+        DB::transaction(function () use ($profile, $relation): void {
+            ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                ->update(['is_payment_payable' => false]);
+
+            ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                ->whereKey($relation->id)
+                ->update(['is_payment_payable' => true]);
+
+            activity('cashbook_settlement')->performedOn($relation)->withProperties([
+                'shop_id' => $profile->shop_id,
+                'relation_name' => $relation->name,
+            ])->log('Settlement marked as Default Payment Payable');
+        });
+    }
+
+    public function setDefaultPaymentPaid(ShopLedgerProfile $profile, ShopCashbookRelation $relation): void
+    {
+        DB::transaction(function () use ($profile, $relation): void {
+            ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                ->update(['is_payment_paid' => false]);
+
+            ShopCashbookRelation::where('shop_id', $profile->shop_id)
+                ->whereKey($relation->id)
+                ->update(['is_payment_paid' => true]);
+
+            activity('cashbook_settlement')->performedOn($relation)->withProperties([
+                'shop_id' => $profile->shop_id,
+                'relation_name' => $relation->name,
+            ])->log('Settlement marked as Default Payment Paid');
+        });
+    }
+
+    /**
+     * Get the configured payment settlement relation for a shop.
+     */
+    public function getPaymentSettlement(ShopLedgerProfile|Shop|int $shop): ?ShopCashbookRelation
+    {
+        $shopId = $shop instanceof Shop ? (int) $shop->id : ($shop instanceof ShopLedgerProfile ? (int) $shop->shop_id : (int) $shop);
+        $profile = $shop instanceof ShopLedgerProfile ? $shop : ShopLedgerProfile::query()->where('shop_id', $shopId)->first();
+        if ($profile) {
+            $this->ensureDefaults($profile);
+        }
+
+        $config = $profile ? $profile->getPaymentConfiguration() : [];
+
+        $settlementId = $config['payment_settlement_id'] ?? null;
+        if ($settlementId) {
+            $relation = ShopCashbookRelation::query()->where('shop_id', $shopId)->where('id', $settlementId)->first();
+            if ($relation) {
+                return $relation;
+            }
+        }
+
+        // Fallback: Check relation marked is_payment_payable = true
+        $relation = ShopCashbookRelation::query()->where('shop_id', $shopId)->where('is_payment_payable', true)->first();
+        if ($relation) {
+            return $relation;
+        }
+
+        // Safety fallback: First available relation for shop
+        return ShopCashbookRelation::query()->where('shop_id', $shopId)->first();
+    }
+
+    /**
+     * Resolve target allocation categories configured inside a given settlement relation.
+     *
+     * @return \Illuminate\Support\Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
+     */
+    public function resolveSettlementAllocationTargets(?ShopCashbookRelation $relation): \Illuminate\Support\Collection
+    {
+        if (! $relation) {
+            return collect();
+        }
+
+        $relation->loadMissing([
+            'items.setting.entryType',
+            'items.headerGroup.entrySettings.entryType',
+            'items.sourceSettlement.items.setting.entryType',
+        ]);
+
+        $targets = collect();
+
+        foreach ($relation->items as $item) {
+            if ($item->setting) {
+                $setting = $item->setting;
+                $categoryType = strtolower((string) ($setting->entryType?->category ?? ''));
+                $isExpense = $categoryType === 'expense' || $item->role === 'subtract' || (bool) $setting->include_in_expense;
+
+                if ($isExpense) {
+                    $targets->push([
+                        'id' => (int) $setting->id,
+                        'name' => $setting->displayName(),
+                        'category' => $setting->entryType?->category ?? 'expense',
+                        'role' => $item->role ?? 'subtract',
+                        'setting_id' => (int) $setting->id,
+                        'entry_type_id' => (int) $setting->entry_type_id,
+                    ]);
+                }
+            } elseif ($item->headerGroup) {
+                foreach ($item->headerGroup->entrySettings as $setting) {
+                    $categoryType = strtolower((string) ($setting->entryType?->category ?? ''));
+                    $isExpense = $categoryType === 'expense' || $item->role === 'subtract' || (bool) $setting->include_in_expense;
+
+                    if ($isExpense) {
+                        $targets->push([
+                            'id' => (int) $setting->id,
+                            'name' => $setting->displayName(),
+                            'category' => $setting->entryType?->category ?? 'expense',
+                            'role' => $item->role ?? 'subtract',
+                            'setting_id' => (int) $setting->id,
+                            'entry_type_id' => (int) $setting->entry_type_id,
+                        ]);
+                    }
+                }
+            } elseif ($item->sourceSettlement) {
+                $subTargets = $this->resolveSettlementAllocationTargets($item->sourceSettlement);
+                $targets = $targets->merge($subTargets);
+            }
+        }
+
+        return $targets->unique('id')->values();
+    }
+
+    /**
+     * Resolve the active Auto Allocation target categories configured under PAYABLE for a shop.
+     *
+     * @return \Illuminate\Support\Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
+     */
+    public function resolvePayableAllocationTargets(ShopLedgerProfile|Shop|int $shop): \Illuminate\Support\Collection
+    {
+        $shopId = $shop instanceof Shop ? (int) $shop->id : ($shop instanceof ShopLedgerProfile ? (int) $shop->shop_id : (int) $shop);
+        $profile = $shop instanceof ShopLedgerProfile ? $shop : ShopLedgerProfile::query()->where('shop_id', $shopId)->first();
+        if ($profile) {
+            $this->ensureDefaults($profile);
+        }
+
+        $config = $profile ? $profile->getPaymentConfiguration() : [];
+        $payableConfig = $config['payable'] ?? ['source' => 'settlement', 'category_ids' => [], 'settlement_id' => null];
+        $payableSource = $payableConfig['source'] ?? 'settlement';
+
+        if ($payableSource === 'categories') {
+            $categoryIds = array_values(array_map('intval', (array) ($payableConfig['category_ids'] ?? [])));
+            if (! empty($categoryIds)) {
+                $settings = ShopLedgerEntrySetting::with('entryType')
+                    ->where('shop_id', $shopId)
+                    ->whereIn('id', $categoryIds)
+                    ->get();
+
+                return $settings->map(function (ShopLedgerEntrySetting $setting): array {
+                    return [
+                        'id' => (int) $setting->id,
+                        'name' => $setting->displayName(),
+                        'category' => $setting->entryType?->category ?? 'expense',
+                        'role' => $setting->payable_direction === 'minus' ? 'subtract' : 'add',
+                        'setting_id' => (int) $setting->id,
+                        'entry_type_id' => (int) $setting->entry_type_id,
+                    ];
+                })->values();
+            }
+        }
+
+        // Source is 'settlement' or fallback
+        $settlementId = ! empty($payableConfig['settlement_id']) ? (int) $payableConfig['settlement_id'] : null;
+        $relation = $settlementId ? ShopCashbookRelation::query()->where('shop_id', $shopId)->where('id', $settlementId)->first() : null;
+
+        if (! $relation) {
+            $relation = $this->getDefaultPaymentPayable($shopId);
+        }
+
+        return $this->resolveSettlementAllocationTargets($relation);
+    }
+
+    /**
+     * Save the Payments configuration (Payment Settlement mapping, Payable, and Sales Collections).
+     *
+     * @param  array{
+     *     payment_settlement_id?: ?int,
+     *     payable?: array{source?: string, category_ids?: array<int, int>, settlement_id?: ?int},
+     *     sales_collections?: array{source?: string, direct_category_ids?: array<int, int>, cash_category_ids?: array<int, int>, settlement_id?: ?int},
+     *     direct_to_company?: array{source?: string, category_ids?: array<int, int>, settlement_id?: ?int},
+     *     paid?: array{source?: string, category_ids?: array<int, int>, settlement_id?: ?int}
+     * }  $config
+     */
+    public function savePaymentConfiguration(ShopLedgerProfile $profile, array $config): void
+    {
+        DB::transaction(function () use ($profile, $config): void {
+            $payableInput = $config['payable'] ?? [];
+            $payableSource = ($payableInput['source'] ?? '') === 'categories' ? 'categories' : 'settlement';
+            $payableSettlementId = ! empty($payableInput['settlement_id']) ? (int) $payableInput['settlement_id'] : null;
+
+            $paymentSettlementId = ! empty($config['payment_settlement_id']) ? (int) $config['payment_settlement_id'] : $payableSettlementId;
+
+            $salesInput = $config['sales_collections'] ?? [];
+            $directInput = $config['direct_to_company'] ?? $config['paid'] ?? [];
+
+            $salesSource = ($salesInput['source'] ?? ($directInput['source'] ?? 'settlement')) === 'categories' ? 'categories' : 'settlement';
+            $salesDirectIds = array_values(array_map('intval', (array) ($salesInput['direct_category_ids'] ?? ($directInput['category_ids'] ?? []))));
+            $salesCashIds = array_values(array_map('intval', (array) ($salesInput['cash_category_ids'] ?? [])));
+            $salesSettlementId = ! empty($salesInput['settlement_id']) ? (int) $salesInput['settlement_id'] : (! empty($directInput['settlement_id']) ? (int) $directInput['settlement_id'] : null);
+
+            $directClean = [
+                'source' => $salesSource,
+                'category_ids' => $salesDirectIds,
+                'settlement_id' => $salesSettlementId,
+            ];
+
+            $salesClean = [
+                'source' => $salesSource,
+                'direct_category_ids' => $salesDirectIds,
+                'cash_category_ids' => $salesCashIds,
+                'category_ids' => $salesDirectIds,
+                'settlement_id' => $salesSettlementId,
+            ];
+
+            $cleanConfig = [
+                'payment_settlement_id' => $paymentSettlementId,
+                'payable' => [
+                    'source' => $payableSource,
+                    'category_ids' => array_values(array_map('intval', (array) ($payableInput['category_ids'] ?? []))),
+                    'settlement_id' => $payableSettlementId,
+                ],
+                'sales_collections' => $salesClean,
+                'direct_to_company' => $directClean,
+                'paid' => $directClean,
+            ];
+
+            $profile->update(['payment_configuration' => $cleanConfig]);
+
+            // Sync is_payment_payable flag on relations
+            if ($cleanConfig['payable']['source'] === 'settlement' && $cleanConfig['payable']['settlement_id']) {
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)->update(['is_payment_payable' => false]);
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)->whereKey($cleanConfig['payable']['settlement_id'])->update(['is_payment_payable' => true]);
+            }
+
+            if ($cleanConfig['direct_to_company']['source'] === 'settlement' && $cleanConfig['direct_to_company']['settlement_id']) {
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)->update(['is_payment_paid' => false]);
+                ShopCashbookRelation::where('shop_id', $profile->shop_id)->whereKey($cleanConfig['direct_to_company']['settlement_id'])->update(['is_payment_paid' => true]);
+            }
+
+            activity('cashbook_settings')->performedOn($profile)->withProperties([
+                'shop_id' => $profile->shop_id,
+                'payment_configuration' => $cleanConfig,
+            ])->log('Updated shop payments configuration');
+        });
+    }
+
+    /**
+     * Calculate shop payments:
+     * - Payable: Expenses configured for payment/allocation
+     * - Sales Collections: Direct to Company (Paytm/Card/UPI) + Cash in Shop
+     * - Direct to Company: Bank-connected collections (auto received)
+     * - Manual Payments: Cash / Shop Balance manually sent later to company
+     * - Shop Balance: Opening + Money Kept by Shop - Expenses Paid - Manual Received
+     *
+     * @return array{
+     *     payable: float,
+     *     direct_to_company: float,
+     *     paid: float,
+     *     total_sales: float,
+     *     cash_in_shop: float,
+     *     shop_collections: float,
+     *     sales_collections: array{total_sales: float, direct_to_company: float, cash_in_shop: float, items: array<int, array<string, mixed>>},
+     *     sales_collection_items: array<int, array<string, mixed>>,
+     *     cash_collection_items: array<int, array<string, mixed>>,
+     *     manual_payments: array{total: float, received: float, pending: float, requests: \Illuminate\Support\Collection<int, ShopInvoicePaymentRequest>},
+     *     manual_total: float,
+     *     manual_received: float,
+     *     manual_pending: float,
+     *     manual_requests: \Illuminate\Support\Collection<int, ShopInvoicePaymentRequest>,
+     *     shop_balance: float,
+     *     payable_source: string,
+     *     sales_source: string,
+     *     direct_to_company_source: string,
+     *     paid_source: string,
+     *     payable_relation: ?ShopCashbookRelation,
+     *     direct_relation: ?ShopCashbookRelation,
+     *     paid_relation: ?ShopCashbookRelation,
+     *     payable_items: array<int, array<string, mixed>>,
+     *     direct_to_company_items: array<int, array<string, mixed>>,
+     *     direct_items: array<int, array<string, mixed>>,
+     *     paid_items: array<int, array<string, mixed>>,
+     *     expense_payables: array<int, array<string, mixed>>,
+     *     settled_expenses: array<int, array<string, mixed>>
+     * }
+     */
+    public function calculateShopPayments(int $shopId, string $startDate, string $endDate): array
+    {
+        $profile = ShopLedgerProfile::where('shop_id', $shopId)->first();
+        $config = $profile?->getPaymentConfiguration() ?? [
+            'payable' => ['source' => 'settlement', 'category_ids' => [], 'settlement_id' => null],
+            'sales_collections' => ['source' => 'settlement', 'direct_category_ids' => [], 'cash_category_ids' => [], 'settlement_id' => null],
+            'direct_to_company' => ['source' => 'settlement', 'category_ids' => [], 'settlement_id' => null],
+            'paid' => ['source' => 'settlement', 'category_ids' => [], 'settlement_id' => null],
+        ];
+
+        $totals = ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->whereIn('status', ['posted', 'approved'])
+            ->whereNull('voided_at')
+            ->selectRaw('entry_type_id, SUM(amount) as total')
+            ->groupBy('entry_type_id')
+            ->pluck('total', 'entry_type_id');
+
+        $amounts = [];
+        $settings = ShopLedgerEntrySetting::with(['entryType', 'companyAccount'])->where('shop_id', $shopId)->get();
+        foreach ($settings as $setting) {
+            $amounts[$setting->id] = (float) ($totals[$setting->entry_type_id] ?? 0);
+        }
+
+        // 1. Calculate Payable (expenses configured for payment/allocation)
+        $payableConfig = $config['payable'];
+        $payableSource = $payableConfig['source'];
+        $payableRelation = null;
+        $payableItems = [];
+        $payable = 0.0;
+
+        if ($payableSource === 'categories') {
+            $categoryIds = array_map('intval', (array) ($payableConfig['category_ids'] ?? []));
+            $selectedSettings = $settings->whereIn('id', $categoryIds);
+            foreach ($selectedSettings as $s) {
+                $amt = round((float) ($amounts[$s->id] ?? 0.0), 2);
+                $payable += $amt;
+                $payableItems[] = [
+                    'id' => $s->id,
+                    'entry_setting_id' => $s->id,
+                    'name' => $s->displayName(),
+                    'code' => $s->entryType?->code ?? '',
+                    'category' => $s->entryType?->category ?? '',
+                    'amount' => $amt,
+                    'role' => 'add',
+                ];
+            }
+            $payable = round($payable, 2);
+        } else {
+            $settlementId = $payableConfig['settlement_id'] ?? null;
+            if ($settlementId) {
+                $payableRelation = ShopCashbookRelation::where('shop_id', $shopId)->where('id', $settlementId)->first();
+            }
+            if (! $payableRelation) {
+                $payableRelation = $this->getDefaultPaymentPayable($shopId);
+            }
+            $payableCalc = $payableRelation ? $this->calculator->calculate($payableRelation, $amounts) : [
+                'netSettlement' => 0.0,
+                'items' => [],
+            ];
+            $payable = round((float) ($payableCalc['netSettlement'] ?? 0.0), 2);
+            $payableItems = $payableCalc['items'] ?? [];
+        }
+
+        // 2. Calculate Sales Collections (Direct to Company + Cash in Shop)
+        $salesConfig = $config['sales_collections'] ?? [];
+        $directConfig = $config['direct_to_company'] ?? $config['paid'];
+        $salesSource = $salesConfig['source'] ?? ($directConfig['source'] ?? 'settlement');
+        $salesDirectIds = array_map('intval', (array) ($salesConfig['direct_category_ids'] ?? ($directConfig['category_ids'] ?? [])));
+        $salesCashIds = array_map('intval', (array) ($salesConfig['cash_category_ids'] ?? []));
+
+        $directRelation = null;
+        $directItems = [];
+        $cashItems = [];
+        $directToCompany = 0.0;
+        $cashInShop = 0.0;
+
+        if ($salesSource === 'categories') {
+            // Direct to Company
+            $selectedDirectSettings = $settings->whereIn('id', $salesDirectIds);
+            foreach ($selectedDirectSettings as $s) {
+                // Enforce Cash rule: Pure cash categories stay with shop and are excluded
+                $isCash = $s->company_account_id === null && (
+                    str_contains(strtolower($s->displayName()), 'cash')
+                    || str_contains(strtolower($s->entryType?->code ?? ''), 'cash')
+                    || strtolower((string) ($s->default_funding_source ?? '')) === 'shop_cash'
+                );
+                if ($isCash) {
+                    continue;
+                }
+
+                $amt = round((float) ($amounts[$s->id] ?? 0.0), 2);
+                $directToCompany += $amt;
+                $bankName = $s->companyAccount?->bank_name ?: $s->companyAccount?->name;
+                $directItems[] = [
+                    'id' => $s->id,
+                    'entry_setting_id' => $s->id,
+                    'name' => $s->displayName(),
+                    'code' => $s->entryType?->code ?? '',
+                    'category' => $s->entryType?->category ?? '',
+                    'bank_name' => $bankName,
+                    'is_direct' => true,
+                    'collection_type' => 'direct',
+                    'destination_label' => $bankName ? 'Direct to Company · '.$bankName : 'Direct to Company',
+                    'amount' => $amt,
+                    'role' => 'add',
+                ];
+            }
+            $directToCompany = round($directToCompany, 2);
+
+            // Cash / Shop Collections
+            if (! empty($salesCashIds)) {
+                $selectedCashSettings = $settings->whereIn('id', $salesCashIds);
+            } else {
+                $selectedCashSettings = $settings->filter(function ($s) {
+                    return $s->company_account_id === null && (
+                        str_contains(strtolower($s->displayName()), 'cash')
+                        || str_contains(strtolower($s->entryType?->code ?? ''), 'cash')
+                        || in_array(strtolower((string) ($s->default_funding_source ?? '')), ['shop_cash', 'cash', 'sales'], true)
+                        || in_array(strtolower((string) ($s->entryType?->category ?? '')), ['income', 'sales'], true)
+                    );
+                });
+            }
+
+            foreach ($selectedCashSettings as $s) {
+                $amt = round((float) ($amounts[$s->id] ?? 0.0), 2);
+                $cashInShop += $amt;
+                $cashItems[] = [
+                    'id' => $s->id,
+                    'entry_setting_id' => $s->id,
+                    'name' => $s->displayName(),
+                    'code' => $s->entryType?->code ?? '',
+                    'category' => $s->entryType?->category ?? '',
+                    'bank_name' => null,
+                    'is_direct' => false,
+                    'collection_type' => 'cash',
+                    'destination_label' => 'Stays with Shop',
+                    'amount' => $amt,
+                    'role' => 'add',
+                ];
+            }
+            $cashInShop = round($cashInShop, 2);
+        } else {
+            $settlementId = $salesConfig['settlement_id'] ?? ($directConfig['settlement_id'] ?? null);
+            if ($settlementId) {
+                $directRelation = ShopCashbookRelation::where('shop_id', $shopId)->where('id', $settlementId)->first();
+            }
+            if (! $directRelation) {
+                $directRelation = $this->getDefaultPaymentPaid($shopId);
+            }
+            $directCalc = $directRelation ? $this->calculator->calculate($directRelation, $amounts) : [
+                'netSettlement' => 0.0,
+                'items' => [],
+            ];
+            $directToCompany = round((float) ($directCalc['netSettlement'] ?? 0.0), 2);
+            $rawItems = $directCalc['items'] ?? [];
+            foreach ($rawItems as $item) {
+                $settingId = $item['setting_id'] ?? $item['shop_ledger_entry_setting_id'] ?? null;
+                $settingObj = $settingId ? $settings->firstWhere('id', $settingId) : null;
+                $bankName = $settingObj?->companyAccount?->bank_name ?: $settingObj?->companyAccount?->name;
+                $item['bank_name'] = $bankName;
+                $item['is_direct'] = true;
+                $item['collection_type'] = 'direct';
+                $item['destination_label'] = $bankName ? 'Direct to Company · '.$bankName : 'Direct to Company';
+                $directItems[] = $item;
+            }
+
+            // Cash in shop for settlement mode: auto-detect cash categories
+            $cashSettings = $settings->filter(function ($s) {
+                return $s->company_account_id === null && (
+                    str_contains(strtolower($s->displayName()), 'cash')
+                    || str_contains(strtolower($s->entryType?->code ?? ''), 'cash')
+                    || in_array(strtolower((string) ($s->default_funding_source ?? '')), ['shop_cash', 'cash', 'sales'], true)
+                    || in_array(strtolower((string) ($s->entryType?->category ?? '')), ['income', 'sales'], true)
+                );
+            });
+            foreach ($cashSettings as $s) {
+                $amt = round((float) ($amounts[$s->id] ?? 0.0), 2);
+                $cashInShop += $amt;
+                $cashItems[] = [
+                    'id' => $s->id,
+                    'entry_setting_id' => $s->id,
+                    'name' => $s->displayName(),
+                    'code' => $s->entryType?->code ?? '',
+                    'category' => $s->entryType?->category ?? '',
+                    'bank_name' => null,
+                    'is_direct' => false,
+                    'collection_type' => 'cash',
+                    'destination_label' => 'Stays with Shop',
+                    'amount' => $amt,
+                    'role' => 'add',
+                ];
+            }
+            $cashInShop = round($cashInShop, 2);
+        }
+
+        $totalSales = round($directToCompany + $cashInShop, 2);
+        $salesCollectionItems = array_merge($directItems, $cashItems);
+
+        // 3. Calculate Manual Payments (Cash / Shop Balance manually sent later to company)
+        $manualRequests = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->where('status', '!=', 'rejected')
+            ->where(function ($query) use ($startDate, $endDate): void {
+                $query->whereBetween('payment_date', [$startDate, $endDate])
+                    ->orWhereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
+            })
+            ->latest('id')
+            ->get();
+
+        $manualReceived = round((float) $manualRequests->where('status', 'approved')->sum(function (ShopInvoicePaymentRequest $r): float {
+            return (float) ($r->reconciled_amount > 0 ? $r->reconciled_amount : $r->requested_amount);
+        }), 2);
+        $manualPending = round((float) $manualRequests->where('status', 'pending')->sum('requested_amount'), 2);
+        $manualTotal = round($manualReceived + $manualPending, 2);
+
+        // 4. Calculate Total Collections & Money Kept by Shop
+        $totalCollections = (float) ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->whereIn('status', ['posted', 'approved'])
+            ->whereNull('voided_at')
+            ->where(function ($q): void {
+                $q->where('direction', 'income')
+                    ->orWhere('affects_income', true)
+                    ->orWhere('affects_sales', true);
+            })
+            ->sum('amount');
+        $moneyKeptByShop = max(0.0, round($totalCollections - $directToCompany, 2));
+
+        // 5. Calculate Expenses Paid from Shop Balance
+        $expensesPaid = (float) ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->whereIn('status', ['posted', 'approved'])
+            ->whereNull('voided_at')
+            ->where('direction', 'expense')
+            ->whereIn('funding_source', ['shop_cash', 'shop_balance', 'bank'])
+            ->sum('amount');
+        $expensesPaid = round($expensesPaid, 2);
+
+        // 6. Calculate Opening Shop Position
+        $previousSnapshot = ShopDailyLedgerSnapshot::query()
+            ->where('shop_id', $shopId)
+            ->where('business_date', '<', $startDate)
+            ->orderByDesc('business_date')
+            ->first();
+        $openingShopPosition = (float) ($previousSnapshot?->closing_shop_position ?? 0.0);
+
+        // 7. Calculate Correct Shop Balance: Money Kept by Shop - (Expenses Paid + Manual Remittances Received)
+        $shopBalance = round($openingShopPosition + $moneyKeptByShop - $expensesPaid - $manualReceived, 2);
+
+        // 8. Build Expense Payables & Settled Expenses breakdown grouped by configured PAYABLE category
+        $expensePayables = [];
+        $settledExpenses = [];
+
+        $payableTargets = $this->resolvePayableAllocationTargets($shopId);
+        $targetEntryTypeIds = $payableTargets->pluck('entry_type_id')->filter()->unique()->values()->all();
+
+        if (! empty($targetEntryTypeIds)) {
+            $expenseTransactions = ShopLedgerTransaction::query()
+                ->with(['entryType'])
+                ->where('shop_id', $shopId)
+                ->whereIn('entry_type_id', $targetEntryTypeIds)
+                ->whereBetween('business_date', [$startDate, $endDate])
+                ->whereIn('status', ['posted', 'approved'])
+                ->whereNull('voided_at')
+                ->where('direction', 'expense')
+                ->whereNull('company_account_id')
+                ->orderBy('business_date', 'asc')
+                ->orderBy('id', 'asc')
+                ->get();
+
+            $txIds = $expenseTransactions->pluck('id')->all();
+            $allocationsByTx = [];
+            if (! empty($txIds)) {
+                $allocationsByTx = ShopPaymentLedgerAllocation::query()
+                    ->where('shop_id', $shopId)
+                    ->whereIn('shop_ledger_transaction_id', $txIds)
+                    ->selectRaw('shop_ledger_transaction_id, SUM(amount) as total_allocated')
+                    ->groupBy('shop_ledger_transaction_id')
+                    ->pluck('total_allocated', 'shop_ledger_transaction_id')
+                    ->all();
+            }
+
+            foreach ($payableTargets as $target) {
+                $entryTypeId = (int) $target['entry_type_id'];
+                $categoryTxs = $expenseTransactions->where('entry_type_id', $entryTypeId);
+
+                $totalRecorded = round((float) $categoryTxs->sum('amount'), 2);
+                if ($totalRecorded <= 0.0) {
+                    continue;
+                }
+
+                $totalPaid = round((float) $categoryTxs->sum(function ($tx) use ($allocationsByTx): float {
+                    return (float) ($allocationsByTx[$tx->id] ?? 0.0);
+                }), 2);
+
+                $remainingAmt = max(0.0, round($totalRecorded - $totalPaid, 2));
+                $settingId = (int) ($target['setting_id'] ?? $target['id']);
+                $categoryName = (string) $target['name'];
+
+                // 1. Add to Expense Payables if category has any remaining unpaid balance
+                if ($remainingAmt > 0.001) {
+                    $status = $totalPaid > 0 ? 'partial' : 'unpaid';
+                    $expensePayables[] = [
+                        'id' => $settingId,
+                        'entry_setting_id' => $settingId,
+                        'entry_type_id' => $entryTypeId,
+                        'name' => $categoryName,
+                        'category' => $target['category'] ?? 'expense',
+                        'amount' => $totalRecorded,
+                        'recorded_amount' => $totalRecorded,
+                        'paid_amount' => $totalPaid,
+                        'remaining_amount' => $remainingAmt,
+                        'status' => $status,
+                        'status_label' => $status === 'partial' ? 'Partial' : 'Unpaid',
+                        'role' => $target['role'] ?? 'subtract',
+                        'transaction_count' => $categoryTxs->count(),
+                    ];
+                }
+
+                // 2. Add to Settled Expenses for fully settled transactions in this category
+                $settledTxs = $categoryTxs->filter(function ($tx) use ($allocationsByTx): bool {
+                    $rec = round((float) $tx->amount, 2);
+                    $alloc = round((float) ($allocationsByTx[$tx->id] ?? 0.0), 2);
+
+                    return ($rec - $alloc) <= 0.001;
+                });
+
+                if ($settledTxs->isNotEmpty()) {
+                    $settledAmount = round((float) $settledTxs->sum('amount'), 2);
+                    $settledExpenses[] = [
+                        'id' => $settingId,
+                        'entry_setting_id' => $settingId,
+                        'entry_type_id' => $entryTypeId,
+                        'name' => $categoryName,
+                        'category' => $target['category'] ?? 'expense',
+                        'amount' => $settledAmount,
+                        'recorded_amount' => $settledAmount,
+                        'settled_amount' => $settledAmount,
+                        'paid_amount' => $settledAmount,
+                        'remaining_amount' => 0.0,
+                        'status' => 'paid',
+                        'status_label' => 'Settled',
+                        'role' => $target['role'] ?? 'subtract',
+                        'settled_count' => $settledTxs->count(),
+                        'transaction_count' => $settledTxs->count(),
+                    ];
+                }
+            }
+        }
+
+        return [
+            'payable' => $payable,
+            'direct_to_company' => $directToCompany,
+            'paid' => $directToCompany,
+            'total_sales' => $totalSales,
+            'cash_in_shop' => $cashInShop,
+            'shop_collections' => $cashInShop,
+            'sales_collections' => [
+                'total_sales' => $totalSales,
+                'direct_to_company' => $directToCompany,
+                'cash_in_shop' => $cashInShop,
+                'items' => $salesCollectionItems,
+            ],
+            'sales_collection_items' => $salesCollectionItems,
+            'cash_collection_items' => $cashItems,
+            'money_kept_by_shop' => $moneyKeptByShop,
+            'expenses_paid' => $expensesPaid,
+            'manual_payments' => [
+                'total' => $manualTotal,
+                'received' => $manualReceived,
+                'pending' => $manualPending,
+                'requests' => $manualRequests,
+            ],
+            'manual_total' => $manualTotal,
+            'manual_received' => $manualReceived,
+            'manual_pending' => $manualPending,
+            'manual_requests' => $manualRequests,
+            'shop_balance' => $shopBalance,
+            'payable_source' => $payableSource,
+            'sales_source' => $salesSource,
+            'direct_to_company_source' => $salesSource,
+            'paid_source' => $salesSource,
+            'payable_relation' => $payableRelation,
+            'direct_relation' => $directRelation,
+            'paid_relation' => $directRelation,
+            'payable_items' => $payableItems,
+            'expense_payables' => $expensePayables,
+            'settled_expenses' => $settledExpenses,
+            'direct_items' => $directItems,
+            'direct_to_company_items' => $directItems,
+            'paid_items' => $directItems,
+        ];
     }
 
     /**

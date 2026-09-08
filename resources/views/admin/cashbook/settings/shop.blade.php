@@ -88,6 +88,13 @@
 @endphp
 
 <div class="space-y-8">
+    {{-- Shared Settings Tabs --}}
+    @include('admin.cashbook.settings.partials.tabs', [
+        'activeTab' => 'categories',
+        'shopKey' => $currentShop->slug ?: $currentShop->shop_id,
+        'currentShop' => $currentShop
+    ])
+
     <!-- Header & Shop Selection -->
     <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -117,6 +124,7 @@
                     <a href="#income-sales" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100">Income &amp; Sales</a>
                     <a href="#expenses" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100">Expenses</a>
                     <a href="#transfers-settlements" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100">Transfers &amp; Settlements</a>
+                    <a href="{{ route('admin.cashbook.settings.shop.payments.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 hover:bg-violet-100">Payments &rarr;</a>
                     <a href="#collection" class="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 hover:bg-sky-100">Collection Form</a>
                     <a href="#historical-fetch" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">Historical Fetch</a>
                     <a href="#instructions-guide" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 hover:bg-amber-100 inline-flex items-center gap-1">
@@ -524,6 +532,27 @@
             <p class="text-sm text-slate-600">Configure Income, Expense, and custom settlements by adding or subtracting categories. Only enabled settlement results appear in the summary.</p>
             <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex rounded-xl bg-indigo-700 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-800">Manage Settlements</a>
         </div>
+    </section>
+
+    <!-- SECTION — Shop Payments Configuration Callout -->
+    <section id="payments" class="rounded-3xl border border-violet-200 bg-gradient-to-r from-violet-50/80 via-white to-indigo-50/60 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div class="flex items-center gap-3.5">
+            <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-100 text-violet-800 border border-violet-200 shadow-2xs shrink-0">
+                <i data-lucide="wallet" class="h-5 w-5"></i>
+            </span>
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-black uppercase tracking-widest text-violet-700">Dedicated Section</span>
+                    <span class="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700 border border-emerald-200">Payments Tab</span>
+                </div>
+                <h2 class="text-base font-extrabold text-slate-950 mt-0.5">Shop Payments Configuration</h2>
+                <p class="text-xs text-slate-600 font-medium">Configure Payable, Direct to Company (bank connections), and Manual Remittances on the dedicated Payments page.</p>
+            </div>
+        </div>
+        <a href="{{ route('admin.cashbook.settings.shop.payments.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex items-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-xs font-black text-white hover:bg-violet-800 transition shadow-xs shrink-0 cursor-pointer">
+            <span>Manage Payments</span>
+            <i data-lucide="arrow-right" class="h-4 w-4"></i>
+        </a>
     </section>
 
     <!-- Collection Form Configuration -->
@@ -3034,6 +3063,90 @@ function updateAdjRuleButtonCount(entryTypeId, count) {
             btn.className = 'inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200';
         }
         if (window.lucide) lucide.createIcons();
+    }
+}
+
+function togglePaymentsSource(type, source) {
+    const categoriesPanel = document.getElementById(`${type}-categories-panel`);
+    const settlementPanel = document.getElementById(`${type}-settlement-panel`);
+    if (source === 'categories') {
+        categoriesPanel?.classList.remove('hidden');
+        settlementPanel?.classList.add('hidden');
+    } else {
+        categoriesPanel?.classList.add('hidden');
+        settlementPanel?.classList.remove('hidden');
+    }
+}
+
+function selectAllPayableExpenseCategories() {
+    document.querySelectorAll('.payable-category-checkbox[data-is-expense="1"]').forEach(cb => {
+        cb.checked = true;
+    });
+}
+
+async function savePaymentsSettings(e) {
+    e.preventDefault();
+    const btn = document.getElementById('save-payments-settings-btn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span>Saving...</span>`;
+
+    const payableSource = document.querySelector('input[name="payable_source"]:checked')?.value || 'settlement';
+    const directSource = document.querySelector('input[name="direct_source"]:checked')?.value || document.querySelector('input[name="paid_source"]:checked')?.value || 'settlement';
+
+    const payableCategoryIds = Array.from(document.querySelectorAll('input[name="payable_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
+    const directCategoryIds = Array.from(document.querySelectorAll('input[name="direct_category_ids[]"]:checked, input[name="paid_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
+
+    const payableSettlementId = document.getElementById('payable_settlement_id')?.value || null;
+    const directSettlementId = document.getElementById('direct_settlement_id')?.value || document.getElementById('paid_settlement_id')?.value || null;
+
+    const directPayload = {
+        source: directSource,
+        category_ids: directCategoryIds,
+        settlement_id: directSettlementId
+    };
+
+    const payload = {
+        payable: {
+            source: payableSource,
+            category_ids: payableCategoryIds,
+            settlement_id: payableSettlementId
+        },
+        direct_to_company: directPayload,
+        paid: directPayload
+    };
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
+    const url = '{{ route('admin.cashbook.settings.shop.payments-configuration.save', $currentShop->slug ?: $currentShop->shop_id) }}';
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (response.ok && data.success) {
+            if (window.showToast) {
+                showToast(data.message || 'Payments configuration saved successfully.', 'success');
+            } else {
+                alert(data.message || 'Payments configuration saved successfully.');
+            }
+        } else {
+            alert(data.message || 'Failed to save payments configuration.');
+        }
+    } catch (err) {
+        console.error(err);
+        alert('An error occurred while saving payments configuration.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
     }
 }
 

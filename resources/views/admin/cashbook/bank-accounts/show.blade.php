@@ -147,7 +147,9 @@
                 @php
                     $isTx = $entry->source_type === 'App\Models\Cashbook\ShopLedgerTransaction' && $entry->source_id;
                     $shopName = $entry->sourceRecord?->shop?->name ?? 'Company';
-                    $methodName = $entry->sourceRecord?->entryType?->name ?? ($entry->direction === 'in' ? 'Deposit' : 'Payment');
+                    $methodName = $entry->sourceRecord?->entryType?->name
+                        ?? (is_object($entry->sourceRecord) && method_exists($entry->sourceRecord, 'paymentMethodLabel') ? $entry->sourceRecord->paymentMethodLabel() : null)
+                        ?? ($entry->direction === 'in' ? 'Deposit' : 'Payment');
                     $detailUrl = $isTx
                         ? route('admin.cashbook.transaction.show', $entry->source_id)
                         : route('admin.cashbook.bank-accounts.statement', ['account' => $account, 'month' => $entry->transaction_date?->format('Y-m')]);

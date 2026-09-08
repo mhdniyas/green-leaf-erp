@@ -8,6 +8,7 @@ use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\CompanyExpenseLedgerAllocation;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
@@ -53,9 +54,33 @@ class ShopPaymentLedgerReconciliationService
      */
     public function getOpenDailySettlements(int $shopId, ?string $month = null): Collection
     {
-        $query = ShopLedgerTransaction::query()
+        $targetCategories = app(ShopSettlementService::class)->resolvePayableAllocationTargets($shopId);
+        $targetEntryTypeIds = $targetCategories->pluck('entry_type_id')->filter()->unique()->all();
+
+        // Direct-to-company settings exclude any setting with company_account_id
+        $directEntryTypeIds = ShopLedgerEntrySetting::query()
             ->where('shop_id', $shopId)
-            ->whereNotIn('status', ['void', 'voided', 'reversed']);
+            ->whereNotNull('company_account_id')
+            ->pluck('entry_type_id')
+            ->all();
+
+        $eligibleEntryTypeIds = array_values(array_diff($targetEntryTypeIds, $directEntryTypeIds));
+
+        $query = ShopLedgerTransaction::query()
+            ->with(['entryType'])
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->whereNull('company_account_id');
+
+        if (! empty($eligibleEntryTypeIds)) {
+            $query->whereIn('entry_type_id', $eligibleEntryTypeIds);
+        } else {
+            $query->where(function ($q) {
+                $q->where('direction', 'expense')
+                    ->orWhere('affects_expense', true)
+                    ->orWhere('settlement_delta', '>', 0);
+            });
+        }
 
         if ($month) {
             $monthStart = Carbon::parse($month.'-01')->startOfMonth()->toDateString();
@@ -63,67 +88,41 @@ class ShopPaymentLedgerReconciliationService
             $query->whereBetween('business_date', [$monthStart, $monthEnd]);
         }
 
-        $dates = $query->distinct()
-            ->pluck('business_date')
-            ->map(fn ($d) => Carbon::parse($d)->toDateString())
-            ->unique()
-            ->sort()
-            ->values();
+        $transactions = $query
+            ->orderBy('business_date', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
 
         $openSettlements = collect();
 
-        foreach ($dates as $dateStr) {
-            // Canonical Company Payable calculated through existing settlement engine
-            $daySummary = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $dateStr);
-            $settlementSummary = $daySummary['settlement_summary'] ?? [];
-            $canonicalCompanyPayable = round((float) ($settlementSummary['expected_payable'] ?? 0.0), 2);
-            $grossSales = round((float) ($settlementSummary['gross_sales'] ?? 0.0), 2);
-            $deductions = round((float) ($settlementSummary['settlement_deductions'] ?? 0.0), 2);
+        foreach ($transactions as $tx) {
+            $alreadyAllocated = round((float) ShopPaymentLedgerAllocation::query()
+                ->where('shop_ledger_transaction_id', $tx->id)
+                ->sum('amount'), 2);
 
-            if ($canonicalCompanyPayable <= 0.0) {
+            $originalAmount = round((float) ($tx->settlement_delta > 0 ? $tx->settlement_delta : $tx->amount), 2);
+            $remainingDue = round(max(0, $originalAmount - $alreadyAllocated), 2);
+
+            if ($remainingDue <= self::ALLOCATION_TOLERANCE) {
                 continue;
             }
 
-            // Confirmed allocations already linked to this day
-            $alreadyAllocated = round((float) ShopPaymentLedgerAllocation::query()
-                ->where('shop_id', $shopId)
-                ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $dateStr))
-                ->sum('amount'), 2);
+            $dateStr = $tx->business_date?->toDateString();
 
-            $remainingDue = round(max(0, $canonicalCompanyPayable - $alreadyAllocated), 2);
-
-            // Find representative transaction for this business date
-            $representativeTx = ShopLedgerTransaction::query()
-                ->where('shop_id', $shopId)
-                ->whereDate('business_date', $dateStr)
-                ->whereNotIn('status', ['void', 'voided', 'reversed'])
-                ->where(function ($q) {
-                    $q->where('settlement_delta', '>', 0)
-                        ->orWhere('direction', 'income')
-                        ->orWhere('affects_sales', true);
-                })
-                ->oldest('id')
-                ->first() ?? ShopLedgerTransaction::query()
-                ->where('shop_id', $shopId)
-                ->whereDate('business_date', $dateStr)
-                ->whereNotIn('status', ['void', 'voided', 'reversed'])
-                ->oldest('id')
-                ->first();
-
-            if ($representativeTx) {
-                $openSettlements->push([
-                    'id' => (int) $representativeTx->id,
-                    'business_date' => $dateStr,
-                    'formatted_date' => Carbon::parse($dateStr)->format('d M Y'),
-                    'company_payable' => $canonicalCompanyPayable,
-                    'gross_sales' => $grossSales,
-                    'deductions' => $deductions,
-                    'already_allocated' => $alreadyAllocated,
-                    'remaining_due' => $remainingDue,
-                    'remaining_amount' => $remainingDue,
-                    'entry_name' => 'Company Payable',
-                ]);
-            }
+            $openSettlements->push([
+                'id' => (int) $tx->id,
+                'business_date' => $dateStr,
+                'formatted_date' => $tx->business_date ? Carbon::parse($dateStr)->format('d M Y') : '',
+                'company_payable' => $originalAmount,
+                'original_amount' => $originalAmount,
+                'gross_sales' => $originalAmount,
+                'deductions' => 0.0,
+                'already_allocated' => $alreadyAllocated,
+                'remaining_due' => $remainingDue,
+                'remaining_amount' => $remainingDue,
+                'entry_name' => $tx->entryType?->name ?? 'Expense',
+                'entry_setting_id' => $tx->entry_type_id,
+            ]);
         }
 
         return $openSettlements;
@@ -417,28 +416,33 @@ class ShopPaymentLedgerReconciliationService
                     ]);
                 }
 
-                $businessDateStr = $transaction->business_date?->toDateString();
-                $daySummary = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $businessDateStr);
-                $canonicalCompanyPayable = round((float) ($daySummary['settlement_summary']['expected_payable'] ?? 0.0), 2);
+                $targetCategories = app(ShopSettlementService::class)->resolvePayableAllocationTargets($shopId);
+                $targetEntryTypeIds = $targetCategories->pluck('entry_type_id')->filter()->unique()->all();
 
-                if ($canonicalCompanyPayable <= 0.0) {
+                if (! empty($targetEntryTypeIds) && ! in_array($transaction->entry_type_id, $targetEntryTypeIds, true)) {
                     throw ValidationException::withMessages([
-                        'allocations' => "Settlement on {$transaction->business_date?->format('d M Y')} has no company payable obligation.",
+                        'allocations' => 'Transaction category is not one of the configured payable allocation targets for this shop.',
                     ]);
                 }
 
-                $alreadyAllocatedForDay = round((float) ShopPaymentLedgerAllocation::query()
-                    ->where('shop_id', $shopId)
-                    ->whereHas('ledgerTransaction', fn ($q) => $q->whereDate('business_date', $businessDateStr))
+                if ($transaction->company_account_id !== null) {
+                    throw ValidationException::withMessages([
+                        'allocations' => 'Direct-to-company transactions cannot be manually allocated.',
+                    ]);
+                }
+
+                $alreadyAllocatedForTx = round((float) ShopPaymentLedgerAllocation::query()
+                    ->where('shop_ledger_transaction_id', $transaction->id)
                     ->lockForUpdate()
                     ->sum('amount'), 2);
 
-                $dayRemainingDue = round(max(0, $canonicalCompanyPayable - $alreadyAllocatedForDay), 2);
+                $txOriginalAmount = round((float) $transaction->amount, 2);
+                $txRemainingDue = round(max(0, $txOriginalAmount - $alreadyAllocatedForTx), 2);
 
-                if ($amount > $dayRemainingDue) {
+                if ($amount > $txRemainingDue) {
                     $dateFormatted = $transaction->business_date?->format('d M Y');
                     throw ValidationException::withMessages([
-                        'allocations' => "Allocation amount ₹{$amount} exceeds remaining company payable due ₹{$dayRemainingDue} for {$dateFormatted}.",
+                        'allocations' => "Allocation amount ₹{$amount} exceeds remaining amount ₹{$txRemainingDue} on transaction for {$dateFormatted}.",
                     ]);
                 }
 

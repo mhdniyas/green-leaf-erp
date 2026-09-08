@@ -120,7 +120,9 @@
                 @php
                     $isTx = $entry->source_type === 'App\Models\Cashbook\ShopLedgerTransaction' && $entry->source_id;
                     $shopName = $entry->sourceRecord?->shop?->name ?? 'Company Entry';
-                    $methodName = $entry->sourceRecord?->entryType?->name ?? ($entry->direction === 'in' ? 'Money In' : 'Money Out');
+                    $methodName = $entry->sourceRecord?->entryType?->name
+                        ?? (is_object($entry->sourceRecord) && method_exists($entry->sourceRecord, 'paymentMethodLabel') ? $entry->sourceRecord->paymentMethodLabel() : null)
+                        ?? ($entry->direction === 'in' ? 'Money In' : 'Money Out');
                     $detailUrl = $isTx
                         ? route('admin.cashbook.transaction.show', $entry->source_id)
                         : ($entry->duplicate_status === 'possible_duplicate'

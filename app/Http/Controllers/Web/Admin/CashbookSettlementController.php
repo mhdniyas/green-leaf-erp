@@ -206,4 +206,124 @@ class CashbookSettlementController extends Controller
         return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)
             ->with('success', "Settlement '{$relation->name}' is now marked as Net Balance.");
     }
+
+    public function setDefaultPaymentPayable(Request $request, string $shop, string $settlement): JsonResponse|RedirectResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+
+        $relation = ShopCashbookRelation::where('shop_id', $currentShop->shop_id)->where('public_uuid', $settlement)->firstOrFail();
+        $this->settlements->setDefaultPaymentPayable($currentShop, $relation);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Settlement '{$relation->name}' is now Default Payment Payable.",
+                'settlement_uuid' => $relation->public_uuid,
+            ]);
+        }
+
+        return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)
+            ->with('success', "Settlement '{$relation->name}' is now Default Payment Payable.");
+    }
+
+    public function setDefaultPaymentPaid(Request $request, string $shop, string $settlement): JsonResponse|RedirectResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+
+        $relation = ShopCashbookRelation::where('shop_id', $currentShop->shop_id)->where('public_uuid', $settlement)->firstOrFail();
+        $this->settlements->setDefaultPaymentPaid($currentShop, $relation);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Settlement '{$relation->name}' is now Default Payment Paid.",
+                'settlement_uuid' => $relation->public_uuid,
+            ]);
+        }
+
+        return redirect()->route('admin.cashbook.settings.shop.settlements.index', $shop)
+            ->with('success', "Settlement '{$relation->name}' is now Default Payment Paid.");
+    }
+
+    public function paymentsIndex(Request $request, string $shop): View
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+
+        $shopKey = $currentShop->slug ?: $currentShop->shop_id;
+        $relations = $this->settlements->settlements((int) $currentShop->shop_id);
+        $entrySettings = $currentShop->entrySettings()
+            ->where('enabled', true)
+            ->with(['entryType', 'companyAccount', 'headerGroup'])
+            ->orderBy('display_order')
+            ->get();
+
+        $paymentConfig = $currentShop->getPaymentConfiguration();
+
+        $startDate = now()->startOfMonth()->toDateString();
+        $endDate = now()->endOfMonth()->toDateString();
+        $paymentsSummary = $this->settlements->calculateShopPayments((int) $currentShop->shop_id, $startDate, $endDate);
+
+        return view('admin.cashbook.settings.payments.index', [
+            'shops' => $shops,
+            'currentShop' => $currentShop,
+            'shopKey' => $shopKey,
+            'relations' => $relations,
+            'entrySettings' => $entrySettings,
+            'paymentConfig' => $paymentConfig,
+            'paymentsSummary' => $paymentsSummary,
+        ]);
+    }
+
+    public function savePaymentsConfiguration(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+
+        $validated = $request->validate([
+            'payment_settlement_id' => ['nullable', 'integer'],
+            'payable.source' => ['nullable', 'in:categories,settlement'],
+            'payable.category_ids' => ['nullable', 'array'],
+            'payable.category_ids.*' => ['integer'],
+            'payable.settlement_id' => ['nullable'],
+            'sales_collections.source' => ['nullable', 'in:categories,settlement'],
+            'sales_collections.direct_category_ids' => ['nullable', 'array'],
+            'sales_collections.direct_category_ids.*' => ['integer'],
+            'sales_collections.cash_category_ids' => ['nullable', 'array'],
+            'sales_collections.cash_category_ids.*' => ['integer'],
+            'sales_collections.settlement_id' => ['nullable'],
+            'direct_to_company.source' => ['nullable', 'in:categories,settlement'],
+            'direct_to_company.category_ids' => ['nullable', 'array'],
+            'direct_to_company.category_ids.*' => ['integer'],
+            'direct_to_company.settlement_id' => ['nullable'],
+            'paid.source' => ['nullable', 'in:categories,settlement'],
+            'paid.category_ids' => ['nullable', 'array'],
+            'paid.category_ids.*' => ['integer'],
+            'paid.settlement_id' => ['nullable'],
+        ]);
+
+        if (! isset($validated['direct_to_company']) && isset($validated['paid'])) {
+            $validated['direct_to_company'] = $validated['paid'];
+        } elseif (! isset($validated['paid']) && isset($validated['direct_to_company'])) {
+            $validated['paid'] = $validated['direct_to_company'];
+        }
+
+        $this->settlements->savePaymentConfiguration($currentShop, $validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payments configuration saved successfully.',
+            'configuration' => $currentShop->fresh()->getPaymentConfiguration(),
+        ]);
+    }
 }

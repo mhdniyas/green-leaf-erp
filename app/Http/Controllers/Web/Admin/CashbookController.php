@@ -106,6 +106,7 @@ use App\Services\Purchasing\PurchaseReportingService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -1165,21 +1166,7 @@ final class CashbookController extends Controller
                 ];
             });
 
-        $directReceipts = (clone $this->directShopReceiptStatementQuery($shopId, $monthStart, $monthEnd))
-            ->oldest('transaction_date')
-            ->oldest('id')
-            ->get()
-            ->map(fn (CompanyAccountStatementEntry $entry): array => [
-                'id' => 0,
-                'amount' => round((float) $entry->amount, 2),
-                'allocated' => 0.0,
-                'unallocated' => round((float) $entry->amount, 2),
-                'date' => $entry->transaction_date?->toDateString() ?? today()->toDateString(),
-                'direct_statement_id' => (int) $entry->id,
-            ]);
-
         return $payments
-            ->merge($directReceipts)
             ->filter(fn (array $payment): bool => $payment['unallocated'] > 0)
             ->sortBy([['date', 'asc'], ['id', 'asc']])
             ->values()
@@ -3168,7 +3155,15 @@ final class CashbookController extends Controller
             ->first();
 
         $recentStatementEntries = $account->statementEntries()
-            ->with(['sourceRecord.shop', 'sourceRecord.entryType', 'reconciliations.paymentRequest.shop'])
+            ->with([
+                'sourceRecord' => function (MorphTo $morphTo): void {
+                    $morphTo->morphWith([
+                        ShopLedgerTransaction::class => ['shop', 'entryType'],
+                        ShopInvoicePaymentRequest::class => ['shop'],
+                    ]);
+                },
+                'reconciliations.paymentRequest.shop',
+            ])
             ->latest('transaction_date')
             ->latest('id')
             ->limit(20)
@@ -3214,7 +3209,16 @@ final class CashbookController extends Controller
         $selectedTab = (string) $request->query('tab', 'all');
 
         $query = $account->statementEntries()
-            ->with(['reconciliations.paymentRequest.shop', 'reconciliations.reconciledBy', 'sourceRecord.entryType', 'sourceRecord.shop'])
+            ->with([
+                'reconciliations.paymentRequest.shop',
+                'reconciliations.reconciledBy',
+                'sourceRecord' => function (MorphTo $morphTo): void {
+                    $morphTo->morphWith([
+                        ShopLedgerTransaction::class => ['entryType', 'shop'],
+                        ShopInvoicePaymentRequest::class => ['shop'],
+                    ]);
+                },
+            ])
             ->whereBetween('transaction_date', [$monthStart->toDateString(), $monthEnd->toDateString()]);
 
         if ($selectedTab === 'needs_verification') {
@@ -3561,7 +3565,15 @@ final class CashbookController extends Controller
             ->limit(40)
             ->get();
         $statementEntries = CompanyAccountStatementEntry::query()
-            ->with(['companyAccount', 'sourceRecord.entryType', 'sourceRecord.shop'])
+            ->with([
+                'companyAccount',
+                'sourceRecord' => function (MorphTo $morphTo): void {
+                    $morphTo->morphWith([
+                        ShopLedgerTransaction::class => ['entryType', 'shop'],
+                        ShopInvoicePaymentRequest::class => ['shop'],
+                    ]);
+                },
+            ])
             ->whereIn('status', ['unmatched', 'partially_matched'])
             ->latest('transaction_date')
             ->latest('id')

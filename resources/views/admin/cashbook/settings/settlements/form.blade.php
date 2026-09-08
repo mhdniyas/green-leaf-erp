@@ -140,6 +140,22 @@
                 </label>
                 <p class="mt-1 text-xs text-slate-500 ml-8">When selected, this settlement represents the primary Net Balance displayed in reports and cashbook summaries.</p>
             </div>
+            <div class="border-t border-slate-100 pt-4">
+                <input type="hidden" name="is_payment_payable" value="0">
+                <label class="inline-flex items-center gap-3 text-sm font-semibold text-slate-900">
+                    <input type="checkbox" name="is_payment_payable" value="1" @checked(old('is_payment_payable', $relation?->is_payment_payable ?? false)) class="h-5 w-5 rounded border-slate-300 text-indigo-700">
+                    <span>Mark as this shop's <strong>Default Payment Payable</strong></span>
+                </label>
+                <p class="mt-1 text-xs text-slate-500 ml-8">Official formula source for <strong>Payable</strong> in Shop Owner Payments and Admin Cashbook.</p>
+            </div>
+            <div class="border-t border-slate-100 pt-4">
+                <input type="hidden" name="is_payment_paid" value="0">
+                <label class="inline-flex items-center gap-3 text-sm font-semibold text-slate-900">
+                    <input type="checkbox" name="is_payment_paid" value="1" @checked(old('is_payment_paid', $relation?->is_payment_paid ?? false)) class="h-5 w-5 rounded border-slate-300 text-emerald-700">
+                    <span>Mark as this shop's <strong>Default Payment Paid</strong></span>
+                </label>
+                <p class="mt-1 text-xs text-slate-500 ml-8">Official formula source for <strong>Paid</strong> in Shop Owner Payments and Admin Cashbook.</p>
+            </div>
         </div>
 
         <section class="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" aria-labelledby="formula-heading">

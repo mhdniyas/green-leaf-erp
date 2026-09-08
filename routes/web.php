@@ -249,6 +249,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');
         Route::post('/accounting/payment-requests', [ShopOwnerController::class, 'storePaymentRequest'])->name('accounting.payment-requests.store');
         Route::get('/payments', [ShopOwnerController::class, 'paymentsIndex'])->name('payments.index');
+        Route::post('/payments/pay-expense', [ShopOwnerController::class, 'payExpense'])->name('payments.pay-expense');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
@@ -846,6 +847,10 @@ Route::middleware('auth')->group(function () {
             Route::delete('settings/shops/{shop}/settlements/{settlement}', [CashbookSettlementController::class, 'destroy'])->name('settings.shop.settlements.destroy');
             Route::post('settings/shops/{shop}/settlements/{settlement}/copy', [CashbookSettlementController::class, 'copy'])->name('settings.shop.settlements.copy');
             Route::post('settings/shops/{shop}/settlements/{settlement}/set-net-balance', [CashbookSettlementController::class, 'setNetBalance'])->name('settings.shop.settlements.set-net-balance');
+            Route::post('settings/shops/{shop}/settlements/{settlement}/set-payment-payable', [CashbookSettlementController::class, 'setDefaultPaymentPayable'])->name('settings.shop.settlements.set-payment-payable');
+            Route::post('settings/shops/{shop}/settlements/{settlement}/set-payment-paid', [CashbookSettlementController::class, 'setDefaultPaymentPaid'])->name('settings.shop.settlements.set-payment-paid');
+            Route::get('settings/shops/{shop}/payments', [CashbookSettlementController::class, 'paymentsIndex'])->name('settings.shop.payments.index');
+            Route::post('settings/shops/{shop}/payments-configuration', [CashbookSettlementController::class, 'savePaymentsConfiguration'])->name('settings.shop.payments-configuration.save');
             Route::get('settings/shops/{shop}/demo', [CashbookController::class, 'shopDemoPage'])->name('settings.shop.demo');
             Route::get('settings/shops/{shop}/demo/real-data', [CashbookController::class, 'shopDemoRealData'])->name('settings.shop.demo.real-data');
             Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');

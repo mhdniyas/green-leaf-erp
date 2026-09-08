@@ -11,6 +11,8 @@
     targetShops: [],
     selectAllShops: false,
     activeNetBalanceUuid: @js($relations->firstWhere('is_net_balance', true)?->public_uuid),
+    activePaymentPayableUuid: @js($relations->firstWhere('is_payment_payable', true)?->public_uuid),
+    activePaymentPaidUuid: @js($relations->firstWhere('is_payment_paid', true)?->public_uuid),
     openCopyModal(settlement) {
         this.activeSettlement = settlement;
         this.targetShops = [];
@@ -48,14 +50,69 @@
             console.error(e);
             alert('Failed to set Net Balance.');
         }
+    },
+    async setPaymentPayable(uuid) {
+        try {
+            const res = await fetch('{{ url('admin/cashbook/settings/shops/'.$shopKey.'/settlements') }}/' + uuid + '/set-payment-payable', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name=\'csrf-token\']')?.getAttribute('content') || '{{ csrf_token() }}',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.activePaymentPayableUuid = uuid;
+                if (typeof showToast === 'function') {
+                    showToast(data.message || 'Default Payment Payable updated', 'success');
+                }
+            } else {
+                alert(data.message || 'Failed to update Default Payment Payable');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to set Default Payment Payable.');
+        }
+    },
+    async setPaymentPaid(uuid) {
+        try {
+            const res = await fetch('{{ url('admin/cashbook/settings/shops/'.$shopKey.'/settlements') }}/' + uuid + '/set-payment-paid', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name=\'csrf-token\']')?.getAttribute('content') || '{{ csrf_token() }}',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.activePaymentPaidUuid = uuid;
+                if (typeof showToast === 'function') {
+                    showToast(data.message || 'Default Payment Paid updated', 'success');
+                }
+            } else {
+                alert(data.message || 'Failed to update Default Payment Paid');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to set Default Payment Paid.');
+        }
     }
 }">
-    <a href="{{ route('admin.cashbook.settings.shop', $shopKey) }}" class="inline-flex py-2 text-sm font-bold text-slate-600 hover:text-indigo-700">&larr; Cashbook Settings</a>
+    @include('admin.cashbook.settings.partials.tabs', [
+        'activeTab' => 'settlements',
+        'shopKey' => $shopKey,
+        'currentShop' => $currentShop
+    ])
+
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <p class="text-xs font-bold uppercase tracking-wider text-indigo-700">{{ $currentShop->name }}</p>
             <h1 class="mt-1 text-3xl font-extrabold text-slate-950">Settlements</h1>
-            <p class="mt-2 text-sm text-slate-600">Drag to reorder settlement calculation order. Choose which settlement represents the shop's primary Net Balance.</p>
+            <p class="mt-2 text-sm text-slate-600">Drag to reorder settlement calculation order. Configure formulas and Net Balance.</p>
         </div>
         <a href="{{ route('admin.cashbook.settings.shop.settlements.create', $shopKey) }}" class="shrink-0 rounded-xl bg-indigo-700 px-5 py-3 text-center text-sm font-bold text-white hover:bg-indigo-800">Create Settlement</a>
     </div>
@@ -99,8 +156,18 @@
                                     <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-emerald-900 border border-emerald-300">★ Net Balance</span>
                                 </template>
 
+                                <!-- Payment Payable Badge -->
+                                <template x-if="activePaymentPayableUuid === '{{ $settlement->public_uuid }}'">
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-indigo-900 border border-indigo-300">Payments: Payable</span>
+                                 </template>
+
+                                <!-- Payment Paid Badge -->
+                                <template x-if="activePaymentPaidUuid === '{{ $settlement->public_uuid }}'">
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-emerald-900 border border-emerald-300">Payments: Paid</span>
+                                </template>
+
                                 @if($settlement->is_company_payable)
-                                    <span class="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-black uppercase tracking-wider text-indigo-900 border border-indigo-300">Company Payable</span>
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-slate-700 border border-slate-300">Company Payable</span>
                                 @endif
                             </div>
                             <p class="text-xs font-bold {{ $settlement->enabled ? 'text-emerald-700' : 'text-slate-500' }}">
@@ -113,7 +180,19 @@
                     <div class="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
                         <template x-if="activeNetBalanceUuid !== '{{ $settlement->public_uuid }}'">
                             <button type="button" @click="setNetBalance('{{ $settlement->public_uuid }}')" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition" title="Designate this settlement as the shop's primary Net Balance">
-                                Set as Net Balance
+                                Net Balance
+                            </button>
+                        </template>
+
+                        <template x-if="activePaymentPayableUuid !== '{{ $settlement->public_uuid }}'">
+                            <button type="button" @click="setPaymentPayable('{{ $settlement->public_uuid }}')" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300 transition" title="Use this settlement for Payments Payable">
+                                Set Payable
+                            </button>
+                        </template>
+
+                        <template x-if="activePaymentPaidUuid !== '{{ $settlement->public_uuid }}'">
+                            <button type="button" @click="setPaymentPaid('{{ $settlement->public_uuid }}')" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition" title="Use this settlement for Payments Paid">
+                                Set Paid
                             </button>
                         </template>
 

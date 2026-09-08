@@ -40,6 +40,8 @@ class SaveCashbookSettlementRequest extends FormRequest
             'enabled' => ['required', 'boolean'],
             'is_company_payable' => ['nullable', 'boolean'],
             'is_net_balance' => ['nullable', 'boolean'],
+            'is_payment_payable' => ['nullable', 'boolean'],
+            'is_payment_paid' => ['nullable', 'boolean'],
             'items' => ['required', 'array', 'min:1', 'max:200'],
             'items.*' => ['required', 'array'],
             'items.*.setting_id' => ['nullable', 'required_without_all:items.*.header_group_id,items.*.source_settlement_id', 'integer', Rule::exists('shop_ledger_entry_settings', 'id')->where('shop_id', $profile->shop_id)->where('enabled', true)],
