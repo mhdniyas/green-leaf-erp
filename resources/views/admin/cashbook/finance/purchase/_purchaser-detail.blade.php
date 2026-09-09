@@ -33,18 +33,24 @@
         <p class="mt-1 text-xs font-bold text-slate-500">Operational cash settlement, advances, payments, and bill utilization.</p>
     </div>
 
-    {{-- Month Selection Navigation --}}
-    <div class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
-        <a href="{{ route('admin.cashbook.finance.purchase.purchasers.show', array_merge($purchaserRouteParameters, ['tab' => $tab, 'month' => $prevMonth])) }}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition" title="Previous Month">
-            <i data-lucide="chevron-left" class="h-4 w-4"></i>
+    {{-- Month Selection Navigation & Report Link --}}
+    <div class="flex items-center gap-2">
+        <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', ['purchaser' => $record->public_uuid, 'month' => $settlement['month'] ?? $currentMonthCarbon->format('Y-m')]) }}" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-2xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 shadow-sm hover:bg-emerald-100 transition">
+            <i data-lucide="receipt" class="h-4 w-4"></i>
+            <span class="hidden md:inline">Purchase & Expense Report</span>
         </a>
-        <form method="GET" action="{{ route('admin.cashbook.finance.purchase.purchasers.show', $record->public_uuid) }}" class="flex items-center gap-2">
-            <input type="hidden" name="tab" value="{{ $tab }}">
-            <input type="month" name="month" value="{{ $settlement['month'] ?? $currentMonthCarbon->format('Y-m') }}" onchange="this.form.submit()" class="h-9 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-900 focus:border-emerald-500 focus:outline-none cursor-pointer">
-        </form>
-        <a href="{{ route('admin.cashbook.finance.purchase.purchasers.show', array_merge($purchaserRouteParameters, ['tab' => $tab, 'month' => $nextMonth])) }}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition" title="Next Month">
-            <i data-lucide="chevron-right" class="h-4 w-4"></i>
-        </a>
+        <div class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+            <a href="{{ route('admin.cashbook.finance.purchase.purchasers.show', array_merge($purchaserRouteParameters, ['tab' => $tab, 'month' => $prevMonth])) }}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition" title="Previous Month">
+                <i data-lucide="chevron-left" class="h-4 w-4"></i>
+            </a>
+            <form method="GET" action="{{ route('admin.cashbook.finance.purchase.purchasers.show', $record->public_uuid) }}" class="flex items-center gap-2">
+                <input type="hidden" name="tab" value="{{ $tab }}">
+                <input type="month" name="month" value="{{ $settlement['month'] ?? $currentMonthCarbon->format('Y-m') }}" onchange="this.form.submit()" class="h-9 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-900 focus:border-emerald-500 focus:outline-none cursor-pointer">
+            </form>
+            <a href="{{ route('admin.cashbook.finance.purchase.purchasers.show', array_merge($purchaserRouteParameters, ['tab' => $tab, 'month' => $nextMonth])) }}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition" title="Next Month">
+                <i data-lucide="chevron-right" class="h-4 w-4"></i>
+            </a>
+        </div>
     </div>
 </header>
 

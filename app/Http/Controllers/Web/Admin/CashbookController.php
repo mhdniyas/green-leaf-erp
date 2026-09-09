@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Enums\Cashbook\TransactionStatus;
+use App\Exports\PurchaserExpenseReportExport;
 use App\Exports\PurchaserReportArrayExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Cashbook\AddShopRequest;
@@ -59,10 +60,12 @@ use App\Models\JournalTransaction;
 use App\Models\Payment;
 use App\Models\PayrollPayment;
 use App\Models\PayrollRunItem;
+use App\Models\ProcurementExpense;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseProductFilter;
+use App\Models\PurchaserCart;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
@@ -103,6 +106,7 @@ use App\Services\Pricing\ApprovedDailyPriceResolver;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchasePriceReportingService;
 use App\Services\Purchasing\PurchaseReportingService;
+use App\Services\Purchasing\PurchaserExpenseReportService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -4498,6 +4502,136 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         return redirect()->route('admin.cashbook.finance.purchase.reports.credit-purchases', $request->query());
+    }
+
+    public function companyFinancePurchaserExpenseReport(Request $request, PurchaserExpenseReportService $reportService): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->all();
+        $reportData = $reportService->getReportData($filters, 25);
+
+        $purchaserIds = PurchaserCart::query()->distinct()->pluck('user_id')->filter()->all();
+        $purchasers = User::query()
+            ->whereHas('roles', fn ($q) => $q->whereIn('name', ['purchaser', 'procurement_manager', 'admin']))
+            ->when(! empty($purchaserIds), fn ($q) => $q->orWhereIn('id', $purchaserIds))
+            ->orderBy('name')
+            ->get(['id', 'name', 'public_uuid']);
+
+        $suppliers = Supplier::query()
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        $expenseTypes = ProcurementExpense::categories();
+
+        return view('admin.cashbook.finance.purchase.reports.purchaser_expenses', array_merge(
+            $this->purchaseLayoutData(),
+            [
+                'reportData' => $reportData,
+                'summary' => $reportData['summary'],
+                'rows' => $reportData['rows'],
+                'paginator' => $reportData['paginator'],
+                'filters' => $filters,
+                'purchasers' => $purchasers,
+                'suppliers' => $suppliers,
+                'expenseTypes' => $expenseTypes,
+            ]
+        ));
+    }
+
+    public function companyFinancePurchaserExpenseReportPdf(Request $request, PurchaserExpenseReportService $reportService): mixed
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->all();
+        $reportData = $reportService->getReportData($filters, null);
+
+        $purchaserName = 'All Purchasers';
+        if (filled($request->input('purchaser'))) {
+            $user = User::where('public_uuid', $request->input('purchaser'))->orWhere('id', $request->input('purchaser'))->first();
+            if ($user) {
+                $purchaserName = $user->name;
+            }
+        }
+
+        $supplierName = 'All Suppliers';
+        if (filled($request->input('supplier_id'))) {
+            $supplier = Supplier::find($request->input('supplier_id'));
+            if ($supplier) {
+                $supplierName = $supplier->name;
+            }
+        }
+
+        $pdfData = array_merge($reportData, [
+            'purchaserName' => $purchaserName,
+            'supplierName' => $supplierName,
+            'generatedAt' => now('Asia/Kolkata'),
+        ]);
+
+        $filename = 'purchaser-expense-report-'.now()->format('Y-m-d').'.pdf';
+
+        $pdf = Pdf::loadView('admin.cashbook.finance.purchase.reports.purchaser_expenses_pdf', $pdfData)
+            ->setPaper('a4', 'portrait');
+
+        return $pdf->download($filename);
+    }
+
+    public function companyFinancePurchaserExpenseReportCsv(Request $request, PurchaserExpenseReportService $reportService): StreamedResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->all();
+        $reportData = $reportService->getReportData($filters, null);
+        $rows = $reportData['rows'];
+
+        $filename = 'purchaser-expense-report-'.now()->format('Y-m-d').'.csv';
+
+        return response()->streamDownload(function () use ($rows): void {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'Date',
+                'Purchaser',
+                'Supplier',
+                'Reference',
+                'Purchase Amount',
+                'Expense Type',
+                'Expense Amount',
+                'Total',
+            ]);
+
+            foreach ($rows as $row) {
+                fputcsv($handle, [
+                    $row['date'],
+                    $row['purchaser_name'],
+                    $row['supplier_name'],
+                    $row['reference'],
+                    number_format((float) $row['purchase_amount'], 2, '.', ''),
+                    $row['expense_type'],
+                    number_format((float) $row['expense_amount'], 2, '.', ''),
+                    number_format((float) $row['total'], 2, '.', ''),
+                ]);
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
+    }
+
+    public function companyFinancePurchaserExpenseReportExcel(Request $request, PurchaserExpenseReportService $reportService): BinaryFileResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $request->all();
+        $reportData = $reportService->getReportData($filters, null);
+
+        $filename = 'purchaser-expense-report-'.now()->format('Y-m-d').'.xlsx';
+
+        return Excel::download(
+            new PurchaserExpenseReportExport($reportData),
+            $filename
+        );
     }
 
     public function companyFinancePurchasePriceReport(PurchasePriceReportRequest $request, PurchasePriceReportingService $priceReportingService): View

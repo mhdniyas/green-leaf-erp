@@ -356,6 +356,7 @@ class AutoAdvanceClearPlanningService
                     'bill_date' => $billDateStr,
                     'order_date' => $order->order_date,
                     'order_id' => $order->id,
+                    'has_pending_batches' => $pGrn->stockBatches->contains(fn ($b) => (bool) $b->warehouse_receive_pending),
                     'lines' => $targetLines,
                 ];
             }
@@ -679,6 +680,7 @@ class AutoAdvanceClearPlanningService
                     'execution_mode' => $target['execution_mode'],
                     'purchase_order_id' => $target['purchase_order_id'],
                     'source_goods_received_id' => $target['source_goods_received_id'],
+                    'has_pending_batches' => (bool) ($target['has_pending_batches'] ?? false),
                     'reference' => $target['reference'],
                     'supplier_id' => $target['supplier_id'],
                     'supplier_name' => $target['supplier_name'],

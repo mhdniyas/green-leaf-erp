@@ -1,6 +1,7 @@
 @php
     $reportTabs = [
         ['Credit Purchase Report', 'admin.cashbook.finance.purchase.reports.credit-purchases'],
+        ['Purchaser Purchase & Expense', 'admin.cashbook.finance.purchase.purchaser-expenses'],
         ['Purchaser Report', 'admin.cashbook.finance.purchase.reports.purchasers'],
         ['Price Report', 'admin.cashbook.finance.purchase.reports.prices'],
         ['Changed Items', 'admin.cashbook.finance.purchase.reports.changed-items'],

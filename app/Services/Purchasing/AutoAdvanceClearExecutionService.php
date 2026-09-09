@@ -288,20 +288,27 @@ class AutoAdvanceClearExecutionService
         // Lock target PO and PO items
         $po = PurchaseOrder::query()->whereKey($item->purchase_order_id)->lockForUpdate()->first();
 
-        if (! $grn || $grn->status !== 'approved' || $grn->bill_status !== 'bill_pending' || ! $this->readScope->receiptMatchesWarehouse($grn, $warehouseId) || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
+        if (! $grn || $grn->status !== 'approved' || ! $this->readScope->receiptMatchesWarehouse($grn, $warehouseId) || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
             $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
+
+            return;
+        }
+
+        if ($grn->bill_status !== 'bill_pending') {
+            $item->update(['status' => 'skipped', 'reason_code' => 'already_processed', 'result_goods_received_id' => $grn->id]);
+
+            return;
+        }
+
+        $plannedHasPendingBatches = (bool) ($plannedItem['has_pending_batches'] ?? false);
+        $currentHasPendingBatches = $grn->stockBatches->contains(fn ($b) => (bool) $b->warehouse_receive_pending);
+        if ($plannedHasPendingBatches && ! $currentHasPendingBatches) {
+            $item->update(['status' => 'skipped', 'reason_code' => 'already_processed', 'result_goods_received_id' => $grn->id]);
 
             return;
         }
         if ($po) {
             PurchaseOrderItem::query()->where('purchase_order_id', $po->id)->orderBy('id')->lockForUpdate()->get();
-        }
-
-        $facts = $this->receiptStateResolver->forReceipt($grn);
-        if (($facts['receipt_status'] ?? '') === 'received') {
-            $item->update(['status' => 'skipped', 'reason_code' => 'already_processed', 'result_goods_received_id' => $grn->id]);
-
-            return;
         }
 
         // Lock advance GRNs and Items in ascending ID order

@@ -12,6 +12,10 @@
 
 @section('header_actions')
     <div class="flex items-center gap-2">
+        <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', ['purchaser' => $purchaser->public_uuid]) }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 shadow-sm hover:bg-emerald-100">
+            <i data-lucide="receipt" class="h-4 w-4"></i>
+            <span class="hidden sm:inline">Purchase & Expense Report</span>
+        </a>
         <a href="{{ route('admin.cashbook.finance.purchase.purchasers.show', ['purchaser' => $purchaser->public_uuid, 'period' => 'month']) }}" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
             <i data-lucide="shopping-basket" class="h-4 w-4"></i>
             <span class="hidden sm:inline">Purchase Profile</span>
