@@ -820,7 +820,7 @@
         <!-- ────────────────────────────────────────────────────────────────── -->
         <!-- TAB 3: STOCK WITHOUT BILL (SECTION 2)                              -->
         <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif($tab === 'stock_without_bill' || $tab === 'unbilled_inventory')
+        @elseif($tab === 'stock_without_bill')
             <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
                 <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
@@ -1460,7 +1460,7 @@
                                             {{ $row['category_name'] ?? 'General' }}
                                         </td>
                                         <td class="p-3.5 font-mono font-bold text-emerald-800">
-                                            {{ $row['base_unit'] ?? $row['product_base_unit'] ?? $row['product_unit'] ?? 'kg' }}
+                                            {{ $row['product_unit'] ?? $row['product_base_unit'] ?? $row['base_unit'] ?? $row['unit'] ?? 'KG' }}
                                         </td>
                                         <td class="p-3.5 font-mono font-bold text-purple-800">
                                             {{ $row['received_unit'] ?? $row['bill_unit'] ?? $row['order_unit'] ?? $row['unit'] ?? '' }}
@@ -1472,7 +1472,7 @@
                                         </td>
                                         <td class="p-3.5 text-center pr-5">
                                             <button type="button"
-                                                    @click="openResolveUnitModal({{ $row['product_id'] }}, '{{ addslashes($row['product_name']) }}', '{{ $row['base_unit'] ?? $row['product_base_unit'] ?? $row['product_unit'] ?? 'kg' }}', '{{ $row['received_unit'] ?? $row['bill_unit'] ?? $row['order_unit'] ?? $row['unit'] ?? '' }}')"
+                                                    @click="openResolveUnitModal({{ $row['product_id'] }}, '{{ addslashes($row['product_name']) }}', '{{ $row['product_unit'] ?? $row['product_base_unit'] ?? $row['base_unit'] ?? $row['unit'] ?? 'KG' }}', '{{ $row['received_unit'] ?? $row['bill_unit'] ?? $row['order_unit'] ?? $row['unit'] ?? '' }}')"
                                                     class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-700 text-white text-[11px] font-black hover:bg-sky-800 transition shadow-2xs cursor-pointer">
                                                 <i data-lucide="wrench" class="w-3 h-3 text-sky-200"></i>
                                                 <span>Resolve Unit</span>

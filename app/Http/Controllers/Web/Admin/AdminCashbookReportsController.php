@@ -1677,22 +1677,27 @@ class AdminCashbookReportsController extends Controller
         }
 
         // L. Open Unbilled Advances Calculation
-        $openAdvancesQuery = GoodsReceived::query()
-            ->where(function (Builder $tq): void {
-                $tq->where('receipt_type', 'warehouse_advance')
-                    ->orWhere(function (Builder $legacy): void {
-                        $legacy->whereNull('receipt_type')
-                            ->whereNull('purchase_order_id');
-                    });
-            })
-            ->where('status', '!=', 'cancelled')
-            ->where('bill_status', 'bill_pending')
-            ->with('items.product');
-        app(WarehouseReceiptReadScope::class)->receipts(
-            $openAdvancesQuery,
-            $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-        );
-        $openAdvances = $openAdvancesQuery->orderBy('received_at')->get();
+        $needsOpenAdvances = ($tab === 'stock_without_bill' || $tab === 'current_inventory');
+        if ($needsOpenAdvances) {
+            $openAdvancesQuery = GoodsReceived::query()
+                ->where(function (Builder $tq): void {
+                    $tq->where('receipt_type', 'warehouse_advance')
+                        ->orWhere(function (Builder $legacy): void {
+                            $legacy->whereNull('receipt_type')
+                                ->whereNull('purchase_order_id');
+                        });
+                })
+                ->where('status', '!=', 'cancelled')
+                ->where('bill_status', 'bill_pending')
+                ->with('items.product');
+            app(WarehouseReceiptReadScope::class)->receipts(
+                $openAdvancesQuery,
+                $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
+            );
+            $openAdvances = $openAdvancesQuery->orderBy('received_at')->get();
+        } else {
+            $openAdvances = collect();
+        }
         $openAdvIds = $openAdvances->pluck('id');
         $preloadedMatches = $openAdvIds->isNotEmpty()
             ? AdvanceReceiveMatch::query()->whereIn('advance_goods_received_id', $openAdvIds)->get()
@@ -1704,63 +1709,71 @@ class AdminCashbookReportsController extends Controller
         $unbilledAdvRows = [];
         $unbilledAdvGrns = [];
 
-        $isStockWithoutBillTab = ($tab === 'stock_without_bill' || $tab === 'unbilled_inventory');
+        $isStockWithoutBillTab = ($tab === 'stock_without_bill');
 
         foreach ($openAdvances as $adv) {
             $itemBalances = $calc->calculateItemAvailableBase($adv, null, $preloadedMatches);
-            $advDate = Carbon::parse($adv->received_at ?? $adv->created_at);
+            $advDate = Carbon::parse($adv->received_at ?? $adv->created_at ?? now());
             $ageDays = max(0, (int) $advDate->diffInDays(Carbon::parse($date), false));
 
             $hasActiveUnbilledItem = false;
             $grnItems = [];
             $grnMissingKg = 0.0;
 
-            foreach ($adv->items as $advItem) {
-                $rem = (float) ($itemBalances[$advItem->id] ?? 0.0);
-                if ($rem > 0.0001) {
-                    $hasActiveUnbilledItem = true;
-                    $prodId = (int) $advItem->product_id;
-                    $unbilledByProductId[$prodId] = ($unbilledByProductId[$prodId] ?? 0.0) + $rem;
-                    $unbilledInventoryKg += $rem;
-                    $grnMissingKg += $rem;
+            if ($adv->items && $adv->items->isNotEmpty()) {
+                foreach ($adv->items as $advItem) {
+                    $rem = (float) ($itemBalances[$advItem->id] ?? 0.0);
+                    if ($rem > 0.0001) {
+                        $hasActiveUnbilledItem = true;
+                        $prodId = (int) $advItem->product_id;
+                        $unbilledByProductId[$prodId] = ($unbilledByProductId[$prodId] ?? 0.0) + $rem;
+                        $unbilledInventoryKg += $rem;
+                        $grnMissingKg += $rem;
 
-                    if ($isStockWithoutBillTab) {
-                        $matchesSearch = true;
-                        if ($search !== '') {
-                            $searchLower = strtolower($search);
-                            $matchesSearch = str_contains(strtolower($adv->grn_number ?? ''), $searchLower)
-                                || str_contains(strtolower($advItem->product?->name ?? ''), $searchLower)
-                                || str_contains(strtolower($advItem->product?->sku ?? ''), $searchLower);
-                        }
+                        if ($isStockWithoutBillTab) {
+                            $matchesSearch = true;
+                            if ($search !== '') {
+                                $searchLower = strtolower($search);
+                                $matchesSearch = str_contains(strtolower($adv->grn_number ?? ''), $searchLower)
+                                    || str_contains(strtolower($advItem->product?->name ?? ''), $searchLower)
+                                    || str_contains(strtolower($advItem->product?->sku ?? ''), $searchLower);
+                            }
 
-                        if ($matchesSearch) {
-                            $unbilledAdvRows[] = [
-                                'advance' => $adv,
-                                'advance_id' => $adv->id,
-                                'item' => $advItem,
-                                'product' => $advItem->product,
+                            if ($matchesSearch) {
+                                $unbilledAdvRows[] = [
+                                    'advance_id' => $adv->id,
+                                    'item_id' => $advItem->id,
+                                    'product_id' => $advItem->product_id,
+                                    'product' => [
+                                        'id' => $advItem->product_id,
+                                        'name' => $advItem->product?->name ?? "Product #{$advItem->product_id}",
+                                        'sku' => $advItem->product?->sku ?? '',
+                                        'unit' => $advItem->received_unit ?? $advItem->product?->unit ?? 'KG',
+                                    ],
+                                    'received_qty' => (float) $advItem->received_qty,
+                                    'matched_qty' => (float) ($advItem->matched_qty ?? 0.0),
+                                    'missing_qty' => $rem,
+                                    'age_days' => $ageDays,
+                                    'received_at' => $adv->received_at ? $adv->received_at->toIso8601String() : ($adv->created_at ? $adv->created_at->toIso8601String() : null),
+                                    'grn_number' => $adv->grn_number ?? "GRN #{$adv->id}",
+                                ];
+                            }
+
+                            $grnItems[] = [
+                                'item_id' => $advItem->id,
+                                'product_id' => $advItem->product_id,
+                                'name' => $advItem->product?->name ?? "Product #{$advItem->product_id}",
+                                'sku' => $advItem->product?->sku ?? '',
+                                'unit' => $advItem->received_unit ?? $advItem->product?->unit ?? 'KG',
                                 'received_qty' => (float) $advItem->received_qty,
                                 'matched_qty' => (float) ($advItem->matched_qty ?? 0.0),
                                 'missing_qty' => $rem,
-                                'age_days' => $ageDays,
-                                'received_at' => $adv->received_at,
-                                'grn_number' => $adv->grn_number,
                             ];
                         }
-
-                        $grnItems[] = [
-                            'item_id' => $advItem->id,
-                            'product_id' => $advItem->product_id,
-                            'name' => $advItem->product?->name ?? "Product #{$advItem->product_id}",
-                            'sku' => $advItem->product?->sku ?? '',
-                            'unit' => $advItem->received_unit ?? $advItem->product?->unit ?? 'KG',
-                            'received_qty' => (float) $advItem->received_qty,
-                            'matched_qty' => (float) ($advItem->matched_qty ?? 0.0),
-                            'missing_qty' => $rem,
-                        ];
                     }
                 }
             }
+
             if ($hasActiveUnbilledItem) {
                 $unbilledInventoryCount++;
 
@@ -1782,8 +1795,8 @@ class AdminCashbookReportsController extends Controller
                     if ($grnMatchesSearch) {
                         $unbilledAdvGrns[] = [
                             'id' => $adv->id,
-                            'grn_number' => $adv->grn_number,
-                            'received_at' => $adv->received_at,
+                            'grn_number' => $adv->grn_number ?? "GRN #{$adv->id}",
+                            'received_at' => $adv->received_at ? $adv->received_at->toIso8601String() : ($adv->created_at ? $adv->created_at->toIso8601String() : null),
                             'age_days' => $ageDays,
                             'warehouse_id' => $adv->warehouse_id,
                             'total_missing_qty' => round($grnMissingKg, 2),
@@ -1797,10 +1810,12 @@ class AdminCashbookReportsController extends Controller
         $unbilledInventoryKg = round($unbilledInventoryKg, 2);
 
         // M. Unit Differences Count
-        $unitDifferencesCount = app(AdvanceReceiveReconciliationService::class)->countUnitDifferences([
-            'warehouse_id' => $selectedWarehouseId,
-            'authorized_warehouse_ids' => $authorizedWarehouseIds,
-        ]);
+        $unitDifferencesCount = ($tab === 'unit_differences' || $tab === 'stock_without_bill')
+            ? app(AdvanceReceiveReconciliationService::class)->countUnitDifferences([
+                'warehouse_id' => $selectedWarehouseId,
+                'authorized_warehouse_ids' => $authorizedWarehouseIds,
+            ])
+            : 0;
 
         $summary = [
             'bills_received_count' => $billsReceivedCount,
@@ -2126,11 +2141,13 @@ class AdminCashbookReportsController extends Controller
             'selectedWarehouseId' => $selectedWarehouseId,
             'availableWarehouses' => $availableWarehouses,
             'summary' => $summary,
+            'openAdvances' => $openAdvances,
             'currentStockByProduct' => $currentStockByProduct,
             'currentInventory' => $currentInventory,
             'pendingBills' => $pendingBills,
             'matchDetailsPlan' => $matchDetailsPlan,
             'stockWithoutBill' => $stockWithoutBill,
+            'unbilledInventory' => $stockWithoutBill,
             'unbilledAdvRows' => $unbilledAdvRows,
             'unbilledAdvGrns' => $unbilledAdvGrns,
             'shopReturns' => $shopReturns,
