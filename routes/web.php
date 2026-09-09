@@ -678,6 +678,9 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
             Route::get('inventory', [AdminCashbookReportsController::class, 'inventory'])->name('inventory');
+            Route::get('inventory/pending-bills-days', [AdminCashbookReportsController::class, 'pendingBillsDaysSummary'])->name('inventory.pending-bills-days');
+            Route::get('inventory/pending-bills-day-details', [AdminCashbookReportsController::class, 'pendingBillsDayDetails'])->name('inventory.pending-bills-day-details');
+            Route::post('inventory/accept-pending-bills', [AdminCashbookReportsController::class, 'acceptPendingBills'])->name('inventory.accept-pending-bills');
             Route::post('inventory/match-bill/{goodsReceived}', [AdminCashbookReportsController::class, 'matchBill'])->name('inventory.match-bill');
             Route::get('inventory/auto-clear-plan', [AdminCashbookReportsController::class, 'autoClearPlan'])->name('inventory.auto-clear-plan');
             Route::post('inventory/auto-clear-execute', [AdminCashbookReportsController::class, 'autoClearExecute'])->name('inventory.auto-clear-execute');
@@ -685,6 +688,8 @@ Route::middleware('auth')->group(function () {
             Route::post('inventory/manual-match/{order}', [AdminCashbookReportsController::class, 'manualMatchExecute'])->name('inventory.manual-match');
             Route::post('inventory/resolve-unit-difference', [AdminCashbookReportsController::class, 'resolveUnitDifference'])->name('inventory.resolve-unit-difference');
             Route::post('inventory/fix-advance-units', [AdminCashbookReportsController::class, 'fixAdvanceUnits'])->name('inventory.fix-advance-units');
+            Route::post('inventory/move-to-damage', [AdminCashbookReportsController::class, 'moveToDamage'])->name('inventory.move-to-damage');
+            Route::post('inventory/clear-advances', [AdminCashbookReportsController::class, 'clearAdvances'])->name('inventory.clear-advances');
             Route::get('bill-changes', [AdminCashbookReportsController::class, 'billChanges'])->name('bill-changes');
             Route::get('bill-changes/api/shop-day', [AdminCashbookReportsController::class, 'billChangesShopDay'])->name('bill-changes.shop-day');
             Route::get('reports/products', [AdminCashbookReportsController::class, 'products'])->name('reports.products');

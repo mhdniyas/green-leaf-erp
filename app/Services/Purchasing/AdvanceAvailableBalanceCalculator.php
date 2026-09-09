@@ -6,6 +6,7 @@ namespace App\Services\Purchasing;
 
 use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
+use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use Illuminate\Database\Eloquent\Collection;
@@ -17,16 +18,18 @@ class AdvanceAvailableBalanceCalculator
      *
      * @return array<int, float> [item_id => available_base_qty]
      */
-    public function calculateItemAvailableBase(GoodsReceived $advanceGrn, ?Collection $productsMap = null): array
+    public function calculateItemAvailableBase(GoodsReceived $advanceGrn, ?Collection $productsMap = null, ?Collection $preloadedMatches = null): array
     {
         $items = $advanceGrn->relationLoaded('items') ? $advanceGrn->items : $advanceGrn->items()->get();
         if ($items->isEmpty()) {
             return [];
         }
 
-        $allMatches = AdvanceReceiveMatch::query()
-            ->where('advance_goods_received_id', $advanceGrn->id)
-            ->get();
+        $allMatches = $preloadedMatches !== null
+            ? $preloadedMatches->where('advance_goods_received_id', $advanceGrn->id)
+            : AdvanceReceiveMatch::query()
+                ->where('advance_goods_received_id', $advanceGrn->id)
+                ->get();
 
         $result = [];
         $itemsByProduct = $items->groupBy('product_id');
@@ -40,8 +43,8 @@ class AdvanceAvailableBalanceCalculator
             foreach ($sortedItems as $item) {
                 /** @var Product|null $product */
                 $product = $productsMap?->get($productId) ?? $item->product ?? Product::find($productId);
-                $conv = $this->resolveStrictUnitConversion($product, $item->received_unit) ?? 0.0;
-                $receivedBase = $conv > 0 ? round((float) $item->received_qty * $conv, 3) : 0.0;
+                $conv = $this->resolveStrictUnitConversion($product, $item->received_unit) ?? 1.0;
+                $receivedBase = round((float) $item->received_qty * $conv, 3);
 
                 $itemSpecificMatches = (float) $allMatches
                     ->where('advance_goods_received_item_id', $item->id)
@@ -73,6 +76,72 @@ class AdvanceAvailableBalanceCalculator
         }
 
         return $result;
+    }
+
+    /**
+     * Calculate item-level remaining base quantities for an exact bill GRN.
+     *
+     * @return array<int, float> [item_id => remaining_base_qty]
+     */
+    public function calculateBillRemainingBase(GoodsReceived $billGrn, ?Collection $productsMap = null): array
+    {
+        $items = $billGrn->relationLoaded('items') ? $billGrn->items : $billGrn->items()->get();
+        if ($items->isEmpty()) {
+            return [];
+        }
+
+        $allMatches = AdvanceReceiveMatch::query()
+            ->where('bill_goods_received_id', $billGrn->id)
+            ->get();
+
+        $result = [];
+        foreach ($items as $item) {
+            /** @var Product|null $product */
+            $product = $productsMap?->get((int) $item->product_id) ?? $item->product ?? Product::find($item->product_id);
+            $conv = $this->resolveStrictUnitConversion($product, $item->received_unit) ?? 1.0;
+            $billBase = round((float) $item->received_qty * $conv, 3);
+
+            $matchedBase = (float) $allMatches
+                ->filter(function (AdvanceReceiveMatch $m) use ($item): bool {
+                    if ($m->bill_goods_received_item_id !== null) {
+                        return (int) $m->bill_goods_received_item_id === (int) $item->id;
+                    }
+                    if ($item->purchase_order_item_id && $m->purchase_order_item_id) {
+                        return (int) $m->purchase_order_item_id === (int) $item->purchase_order_item_id;
+                    }
+
+                    return (int) $m->product_id === (int) $item->product_id;
+                })
+                ->sum('base_qty');
+
+            $result[$item->id] = max(0.0, round($billBase - $matchedBase, 3));
+        }
+
+        return $result;
+    }
+
+    /**
+     * Calculate remaining base quantity for a single bill GRN item.
+     */
+    public function calculateBillItemRemainingBase(GoodsReceivedItem $billItem, ?Product $product = null): float
+    {
+        $product = $product ?? $billItem->product ?? Product::find($billItem->product_id);
+        $conv = $this->resolveStrictUnitConversion($product, $billItem->received_unit) ?? 1.0;
+        $billBase = round((float) $billItem->received_qty * $conv, 3);
+
+        $matchedBase = (float) AdvanceReceiveMatch::query()
+            ->where('bill_goods_received_id', $billItem->goods_received_id)
+            ->where(function ($query) use ($billItem): void {
+                $query->where('bill_goods_received_item_id', $billItem->id)
+                    ->orWhere(function ($fallback) use ($billItem): void {
+                        $fallback->whereNull('bill_goods_received_item_id')
+                            ->when($billItem->purchase_order_item_id, fn ($q) => $q->where('purchase_order_item_id', $billItem->purchase_order_item_id))
+                            ->when(! $billItem->purchase_order_item_id, fn ($q) => $q->where('product_id', $billItem->product_id));
+                    });
+            })
+            ->sum('base_qty');
+
+        return max(0.0, round($billBase - $matchedBase, 3));
     }
 
     /**

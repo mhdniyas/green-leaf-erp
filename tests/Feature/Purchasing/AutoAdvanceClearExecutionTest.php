@@ -188,7 +188,8 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Warehouse $warehouse,
         array $lines,
         string $orderDate,
-        string $poNumberPrefix = 'PO-TEST'
+        string $poNumberPrefix = 'PO-TEST',
+        bool $createPendingGrn = true
     ): PurchaseOrder {
         $po = PurchaseOrder::create([
             'supplier_id' => $this->supplier->id,
@@ -199,17 +200,46 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'created_by' => $this->warehouseUser->id,
         ]);
 
+        $grn = null;
+        if ($createPendingGrn) {
+            $grn = GoodsReceived::create([
+                'public_uuid' => (string) Str::uuid(),
+                'warehouse_id' => $warehouse->id,
+                'destination_shop_id' => $warehouse->id,
+                'purchase_order_id' => $po->id,
+                'grn_number' => 'GRN-'.uniqid(),
+                'status' => 'approved',
+                'bill_status' => 'bill_pending',
+                'receipt_type' => 'purchaser_bill',
+                'received_by' => $this->warehouseUser->id,
+                'received_at' => $orderDate,
+                'approved_at' => now(),
+                'approved_by' => $this->warehouseUser->id,
+            ]);
+        }
+
         foreach ($lines as $line) {
-            PurchaseOrderItem::create([
+            $poItem = PurchaseOrderItem::create([
                 'purchase_order_id' => $po->id,
                 'product_id' => $line['product_id'],
                 'quantity' => $line['quantity'],
                 'purchase_unit' => $line['unit'] ?? $line['purchase_unit'] ?? 'kg',
                 'unit_price' => 50.0,
             ]);
+
+            if ($grn) {
+                GoodsReceivedItem::create([
+                    'goods_received_id' => $grn->id,
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $line['product_id'],
+                    'received_qty' => $line['quantity'],
+                    'received_unit' => $line['unit'] ?? $line['purchase_unit'] ?? 'kg',
+                    'variance' => 0.0,
+                ]);
+            }
         }
 
-        return $po->fresh(['items.product']);
+        return $po->fresh(['items.product', 'goodsReceiveds.items']);
     }
 
     public function test_execution_requires_authentication(): void
@@ -402,7 +432,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25', createPendingGrn: false);
 
         $pendingGrn = GoodsReceived::create([
             'public_uuid' => (string) Str::uuid(),
@@ -461,7 +491,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
-        $this->assertEquals('create_bill_grn', $preview['ready_bills'][0]['execution_mode']);
+        $this->assertEquals('reconcile_existing_grn', $preview['ready_bills'][0]['execution_mode']);
 
         $res = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
             'warehouse_id' => $this->warehouseA->id,
@@ -478,7 +508,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 50.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25', createPendingGrn: false);
 
         // Previous completed receipt of 50kg on this 100kg PO
         $completedGrn = GoodsReceived::create([
@@ -514,6 +544,27 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'cost_per_kg' => 50.0,
             'status' => BatchStatus::Pending,
             'warehouse_receive_pending' => false,
+        ]);
+
+        // Pending intake GRN for the remaining 50 kg
+        $pendingGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-PENDING-50',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'purchaser_bill',
+            'received_by' => $this->warehouseUser->id,
+            'received_at' => '2026-08-27',
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $pendingGrn->id,
+            'purchase_order_item_id' => $po->items->first()->id,
+            'product_id' => $this->apple->id,
+            'received_qty' => 50.0,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
         ]);
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
@@ -671,29 +722,31 @@ class AutoAdvanceClearExecutionTest extends TestCase
 
         $item1 = $run->items()->create([
             'position' => 1,
-            'execution_mode' => 'create_bill_grn',
+            'execution_mode' => 'reconcile_existing_grn',
             'purchase_order_id' => $po1->id,
+            'source_goods_received_id' => $po1->goodsReceiveds->first()->id,
             'planned_base_qty' => 50.0,
             'status' => 'pending',
         ]);
 
         $item2 = $run->items()->create([
             'position' => 2,
-            'execution_mode' => 'create_bill_grn',
+            'execution_mode' => 'reconcile_existing_grn',
             'purchase_order_id' => $po2->id,
+            'source_goods_received_id' => $po2->goodsReceiveds->first()->id,
             'planned_base_qty' => 40.0,
             'status' => 'pending',
         ]);
 
         $realService = app(AdvanceReceiveReconciliationService::class);
         $this->partialMock(AdvanceReceiveReconciliationService::class, function ($mock) use ($po1, $realService) {
-            $mock->shouldReceive('reconcileAndExecute')
-                ->andReturnUsing(function ($grnData, $userId) use ($po1, $realService) {
-                    if ($grnData->purchaseOrderId === $po1->id) {
+            $mock->shouldReceive('reconcileExistingGrn')
+                ->andReturnUsing(function ($grn, $items, $advanceMatches, $fallbackWarehouseId, $userId, $autoAdvanceClear = false) use ($po1, $realService) {
+                    if ($grn->purchase_order_id === $po1->id) {
                         throw new \RuntimeException('Simulated unexpected domain failure during reconciliation');
                     }
 
-                    return $realService->reconcileAndExecute($grnData, $userId);
+                    return $realService->reconcileExistingGrn($grn, $items, $advanceMatches, $fallbackWarehouseId, $userId, $autoAdvanceClear);
                 });
         });
 
@@ -737,14 +790,15 @@ class AutoAdvanceClearExecutionTest extends TestCase
         ]);
         $run->items()->create([
             'position' => 1,
-            'execution_mode' => 'create_bill_grn',
+            'execution_mode' => 'reconcile_existing_grn',
             'purchase_order_id' => $po->id,
+            'source_goods_received_id' => $po->goodsReceiveds->first()->id,
             'planned_base_qty' => 50.0,
             'status' => 'pending',
         ]);
 
         $this->partialMock(AdvanceReceiveReconciliationService::class, function ($mock) {
-            $mock->shouldReceive('reconcileAndExecute')
+            $mock->shouldReceive('reconcileExistingGrn')
                 ->andThrow(new \RuntimeException('Database deadlock simulation'));
         });
 
@@ -785,8 +839,9 @@ class AutoAdvanceClearExecutionTest extends TestCase
         ]);
         $item = $run->items()->create([
             'position' => 1,
-            'execution_mode' => 'create_bill_grn',
+            'execution_mode' => 'reconcile_existing_grn',
             'purchase_order_id' => $po->id,
+            'source_goods_received_id' => $po->goodsReceiveds->first()->id,
             'planned_base_qty' => 50.0,
             'status' => 'failed',
             'attempt_count' => 1,
@@ -866,8 +921,9 @@ class AutoAdvanceClearExecutionTest extends TestCase
         ]);
         $run->items()->create([
             'position' => 1,
-            'execution_mode' => 'create_bill_grn',
+            'execution_mode' => 'reconcile_existing_grn',
             'purchase_order_id' => $po->id,
+            'source_goods_received_id' => $po->goodsReceiveds->first()->id,
             'planned_base_qty' => 50.0,
             'status' => 'processing',
         ]);
@@ -907,8 +963,9 @@ class AutoAdvanceClearExecutionTest extends TestCase
 
         $run->items()->create([
             'position' => 1,
-            'execution_mode' => 'create_bill_grn',
+            'execution_mode' => 'reconcile_existing_grn',
             'purchase_order_id' => $po->id,
+            'source_goods_received_id' => $po->goodsReceiveds->first()->id,
             'planned_base_qty' => 60.0,
             'status' => 'pending',
         ]);
@@ -957,7 +1014,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25', createPendingGrn: false);
 
         $pendingGrn = GoodsReceived::create([
             'public_uuid' => (string) Str::uuid(),
@@ -1040,7 +1097,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $this->assertEquals('already_processed', $data['skipped'][0]['reason_code']);
     }
 
-    public function test_new_pending_grn_after_run_creation_is_detected_in_lock(): void
+    public function test_target_deleted_or_cancelled_after_run_creation_is_detected_in_lock(): void
     {
         Sanctum::actingAs($this->warehouseUser);
 
@@ -1063,37 +1120,15 @@ class AutoAdvanceClearExecutionTest extends TestCase
         ]);
         $run->items()->create([
             'position' => 1,
-            'execution_mode' => 'create_bill_grn',
+            'execution_mode' => 'reconcile_existing_grn',
             'purchase_order_id' => $po->id,
+            'source_goods_received_id' => $po->goodsReceiveds->first()->id,
             'planned_base_qty' => 60.0,
             'status' => 'pending',
         ]);
 
-        $pendingGrn = GoodsReceived::create([
-            'public_uuid' => (string) Str::uuid(),
-            'warehouse_id' => $this->warehouseA->id,
-            'purchase_order_id' => $po->id,
-            'grn_number' => 'GRN-NEW-PENDING',
-            'status' => 'approved',
-            'bill_status' => 'bill_pending',
-            'receipt_type' => 'normal_purchase',
-            'received_by' => $this->warehouseUser->id,
-            'received_at' => now(),
-        ]);
-        StockBatch::create([
-            'product_id' => $this->apple->id,
-            'warehouse_id' => $this->warehouseA->id,
-            'goods_received_id' => $pendingGrn->id,
-            'purchase_grade' => 'A',
-            'grading_mode' => 'sort_required',
-            'created_by' => $this->warehouseUser->id,
-            'reference' => 'BATCH-N',
-            'received_at' => now(),
-            'total_kg' => 60.0,
-            'cost_per_kg' => 50.0,
-            'status' => BatchStatus::Pending,
-            'warehouse_receive_pending' => true,
-        ]);
+        // Competing action cancels the pending GRN
+        $po->goodsReceiveds->first()->update(['status' => 'cancelled']);
 
         $res = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
             'warehouse_id' => $this->warehouseA->id,

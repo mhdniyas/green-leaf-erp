@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Models\GoodsReceived;
+use App\Models\PurchaseOrder;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -136,5 +138,15 @@ class WarehouseReceiptReadScope
                     ->whereHas('product', fn (Builder $product) => $product->whereIn('default_warehouse_id', $ids));
             });
         });
+    }
+
+    public function receiptMatchesWarehouse(GoodsReceived $receipt, int $warehouseId): bool
+    {
+        return $this->receipts(GoodsReceived::query()->whereKey($receipt->id), [$warehouseId])->exists();
+    }
+
+    public function orderMatchesWarehouse(PurchaseOrder $order, int $warehouseId): bool
+    {
+        return $this->orders(PurchaseOrder::query()->whereKey($order->id), [$warehouseId])->exists();
     }
 }

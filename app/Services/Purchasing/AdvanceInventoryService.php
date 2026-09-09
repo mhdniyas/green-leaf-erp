@@ -25,10 +25,11 @@ class AdvanceInventoryService
             : now()->toDateString();
 
         $search = trim((string) ($filters['search'] ?? ''));
-        $warehouseIds = $filters['authorized_warehouse_ids'] ?? null;
-
-        if ($warehouseIds === null && isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null) {
+        $warehouseIds = null;
+        if (isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null && $filters['warehouse_id'] !== '') {
             $warehouseIds = [(int) $filters['warehouse_id']];
+        } elseif (isset($filters['authorized_warehouse_ids'])) {
+            $warehouseIds = $filters['authorized_warehouse_ids'];
         }
 
         if ($warehouseIds === null) {
@@ -195,10 +196,11 @@ class AdvanceInventoryService
             ? Carbon::parse($filters['date'])->toDateString()
             : now()->toDateString();
 
-        $warehouseIds = $filters['authorized_warehouse_ids'] ?? null;
-
-        if ($warehouseIds === null && isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null) {
+        $warehouseIds = null;
+        if (isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null && $filters['warehouse_id'] !== '') {
             $warehouseIds = [(int) $filters['warehouse_id']];
+        } elseif (isset($filters['authorized_warehouse_ids'])) {
+            $warehouseIds = $filters['authorized_warehouse_ids'];
         }
 
         if ($warehouseIds === null) {

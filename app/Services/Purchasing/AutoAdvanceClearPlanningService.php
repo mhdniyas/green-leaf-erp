@@ -48,12 +48,10 @@ class AutoAdvanceClearPlanningService
         // 1. Pre-load all eligible pending purchase orders and their goods receipts
         $pendingOrdersQuery = PurchaseOrder::query()
             ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
-            ->where(function (Builder $pending): void {
-                $pending->whereHas('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
-                    ->orWhere(function ($withoutPendingReceipt): void {
-                        $withoutPendingReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => $this->receiptStateResolver->filter($receipts, 'pending'))
-                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
-                    });
+            ->whereHas('goodsReceiveds', function (Builder $receipts): void {
+                $receipts->where('goods_received.status', 'approved')
+                    ->where('goods_received.bill_status', 'bill_pending')
+                    ->where('goods_received.receipt_type', '!=', 'warehouse_advance');
             });
 
         $this->readScope->orders($pendingOrdersQuery, [$warehouseId]);
@@ -64,7 +62,7 @@ class AutoAdvanceClearPlanningService
                 'supplier:id,name',
                 'destinationShop:id,name',
                 'goodsReceiveds' => fn ($grnQuery) => $this->receiptStateResolver->withFacts(
-                    $grnQuery->select('goods_received.*')->with(['items.product.orderUnits', 'stockBatches'])
+                    $grnQuery->select('goods_received.*')->withCount('purchaseInvoices')->with(['items.product.orderUnits', 'stockBatches'])
                 ),
             ])
             ->orderBy('order_date')
@@ -113,14 +111,8 @@ class AutoAdvanceClearPlanningService
         $advanceTracking = [];
 
         foreach ($openAdvances as $advGrn) {
-            $grnMatches = $matchesByAdvanceId->get($advGrn->id, collect());
             $grnInitialUnbilledBase = 0.0;
-
-            // Legacy unassigned matches for each product on this GRN (advance_goods_received_item_id is NULL)
-            $legacyUnassignedByProd = [];
-            foreach ($grnMatches->whereNull('advance_goods_received_item_id') as $m) {
-                $legacyUnassignedByProd[$m->product_id] = ($legacyUnassignedByProd[$m->product_id] ?? 0.0) + (float) $m->base_qty;
-            }
+            $availBalances = $this->balanceCalculator->calculateItemAvailableBase($advGrn, null, $existingMatches);
 
             foreach ($advGrn->items as $item) {
                 /** @var Product|null $product */
@@ -136,15 +128,9 @@ class AutoAdvanceClearPlanningService
                     continue;
                 }
 
-                $conv = $this->resolveStrictUnitConversion($product, $item->received_unit);
-                if ($conv === null) {
-                    $normReceived = ProductUnit::normalizeUnit($item->received_unit);
-                    if (in_array($normReceived, ['kg', 'piece', 'box', 'bag', 'bunch'], true)) {
-                        $conv = 1.0;
-                    }
-                }
-
-                if ($conv === null) {
+                $isKnownUnit = in_array(ProductUnit::normalizeUnit($item->received_unit), ProductUnit::AVAILABLE_UNITS, true);
+                $conv = $this->balanceCalculator->resolveStrictUnitConversion($product, $item->received_unit);
+                if ($conv === null && ! $isKnownUnit) {
                     $warnings[] = [
                         'advance_goods_received_id' => $advGrn->id,
                         'advance_goods_received_item_id' => $item->id,
@@ -156,26 +142,12 @@ class AutoAdvanceClearPlanningService
                     continue;
                 }
 
+                $conv ??= 1.0;
+
+                $itemRemainingBase = (float) ($availBalances[$item->id] ?? 0.0);
                 $originalQty = (float) $item->received_qty;
                 $originalBaseQty = round($originalQty * $conv, 3);
-
-                // Explicit item-level matches
-                $explicitItemMatchedBase = (float) $grnMatches
-                    ->where('advance_goods_received_item_id', $item->id)
-                    ->sum('base_qty');
-
-                $itemRemainingBase = max(0.0, round($originalBaseQty - $explicitItemMatchedBase, 3));
-
-                // Absorb legacy unassigned matches for this product if any
-                $legacyPool = (float) ($legacyUnassignedByProd[$item->product_id] ?? 0.0);
-                $legacyApplied = 0.0;
-                if ($legacyPool > 0.0001 && $itemRemainingBase > 0.0001) {
-                    $legacyApplied = min($itemRemainingBase, $legacyPool);
-                    $legacyUnassignedByProd[$item->product_id] = $legacyPool - $legacyApplied;
-                    $itemRemainingBase = max(0.0, round($itemRemainingBase - $legacyApplied, 3));
-                }
-
-                $totalAlreadyMatchedBase = round($explicitItemMatchedBase + $legacyApplied, 3);
+                $totalAlreadyMatchedBase = max(0.0, round($originalBaseQty - $itemRemainingBase, 3));
 
                 if ($itemRemainingBase > 0.0001) {
                     $grnInitialUnbilledBase += $itemRemainingBase;
@@ -260,125 +232,117 @@ class AutoAdvanceClearPlanningService
             $completedItemReceivedBase = []; // [po_item_id => base_qty]
 
             foreach ($order->goodsReceiveds as $grn) {
-                $facts = $this->receiptStateResolver->forReceipt($grn);
-                if (($facts['receipt_status'] ?? '') === 'received') {
-                    // Completed delivery: track already received base quantity by PO item
-                    foreach ($grn->items as $gItem) {
-                        if ($gItem->purchase_order_item_id) {
-                            $prod = $gItem->product;
-                            $c = $this->resolveStrictUnitConversion($prod, $gItem->received_unit) ?? 1.0;
-                            $bQty = round((float) $gItem->received_qty * $c, 3);
-                            $completedItemReceivedBase[$gItem->purchase_order_item_id] = ($completedItemReceivedBase[$gItem->purchase_order_item_id] ?? 0.0) + $bQty;
+                if ($grn->status === 'approved' && $grn->bill_status === 'bill_pending' && $grn->receipt_type !== 'warehouse_advance') {
+                    $pendingGrns->push($grn);
+                } else {
+                    $facts = $this->receiptStateResolver->forReceipt($grn);
+                    if (($facts['receipt_status'] ?? '') === 'received') {
+                        // Completed delivery: track already received base quantity by PO item
+                        foreach ($grn->items as $gItem) {
+                            if ($gItem->purchase_order_item_id) {
+                                $prod = $gItem->product;
+                                $c = $this->resolveStrictUnitConversion($prod, $gItem->received_unit) ?? 1.0;
+                                $bQty = round((float) $gItem->received_qty * $c, 3);
+                                $completedItemReceivedBase[$gItem->purchase_order_item_id] = ($completedItemReceivedBase[$gItem->purchase_order_item_id] ?? 0.0) + $bQty;
+                            }
                         }
                     }
-                } else {
-                    // Pending GRN
-                    $pendingGrns->push($grn);
                 }
             }
 
-            if ($pendingGrns->isNotEmpty()) {
-                // A. For each existing pending GRN: create a distinct plan entry
-                foreach ($pendingGrns->sortBy('id') as $pGrn) {
-                    $targetLines = [];
-                    foreach ($pGrn->items->sortBy('id') as $pItem) {
-                        $prod = $pItem->product;
-                        $unit = $pItem->received_unit ?: $pItem->product?->unit;
-                        $conv = $this->resolveStrictUnitConversion($prod, $unit) ?? 1.0;
-                        $itemBase = round((float) $pItem->received_qty * $conv, 3);
+            // For each existing pending GRN: create a distinct plan entry
+            // Track legacy unlinked allocations and cumulative allocations per PO item
+            $legacyUnlinkedAppliedByPoItem = [];
+            $allocatedInPlanByPoItem = [];
 
-                        $alreadyMatchedBase = (float) $existingMatches
-                            ->where('purchase_order_id', $order->id)
-                            ->filter(function ($m) use ($pItem, $pGrn): bool {
-                                if ($m->bill_goods_received_id === $pGrn->id && $m->bill_goods_received_item_id === $pItem->id) {
-                                    return true;
+            foreach ($pendingGrns->sortBy('id') as $pGrn) {
+                $targetLines = [];
+                foreach ($pGrn->items->sortBy('id') as $pItem) {
+                    $prod = $pItem->product;
+                    $unit = $pItem->received_unit ?: $pItem->product?->unit;
+                    $conv = $this->resolveStrictUnitConversion($prod, $unit) ?? 1.0;
+                    $itemBase = round((float) $pItem->received_qty * $conv, 3);
+
+                    // 1. Allocation linked to this exact GRN
+                    $exactGrnMatchedBase = (float) $existingMatches
+                        ->where('purchase_order_id', $order->id)
+                        ->filter(function ($m) use ($pItem, $pGrn): bool {
+                            if ($m->bill_goods_received_id !== null) {
+                                if ((int) $m->bill_goods_received_id === (int) $pGrn->id) {
+                                    if ($m->bill_goods_received_item_id !== null) {
+                                        return (int) $m->bill_goods_received_item_id === (int) $pItem->id;
+                                    }
+
+                                    return $pItem->purchase_order_item_id
+                                        ? (int) $m->purchase_order_item_id === (int) $pItem->purchase_order_item_id
+                                        : (int) $m->product_id === (int) $pItem->product_id;
                                 }
 
-                                return $pItem->purchase_order_item_id && $m->purchase_order_item_id === $pItem->purchase_order_item_id;
-                            })
+                                return false;
+                            }
+
+                            return false;
+                        })
+                        ->sum('base_qty');
+
+                    // 2. PO-item fallback: ONLY for legacy allocations without GRN linkage
+                    $legacyMatchedBase = 0.0;
+                    if ($pItem->purchase_order_item_id) {
+                        $totalUnlinkedLegacy = (float) $existingMatches
+                            ->where('purchase_order_id', $order->id)
+                            ->whereNull('bill_goods_received_id')
+                            ->where('purchase_order_item_id', $pItem->purchase_order_item_id)
                             ->sum('base_qty');
 
-                        $remBase = max(0.0, round($itemBase - $alreadyMatchedBase, 3));
-                        $remQty = $conv > 0 ? round($remBase / $conv, 3) : $remBase;
+                        $alreadyAbsorbed = (float) ($legacyUnlinkedAppliedByPoItem[$pItem->purchase_order_item_id] ?? 0.0);
+                        $legacyAvailable = max(0.0, round($totalUnlinkedLegacy - $alreadyAbsorbed, 3));
+                        $grnRemainingBeforeLegacy = max(0.0, round($itemBase - $exactGrnMatchedBase, 3));
+                        $legacyMatchedBase = min($grnRemainingBeforeLegacy, $legacyAvailable);
+                        $legacyUnlinkedAppliedByPoItem[$pItem->purchase_order_item_id] = $alreadyAbsorbed + $legacyMatchedBase;
+                    }
 
-                        if ($remBase > 0.0001) {
-                            $targetLines[] = [
-                                'source_item_id' => $pItem->id,
-                                'purchase_order_item_id' => $pItem->purchase_order_item_id,
-                                'product' => $pItem->product,
-                                'product_id' => $pItem->product_id,
-                                'unit' => $unit,
-                                'quantity' => $remQty,
-                                'already_matched_base_qty' => $alreadyMatchedBase,
-                            ];
+                    $alreadyMatchedBase = round($exactGrnMatchedBase + $legacyMatchedBase, 3);
+                    $remBase = max(0.0, round($itemBase - $alreadyMatchedBase, 3));
+
+                    // 3. Do not allow total allocations across a PO item to exceed its valid receivable quantity
+                    if ($pItem->purchase_order_item_id) {
+                        $poItem = $order->items->firstWhere('id', $pItem->purchase_order_item_id);
+                        if ($poItem) {
+                            $poUnit = $poItem->purchase_unit ?: $poItem->unit ?: $prod?->unit;
+                            $poConv = $this->resolveStrictUnitConversion($prod, $poUnit) ?? 1.0;
+                            $poOrderedBase = round((float) $poItem->quantity * $poConv, 3);
+                            $poCompletedBase = (float) ($completedItemReceivedBase[$poItem->id] ?? 0.0);
+                            $totalExistingAllocOnPo = (float) $existingMatches
+                                ->where('purchase_order_id', $order->id)
+                                ->where('purchase_order_item_id', $poItem->id)
+                                ->sum('base_qty');
+                            $alreadyAllocatedInPlan = (float) ($allocatedInPlanByPoItem[$poItem->id] ?? 0.0);
+                            $maxReceivableRemaining = max(0.0, round($poOrderedBase - $poCompletedBase - $totalExistingAllocOnPo - $alreadyAllocatedInPlan, 3));
+                            $remBase = min($remBase, $maxReceivableRemaining);
+                            $allocatedInPlanByPoItem[$poItem->id] = $alreadyAllocatedInPlan + $remBase;
                         }
                     }
 
-                    $billTargets[] = [
-                        'execution_mode' => 'reconcile_existing_grn',
-                        'purchase_order_id' => $order->id,
-                        'source_goods_received_id' => $pGrn->id,
-                        'reference' => $pGrn->grn_number ?: $order->po_number,
-                        'supplier_id' => $order->supplier_id,
-                        'supplier_name' => $order->supplier?->name ?? 'Vendor',
-                        'bill_date' => $billDateStr,
-                        'order_date' => $order->order_date,
-                        'order_id' => $order->id,
-                        'lines' => $targetLines,
-                    ];
-                }
-            } else {
-                // B. Order without a pending GRN: calculate remaining outstanding receivable
-                $targetLines = [];
-                foreach ($order->items->sortBy('id') as $poItem) {
-                    $product = $poItem->product;
-                    $itemUnit = $poItem->purchase_unit ?: $poItem->unit ?: $product?->unit;
-                    $conv = $this->resolveStrictUnitConversion($product, $itemUnit) ?? 1.0;
+                    $remQty = $conv > 0 ? round($remBase / $conv, 3) : $remBase;
 
-                    $orderedQty = (float) $poItem->quantity;
-                    if ($orderedQty <= 0.0001) {
+                    if ($remBase > 0.0001) {
                         $targetLines[] = [
-                            'source_item_id' => $poItem->id,
-                            'purchase_order_item_id' => $poItem->id,
-                            'product' => $product,
-                            'product_id' => $poItem->product_id,
-                            'unit' => $itemUnit,
-                            'quantity' => $orderedQty,
-                            'already_matched_base_qty' => 0.0,
-                        ];
-
-                        continue;
-                    }
-
-                    $orderedBaseQty = round($orderedQty * $conv, 3);
-                    $completedBaseQty = (float) ($completedItemReceivedBase[$poItem->id] ?? 0.0);
-                    $alreadyMatchedBaseQty = (float) $existingMatches
-                        ->where('purchase_order_id', $order->id)
-                        ->where('purchase_order_item_id', $poItem->id)
-                        ->sum('base_qty');
-
-                    $totalDeductedBase = round($completedBaseQty + $alreadyMatchedBaseQty, 3);
-                    $remainingBaseQty = max(0.0, round($orderedBaseQty - $totalDeductedBase, 3));
-                    $remainingItemQty = $conv > 0 ? round($remainingBaseQty / $conv, 3) : $remainingBaseQty;
-
-                    if ($remainingBaseQty > 0.0001) {
-                        $targetLines[] = [
-                            'source_item_id' => $poItem->id,
-                            'purchase_order_item_id' => $poItem->id,
-                            'product' => $product,
-                            'product_id' => $poItem->product_id,
-                            'unit' => $itemUnit,
-                            'quantity' => $remainingItemQty,
-                            'already_matched_base_qty' => $totalDeductedBase,
+                            'source_item_id' => $pItem->id,
+                            'purchase_order_item_id' => $pItem->purchase_order_item_id,
+                            'product' => $pItem->product,
+                            'product_id' => $pItem->product_id,
+                            'unit' => $unit,
+                            'quantity' => $remQty,
+                            'already_matched_base_qty' => $alreadyMatchedBase,
                         ];
                     }
                 }
 
                 $billTargets[] = [
-                    'execution_mode' => 'create_bill_grn',
+                    'execution_mode' => 'reconcile_existing_grn',
                     'purchase_order_id' => $order->id,
-                    'source_goods_received_id' => null,
-                    'reference' => $order->po_number,
+                    'source_goods_received_id' => $pGrn->id,
+                    'reference' => $pGrn->grn_number ?: $order->po_number,
                     'supplier_id' => $order->supplier_id,
                     'supplier_name' => $order->supplier?->name ?? 'Vendor',
                     'bill_date' => $billDateStr,
@@ -554,8 +518,9 @@ class AutoAdvanceClearPlanningService
                         $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
                         $normSlotUnit = ProductUnit::normalizeUnit($slot['unit']);
                         if ($normLineUnit !== $normSlotUnit) {
-                            $slotConv = $this->resolveStrictUnitConversion($product, $slot['unit']);
-                            if ($slotConv === null || $conv === null) {
+                            $slotStrictConv = $this->resolveStrictUnitConversion($product, $slot['unit']);
+                            $lineStrictConv = $this->resolveStrictUnitConversion($product, $line['unit']);
+                            if ($slotStrictConv === null || $lineStrictConv === null) {
                                 continue;
                             }
                         }
@@ -606,7 +571,7 @@ class AutoAdvanceClearPlanningService
                             $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
                             foreach ($virtualPoolsByProduct[$product->id] as $vSlot) {
                                 $vSlotNorm = ProductUnit::normalizeUnit($vSlot['unit']);
-                                if ($vSlotNorm === $normLineUnit || ($this->resolveStrictUnitConversion($product, $vSlot['unit']) !== null && $conv !== null)) {
+                                if ($vSlotNorm === $normLineUnit || ($this->resolveStrictUnitConversion($product, $vSlot['unit']) !== null && $this->resolveStrictUnitConversion($product, $line['unit']) !== null)) {
                                     $hasCompatibleSlot = true;
                                     break;
                                 }

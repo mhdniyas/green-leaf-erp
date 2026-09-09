@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\Purchasing\WarehouseReceiptReadScope;
 use Database\Factories\GoodsReceivedFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -221,17 +222,8 @@ class GoodsReceived extends Model
                     ->when($productId !== null, fn (Builder $pq) => $pq->where('product_id', $productId));
             })
             ->when($warehouseId !== null, function (Builder $whQuery) use ($warehouseId): void {
-                if (is_array($warehouseId)) {
-                    $whQuery->where(function (Builder $w) use ($warehouseId): void {
-                        $w->whereIn('goods_received.warehouse_id', $warehouseId)
-                            ->orWhereIn('goods_received.destination_shop_id', $warehouseId);
-                    });
-                } else {
-                    $whQuery->where(function (Builder $w) use ($warehouseId): void {
-                        $w->where('goods_received.warehouse_id', $warehouseId)
-                            ->orWhere('goods_received.destination_shop_id', $warehouseId);
-                    });
-                }
+                $ids = is_array($warehouseId) ? array_values($warehouseId) : [$warehouseId];
+                app(WarehouseReceiptReadScope::class)->receipts($whQuery, $ids);
             })
             ->whereExists(function (QueryBuilder $itemQuery) use ($productId): void {
                 $itemQuery->selectRaw('1')

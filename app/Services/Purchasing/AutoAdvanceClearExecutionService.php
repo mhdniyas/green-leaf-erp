@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
-use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Models\AdvanceAutoClearRun;
 use App\Models\AdvanceAutoClearRunItem;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
@@ -29,6 +29,7 @@ class AutoAdvanceClearExecutionService
         private readonly AdvanceReceiveReconciliationService $reconciliationService,
         private readonly WarehouseReceiptStateResolver $receiptStateResolver,
         private readonly AdvanceAvailableBalanceCalculator $balanceCalculator,
+        private readonly WarehouseReceiptReadScope $readScope,
     ) {}
 
     /**
@@ -233,7 +234,7 @@ class AutoAdvanceClearExecutionService
                     if ($lockedItem->execution_mode === 'reconcile_existing_grn') {
                         $this->executeReconcileExistingGrn($lockedItem, $plannedItem, $run, $warehouseId, $userId, $productsMap);
                     } else {
-                        $this->executeCreateBillGrn($lockedItem, $plannedItem, $run, $warehouseId, $userId, $productsMap);
+                        $lockedItem->update(['status' => 'skipped', 'reason_code' => 'invalid_execution_mode']);
                     }
                 });
             } catch (Throwable $e) {
@@ -287,8 +288,7 @@ class AutoAdvanceClearExecutionService
         // Lock target PO and PO items
         $po = PurchaseOrder::query()->whereKey($item->purchase_order_id)->lockForUpdate()->first();
 
-        $effectiveGrnWh = (int) ($grn->warehouse_id ?? $grn->destination_shop_id ?? $po?->destination_shop_id ?? $warehouseId);
-        if (! $grn || $effectiveGrnWh !== $warehouseId || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
+        if (! $grn || $grn->status !== 'approved' || $grn->bill_status !== 'bill_pending' || ! $this->readScope->receiptMatchesWarehouse($grn, $warehouseId) || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
             $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
 
             return;
@@ -325,6 +325,13 @@ class AutoAdvanceClearExecutionService
             /** @var Product|null $lineProduct */
             $lineProduct = $productsMap->get($lineProductId);
             $lineConv = $this->balanceCalculator->resolveStrictUnitConversion($lineProduct, $line['unit']);
+            if ($lineConv === null || $lineConv <= 0.0) {
+                $normLine = ProductUnit::normalizeUnit($line['unit']);
+                $normProd = ProductUnit::normalizeUnit($lineProduct?->unit);
+                if ($normLine === $normProd) {
+                    $lineConv = 1.0;
+                }
+            }
 
             if ($lineConv === null || $lineConv <= 0.0) {
                 $item->update(['status' => 'skipped', 'reason_code' => 'invalid_unit_conversion']);
@@ -334,8 +341,7 @@ class AutoAdvanceClearExecutionService
 
             foreach ($line['matches'] as $m) {
                 $advGrn = $lockedAdvanceGrns->get((int) $m['advance_goods_received_id']);
-                $advEffWh = (int) ($advGrn->warehouse_id ?? $advGrn->destination_shop_id ?? $warehouseId);
-                if (! $advGrn || $advGrn->status !== 'approved' || $advGrn->bill_status !== 'bill_pending' || $advEffWh !== $warehouseId) {
+                if (! $advGrn || $advGrn->status !== 'approved' || $advGrn->bill_status !== 'bill_pending' || ! $this->readScope->receiptMatchesWarehouse($advGrn, $warehouseId)) {
                     $coverageOk = false;
                     break 2;
                 }
@@ -348,6 +354,14 @@ class AutoAdvanceClearExecutionService
 
                 $advProduct = $productsMap->get((int) $advItem->product_id);
                 $advConv = $this->balanceCalculator->resolveStrictUnitConversion($advProduct, $advItem->received_unit);
+                if ($advConv === null || $advConv <= 0.0) {
+                    $normAdv = ProductUnit::normalizeUnit($advItem->received_unit);
+                    $normAdvProd = ProductUnit::normalizeUnit($advProduct?->unit);
+                    if ($normAdv === $normAdvProd) {
+                        $advConv = 1.0;
+                    }
+                }
+
                 if ($advConv === null || $advConv <= 0.0) {
                     $coverageOk = false;
                     break 2;
@@ -409,227 +423,6 @@ class AutoAdvanceClearExecutionService
             'result_payload' => [
                 'matched_base_qty' => (float) $item->planned_base_qty,
                 'grn_number' => $reconciledGrn->grn_number,
-            ],
-        ]);
-    }
-
-    private function executeCreateBillGrn(
-        AdvanceAutoClearRunItem $item,
-        array $plannedItem,
-        AdvanceAutoClearRun $run,
-        int $warehouseId,
-        int $userId,
-        Collection $productsMap
-    ): void {
-        // 1. Lock rows in ascending order
-        /** @var PurchaseOrder|null $order */
-        $order = PurchaseOrder::query()
-            ->whereKey($item->purchase_order_id)
-            ->lockForUpdate()
-            ->first();
-
-        if (! $order || ! in_array($order->status->value, ['approved', 'sent_to_supplier', 'partially_received', 'received'], true)) {
-            $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
-
-            return;
-        }
-
-        $poItems = PurchaseOrderItem::query()->where('purchase_order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
-        $existingOrderGrns = GoodsReceived::query()->where('purchase_order_id', $order->id)->orderBy('id')->lockForUpdate()->get();
-        $existingOrderGrnItems = GoodsReceivedItem::query()->whereIn('goods_received_id', $existingOrderGrns->pluck('id'))->orderBy('id')->lockForUpdate()->get();
-
-        // Check if a new pending GRN appeared after run was created
-        foreach ($existingOrderGrns as $eGrn) {
-            $facts = $this->receiptStateResolver->forReceipt($eGrn);
-            if (($facts['receipt_status'] ?? '') === 'pending') {
-                $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
-
-                return;
-            }
-        }
-
-        // Lock advance GRNs and Items in ascending ID order
-        $advGrnIds = collect($plannedItem['lines'])->flatMap(fn ($l) => collect($l['matches'])->pluck('advance_goods_received_id'))->unique()->sort()->values()->all();
-        $lockedAdvanceGrns = GoodsReceived::query()->whereIn('id', $advGrnIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-        $lockedAdvanceItems = GoodsReceivedItem::query()->whereIn('goods_received_id', $advGrnIds)->orderBy('id')->lockForUpdate()->get();
-        AdvanceReceiveMatch::query()->whereIn('advance_goods_received_id', $advGrnIds)->orderBy('id')->lockForUpdate()->get();
-
-        // Compute fresh available balances across locked advance GRNs using shared calculator
-        $calculatedBalancesByGrn = [];
-        foreach ($lockedAdvanceGrns as $aGrn) {
-            $calculatedBalancesByGrn[$aGrn->id] = $this->balanceCalculator->calculateItemAvailableBase($aGrn->fresh(), $productsMap);
-        }
-
-        // Calculate already completed receipts by PO item
-        $completedByPoItem = [];
-        foreach ($existingOrderGrns as $eGrn) {
-            $facts = $this->receiptStateResolver->forReceipt($eGrn);
-            if (($facts['receipt_status'] ?? '') === 'received') {
-                foreach ($existingOrderGrnItems->where('goods_received_id', $eGrn->id) as $gi) {
-                    if ($gi->purchase_order_item_id) {
-                        $p = $productsMap->get($gi->product_id);
-                        $c = $this->balanceCalculator->resolveStrictUnitConversion($p, $gi->received_unit) ?? 1.0;
-                        $bQty = round((float) $gi->received_qty * $c, 3);
-                        $completedByPoItem[$gi->purchase_order_item_id] = ($completedByPoItem[$gi->purchase_order_item_id] ?? 0.0) + $bQty;
-                    }
-                }
-            }
-        }
-
-        // Revalidate target PO line quantities match remaining outstanding quantities
-        foreach ($plannedItem['lines'] as $line) {
-            $poItemId = (int) $line['purchase_order_item_id'];
-            $poItem = $poItems->firstWhere('id', $poItemId);
-            if (! $poItem) {
-                $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
-
-                return;
-            }
-
-            $product = $productsMap->get((int) $poItem->product_id);
-            $conv = $this->balanceCalculator->resolveStrictUnitConversion($product, $line['unit']);
-            if ($conv === null || $conv <= 0.0) {
-                $item->update(['status' => 'skipped', 'reason_code' => 'invalid_unit_conversion']);
-
-                return;
-            }
-
-            $orderedBase = round((float) $poItem->quantity * $conv, 3);
-            $compBase = (float) ($completedByPoItem[$poItemId] ?? 0.0);
-            $alreadyMatchedBase = (float) AdvanceReceiveMatch::query()
-                ->where('purchase_order_id', $order->id)
-                ->where('purchase_order_item_id', $poItemId)
-                ->sum('base_qty');
-            $currentOutstandingBase = max(0.0, round($orderedBase - $compBase - $alreadyMatchedBase, 3));
-
-            $plannedLineMatchedBase = (float) ($line['planned_matched_base_qty'] ?? $line['matched_base_qty'] ?? 0.0);
-
-            if ($currentOutstandingBase < $plannedLineMatchedBase - 0.001 || abs($currentOutstandingBase - (float) $line['required_base_qty']) > 0.001) {
-                $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
-
-                return;
-            }
-        }
-
-        // Revalidate advance coverage
-        $validatedMatches = [];
-        $coverageOk = true;
-
-        foreach ($plannedItem['lines'] as $line) {
-            $lineProductId = (int) $line['product_id'];
-            /** @var Product|null $lineProduct */
-            $lineProduct = $productsMap->get($lineProductId);
-            $lineConv = $this->balanceCalculator->resolveStrictUnitConversion($lineProduct, $line['unit']);
-
-            if ($lineConv === null || $lineConv <= 0.0) {
-                $item->update(['status' => 'skipped', 'reason_code' => 'invalid_unit_conversion']);
-
-                return;
-            }
-
-            foreach ($line['matches'] as $m) {
-                $advGrn = $lockedAdvanceGrns->get((int) $m['advance_goods_received_id']);
-                if (! $advGrn || $advGrn->status !== 'approved' || $advGrn->bill_status !== 'bill_pending' || (int) $advGrn->warehouse_id !== $warehouseId) {
-                    $coverageOk = false;
-                    break 2;
-                }
-
-                $advItem = $lockedAdvanceItems->firstWhere('id', (int) $m['advance_goods_received_item_id']);
-                if (! $advItem || (int) $advItem->product_id !== $lineProductId) {
-                    $coverageOk = false;
-                    break 2;
-                }
-
-                $advProduct = $productsMap->get((int) $advItem->product_id);
-                $advConv = $this->balanceCalculator->resolveStrictUnitConversion($advProduct, $advItem->received_unit);
-                if ($advConv === null || $advConv <= 0.0) {
-                    $coverageOk = false;
-                    break 2;
-                }
-
-                $origAvailBase = (float) ($calculatedBalancesByGrn[$advGrn->id][$advItem->id] ?? 0.0);
-                $alreadyInBatch = (float) collect($validatedMatches)
-                    ->where('advance_goods_received_id', $advGrn->id)
-                    ->where('advance_goods_received_item_id', $advItem->id)
-                    ->sum('base_qty');
-
-                $availBase = round($origAvailBase - $alreadyInBatch, 3);
-
-                if ((float) $m['base_qty'] > $availBase + 0.0001) {
-                    $coverageOk = false;
-                    break 2;
-                }
-
-                $validatedMatches[] = [
-                    'advance_goods_received_id' => $advGrn->id,
-                    'advance_goods_received_item_id' => $advItem->id,
-                    'purchase_order_item_id' => $line['purchase_order_item_id'] ?? null,
-                    'product_id' => $lineProductId,
-                    'matched_qty' => round((float) $m['base_qty'] / $lineConv, 3),
-                    'unit' => $line['unit'],
-                    'base_qty' => (float) $m['base_qty'],
-                ];
-            }
-        }
-
-        if (! $coverageOk) {
-            $item->update(['status' => 'skipped', 'reason_code' => 'allocation_changed']);
-
-            return;
-        }
-
-        $itemsData = [];
-        foreach ($plannedItem['lines'] as $line) {
-            $matchedBase = (float) ($line['planned_matched_base_qty'] ?? $line['matched_base_qty'] ?? 0.0);
-            if ($matchedBase <= 0.0001) {
-                continue;
-            }
-
-            $lineProduct = $productsMap->get((int) $line['product_id']);
-            $lineConv = $this->balanceCalculator->resolveStrictUnitConversion($lineProduct, $line['unit']) ?? 1.0;
-            $matchedQty = $lineConv > 0 ? round($matchedBase / $lineConv, 3) : $matchedBase;
-
-            $itemsData[] = [
-                'purchase_order_item_id' => $line['purchase_order_item_id'],
-                'product_id' => $line['product_id'],
-                'received_qty' => $matchedQty,
-                'received_unit' => $line['unit'],
-            ];
-        }
-
-        if ($itemsData === []) {
-            $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
-
-            return;
-        }
-
-        $targetClientSubId = hash('sha256', "{$run->client_submission_id}:po-{$order->id}:item-{$item->id}");
-
-        $grnData = new GoodsReceivedData(
-            purchaseOrderId: $order->id,
-            receivedAt: now()->toDateTimeString(),
-            transportCost: 0.0,
-            labourCost: 0.0,
-            notes: "Auto-cleared via advance reconciliation run #{$run->id}",
-            items: $itemsData,
-            billStatus: 'bill_available',
-            billNumber: null,
-            destinationShopId: $warehouseId,
-            warehouseId: $warehouseId,
-            clientSubmissionId: $targetClientSubId,
-            advanceMatches: $validatedMatches,
-            receiptType: 'normal_purchase',
-            autoAdvanceClear: true,
-        );
-
-        $createdGrn = $this->reconciliationService->reconcileAndExecute($grnData, $userId);
-
-        $item->update([
-            'status' => 'completed',
-            'result_goods_received_id' => $createdGrn->id,
-            'result_payload' => [
-                'matched_base_qty' => (float) $item->planned_base_qty,
-                'grn_number' => $createdGrn->grn_number,
             ],
         ]);
     }

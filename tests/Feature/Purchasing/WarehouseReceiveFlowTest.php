@@ -14,6 +14,7 @@ use App\Models\Shop;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -307,13 +308,27 @@ class WarehouseReceiveFlowTest extends TestCase
 
     public function test_admin_cashbook_inventory_page_loads_successfully(): void
     {
+        $warehouse = Warehouse::firstOrCreate(
+            ['id' => 1],
+            ['name' => 'Vegetable Warehouse', 'code' => 'VEG', 'is_active' => true]
+        );
+
         $this->actingAs($this->admin);
 
         $response = $this->get('/admin/cashbook/inventory');
         $response->assertOk()
-            ->assertSee('Cashbook Inventory')
-            ->assertSee('Bill Pending')
-            ->assertSee('Loadout Without Bill');
+            ->assertSee('Inventory Action Center')
+            ->assertSee('Current Inventory')
+            ->assertSee('Receive Bills')
+            ->assertSee('Stock Without Bill')
+            ->assertSee('Shop Returns')
+            ->assertSee('Damage')
+            ->assertSee('Physical Check');
+
+        foreach (['current_inventory', 'receive_bills', 'stock_without_bill', 'shop_returns', 'damage', 'physical_check', 'today_advances', 'pending_bills', 'unbilled_inventory', 'unit_differences'] as $tab) {
+            $tabResponse = $this->get('/admin/cashbook/inventory?tab='.$tab.'&warehouse_id='.$warehouse->id.'&date='.now()->toDateString());
+            $tabResponse->assertOk();
+        }
     }
 
     public function test_advance_goods_receipt_without_po_creates_bill_pending_receipt_and_stock_batches_for_multiple_products(): void

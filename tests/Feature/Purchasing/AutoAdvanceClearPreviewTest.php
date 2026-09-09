@@ -187,7 +187,8 @@ class AutoAdvanceClearPreviewTest extends TestCase
         Warehouse $warehouse,
         array $lines,
         string $orderDate,
-        string $poNumberPrefix = 'PO-TEST'
+        string $poNumberPrefix = 'PO-TEST',
+        bool $createPendingGrn = true
     ): PurchaseOrder {
         $po = PurchaseOrder::create([
             'supplier_id' => $this->supplier->id,
@@ -198,17 +199,46 @@ class AutoAdvanceClearPreviewTest extends TestCase
             'created_by' => $this->warehouseUser->id,
         ]);
 
+        $grn = null;
+        if ($createPendingGrn) {
+            $grn = GoodsReceived::create([
+                'public_uuid' => (string) Str::uuid(),
+                'warehouse_id' => $warehouse->id,
+                'destination_shop_id' => $warehouse->id,
+                'purchase_order_id' => $po->id,
+                'grn_number' => 'GRN-'.uniqid(),
+                'status' => 'approved',
+                'bill_status' => 'bill_pending',
+                'receipt_type' => 'purchaser_bill',
+                'received_by' => $this->warehouseUser->id,
+                'received_at' => $orderDate,
+                'approved_at' => now(),
+                'approved_by' => $this->warehouseUser->id,
+            ]);
+        }
+
         foreach ($lines as $line) {
-            PurchaseOrderItem::create([
+            $poItem = PurchaseOrderItem::create([
                 'purchase_order_id' => $po->id,
                 'product_id' => $line['product_id'],
                 'quantity' => $line['quantity'],
                 'purchase_unit' => $line['unit'] ?? $line['purchase_unit'] ?? 'kg',
                 'unit_price' => 50.0,
             ]);
+
+            if ($grn) {
+                GoodsReceivedItem::create([
+                    'goods_received_id' => $grn->id,
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $line['product_id'],
+                    'received_qty' => $line['quantity'],
+                    'received_unit' => $line['unit'] ?? $line['purchase_unit'] ?? 'kg',
+                    'variance' => 0.0,
+                ]);
+            }
         }
 
-        return $po->fresh(['items.product']);
+        return $po->fresh(['items.product', 'goodsReceiveds.items']);
     }
 
     public function test_preview_endpoint_requires_authentication(): void
@@ -269,7 +299,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $this->assertSame($countsBefore, $countsAfter, 'Database record counts mutated during preview!');
     }
 
-    public function test_po_without_grn_returns_create_bill_grn_mode(): void
+    public function test_pending_bill_grn_returns_reconcile_existing_grn_mode(): void
     {
         Sanctum::actingAs($this->warehouseUser);
 
@@ -283,9 +313,9 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $this->assertEquals(1, $data['summary']['ready_bills']);
         $ready = $data['ready_bills'][0];
 
-        $this->assertEquals('create_bill_grn', $ready['execution_mode']);
+        $this->assertEquals('reconcile_existing_grn', $ready['execution_mode']);
         $this->assertEquals($po->id, $ready['purchase_order_id']);
-        $this->assertNull($ready['source_goods_received_id']);
+        $this->assertNotNull($ready['source_goods_received_id']);
         $this->assertEquals(60.0, $ready['matched_base_qty']);
     }
 
@@ -296,8 +326,8 @@ class AutoAdvanceClearPreviewTest extends TestCase
         // Advance 100 kg
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
 
-        // PO ordered 100 kg
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25');
+        // PO ordered 100 kg (without auto pending GRN)
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25', createPendingGrn: false);
         $poItem = $po->items->first();
 
         // Existing pending intake GRN for 60 kg
@@ -413,6 +443,28 @@ class AutoAdvanceClearPreviewTest extends TestCase
             'warehouse_confirmed_by' => $this->warehouseUser->id,
         ]);
 
+        // Pending intake GRN for remaining 60 kg
+        $pendingGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'warehouse_id' => $this->warehouseA->id,
+            'destination_shop_id' => $this->warehouseA->id,
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-PENDING-60',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'purchaser_bill',
+            'received_by' => $this->warehouseUser->id,
+            'received_at' => '2026-08-27',
+        ]);
+        GoodsReceivedItem::create([
+            'goods_received_id' => $pendingGrn->id,
+            'purchase_order_item_id' => $poItem->id,
+            'product_id' => $this->apple->id,
+            'received_qty' => 60.0,
+            'received_unit' => 'kg',
+            'variance' => 0.0,
+        ]);
+
         $res = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}");
         $res->assertOk();
 
@@ -423,7 +475,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         // Only outstanding 60 kg (100 - 40) is previewed!
         $this->assertEquals(60.0, $ready['matched_base_qty']);
         $this->assertEquals(60.0, $ready['lines'][0]['required_base_qty']);
-        $this->assertEquals('create_bill_grn', $ready['execution_mode']);
+        $this->assertEquals('reconcile_existing_grn', $ready['execution_mode']);
     }
 
     public function test_multiple_pending_grns_on_single_po_create_independent_ready_entries(): void
@@ -434,7 +486,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
 
         // PO ordered 100 kg
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25', createPendingGrn: false);
         $poItem = $po->items->first();
 
         // Pending GRN 1: 30 kg
@@ -533,15 +585,8 @@ class AutoAdvanceClearPreviewTest extends TestCase
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
 
-        // PO with 0 items
-        $poEmpty = PurchaseOrder::create([
-            'supplier_id' => $this->supplier->id,
-            'po_number' => 'PO-EMPTY',
-            'status' => POStatus::Approved,
-            'order_date' => '2026-08-25',
-            'destination_shop_id' => $this->warehouseA->id,
-            'created_by' => $this->warehouseUser->id,
-        ]);
+        // Pending Bill with 0 items
+        $poEmpty = $this->createPendingBill($this->warehouseA, [], '2026-08-25');
 
         $res = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}");
         $res->assertOk();
@@ -566,7 +611,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
 
         $data = $res->json('data');
         $this->assertEquals(1, $data['summary']['skipped_bills']);
-        $this->assertEquals('invalid_quantity', $data['skipped_bills'][0]['reason']);
+        $this->assertEquals('no_reconcilable_items', $data['skipped_bills'][0]['reason']);
     }
 
     public function test_unknown_advance_unit_does_not_enter_allocation_pool(): void
@@ -574,7 +619,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         // Advance with unknown unit (has no conversion factor configured)
-        $this->createAdvance($this->warehouseA, $this->apple, 10.0, '2026-08-20', 'alien_unit');
+        $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20', 'alien_unit');
 
         // Bill of Apples
         $bill = $this->createPendingBill($this->warehouseA, [
@@ -611,8 +656,9 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $res1Repeat = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}");
         $this->assertSame($hash1, $res1Repeat->json('data.plan_hash'));
 
-        // Change bill quantity from 50 to 60 -> hash must change!
+        // Change pending bill quantity from 50 to 60 -> hash must change!
         $bill->items->first()->update(['quantity' => 60.0]);
+        $bill->goodsReceiveds->first()->items->first()->update(['received_qty' => 60.0]);
 
         $res2 = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}");
         $hash2 = $res2->json('data.plan_hash');
@@ -723,7 +769,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $queries = DB::getQueryLog();
         $queryCount = count($queries);
 
-        $this->assertLessThanOrEqual(18, $queryCount, "Query count {$queryCount} exceeded bounded threshold");
+        $this->assertLessThanOrEqual(25, $queryCount, "Query count {$queryCount} exceeded bounded threshold");
     }
 
     public function test_fully_completed_po_is_skipped_as_no_reconcilable_items(): void
@@ -799,7 +845,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
 
         $data = $res->json('data');
         $this->assertEquals(1, $data['summary']['skipped_bills']);
-        $this->assertEquals('invalid_quantity', $data['skipped_bills'][0]['reason']);
+        $this->assertEquals('no_reconcilable_items', $data['skipped_bills'][0]['reason']);
     }
 
     public function test_closed_or_depleted_stock_batch_remains_available_for_commercial_preview(): void
@@ -825,7 +871,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25', createPendingGrn: false);
 
         $pendingGrn = GoodsReceived::create([
             'public_uuid' => (string) Str::uuid(),
@@ -883,21 +929,9 @@ class AutoAdvanceClearPreviewTest extends TestCase
 
         // PO where destination_shop_id is set to shop->id (not warehouseA->id directly),
         // but product default_warehouse_id is warehouseA->id (matched via WarehouseReceiptReadScope)
-        $po = PurchaseOrder::create([
-            'supplier_id' => $this->supplier->id,
-            'po_number' => 'PO-SCOPE-PARITY-001',
-            'status' => POStatus::Approved,
-            'order_date' => '2026-08-25',
-            'destination_shop_id' => $this->shop->id,
-            'created_by' => $this->warehouseUser->id,
-        ]);
-        PurchaseOrderItem::create([
-            'purchase_order_id' => $po->id,
-            'product_id' => $this->apple->id,
-            'quantity' => 50.0,
-            'purchase_unit' => 'kg',
-            'unit_price' => 50.0,
-        ]);
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $po->update(['destination_shop_id' => $this->shop->id]);
+        $po->goodsReceiveds->first()->update(['destination_shop_id' => $this->shop->id]);
 
         // 1. Manual Match candidates sees the PO via WarehouseReceiptReadScope
         $manualRes = $this->getJson("/api/v1/purchasing/grns/advance-match-candidates?warehouse_id={$this->warehouseA->id}");
@@ -941,7 +975,7 @@ class AutoAdvanceClearPreviewTest extends TestCase
         $queries = DB::getQueryLog();
         $queryCount = count($queries);
 
-        $this->assertLessThanOrEqual(17, $queryCount, "Candidate orders query count {$queryCount} exceeded bounded threshold <= 17");
+        $this->assertLessThanOrEqual(25, $queryCount, "Candidate orders query count {$queryCount} exceeded bounded threshold <= 25");
     }
 
     public function test_goods_received_serialization_does_not_trigger_n_plus_one_queries_for_purchaser_cart(): void

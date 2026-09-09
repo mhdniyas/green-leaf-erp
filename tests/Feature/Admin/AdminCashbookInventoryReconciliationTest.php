@@ -251,83 +251,82 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
         return $grn;
     }
 
+    private function createBillPendingReceiptForPo(PurchaseOrder $po): GoodsReceived
+    {
+        $grn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-BILL-'.$po->po_number,
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'normal_purchase',
+            'warehouse_id' => $po->warehouse_id ?? $this->warehouseA->id,
+            'received_by' => $this->adminUser->id,
+            'received_at' => $po->order_date?->toDateString() ?: '2026-09-02',
+            'created_at' => Carbon::parse($po->order_date?->toDateString() ?: '2026-09-02')->setTime(10, 0, 0),
+        ]);
+
+        foreach ($po->items as $item) {
+            $grn->items()->create([
+                'purchase_order_item_id' => $item->id,
+                'product_id' => $item->product_id,
+                'received_qty' => $item->quantity,
+                'received_unit' => $item->purchase_unit ?: $item->unit ?: 'kg',
+                'variance' => 0,
+            ]);
+        }
+
+        return $grn;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 1. DAILY INVENTORY TESTS
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function test_daily_inventory_renders_billed_physical_and_advance_difference(): void
+    public function test_daily_inventory_renders_today_advances_and_summary(): void
     {
-        // Tomato: Physical 540 KG, Billed 475 KG -> +65 KG (Excess)
-        $this->createPhysicalBatch($this->tomato, $this->warehouseA, 540.0, '2026-09-02');
-        $this->createConfirmedReconciliation($this->tomato, $this->warehouseA, 475.0, '2026-09-02');
-
-        // Onion: Physical 355 KG, Billed 400 KG -> -45 KG (Shortage)
-        $this->createPhysicalBatch($this->onion, $this->warehouseA, 355.0, '2026-09-02');
-        $this->createConfirmedReconciliation($this->onion, $this->warehouseA, 400.0, '2026-09-02');
-
-        // Potato: Physical 220 KG, Billed 220 KG -> 0 KG (Balanced)
-        $this->createPhysicalBatch($this->potato, $this->warehouseA, 220.0, '2026-09-02');
-        $this->createConfirmedReconciliation($this->potato, $this->warehouseA, 220.0, '2026-09-02');
+        $advTomato = $this->createAdvanceGrn($this->warehouseA, $this->tomato, 100.0, '2026-09-02');
+        $advOnion = $this->createAdvanceGrn($this->warehouseA, $this->onion, 60.0, '2026-09-02');
 
         $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
-            'tab' => 'daily_inventory',
+            'tab' => 'today_advances',
             'date' => '2026-09-02',
             'warehouse_id' => $this->warehouseA->id,
         ]));
 
         $response->assertOk();
         $response->assertSee('Tomato Hybrid');
-        $response->assertSee('540.00'); // physical
-        $response->assertSee('475.00'); // billed
-        $response->assertSee('+65.00 KG'); // excess
-        $response->assertSee('EXCESS / UNBILLED');
-
         $response->assertSee('Red Onion');
-        $response->assertSee('355.00');
-        $response->assertSee('400.00');
-        $response->assertSee('-45.00 KG'); // short
-        $response->assertSee('SHORTAGE');
-
-        $response->assertSee('Agra Potato');
-        $response->assertSee('220.00');
-        $response->assertSee('0.00 KG'); // balanced
-        $response->assertSee('BALANCED');
+        $response->assertSee($advTomato->grn_number);
+        $response->assertSee($advOnion->grn_number);
+        $response->assertSee('100.00');
+        $response->assertSee('60.00');
     }
 
-    public function test_daily_inventory_preserves_historical_carry_forward_as_of_date(): void
+    public function test_unbilled_inventory_renders_open_advances_with_remaining_balance(): void
     {
-        // Sep 1: Intake 100 KG
-        $this->createPhysicalBatch($this->tomato, $this->warehouseA, 100.0, '2026-09-01');
-        // Sep 2: Intake 50 KG, Billed 80 KG
-        $this->createPhysicalBatch($this->tomato, $this->warehouseA, 50.0, '2026-09-02');
-        $this->createConfirmedReconciliation($this->tomato, $this->warehouseA, 80.0, '2026-09-02');
+        $adv1 = $this->createAdvanceGrn($this->warehouseA, $this->tomato, 100.0, '2026-09-01');
+        $adv2 = $this->createAdvanceGrn($this->warehouseA, $this->tomato, 50.0, '2026-09-02');
 
-        // Check as of Sep 1: Physical 100, Billed 0 -> +100 KG
-        $resSep1 = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
-            'tab' => 'daily_inventory',
-            'date' => '2026-09-01',
-            'warehouse_id' => $this->warehouseA->id,
-        ]));
-        $resSep1->assertOk();
-        $resSep1->assertSee('+100.00 KG');
-
-        // Check as of Sep 2: Physical 150, Billed 80 -> +70 KG
-        $resSep2 = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
-            'tab' => 'daily_inventory',
+        $res = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'unbilled_inventory',
             'date' => '2026-09-02',
             'warehouse_id' => $this->warehouseA->id,
         ]));
-        $resSep2->assertOk();
-        $resSep2->assertSee('+70.00 KG');
+        $res->assertOk();
+        $res->assertSee($adv1->grn_number);
+        $res->assertSee($adv2->grn_number);
+        $res->assertSee('100.00');
+        $res->assertSee('50.00');
     }
 
     public function test_daily_inventory_search_and_pagination(): void
     {
-        $this->createPhysicalBatch($this->tomato, $this->warehouseA, 50.0, '2026-09-02');
-        $this->createPhysicalBatch($this->onion, $this->warehouseA, 60.0, '2026-09-02');
+        $this->createAdvanceGrn($this->warehouseA, $this->tomato, 50.0, '2026-09-02');
+        $this->createAdvanceGrn($this->warehouseA, $this->onion, 60.0, '2026-09-02');
 
         $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
-            'tab' => 'daily_inventory',
+            'tab' => 'today_advances',
             'date' => '2026-09-02',
             'search' => 'TOM-001',
         ]));
@@ -422,20 +421,19 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
         $oldAdvance = $this->createAdvanceGrn($this->warehouseA, $this->tomato, 150.0, '2026-08-01', 'bill_pending');
 
         $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
-            'tab' => 'advance_bills',
+            'tab' => 'unbilled_inventory',
             'warehouse_id' => $this->warehouseA->id,
         ]));
 
         $response->assertOk();
         $response->assertSee($oldAdvance->grn_number);
-        $response->assertSee('BILL PENDING');
         $response->assertSee('150.00');
     }
 
-    public function test_cleared_advances_within_3_days_are_visible(): void
+    public function test_cleared_advances_are_hidden_from_unbilled_inventory(): void
     {
-        // Received 20 days ago, but cleared yesterday
-        $clearedYesterday = $this->createAdvanceGrn(
+        // Fully cleared advance has remaining balance = 0
+        $clearedAdvance = $this->createAdvanceGrn(
             $this->warehouseA,
             $this->tomato,
             80.0,
@@ -445,38 +443,16 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
         );
 
         $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
-            'tab' => 'advance_bills',
+            'tab' => 'unbilled_inventory',
             'warehouse_id' => $this->warehouseA->id,
         ]));
 
         $response->assertOk();
-        $response->assertSee($clearedYesterday->grn_number);
-        $response->assertSee('CLEARED (3-DAY)');
-    }
-
-    public function test_cleared_advances_older_than_3_days_are_hidden_from_operational_list(): void
-    {
-        // Received 20 days ago, cleared 10 days ago
-        $clearedLongAgo = $this->createAdvanceGrn(
-            $this->warehouseA,
-            $this->tomato,
-            80.0,
-            '2026-08-10',
-            'bill_available',
-            now()->subDays(10)
-        );
-
-        $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
-            'tab' => 'advance_bills',
-            'warehouse_id' => $this->warehouseA->id,
-        ]));
-
-        $response->assertOk();
-        $response->assertDontSee($clearedLongAgo->grn_number);
+        $response->assertDontSee($clearedAdvance->grn_number);
 
         // Verify record is NOT deleted from database
         $this->assertDatabaseHas('goods_received', [
-            'id' => $clearedLongAgo->id,
+            'id' => $clearedAdvance->id,
             'deleted_at' => null,
         ]);
     }
@@ -507,6 +483,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 1200.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $response = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -540,6 +517,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 1200.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $plan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan(
             $this->warehouseA->id,
@@ -720,6 +698,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 1000.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -757,6 +736,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 2000.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -819,6 +799,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 10.0,
             'total_price' => 200.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -849,6 +830,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 25.0,
             'total_price' => 750.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -882,6 +864,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 1000.0,
         ]);
+        $this->createBillPendingReceiptForPo($po1);
 
         // Bill 2 arrives on 2026-09-02, advance is exhausted
         $po2 = PurchaseOrder::create([
@@ -900,6 +883,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 400.0,
         ]);
+        $this->createBillPendingReceiptForPo($po2);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -961,6 +945,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 1000.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -996,6 +981,25 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 2000.0,
         ]);
+        $billGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-BILL-P2A-001',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'normal_purchase',
+            'warehouse_id' => $this->warehouseA->id,
+            'received_by' => $this->adminUser->id,
+            'received_at' => '2026-09-02',
+            'created_at' => Carbon::parse('2026-09-02')->setTime(10, 0, 0),
+        ]);
+        $billGrn->items()->create([
+            'purchase_order_item_id' => $po->items->first()->id,
+            'product_id' => $this->tomato->id,
+            'received_qty' => 100.0,
+            'received_unit' => 'kg',
+            'variance' => 0,
+        ]);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
             'warehouse_id' => $this->warehouseA->id,
@@ -1023,19 +1027,45 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'order_date' => '2026-09-02',
             'created_by' => $this->adminUser->id,
         ]);
-        $po->items()->create([
+        $poItem1 = $po->items()->create([
             'product_id' => $this->tomato->id,
             'quantity' => 25.0,
             'unit' => 'kg',
             'unit_price' => 20.0,
             'total_price' => 500.0,
         ]);
-        $po->items()->create([
+        $poItem2 = $po->items()->create([
             'product_id' => $this->tomato->id,
             'quantity' => 35.0,
             'unit' => 'kg',
             'unit_price' => 20.0,
             'total_price' => 700.0,
+        ]);
+        $billGrn = GoodsReceived::create([
+            'public_uuid' => (string) Str::uuid(),
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-BILL-P2A-TWO',
+            'status' => 'approved',
+            'bill_status' => 'bill_pending',
+            'receipt_type' => 'normal_purchase',
+            'warehouse_id' => $this->warehouseA->id,
+            'received_by' => $this->adminUser->id,
+            'received_at' => '2026-09-02',
+            'created_at' => Carbon::parse('2026-09-02')->setTime(10, 0, 0),
+        ]);
+        $billGrn->items()->create([
+            'purchase_order_item_id' => $poItem1->id,
+            'product_id' => $this->tomato->id,
+            'received_qty' => 25.0,
+            'received_unit' => 'kg',
+            'variance' => 0,
+        ]);
+        $billGrn->items()->create([
+            'purchase_order_item_id' => $poItem2->id,
+            'product_id' => $this->tomato->id,
+            'received_qty' => 35.0,
+            'received_unit' => 'kg',
+            'variance' => 0,
         ]);
 
         $res = $this->actingAs($this->adminUser)->getJson(route('admin.cashbook.inventory.auto-clear-plan', [
@@ -1110,6 +1140,7 @@ class AdminCashbookInventoryReconciliationTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 1000.0,
         ]);
+        $this->createBillPendingReceiptForPo($po);
 
         $plannerOutput = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan(
             $this->warehouseA->id,
