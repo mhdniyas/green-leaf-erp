@@ -55,7 +55,7 @@ class CashbookSettlementSettingsTest extends TestCase
         $this->assertSame('Shop Balance', $balance->name);
         $this->assertFalse($balance->enabled);
         $this->assertCount(0, $balance->items);
-        $this->assertSame(4, ShopCashbookRelation::where('shop_id', $this->shop->id)->count());
+        $this->assertSame(5, ShopCashbookRelation::where('shop_id', $this->shop->id)->count());
         $this->assertNotNull(ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_income')->first());
         $this->assertNotNull(ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_expense')->first());
         $this->assertNotNull(ShopCashbookRelation::where('shop_id', $this->shop->id)->where('relation_type', 'default_company_payable')->first());
@@ -63,7 +63,7 @@ class CashbookSettlementSettingsTest extends TestCase
         $balance->delete();
         app(CashbookShopSyncService::class)->syncAndGetProfiles();
         $this->assertDatabaseMissing('shop_cashbook_relations', ['id' => $balance->id]);
-        $this->assertSame(3, ShopCashbookRelation::where('shop_id', $this->shop->id)->count());
+        $this->assertSame(4, ShopCashbookRelation::where('shop_id', $this->shop->id)->count());
     }
 
     public function test_settings_link_to_separate_settlement_pages(): void

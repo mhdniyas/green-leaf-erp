@@ -1509,6 +1509,25 @@ class AdvanceReceiveReconciliationService
         return $candidatesByProduct;
     }
 
+    public function countMatchCandidates(array $filters = []): int
+    {
+        $warehouseId = isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null ? (int) $filters['warehouse_id'] : null;
+
+        $query = PurchaseOrder::query()
+            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->where(function (Builder $pending): void {
+                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                    ->orWhere(function ($withoutReceipt): void {
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                    });
+            });
+
+        app(WarehouseReceiptReadScope::class)->orders($query, $warehouseId !== null ? [$warehouseId] : ($filters['authorized_warehouse_ids'] ?? null));
+
+        return $query->count();
+    }
+
     public function paginateMatchCandidates(array $filters = [], int $perPage = 25): LengthAwarePaginator
     {
         $search = trim((string) ($filters['search'] ?? ''));
@@ -1593,10 +1612,19 @@ class AdvanceReceiveReconciliationService
             $suggestions = $this->getSuggestionsForOrder($order, $warehouseId, $loadoutsByCohort, $candidatesByProduct);
             $receiptState = app(WarehouseReceiptStateResolver::class)->forOrder($order);
 
+            $normalGrns = $order->goodsReceiveds->filter(fn ($g) => ($g->receipt_type ?? '') !== 'warehouse_advance');
+            $primaryGrn = $normalGrns->first(fn ($g) => $g->status === 'pending_approval') ?? $normalGrns->first() ?? $order->goodsReceiveds->first();
+
             return [
                 ...$receiptState,
                 'id' => $order->id,
                 'purchase_order_id' => $order->id,
+                'grn_id' => $primaryGrn?->id,
+                'goods_received_id' => $primaryGrn?->id,
+                'grn_ids' => $normalGrns->pluck('id')->values()->all(),
+                'grn_number' => $primaryGrn?->grn_number,
+                'grn_status' => $primaryGrn?->status,
+                'status' => $receiptState['status_label'] ?? $primaryGrn?->status ?? 'pending_approval',
                 'po_number' => $order->po_number,
                 'order_date' => $order->order_date?->toDateString(),
                 'business_date' => $order->order_date?->toDateString(),

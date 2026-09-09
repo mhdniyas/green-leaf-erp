@@ -48,10 +48,18 @@ class AutoAdvanceClearPlanningService
         // 1. Pre-load all eligible pending purchase orders and their goods receipts
         $pendingOrdersQuery = PurchaseOrder::query()
             ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
-            ->whereHas('goodsReceiveds', function (Builder $receipts): void {
-                $receipts->where('goods_received.status', 'approved')
-                    ->where('goods_received.bill_status', 'bill_pending')
-                    ->where('goods_received.receipt_type', '!=', 'warehouse_advance');
+            ->where(function (Builder $q): void {
+                $q->whereHas('goodsReceiveds', function (Builder $receipts): void {
+                    $receipts->where('goods_received.status', 'approved')
+                        ->where('goods_received.bill_status', 'bill_pending')
+                        ->where(function (Builder $typeQ): void {
+                            $typeQ->where('goods_received.receipt_type', '!=', 'warehouse_advance')
+                                ->orWhereNull('goods_received.receipt_type');
+                        });
+                })->orWhere(function (Builder $noGrn): void {
+                    $noGrn->whereDoesntHave('goodsReceiveds')
+                        ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                });
             });
 
         $this->readScope->orders($pendingOrdersQuery, [$warehouseId]);
@@ -350,6 +358,49 @@ class AutoAdvanceClearPlanningService
                     'order_id' => $order->id,
                     'lines' => $targetLines,
                 ];
+            }
+
+            if ($pendingGrns->isEmpty() && in_array($order->status->value ?? (string) $order->status, ['approved', 'sent_to_supplier', 'partially_received'], true)) {
+                $targetLines = [];
+                foreach ($order->items->sortBy('id') as $poItem) {
+                    $prod = $poItem->product;
+                    $unit = $poItem->purchase_unit ?: $poItem->unit ?: $poItem->product?->unit;
+                    $conv = $this->resolveStrictUnitConversion($prod, $unit) ?? 1.0;
+                    $itemBase = round((float) $poItem->quantity * $conv, 3);
+                    $alreadyMatchedBase = (float) $existingMatches
+                        ->where('purchase_order_id', $order->id)
+                        ->where('purchase_order_item_id', $poItem->id)
+                        ->sum('base_qty');
+                    $remBase = max(0.0, round($itemBase - $alreadyMatchedBase, 3));
+                    $remQty = $conv > 0 ? round($remBase / $conv, 3) : $remBase;
+
+                    if ($remBase > 0.0001) {
+                        $targetLines[] = [
+                            'source_item_id' => null,
+                            'purchase_order_item_id' => $poItem->id,
+                            'product' => $prod,
+                            'product_id' => $poItem->product_id,
+                            'unit' => $unit,
+                            'quantity' => $remQty,
+                            'already_matched_base_qty' => $alreadyMatchedBase,
+                        ];
+                    }
+                }
+
+                if ($targetLines !== []) {
+                    $billTargets[] = [
+                        'execution_mode' => 'create_bill_grn',
+                        'purchase_order_id' => $order->id,
+                        'source_goods_received_id' => null,
+                        'reference' => $order->po_number,
+                        'supplier_id' => $order->supplier_id,
+                        'supplier_name' => $order->supplier?->name ?? 'Vendor',
+                        'bill_date' => $billDateStr,
+                        'order_date' => $order->order_date,
+                        'order_id' => $order->id,
+                        'lines' => $targetLines,
+                    ];
+                }
             }
         }
 

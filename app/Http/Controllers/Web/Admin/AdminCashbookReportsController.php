@@ -1584,12 +1584,19 @@ class AdminCashbookReportsController extends Controller
             ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds));
         $newPhysicalReceiveQty = (float) $newPhysicalReceiveQuery->sum('quantity');
 
-        // E. Shop Returns (StockMovement type = sale_reversal on date)
+        // E. Shop Returns (Shop Invoice finalization returns on date)
         $shopReturnsStats = StockMovement::query()
             ->where('type', StockMovementType::SaleReversal->value)
+            ->where('notes', 'like', 'Delivery shortage added back to inventory%')
             ->whereDate('created_at', $date)
             ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
             ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds))
+            ->whereNotExists(function ($sub): void {
+                $sub->select(DB::raw(1))
+                    ->from('stock_movements as sm_rev')
+                    ->where('sm_rev.type', StockMovementType::Out->value)
+                    ->whereRaw("sm_rev.notes LIKE CONCAT('%Source movement: ', stock_movements.id, '%')");
+            })
             ->selectRaw('COUNT(*) as aggregate_count, COALESCE(SUM(quantity), 0) as aggregate_qty')
             ->first();
         $shopReturnsCount = (int) ($shopReturnsStats->aggregate_count ?? 0);
@@ -1646,7 +1653,13 @@ class AdminCashbookReportsController extends Controller
             ")
             ->first();
         $pendingBillsCount = (int) ($receiptCounts->pending_bills_count ?? 0);
-        $awaitingApprovalCount = (int) ($receiptCounts->awaiting_approval_count ?? 0);
+
+        // awaiting_approval_count = all POs currently visible in the Receive Bills tab
+        // (same query as paginateMatchCandidates — includes POs with no GRN yet, pending GRNs, and approved GRNs awaiting warehouse confirm)
+        $awaitingApprovalCount = app(AdvanceReceiveReconciliationService::class)->countMatchCandidates([
+            'warehouse_id' => $selectedWarehouseId,
+            'authorized_warehouse_ids' => $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds,
+        ]);
 
         // K. Matchable Bills Plan (Computed on demand for matching tabs)
         $matchPlan = null;
@@ -1979,13 +1992,21 @@ class AdminCashbookReportsController extends Controller
         } elseif ($tab === 'shop_returns') {
             $shopReturnsQuery = StockMovement::query()
                 ->where('type', StockMovementType::SaleReversal->value)
+                ->where('notes', 'like', 'Delivery shortage added back to inventory%')
                 ->whereDate('created_at', $date)
                 ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
                 ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds))
+                ->whereNotExists(function ($sub): void {
+                    $sub->select(DB::raw(1))
+                        ->from('stock_movements as sm_rev')
+                        ->where('sm_rev.type', StockMovementType::Out->value)
+                        ->whereRaw("sm_rev.notes LIKE CONCAT('%Source movement: ', stock_movements.id, '%')");
+                })
                 ->with([
                     'product:id,name,sku,unit',
                     'warehouse:id,name,code',
                     'shopOrderItem.shopOrder.shop:id,name,code',
+                    'shopOrderItem.shopOrder.invoice',
                     'createdBy:id,name',
                 ])
                 ->orderByDesc('id');
@@ -1994,6 +2015,8 @@ class AdminCashbookReportsController extends Controller
                 $shopReturnsQuery->where(function (Builder $q) use ($search): void {
                     $q->whereHas('product', fn (Builder $pq) => $pq->where('name', 'like', "%{$search}%")->orWhere('sku', 'like', "%{$search}%"))
                         ->orWhereHas('shopOrderItem.shopOrder.shop', fn (Builder $sq) => $sq->where('name', 'like', "%{$search}%")->orWhere('code', 'like', "%{$search}%"))
+                        ->orWhereHas('shopOrderItem.shopOrder.invoice', fn (Builder $iq) => $iq->where('invoice_number', 'like', "%{$search}%"))
+                        ->orWhereHas('shopOrderItem.shopOrder', fn (Builder $oq) => $oq->where('order_number', 'like', "%{$search}%"))
                         ->orWhere('notes', 'like', "%{$search}%");
                 });
             }
@@ -2140,34 +2163,41 @@ class AdminCashbookReportsController extends Controller
             abort(403, 'Unauthorized warehouse access.');
         }
 
-        $query = GoodsReceived::query()
-            ->where('status', 'pending_approval')
-            ->where(function (Builder $typeQ): void {
-                $typeQ->where('receipt_type', '!=', 'warehouse_advance')
-                    ->orWhereNull('receipt_type');
+        // Use the same PO-based query as paginateMatchCandidates so the modal
+        // shows all POs the table already shows — grouped by order_date.
+        $pos = PurchaseOrder::query()
+            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->where(function (Builder $pending): void {
+                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                    ->orWhere(function ($withoutReceipt): void {
+                        $withoutReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
+                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
+                    });
             })
-            ->with(['items']);
+            ->with(['items'])
+            ->orderByDesc('order_date')
+            ->orderByDesc('id');
 
-        app(WarehouseReceiptReadScope::class)->receipts(
-            $query,
+        app(WarehouseReceiptReadScope::class)->orders(
+            $pos,
             $requestedWarehouseId !== null ? [$requestedWarehouseId] : $authorizedWarehouseIds
         );
 
-        $grns = $query->orderByDesc('received_at')->orderByDesc('id')->get();
+        $allPos = $pos->get();
 
-        $grouped = $grns->groupBy(function (GoodsReceived $g): string {
-            return $g->received_at instanceof Carbon
-                ? $g->received_at->toDateString()
-                : (string) Carbon::parse($g->received_at ?? now())->toDateString();
+        $grouped = $allPos->groupBy(function (PurchaseOrder $po): string {
+            return $po->order_date instanceof Carbon
+                ? $po->order_date->toDateString()
+                : (string) Carbon::parse($po->order_date ?? now())->toDateString();
         });
 
         $days = [];
         $totalBills = 0;
         $totalQty = 0.0;
 
-        foreach ($grouped as $dateStr => $dayGrns) {
-            $billCount = $dayGrns->count();
-            $dayQty = round((float) $dayGrns->sum(fn (GoodsReceived $g) => $g->items->sum('received_qty')), 2);
+        foreach ($grouped as $dateStr => $dayPos) {
+            $billCount = $dayPos->count();
+            $dayQty = round((float) $dayPos->sum(fn (PurchaseOrder $po) => $po->items->sum('quantity')), 2);
             $totalBills += $billCount;
             $totalQty += $dayQty;
 
@@ -2176,7 +2206,7 @@ class AdminCashbookReportsController extends Controller
                 'formatted_date' => Carbon::parse($dateStr)->format('d M Y'),
                 'bill_count' => $billCount,
                 'total_qty' => $dayQty,
-                'grn_ids' => $dayGrns->pluck('id')->all(),
+                'po_ids' => $dayPos->pluck('id')->all(),
             ];
         }
 
@@ -2290,6 +2320,10 @@ class AdminCashbookReportsController extends Controller
             'dates.*' => ['string', 'date_format:Y-m-d'],
             'grn_ids' => ['nullable', 'array'],
             'grn_ids.*' => ['integer', 'exists:goods_received,id'],
+            'grn_id' => ['nullable', 'integer', 'exists:goods_received,id'],
+            'purchase_order_ids' => ['nullable', 'array'],
+            'purchase_order_ids.*' => ['integer', 'exists:purchase_orders,id'],
+            'purchase_order_id' => ['nullable', 'integer', 'exists:purchase_orders,id'],
         ]);
 
         $requestedWarehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
@@ -2303,34 +2337,142 @@ class AdminCashbookReportsController extends Controller
         }
 
         $dates = $validated['dates'] ?? null;
-        $grnIds = $validated['grn_ids'] ?? null;
+        $grnIds = array_values(array_filter(array_unique(array_merge(
+            isset($validated['grn_id']) ? [(int) $validated['grn_id']] : [],
+            isset($validated['grn_ids']) ? array_map('intval', $validated['grn_ids']) : []
+        ))));
+        $poIds = array_values(array_filter(array_unique(array_merge(
+            isset($validated['purchase_order_id']) ? [(int) $validated['purchase_order_id']] : [],
+            isset($validated['purchase_order_ids']) ? array_map('intval', $validated['purchase_order_ids']) : []
+        ))));
 
-        $query = GoodsReceived::query()
-            ->where(function (Builder $typeQ): void {
-                $typeQ->where('receipt_type', '!=', 'warehouse_advance')
-                    ->orWhereNull('receipt_type');
-            })
-            ->with(['items.product', 'items.purchaseOrderItem', 'purchaseOrder']);
+        $candidates = collect();
 
         if (! empty($grnIds)) {
-            $query->whereIn('id', $grnIds);
+            $grnQuery = GoodsReceived::query()
+                ->whereIn('id', $grnIds)
+                ->where(function (Builder $typeQ): void {
+                    $typeQ->where('receipt_type', '!=', 'warehouse_advance')
+                        ->orWhereNull('receipt_type');
+                })
+                ->with(['items.product', 'items.purchaseOrderItem', 'purchaseOrder']);
+
+            app(WarehouseReceiptReadScope::class)->receipts(
+                $grnQuery,
+                $requestedWarehouseId !== null ? [$requestedWarehouseId] : $authorizedWarehouseIds
+            );
+
+            $candidates = $grnQuery->get();
+        } elseif (! empty($poIds)) {
+            $pos = PurchaseOrder::query()
+                ->whereIn('id', $poIds)
+                ->with(['items.product', 'goodsReceiveds.items.product'])
+                ->get();
+
+            foreach ($pos as $po) {
+                if ($po->goodsReceiveds->isNotEmpty()) {
+                    foreach ($po->goodsReceiveds as $grn) {
+                        if ($grn->receipt_type !== 'warehouse_advance') {
+                            $candidates->push($grn);
+                        }
+                    }
+                } else {
+                    $newGrn = DB::transaction(function () use ($po, $user, $requestedWarehouseId): GoodsReceived {
+                        $targetWh = $requestedWarehouseId ?? $po->warehouse_id ?? $po->destination_shop_id ?? 1;
+                        $grn = GoodsReceived::create([
+                            'public_uuid' => (string) Str::uuid(),
+                            'warehouse_id' => $targetWh,
+                            'destination_shop_id' => $po->destination_shop_id,
+                            'purchase_order_id' => $po->id,
+                            'grn_number' => 'GRN-PO-'.str_replace('PO-', '', (string) ($po->po_number ?? $po->id)),
+                            'status' => 'pending_approval',
+                            'bill_status' => 'bill_pending',
+                            'receipt_type' => 'normal_purchase',
+                            'received_by' => $user->id,
+                            'received_at' => $po->order_date ?? now(),
+                            'notes' => 'Created via Admin Inventory Approve & Receive',
+                        ]);
+
+                        foreach ($po->items as $poItem) {
+                            GoodsReceivedItem::create([
+                                'goods_received_id' => $grn->id,
+                                'purchase_order_item_id' => $poItem->id,
+                                'product_id' => $poItem->product_id,
+                                'received_qty' => (float) $poItem->quantity,
+                                'received_unit' => $poItem->unit ?: $poItem->product?->unit,
+                                'variance' => 0.0,
+                                'grade' => 'A',
+                            ]);
+                        }
+
+                        return $grn->fresh(['items.product', 'purchaseOrder']);
+                    });
+
+                    $candidates->push($newGrn);
+                }
+            }
         } elseif (! empty($dates)) {
-            $query->where('status', 'pending_approval')
+            $grnQuery = GoodsReceived::query()
+                ->where(function (Builder $typeQ): void {
+                    $typeQ->where('receipt_type', '!=', 'warehouse_advance')
+                        ->orWhereNull('receipt_type');
+                })
+                ->where(function (Builder $statusQ): void {
+                    $statusQ->where('status', 'pending_approval')
+                        ->orWhere(function (Builder $approvedPending): void {
+                            $approvedPending->where('status', 'approved')
+                                ->whereHas('stockBatches', fn (Builder $b) => $b->where('warehouse_receive_pending', true));
+                        });
+                })
                 ->where(function (Builder $q) use ($dates): void {
                     foreach ($dates as $d) {
                         $q->orWhereDate('received_at', $d);
                     }
-                });
+                })
+                ->with(['items.product', 'items.purchaseOrderItem', 'purchaseOrder']);
+
+            app(WarehouseReceiptReadScope::class)->receipts(
+                $grnQuery,
+                $requestedWarehouseId !== null ? [$requestedWarehouseId] : $authorizedWarehouseIds
+            );
+
+            $candidates = $grnQuery->get();
         } else {
-            $query->where('status', 'pending_approval');
+            $grnQuery = GoodsReceived::query()
+                ->where(function (Builder $typeQ): void {
+                    $typeQ->where('receipt_type', '!=', 'warehouse_advance')
+                        ->orWhereNull('receipt_type');
+                })
+                ->where(function (Builder $statusQ): void {
+                    $statusQ->where('status', 'pending_approval')
+                        ->orWhere(function (Builder $approvedPending): void {
+                            $approvedPending->where('status', 'approved')
+                                ->whereHas('stockBatches', fn (Builder $b) => $b->where('warehouse_receive_pending', true));
+                        });
+                })
+                ->with(['items.product', 'items.purchaseOrderItem', 'purchaseOrder']);
+
+            app(WarehouseReceiptReadScope::class)->receipts(
+                $grnQuery,
+                $requestedWarehouseId !== null ? [$requestedWarehouseId] : $authorizedWarehouseIds
+            );
+
+            $candidates = $grnQuery->get();
         }
 
-        app(WarehouseReceiptReadScope::class)->receipts(
-            $query,
-            $requestedWarehouseId !== null ? [$requestedWarehouseId] : $authorizedWarehouseIds
-        );
-
-        $candidates = $query->get();
+        if ($candidates->isEmpty()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No pending GRNs were found for the submitted IDs.',
+                'data' => [
+                    'approved' => 0,
+                    'already_approved' => 0,
+                    'skipped' => 0,
+                    'failed' => 0,
+                    'now_awaiting_reconciliation' => 0,
+                ],
+            ], 422);
+        }
 
         $approvedCount = 0;
         $alreadyApprovedCount = 0;
@@ -2341,23 +2483,34 @@ class AdminCashbookReportsController extends Controller
         $userId = (int) $user->id;
 
         foreach ($candidates as $grn) {
-            if ($grn->status === 'approved') {
+            $hasBatches = StockBatch::query()
+                ->where('goods_received_id', $grn->id)
+                ->exists();
+
+            $isAlreadyFullyReceived = $grn->status === 'approved'
+                && $hasBatches
+                && ! StockBatch::query()
+                    ->where('goods_received_id', $grn->id)
+                    ->where('warehouse_receive_pending', true)
+                    ->exists();
+
+            if ($isAlreadyFullyReceived) {
                 $alreadyApprovedCount++;
 
                 continue;
             }
 
-            if ($grn->status !== 'pending_approval' || $grn->items->isEmpty()) {
+            if ($grn->items->isEmpty()) {
                 $skippedCount++;
 
                 continue;
             }
 
             try {
-                $approveAction->execute($grn, $userId);
+                $approveAction->executeAndConfirmReceive($grn, $userId, $requestedWarehouseId);
                 $approvedCount++;
             } catch (Throwable $e) {
-                Log::error("Failed to approve GRN #{$grn->id} in acceptPendingBills: {$e->getMessage()}", [
+                Log::error("Failed to approve & receive GRN #{$grn->id} in acceptPendingBills: {$e->getMessage()}", [
                     'grn_id' => $grn->id,
                     'exception' => $e,
                 ]);
@@ -2407,9 +2560,14 @@ class AdminCashbookReportsController extends Controller
         );
         $nowAwaitingReconciliationCount = $nowAwaitingReconciliationQuery->count();
 
+        $billWord = $approvedCount === 1 ? 'bill' : 'bills';
+        $message = $approvedCount > 0
+            ? "{$approvedCount} {$billWord} approved and received."
+            : ($alreadyApprovedCount > 0 ? 'All selected bills are already approved and received.' : 'No pending GRNs were found for the submitted IDs.');
+
         return response()->json([
-            'status' => 'success',
-            'message' => "Approved: {$approvedCount}, Now awaiting reconciliation: {$nowAwaitingReconciliationCount}",
+            'status' => ($approvedCount > 0 || $alreadyApprovedCount > 0) ? 'success' : 'error',
+            'message' => $message,
             'data' => [
                 'approved' => $approvedCount,
                 'already_approved' => $alreadyApprovedCount,
@@ -2419,7 +2577,7 @@ class AdminCashbookReportsController extends Controller
                 'warehouse_id' => $requestedWarehouseId,
                 'auto_match_preview' => $autoMatchPreview,
             ],
-        ]);
+        ], ($approvedCount > 0 || $alreadyApprovedCount > 0) ? 200 : 422);
     }
 
     /**

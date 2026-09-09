@@ -25,6 +25,7 @@
     $currentPageReturns = collect($shopReturns?->items() ?? [])->map(function ($ret) use ($currentStockByProduct) {
         $shop = $ret->shopOrderItem?->shopOrder?->shop;
         $order = $ret->shopOrderItem?->shopOrder;
+        $invoice = $order?->invoice;
         $prod = $ret->product;
         $retQty = (float) $ret->quantity;
         $sellable = max(0.0, (float) ($currentStockByProduct[$ret->product_id] ?? 0.0));
@@ -39,7 +40,8 @@
             'reason' => 'transit_damage',
             'grade' => 'U',
             'shop_name' => $shop?->name ?? '',
-            'order_ref' => $order?->invoice_number ?? $order?->order_number ?? '',
+            'invoice_number' => $invoice?->invoice_number ?? '',
+            'order_ref' => $invoice?->invoice_number ?? $order?->order_number ?? '',
         ];
     })->values()->all();
 @endphp
@@ -657,14 +659,13 @@
                                 Showing {{ $pendingBills->firstItem() ?? 0 }}–{{ $pendingBills->lastItem() ?? 0 }} of {{ $pendingBills->total() }} pending bills
                             </span>
                         @endif
-                        @if(($summary['awaiting_approval_count'] ?? 0) > 0)
-                            <button type="button"
-                                    @click="openPendingBillsModal()"
-                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition-all shadow-xs cursor-pointer">
-                                <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
-                                <span>Accept All Pending Bills ({{ $summary['awaiting_approval_count'] }})</span>
-                            </button>
-                        @endif
+                        <button type="button"
+                                @click="openPendingBillsModal()"
+                                @if(($summary['awaiting_approval_count'] ?? 0) === 0) disabled @endif
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-black transition-all shadow-xs {{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer' : 'bg-slate-300 cursor-not-allowed' }}">
+                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                            <span>Approve &amp; Receive All{{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? ' (' . $summary['awaiting_approval_count'] . ')' : '' }}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -673,7 +674,7 @@
                         <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
                             <i data-lucide="check-circle-2" class="w-6 h-6"></i>
                         </div>
-                        <h3 class="text-base font-black text-slate-900">All Bills Reconciled</h3>
+<h3 class="text-base font-black text-slate-900">All Bills Reconciled</h3>
                         <p class="text-xs text-slate-500 mt-1">There are no pending approved purchase bills requiring match or warehouse receiving.</p>
                     </div>
                 @else
@@ -687,7 +688,7 @@
                                     <th class="p-3.5 text-right">Bill Qty</th>
                                     <th class="p-3.5 text-right">Already Matched</th>
                                     <th class="p-3.5 text-right">Still To Receive</th>
-                                    <th class="p-3.5 text-center">Match Status</th>
+                                    <th class="p-3.5 text-center">Status</th>
                                     <th class="p-3.5 text-center pr-5">Action</th>
                                 </tr>
                             </thead>
@@ -695,21 +696,23 @@
                                 @foreach($pendingBills as $row)
                                     @php
                                         $poId = $row['id'];
+                                        $grnId = $row['grn_id'] ?? $row['goods_received_id'] ?? null;
                                         $billBase = (float) ($row['total_bill_base_qty'] ?? $row['required_base_qty'] ?? $row['quantity'] ?? 0);
                                         $alreadyMatched = (float) ($row['total_matched_base_qty'] ?? $row['already_matched_base_qty'] ?? 0);
                                         $remainingBase = max(0.0, round($billBase - $alreadyMatched, 2));
+                                        $isReceived = ($row['receipt_status'] ?? '') === 'received' || (isset($row['warehouse_receive_pending']) && ! $row['warehouse_receive_pending']);
                                         $rawStatus = $row['match_status'] ?? $row['reconciliation_status'] ?? 'NO ADVANCE';
                                         $matchStatus = match($rawStatus) {
-                                            'FULLY_MATCHED' => 'FULL MATCH',
-                                            'PARTIALLY_MATCHED' => 'PARTIAL MATCH',
-                                            'UNIT_DIFFERENCE' => 'UNIT ISSUE',
-                                            'NO_ADVANCE', 'UNMATCHED' => 'NO ADVANCE',
+                                            'FULLY_MATCHED' => 'Advance Matched',
+                                            'PARTIALLY_MATCHED' => 'Partial Match',
+                                            'UNIT_DIFFERENCE' => 'Unit Issue',
+                                            'NO_ADVANCE', 'UNMATCHED' => 'No Advance',
                                             default => $rawStatus,
                                         };
                                         $statusClass = match($matchStatus) {
-                                            'FULL MATCH' => 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                                            'PARTIAL MATCH' => 'bg-amber-100 text-amber-800 border-amber-200',
-                                            'UNIT ISSUE' => 'bg-rose-100 text-rose-800 border-rose-200',
+                                            'Advance Matched' => 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                                            'Partial Match' => 'bg-amber-100 text-amber-800 border-amber-200',
+                                            'Unit Issue' => 'bg-rose-100 text-rose-800 border-rose-200',
                                             default => 'bg-slate-100 text-slate-600 border-slate-200',
                                         };
                                     @endphp
@@ -735,28 +738,69 @@
                                                         </span>
                                                     @endif
                                                 @else
-                                                    <span class="text-slate-400 font-bold">{{ $row['item_count'] ?? 1 }} item(s)</span>
+                                                    <span class="text-slate-400 italic text-[11px]">—</span>
                                                 @endif
                                             </div>
                                         </td>
-                                        <td class="p-3.5 text-right font-mono font-bold text-slate-700">
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-800">
                                             {{ number_format($billBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
                                         </td>
-                                        <td class="p-3.5 text-right font-mono font-bold text-purple-700">
+                                        <td class="p-3.5 text-right font-mono font-bold text-emerald-700">
                                             {{ number_format($alreadyMatched, 2) }} <span class="text-[10px] text-slate-400">KG</span>
                                         </td>
                                         <td class="p-3.5 text-right font-mono font-black text-slate-900">
                                             {{ number_format($remainingBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
                                         </td>
                                         <td class="p-3.5 text-center">
-                                            <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[10px] font-black uppercase border {{ $statusClass }}">
-                                                {{ $matchStatus }}
-                                            </span>
+                                            <div class="flex flex-col items-center gap-1">
+                                                @if($isReceived)
+                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                        <i data-lucide="check" class="w-3 h-3"></i>
+                                                        <span>Received</span>
+                                                    </span>
+                                                @else
+                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                                                        <i data-lucide="clock" class="w-3 h-3"></i>
+                                                        <span>Pending Approval</span>
+                                                    </span>
+                                                @endif
+
+                                                @if($matchStatus !== 'No Advance')
+                                                    <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[9px] font-black uppercase border {{ $statusClass }}">
+                                                        {{ $matchStatus }}
+                                                    </span>
+                                                @endif
+                                            </div>
                                         </td>
-                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1">
+                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1.5">
+                                            @if(! $isReceived)
+                                                <button type="button"
+                                                        @click="approveAndReceiveSingle({{ $grnId ? (int)$grnId : 'null' }}, {{ $poId }})"
+                                                        :disabled="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}"
+                                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition shadow-2xs cursor-pointer disabled:opacity-50">
+                                                    <template x-if="processingPoId !== {{ $poId }} && processingPoId !== {{ $grnId ? (int)$grnId : -1 }}">
+                                                        <span class="flex items-center gap-1">
+                                                            <i data-lucide="check" class="w-3 h-3 text-white"></i>
+                                                            <span>Approve &amp; Receive</span>
+                                                        </span>
+                                                    </template>
+                                                    <template x-if="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}">
+                                                        <span class="flex items-center gap-1">
+                                                            <span class="inline-block animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
+                                                            <span>Receiving...</span>
+                                                        </span>
+                                                    </template>
+                                                </button>
+                                            @else
+                                                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-500 text-[10px] font-black">
+                                                    <i data-lucide="check-check" class="w-3 h-3 text-emerald-600"></i>
+                                                    <span>Received</span>
+                                                </span>
+                                            @endif
+
                                             <button type="button"
                                                     @click="openManualMatch({{ $poId }}, '{{ $row['po_number'] }}', '{{ addslashes($row['supplier_name']) }}')"
-                                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-black hover:bg-slate-800 transition shadow-2xs cursor-pointer">
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-black hover:bg-slate-800 transition shadow-2xs cursor-pointer">
                                                 <i data-lucide="link" class="w-3 h-3 text-emerald-400"></i>
                                                 <span>Match Bill</span>
                                             </button>
@@ -1000,10 +1044,12 @@
                                                class="w-4 h-4 rounded text-rose-600 border-slate-300 focus:ring-rose-500 cursor-pointer">
                                     </th>
                                     <th class="p-3.5">Shop</th>
+                                    <th class="p-3.5">Invoice</th>
                                     <th class="p-3.5">Product</th>
                                     <th class="p-3.5 text-right text-blue-900 font-black">Returned Qty</th>
-                                    <th class="p-3.5">Order / Invoice Ref</th>
-                                    <th class="p-3.5 text-center">Return Time</th>
+                                    <th class="p-3.5">Warehouse</th>
+                                    <th class="p-3.5 text-center">Finalized / Return Time</th>
+                                    <th class="p-3.5 text-center">Current Status</th>
                                     <th class="p-3.5 text-center pr-5">Action</th>
                                 </tr>
                             </thead>
@@ -1012,6 +1058,7 @@
                                     @php
                                         $shop = $ret->shopOrderItem?->shopOrder?->shop;
                                         $order = $ret->shopOrderItem?->shopOrder;
+                                        $invoice = $order?->invoice;
                                         $prod = $ret->product;
                                         $unit = $prod?->unit ?? 'KG';
                                         $retQty = (float) $ret->quantity;
@@ -1027,7 +1074,8 @@
                                             'reason' => 'transit_damage',
                                             'grade' => 'U',
                                             'shop_name' => $shop?->name ?? '',
-                                            'order_ref' => $order?->invoice_number ?? $order?->order_number ?? '',
+                                            'invoice_number' => $invoice?->invoice_number ?? '',
+                                            'order_ref' => $invoice?->invoice_number ?? $order?->order_number ?? '',
                                         ];
                                     @endphp
                                     <tr class="hover:bg-slate-50/60 transition-colors">
@@ -1042,6 +1090,18 @@
                                             <span>{{ $shop?->name ?? 'Shop' }}</span>
                                             <span class="block text-[10px] font-mono text-slate-400">{{ $shop?->code }}</span>
                                         </td>
+                                        <td class="p-3.5 font-mono font-bold text-slate-900">
+                                            @if($invoice)
+                                                <a href="{{ route('purchasing.shop-invoices.show', $invoice->invoice_number) }}" class="text-cyan-700 hover:text-cyan-900 hover:underline">
+                                                    {{ $invoice->invoice_number }}
+                                                </a>
+                                                @if($order?->order_number)
+                                                    <span class="block text-[10px] text-slate-400 font-sans">{{ $order->order_number }}</span>
+                                                @endif
+                                            @else
+                                                <span class="text-slate-600">{{ $order?->order_number ?? ('Item #' . $ret->shop_order_item_id) }}</span>
+                                            @endif
+                                        </td>
                                         <td class="p-3.5 font-bold text-slate-900">
                                             <span>{{ $prod?->name ?? 'Product #' . $ret->product_id }}</span>
                                             <span class="block text-[10px] font-mono text-slate-400">{{ $prod?->sku }}</span>
@@ -1054,11 +1114,16 @@
                                                 </span>
                                             @endif
                                         </td>
-                                        <td class="p-3.5 font-mono text-slate-700">
-                                            <span>{{ $order?->invoice_number ?? $order?->order_number ?? ('Item #' . $ret->shop_order_item_id) }}</span>
+                                        <td class="p-3.5 font-bold text-slate-700">
+                                            {{ $ret->warehouse?->name ?? '—' }}
                                         </td>
                                         <td class="p-3.5 text-center font-medium text-slate-500 whitespace-nowrap">
                                             {{ $ret->created_at?->format('H:i') ?? '—' }}
+                                        </td>
+                                        <td class="p-3.5 text-center whitespace-nowrap">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                                Finalized
+                                            </span>
                                         </td>
                                         <td class="p-3.5 text-center pr-5 whitespace-nowrap">
                                             @if($avail > 0)
@@ -1383,16 +1448,22 @@
                                     <tr class="hover:bg-slate-50/60 transition-colors">
                                         <td class="p-3.5 pl-5 font-black text-slate-900">
                                             {{ $row['product_name'] }}
-                                            <span class="block text-[10px] font-mono text-slate-400">{{ $row['product_sku'] }}</span>
+                                            <div class="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
+                                                <span>{{ $row['product_sku'] }}</span>
+                                                @if(!empty($row['po_number']))
+                                                    <span>•</span>
+                                                    <span class="text-slate-500 font-bold">{{ $row['po_number'] }}</span>
+                                                @endif
+                                            </div>
                                         </td>
                                         <td class="p-3.5 font-bold text-slate-700">
                                             {{ $row['category_name'] ?? 'General' }}
                                         </td>
                                         <td class="p-3.5 font-mono font-bold text-emerald-800">
-                                            {{ $row['base_unit'] }}
+                                            {{ $row['base_unit'] ?? $row['product_base_unit'] ?? $row['product_unit'] ?? 'kg' }}
                                         </td>
                                         <td class="p-3.5 font-mono font-bold text-purple-800">
-                                            {{ $row['received_unit'] }}
+                                            {{ $row['received_unit'] ?? $row['bill_unit'] ?? $row['order_unit'] ?? $row['unit'] ?? '' }}
                                         </td>
                                         <td class="p-3.5 text-center">
                                             <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
@@ -1401,7 +1472,7 @@
                                         </td>
                                         <td class="p-3.5 text-center pr-5">
                                             <button type="button"
-                                                    @click="openResolveUnitModal({{ $row['product_id'] }}, '{{ addslashes($row['product_name']) }}', '{{ $row['base_unit'] }}', '{{ $row['received_unit'] }}')"
+                                                    @click="openResolveUnitModal({{ $row['product_id'] }}, '{{ addslashes($row['product_name']) }}', '{{ $row['base_unit'] ?? $row['product_base_unit'] ?? $row['product_unit'] ?? 'kg' }}', '{{ $row['received_unit'] ?? $row['bill_unit'] ?? $row['order_unit'] ?? $row['unit'] ?? '' }}')"
                                                     class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-700 text-white text-[11px] font-black hover:bg-sky-800 transition shadow-2xs cursor-pointer">
                                                 <i data-lucide="wrench" class="w-3 h-3 text-sky-200"></i>
                                                 <span>Resolve Unit</span>
@@ -1883,7 +1954,7 @@
             </div>
         </div>
 
-        <!-- 4. ACCEPT ALL PENDING BILLS MODAL (DAY GROUPED) -->
+        <!-- 4. APPROVE & RECEIVE ALL PENDING BILLS MODAL (DAY GROUPED) -->
         <div x-show="pendingBillsModalOpen"
              x-cloak
              class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
@@ -1894,9 +1965,9 @@
                     <div>
                         <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
                             <i data-lucide="check-check" class="w-5 h-5 text-amber-600"></i>
-                            <span>Pending Bills</span>
+                            <span>Approve &amp; Receive Pending Bills</span>
                         </h3>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">Select days of pending bills to approve</p>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">Select days of pending bills to approve and receive into warehouse</p>
                     </div>
                     <button type="button" @click="closePendingBillsModal()" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
                         <i data-lucide="x" class="w-5 h-5"></i>
@@ -1944,8 +2015,8 @@
                                 @click="submitAcceptBills()"
                                 :disabled="isAcceptingBills || selectedDays.length === 0"
                                 class="px-5 py-2 rounded-xl text-xs font-black bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 transition shadow-sm cursor-pointer">
-                            <span x-show="!isAcceptingBills">Accept Selected Bills</span>
-                            <span x-show="isAcceptingBills">Approving...</span>
+                            <span x-show="!isAcceptingBills">Approve &amp; Receive Selected Bills</span>
+                            <span x-show="isAcceptingBills">Approving &amp; Receiving...</span>
                         </button>
                     </div>
                 </div>
@@ -2048,6 +2119,7 @@
                 pendingBillsModalOpen: false,
                 isLoadingPendingDays: false,
                 isAcceptingBills: false,
+                processingPoId: null,
                 pendingDays: [],
                 selectedDays: [],
 
@@ -2440,6 +2512,14 @@
                 submitAcceptBills() {
                     if (this.selectedDays.length === 0) return;
                     this.isAcceptingBills = true;
+
+                    const selectedPoIds = [];
+                    (this.pendingDays || []).forEach(day => {
+                        if (this.selectedDays.includes(day.date) && Array.isArray(day.po_ids)) {
+                            selectedPoIds.push(...day.po_ids);
+                        }
+                    });
+
                     fetch(config.acceptPendingBillsUrl, {
                         method: 'POST',
                         headers: {
@@ -2449,18 +2529,55 @@
                         },
                         body: JSON.stringify({
                             warehouse_id: this.currentWarehouseId || null,
-                            dates: this.selectedDays
+                            purchase_order_ids: selectedPoIds
                         })
                     })
-                    .then(res => res.json())
-                    .then(res => {
+                    .then(async res => {
+                        const data = await res.json().catch(() => ({}));
                         this.isAcceptingBills = false;
-                        this.closePendingBillsModal();
-                        window.location.reload();
+                        if (res.ok && (data.status === 'success' || (data.data && (data.data.approved > 0 || data.data.already_approved > 0)))) {
+                            this.closePendingBillsModal();
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to accept bills');
+                        }
                     })
                     .catch(err => {
-                        alert('Failed to accept bills');
                         this.isAcceptingBills = false;
+                        alert('Failed to accept bills: ' + (err.message || 'Network error'));
+                    });
+                },
+
+                approveAndReceiveSingle(grnId, poId) {
+                    if ((!grnId && !poId) || this.processingPoId) return;
+                    this.processingPoId = poId || grnId;
+                    fetch(config.acceptPendingBillsUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': this.csrfToken
+                        },
+                        body: JSON.stringify({
+                            warehouse_id: this.currentWarehouseId || null,
+                            grn_id: grnId || null,
+                            grn_ids: grnId ? [grnId] : [],
+                            purchase_order_id: poId || null,
+                            purchase_order_ids: poId ? [poId] : []
+                        })
+                    })
+                    .then(async res => {
+                        const data = await res.json().catch(() => ({}));
+                        this.processingPoId = null;
+                        if (res.ok && (data.status === 'success' || (data.data && (data.data.approved > 0 || data.data.already_approved > 0)))) {
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to approve & receive bill');
+                        }
+                    })
+                    .catch(err => {
+                        this.processingPoId = null;
+                        alert('Failed to approve & receive bill: ' + (err.message || 'Network error'));
                     });
                 },
 

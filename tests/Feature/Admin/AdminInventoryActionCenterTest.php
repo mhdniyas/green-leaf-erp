@@ -4,15 +4,20 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin;
 
+use App\Domains\ShopOrder\Actions\ResolveDeliveryReviewAction;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\Category;
+use App\Models\DailyPriceApproval;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
+use App\Models\ShopInvoiceItem;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\ShopPriceGroup;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\Supplier;
@@ -42,6 +47,8 @@ class AdminInventoryActionCenterTest extends TestCase
     private Supplier $supplier;
 
     private Shop $shop;
+
+    private ShopPriceGroup $priceGroup;
 
     private Category $category;
 
@@ -84,9 +91,12 @@ class AdminInventoryActionCenterTest extends TestCase
 
         $this->supplier = Supplier::factory()->create(['name' => 'Supplier Prime']);
 
+        $this->priceGroup = ShopPriceGroup::factory()->create(['name' => 'A']);
+
         $this->shop = Shop::create([
             'name' => 'Central Retail Shop',
             'code' => 'CRS-01',
+            'shop_price_group_id' => $this->priceGroup->id,
             'is_active' => true,
         ]);
 
@@ -203,6 +213,7 @@ class AdminInventoryActionCenterTest extends TestCase
             'business_date' => $targetDate,
             'total_amount' => 100.0,
             'status' => 'delivered',
+            'delivery_review_status' => 'approved',
             'created_by' => $this->adminUser->id,
         ]);
         $orderItem = ShopOrderItem::create([
@@ -214,9 +225,22 @@ class AdminInventoryActionCenterTest extends TestCase
             'unit_price' => 20.0,
             'total_price' => 100.0,
         ]);
+        ShopInvoice::create([
+            'shop_id' => $this->shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'INV-ACT-001',
+            'business_date' => $targetDate,
+            'status' => 'finalized',
+            'delivery_status' => 'approved_after_discrepancy',
+            'payment_status' => 'unpaid',
+            'subtotal' => 100.0,
+            'final_total' => 100.0,
+            'finalized_at' => Carbon::parse($targetDate)->setTime(12, 0, 0),
+            'finalized_by' => $this->adminUser->id,
+        ]);
         $this->createMovement($batchA, StockMovementType::SaleReversal, 2.0, $targetDate, [
             'shop_order_item_id' => $orderItem->id,
-            'notes' => 'Customer return test',
+            'notes' => "Delivery shortage added back to inventory - Order: {$order->order_number}; Item: {$orderItem->id}",
         ]);
 
         // 4. Damage on target date for Warehouse A
@@ -1867,5 +1891,608 @@ class AdminInventoryActionCenterTest extends TestCase
         $resB->assertOk();
         $itemsB = collect($resB->viewData('currentInventory')->items())->keyBy('product_id');
         $this->assertEquals(0.0, (float) $itemsB[$this->tomato->id]['current_sellable']);
+    }
+
+    /**
+     * Helper to set up approved prices and invoice items for delivery review tests.
+     *
+     * @param  array<int, array{item: ShopOrderItem, product: Product, price: float}>  $itemsWithPrices
+     */
+    private function setupApprovedPricesAndInvoice(ShopOrder $order, array $itemsWithPrices, string $date, string $invoiceNumber = 'INV-TEST-001'): ShopInvoice
+    {
+        foreach ($itemsWithPrices as $itemData) {
+            $product = $itemData['product'];
+            $price = (float) $itemData['price'];
+            DailyPriceApproval::firstOrCreate([
+                'product_id' => $product->id,
+                'business_date' => $date,
+            ], [
+                'purchase_price' => $price / 2,
+                'price_unit' => $product->unit ?? 'kg',
+                'price_a' => $price,
+                'price_b' => $price,
+                'price_c' => $price,
+                'status' => 'approved',
+                'approved_at' => now(),
+            ]);
+        }
+
+        $subtotal = collect($itemsWithPrices)->sum(fn ($i) => (float) $i['item']->approved_qty * (float) $i['price']);
+
+        $invoice = ShopInvoice::create([
+            'shop_id' => $order->shop_id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => $invoiceNumber,
+            'business_date' => $date,
+            'status' => 'delivery_review',
+            'delivery_status' => 'awaiting_review',
+            'payment_status' => 'unpaid',
+            'subtotal' => $subtotal,
+            'final_total' => $subtotal,
+        ]);
+
+        foreach ($itemsWithPrices as $itemData) {
+            $orderItem = $itemData['item'];
+            $price = (float) $itemData['price'];
+            ShopInvoiceItem::create([
+                'shop_invoice_id' => $invoice->id,
+                'shop_order_item_id' => $orderItem->id,
+                'product_id' => $orderItem->product_id,
+                'product_name' => $itemData['product']->name,
+                'unit' => $orderItem->unit ?? 'kg',
+                'price_unit' => $orderItem->unit ?? 'kg',
+                'approved_qty' => $orderItem->approved_qty,
+                'price_quantity' => $orderItem->approved_qty,
+                'delivered_qty' => $orderItem->approved_qty,
+                'delivered_price_quantity' => $orderItem->approved_qty,
+                'unit_price' => $price,
+                'line_subtotal' => (float) $orderItem->approved_qty * $price,
+                'shortage_qty' => 0,
+                'shortage_price_quantity' => 0,
+                'shortage_amount' => 0,
+                'final_line_total' => (float) $orderItem->approved_qty * $price,
+            ]);
+        }
+
+        return $invoice;
+    }
+
+    public function test_shop_returns_test1_shop_invoice_return_and_finalize_visible_in_admin_inventory(): void
+    {
+        $date = today()->toDateString();
+        // 1. Initial stock in Warehouse A: 20 kg
+        $batch = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batch, StockMovementType::In, 20.0, $date);
+
+        // 2. Loadout out 10 kg for shop order
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-001',
+            'business_date' => $date,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $orderItem = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $this->createMovement($batch, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $orderItem->id,
+            'notes' => "Order: {$order->order_number}; Item: {$orderItem->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $orderItem, 'product' => $this->tomato, 'price' => 20.0],
+        ], $date, 'INV-TEST-001');
+
+        // 3. Finalize on behalf via ResolveDeliveryReviewAction with delivered = 5 kg (shortage = 5 kg) and return_to_warehouse
+        $action = app(ResolveDeliveryReviewAction::class);
+        $action->approve(
+            $order,
+            [$orderItem->id => 5.0],
+            [],
+            [$orderItem->id => 'return_to_warehouse'],
+            [$orderItem->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Returned 5 kg to warehouse'
+        );
+
+        // 4. Query Admin Inventory Shop Returns tab
+        $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Central Retail Shop');
+        $response->assertSee('INV-TEST-001');
+        $response->assertSee('Action Tomato');
+        $response->assertSee('5.00');
+
+        // Verify sellable stock in warehouse = 20 - 10 + 5 = 15 kg
+        $stockRepo = app(StockMovementRepository::class);
+        $stock = $stockRepo->currentStockByProductAndGrade($date, $this->warehouseA->id);
+        $tomatoStock = (float) $stock->where('product_id', $this->tomato->id)->sum('current_stock');
+        $this->assertEquals(15.0, $tomatoStock);
+    }
+
+    public function test_shop_returns_test2_two_products_returned_both_rows_displayed(): void
+    {
+        $date = today()->toDateString();
+        $batchT = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batchT, StockMovementType::In, 20.0, $date);
+        $batchO = $this->createBatch($this->onion, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batchO, StockMovementType::In, 20.0, $date);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-002',
+            'business_date' => $date,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $itemT = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $itemO = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->onion->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 15.0,
+        ]);
+        $this->createMovement($batchT, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $itemT->id,
+            'notes' => "Order: {$order->order_number}; Item: {$itemT->id}",
+        ]);
+        $this->createMovement($batchO, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $itemO->id,
+            'notes' => "Order: {$order->order_number}; Item: {$itemO->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $itemT, 'product' => $this->tomato, 'price' => 20.0],
+            ['item' => $itemO, 'product' => $this->onion, 'price' => 15.0],
+        ], $date, 'INV-TEST-002');
+
+        $action = app(ResolveDeliveryReviewAction::class);
+        $action->approve(
+            $order,
+            [$itemT->id => 5.0, $itemO->id => 7.0],
+            [],
+            [$itemT->id => 'return_to_warehouse', $itemO->id => 'return_to_warehouse'],
+            [$itemT->id => 'wastage_damage', $itemO->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Two items returned'
+        );
+
+        $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('INV-TEST-002');
+        $response->assertSee('Action Tomato');
+        $response->assertSee('5.00');
+        $response->assertSee('Action Onion');
+        $response->assertSee('3.00');
+    }
+
+    public function test_shop_returns_test3_different_warehouse_scoped_correctly(): void
+    {
+        $date = today()->toDateString();
+        $batchA = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batchA, StockMovementType::In, 20.0, $date);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-003',
+            'business_date' => $date,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $this->createMovement($batchA, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $item->id,
+            'notes' => "Order: {$order->order_number}; Item: {$item->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $item, 'product' => $this->tomato, 'price' => 20.0],
+        ], $date, 'INV-TEST-003');
+
+        $action = app(ResolveDeliveryReviewAction::class);
+        $action->approve(
+            $order,
+            [$item->id => 6.0],
+            [],
+            [$item->id => 'return_to_warehouse'],
+            [$item->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Warehouse A return'
+        );
+
+        // Warehouse A should see INV-TEST-003
+        $resA = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $date,
+        ]));
+        $resA->assertOk();
+        $resA->assertSee('INV-TEST-003');
+
+        // Warehouse B should NOT see INV-TEST-003
+        $resB = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseB->id,
+            'date' => $date,
+        ]));
+        $resB->assertOk();
+        $resB->assertDontSee('INV-TEST-003');
+    }
+
+    public function test_shop_returns_test4_date_filter_scoping(): void
+    {
+        $dateSep9 = '2026-09-09';
+        $dateSep8 = '2026-09-08';
+
+        $batch = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $dateSep9);
+        $this->createMovement($batch, StockMovementType::In, 20.0, $dateSep9);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-004',
+            'business_date' => $dateSep9,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $this->createMovement($batch, StockMovementType::Out, 10.0, $dateSep9, [
+            'shop_order_item_id' => $item->id,
+            'notes' => "Order: {$order->order_number}; Item: {$item->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $item, 'product' => $this->tomato, 'price' => 20.0],
+        ], $dateSep9, 'INV-TEST-SEP9');
+
+        // Mock current time to Sep 9 when finalizing
+        Carbon::setTestNow(Carbon::parse($dateSep9)->setTime(14, 0, 0));
+        $action = app(ResolveDeliveryReviewAction::class);
+        $action->approve(
+            $order,
+            [$item->id => 6.0],
+            [],
+            [$item->id => 'return_to_warehouse'],
+            [$item->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Sep 9 return'
+        );
+
+        // Sep 9 request should see INV-TEST-SEP9
+        $resSep9 = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $dateSep9,
+        ]));
+        $resSep9->assertOk();
+        $resSep9->assertSee('INV-TEST-SEP9');
+
+        // Sep 8 request should NOT see it
+        $resSep8 = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $dateSep8,
+        ]));
+        $resSep8->assertOk();
+        $resSep8->assertDontSee('INV-TEST-SEP9');
+        Carbon::setTestNow();
+    }
+
+    public function test_shop_returns_test5_edit_finalized_invoice_shows_canonical_return_quantity(): void
+    {
+        $date = today()->toDateString();
+        $batch = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batch, StockMovementType::In, 20.0, $date);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-005',
+            'business_date' => $date,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $this->createMovement($batch, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $item->id,
+            'notes' => "Order: {$order->order_number}; Item: {$item->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $item, 'product' => $this->tomato, 'price' => 20.0],
+        ], $date, 'INV-TEST-005');
+
+        $action = app(ResolveDeliveryReviewAction::class);
+        // Initial approval: 5 kg delivered -> 5 kg returned
+        $action->approve(
+            $order,
+            [$item->id => 5.0],
+            [],
+            [$item->id => 'return_to_warehouse'],
+            [$item->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Initial return 5 kg'
+        );
+
+        // Revert approval for edit
+        $action->revertApprovalForAdminEdit($order->fresh(), (int) $this->adminUser->id, 'Reverting to edit return qty');
+
+        // New active return movement for edited 3 kg
+        $this->createMovement($batch, StockMovementType::SaleReversal, 3.0, $date, [
+            'shop_order_item_id' => $item->id,
+            'notes' => "Delivery shortage added back to inventory - Order: {$order->order_number}; Item: {$item->id}",
+        ]);
+
+        $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $date,
+        ]));
+        $response->assertOk();
+        $response->assertSee('3.00');
+
+        $summary = $response->viewData('summary');
+        $this->assertEquals(3.0, (float) $summary['shop_returns_qty']);
+
+        // Stock in warehouse should be 20 - 10 + 5 (initial) - 5 (revert) + 3 (new) = 13 kg
+        $stockRepo = app(StockMovementRepository::class);
+        $stock = $stockRepo->currentStockByProductAndGrade($date, $this->warehouseA->id);
+        $tomatoStock = (float) $stock->where('product_id', $this->tomato->id)->sum('current_stock');
+        $this->assertEquals(13.0, $tomatoStock);
+    }
+
+    public function test_shop_returns_test6_revert_finalized_invoice_reverses_return_and_updates_admin_inventory(): void
+    {
+        $date = today()->toDateString();
+        $batch = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batch, StockMovementType::In, 20.0, $date);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-006',
+            'business_date' => $date,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $this->createMovement($batch, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $item->id,
+            'notes' => "Order: {$order->order_number}; Item: {$item->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $item, 'product' => $this->tomato, 'price' => 20.0],
+        ], $date, 'INV-TEST-006');
+
+        $action = app(ResolveDeliveryReviewAction::class);
+        $action->approve(
+            $order,
+            [$item->id => 5.0],
+            [],
+            [$item->id => 'return_to_warehouse'],
+            [$item->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Initial return 5 kg'
+        );
+
+        // Revert approval
+        $action->revertApprovalForAdminEdit($order->fresh(), (int) $this->adminUser->id, 'Reverting return approval');
+
+        $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'shop_returns',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $date,
+        ]));
+        $response->assertOk();
+        $response->assertSee('No Shop Returns Today');
+
+        $summary = $response->viewData('summary');
+        $this->assertEquals(0.0, (float) $summary['shop_returns_qty']);
+
+        // Stock in warehouse should be 20 - 10 = 10 kg
+        $stockRepo = app(StockMovementRepository::class);
+        $stock = $stockRepo->currentStockByProductAndGrade($date, $this->warehouseA->id);
+        $tomatoStock = (float) $stock->where('product_id', $this->tomato->id)->sum('current_stock');
+        $this->assertEquals(10.0, $tomatoStock);
+    }
+
+    public function test_shop_returns_test7_move_shop_invoice_returned_product_to_damage(): void
+    {
+        $date = today()->toDateString();
+        $batch = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batch, StockMovementType::In, 20.0, $date);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-007',
+            'business_date' => $date,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $this->createMovement($batch, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $item->id,
+            'notes' => "Order: {$order->order_number}; Item: {$item->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $item, 'product' => $this->tomato, 'price' => 20.0],
+        ], $date, 'INV-TEST-007');
+
+        $action = app(ResolveDeliveryReviewAction::class);
+        $action->approve(
+            $order,
+            [$item->id => 5.0],
+            [],
+            [$item->id => 'return_to_warehouse'],
+            [$item->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Return 5 kg'
+        );
+
+        // Move 2 kg to damage via move-to-damage
+        $resDamage = $this->actingAs($this->adminUser)->post(route('admin.cashbook.inventory.move-to-damage'), [
+            'warehouse_id' => $this->warehouseA->id,
+            'wastage_date' => $date,
+            'common_reason' => 'transit_damage',
+            'items' => [
+                [
+                    'product_id' => $this->tomato->id,
+                    'quantity' => 2.0,
+                    'reason' => 'transit_damage',
+                ],
+            ],
+        ]);
+        $resDamage->assertRedirect();
+
+        // Stock in warehouse should be 20 - 10 + 5 - 2 = 13 kg
+        $stockRepo = app(StockMovementRepository::class);
+        $stock = $stockRepo->currentStockByProductAndGrade($date, $this->warehouseA->id);
+        $tomatoStock = (float) $stock->where('product_id', $this->tomato->id)->sum('current_stock');
+        $this->assertEquals(13.0, $tomatoStock);
+    }
+
+    public function test_shop_returns_test8_daily_summary_shop_returns_equals_finalized_return_quantity(): void
+    {
+        $date = today()->toDateString();
+        $batch = $this->createBatch($this->tomato, $this->warehouseA, 20.0, $date);
+        $this->createMovement($batch, StockMovementType::In, 20.0, $date);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'RQ-TEST-008',
+            'business_date' => $date,
+            'state' => 'approved',
+            'delivery_status' => 'pending_approval',
+            'delivery_review_status' => 'pending',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->tomato->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'loaded_qty' => 10.0,
+            'unit' => 'kg',
+            'unit_cost' => 20.0,
+        ]);
+        $this->createMovement($batch, StockMovementType::Out, 10.0, $date, [
+            'shop_order_item_id' => $item->id,
+            'notes' => "Order: {$order->order_number}; Item: {$item->id}",
+        ]);
+
+        $this->setupApprovedPricesAndInvoice($order, [
+            ['item' => $item, 'product' => $this->tomato, 'price' => 20.0],
+        ], $date, 'INV-TEST-008');
+
+        $action = app(ResolveDeliveryReviewAction::class);
+        $action->approve(
+            $order,
+            [$item->id => 6.0],
+            [],
+            [$item->id => 'return_to_warehouse'],
+            [$item->id => 'wastage_damage'],
+            [],
+            (int) $this->adminUser->id,
+            'Return 4 kg'
+        );
+
+        $response = $this->actingAs($this->adminUser)->get(route('admin.cashbook.inventory', [
+            'tab' => 'current_inventory',
+            'warehouse_id' => $this->warehouseA->id,
+            'date' => $date,
+        ]));
+
+        $response->assertOk();
+        $summary = $response->viewData('summary');
+        $this->assertEquals(1, $summary['shop_returns_count']);
+        $this->assertEquals(4.0, (float) $summary['shop_returns_qty']);
     }
 }
