@@ -10,6 +10,7 @@ use App\Http\Controllers\Web\Admin\AdminCashbookReportsController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CashbookSettlementController;
+use App\Http\Controllers\Web\Admin\CashFlowTreeController;
 use App\Http\Controllers\Web\Admin\CompanySettingsController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DatabaseBackupController;
@@ -668,6 +669,8 @@ Route::middleware('auth')->group(function () {
         Route::prefix('cashbook')->name('cashbook.')->group(function () {
             // ── Page routes ─────────────────────────────────────────────────
             Route::get('/', [CashbookController::class, 'index'])->name('index');
+            Route::get('cash-flow-tree', [CashFlowTreeController::class, 'index'])->name('cash-flow-tree.index');
+            Route::get('cash-flow-tree/drilldown', [CashFlowTreeController::class, 'drilldown'])->name('cash-flow-tree.drilldown');
             Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
             Route::get('overview-cards', [AdminCashbookReportsController::class, 'hub'])->name('reports.hub');
             Route::get('reports', [CashbookController::class, 'reports'])->name('reports');

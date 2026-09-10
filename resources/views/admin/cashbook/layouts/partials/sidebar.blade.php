@@ -76,6 +76,10 @@
                     <i data-lucide="activity" class="w-4 h-4 text-emerald-600"></i>
                     <span>Money Flow</span>
                 </a>
+                <a href="{{ route('admin.cashbook.cash-flow-tree.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.cash-flow-tree*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="git-fork" class="w-4 h-4 text-indigo-600"></i>
+                    <span>Cash Flow Tree</span>
+                </a>
             </div>
 
             <!-- FINANCE -->
