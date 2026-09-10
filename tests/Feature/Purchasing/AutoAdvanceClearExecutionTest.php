@@ -252,6 +252,32 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $res->assertUnauthorized();
     }
 
+    public function test_execution_matches_same_non_base_unit_without_a_product_conversion(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $this->apple->update(['unit' => 'box']);
+        $this->createAdvance($this->warehouseA, $this->apple->fresh(), 10.0, '2026-09-10', 'kg');
+        $this->createPendingBill($this->warehouseA, [[
+            'product_id' => $this->apple->id,
+            'quantity' => 10.0,
+            'unit' => 'kg',
+        ]], '2026-09-10');
+
+        $preview = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $preview['ready_bills']);
+
+        $response = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
+            'warehouse_id' => $this->warehouseA->id,
+            'plan_hash' => $preview['plan_hash'],
+            'client_submission_id' => (string) Str::uuid(),
+        ]);
+
+        $response->assertOk()->assertJsonPath('data.status', 'completed');
+        $this->assertDatabaseCount('advance_receive_matches', 1);
+    }
+
     public function test_execution_requires_warehouse_authorization(): void
     {
         Sanctum::actingAs($this->restrictedUser);

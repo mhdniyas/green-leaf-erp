@@ -355,7 +355,14 @@ class AutoAdvanceClearExecutionService
             if ($lineConv === null || $lineConv <= 0.0) {
                 $normLine = ProductUnit::normalizeUnit($line['unit']);
                 $normProd = ProductUnit::normalizeUnit($lineProduct?->unit);
-                if ($normLine === $normProd) {
+                $hasSameUnitAdvance = collect($line['matches'])->contains(function (array $match) use ($lockedAdvanceItems, $normLine): bool {
+                    $advanceItem = $lockedAdvanceItems->firstWhere('id', (int) $match['advance_goods_received_item_id']);
+
+                    return $advanceItem !== null
+                        && ProductUnit::normalizeUnit($advanceItem->received_unit) === $normLine;
+                });
+
+                if ($normLine === $normProd || $hasSameUnitAdvance) {
                     $lineConv = 1.0;
                 }
             }
@@ -384,7 +391,8 @@ class AutoAdvanceClearExecutionService
                 if ($advConv === null || $advConv <= 0.0) {
                     $normAdv = ProductUnit::normalizeUnit($advItem->received_unit);
                     $normAdvProd = ProductUnit::normalizeUnit($advProduct?->unit);
-                    if ($normAdv === $normAdvProd) {
+                    $normLine = ProductUnit::normalizeUnit($line['unit']);
+                    if ($normAdv === $normAdvProd || $normAdv === $normLine) {
                         $advConv = 1.0;
                     }
                 }
