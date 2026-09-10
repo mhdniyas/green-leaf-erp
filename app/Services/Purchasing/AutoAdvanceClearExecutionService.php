@@ -282,19 +282,32 @@ class AutoAdvanceClearExecutionService
             ->lockForUpdate()
             ->first();
 
+        if (! $grn) {
+            $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
+
+            return;
+        }
+
         // Lock source GRN items
         $grnItems = GoodsReceivedItem::query()->where('goods_received_id', $grn->id)->orderBy('id')->lockForUpdate()->get();
 
         // Lock target PO and PO items
         $po = PurchaseOrder::query()->whereKey($item->purchase_order_id)->lockForUpdate()->first();
 
-        if (! $grn || $grn->status !== 'approved' || ! $this->readScope->receiptMatchesWarehouse($grn, $warehouseId) || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
+        if ($grn->status !== 'approved' || $grn->receipt_type === 'warehouse_advance' || ! $this->readScope->receiptMatchesWarehouse($grn, $warehouseId) || (int) $grn->purchase_order_id !== (int) $item->purchase_order_id) {
             $item->update(['status' => 'skipped', 'reason_code' => 'target_state_changed']);
 
             return;
         }
 
-        if ($grn->bill_status !== 'bill_pending') {
+        AdvanceReceiveMatch::query()
+            ->where('bill_goods_received_id', $grn->id)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $billRemainingByItem = $this->balanceCalculator->calculateBillRemainingBase($grn, $productsMap);
+        if (array_sum($billRemainingByItem) <= 0.0001) {
             $item->update(['status' => 'skipped', 'reason_code' => 'already_processed', 'result_goods_received_id' => $grn->id]);
 
             return;
@@ -329,6 +342,13 @@ class AutoAdvanceClearExecutionService
 
         foreach ($plannedItem['lines'] as $line) {
             $lineProductId = (int) $line['product_id'];
+            $billItemId = (int) ($line['source_item_id'] ?? 0);
+            $plannedBillBaseQty = (float) collect($line['matches'])->sum('base_qty');
+            if ($billItemId <= 0 || $plannedBillBaseQty > (float) ($billRemainingByItem[$billItemId] ?? 0.0) + 0.0001) {
+                $coverageOk = false;
+                break;
+            }
+
             /** @var Product|null $lineProduct */
             $lineProduct = $productsMap->get($lineProductId);
             $lineConv = $this->balanceCalculator->resolveStrictUnitConversion($lineProduct, $line['unit']);

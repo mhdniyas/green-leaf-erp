@@ -45,13 +45,14 @@ class AutoAdvanceClearPlanningService
     {
         $warnings = [];
 
-        // 1. Pre-load all eligible pending purchase orders and their goods receipts
+        // 1. Pre-load all eligible purchase orders and their approved bill receipts.
+        // Bill approval posts inventory; reconciliation eligibility is determined by
+        // the remaining quantity after existing advance matches, not bill_status.
         $pendingOrdersQuery = PurchaseOrder::query()
             ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
             ->where(function (Builder $q): void {
                 $q->whereHas('goodsReceiveds', function (Builder $receipts): void {
                     $receipts->where('goods_received.status', 'approved')
-                        ->where('goods_received.bill_status', 'bill_pending')
                         ->where(function (Builder $typeQ): void {
                             $typeQ->where('goods_received.receipt_type', '!=', 'warehouse_advance')
                                 ->orWhereNull('goods_received.receipt_type');
@@ -235,13 +236,14 @@ class AutoAdvanceClearPlanningService
         foreach ($pendingOrders as $order) {
             $billDateStr = $order->order_date instanceof Carbon ? $order->order_date->toDateString() : (string) ($order->order_date ?? '');
 
-            // Separate completed GRNs vs pending GRNs for this order
-            $pendingGrns = collect();
+            // Separate approved bill GRNs from receipts that already count as
+            // completed delivery for the PO cap.
+            $billGrns = collect();
             $completedItemReceivedBase = []; // [po_item_id => base_qty]
 
             foreach ($order->goodsReceiveds as $grn) {
-                if ($grn->status === 'approved' && $grn->bill_status === 'bill_pending' && $grn->receipt_type !== 'warehouse_advance') {
-                    $pendingGrns->push($grn);
+                if ($grn->status === 'approved' && $grn->receipt_type !== 'warehouse_advance') {
+                    $billGrns->push($grn);
                 } else {
                     $facts = $this->receiptStateResolver->forReceipt($grn);
                     if (($facts['receipt_status'] ?? '') === 'received') {
@@ -258,12 +260,12 @@ class AutoAdvanceClearPlanningService
                 }
             }
 
-            // For each existing pending GRN: create a distinct plan entry
+            // For each approved bill GRN: create a distinct plan entry.
             // Track legacy unlinked allocations and cumulative allocations per PO item
             $legacyUnlinkedAppliedByPoItem = [];
             $allocatedInPlanByPoItem = [];
 
-            foreach ($pendingGrns->sortBy('id') as $pGrn) {
+            foreach ($billGrns->sortBy('id') as $pGrn) {
                 $targetLines = [];
                 foreach ($pGrn->items->sortBy('id') as $pItem) {
                     $prod = $pItem->product;
@@ -361,7 +363,7 @@ class AutoAdvanceClearPlanningService
                 ];
             }
 
-            if ($pendingGrns->isEmpty() && in_array($order->status->value ?? (string) $order->status, ['approved', 'sent_to_supplier', 'partially_received'], true)) {
+            if ($billGrns->isEmpty() && in_array($order->status->value ?? (string) $order->status, ['approved', 'sent_to_supplier', 'partially_received'], true)) {
                 $targetLines = [];
                 foreach ($order->items->sortBy('id') as $poItem) {
                     $prod = $poItem->product;

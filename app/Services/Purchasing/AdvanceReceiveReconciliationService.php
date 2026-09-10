@@ -1048,20 +1048,23 @@ class AdvanceReceiveReconciliationService
                 $totalMatchedByBillItem[$key] = ($totalMatchedByBillItem[$key] ?? 0.0) + $matchedBaseQty;
             }
 
-            // 2. Update GRN items
-            foreach ($items as $itemId => $itemData) {
-                $item = $lockedGrn->items->firstWhere('id', (int) $itemId) ?? $lockedGrn->items()->findOrFail((int) $itemId);
-                $originalPurchasedQty = (float) ($item->purchaseOrderItem?->quantity ?? $item->received_qty);
-                $receivedQty = (float) $itemData['received_qty'];
-                $variance = $receivedQty - (float) ($item->purchaseOrderItem?->quantity ?? 0.0);
+            // 2. Auto-clear reconciles existing approved receipts. Their quantities
+            // and inventory were already recorded during bill approval.
+            if (! $autoAdvanceClear) {
+                foreach ($items as $itemId => $itemData) {
+                    $item = $lockedGrn->items->firstWhere('id', (int) $itemId) ?? $lockedGrn->items()->findOrFail((int) $itemId);
+                    $originalPurchasedQty = (float) ($item->purchaseOrderItem?->quantity ?? $item->received_qty);
+                    $receivedQty = (float) $itemData['received_qty'];
+                    $variance = $receivedQty - (float) ($item->purchaseOrderItem?->quantity ?? 0.0);
 
-                $item->update([
-                    'received_qty' => $receivedQty,
-                    'variance' => $variance,
-                    'purchased_qty' => $originalPurchasedQty,
-                    'discrepancy_type' => $itemData['discrepancy_type'] ?? 'none',
-                    'discrepancy_note' => $itemData['discrepancy_note'] ?? null,
-                ]);
+                    $item->update([
+                        'received_qty' => $receivedQty,
+                        'variance' => $variance,
+                        'purchased_qty' => $originalPurchasedQty,
+                        'discrepancy_type' => $itemData['discrepancy_type'] ?? 'none',
+                        'discrepancy_note' => $itemData['discrepancy_note'] ?? null,
+                    ]);
+                }
             }
 
             $lockedGrn->loadMissing('items.product');
@@ -1223,6 +1226,45 @@ class AdvanceReceiveReconciliationService
                     'conversion_to_base' => $matchRecord['conversion_to_base'],
                     'confirmed_by' => $userId,
                     'confirmed_at' => now(),
+                ]);
+            }
+
+            // Auto-clear is accounting-only: approved bill inventory is already
+            // posted, so only persist allocations and close exhausted advances.
+            if ($autoAdvanceClear) {
+                foreach ($advanceGrns as $advanceGrn) {
+                    $totalAdvanceReceivedBase = (float) $advanceGrn->items->sum(function (GoodsReceivedItem $it): float {
+                        /** @var Product $p */
+                        $p = $it->product ?? Product::find($it->product_id);
+                        $conv = (float) ($p?->conversionToBaseForUnit($it->received_unit) ?? 1.0);
+
+                        return (float) $it->received_qty * $conv;
+                    });
+
+                    $totalConsumedBase = (float) AdvanceReceiveMatch::query()
+                        ->where('advance_goods_received_id', $advanceGrn->id)
+                        ->sum('base_qty');
+
+                    if ($totalConsumedBase >= $totalAdvanceReceivedBase - 0.001) {
+                        $advanceGrn->update(['bill_status' => 'bill_available']);
+                    }
+                }
+
+                activity()
+                    ->performedOn($lockedGrn)
+                    ->causedBy(User::query()->find($userId))
+                    ->withProperties([
+                        'source' => 'auto_advance_clear',
+                        'matches_count' => count($validatedMatches),
+                    ])
+                    ->log('goods_received.reconciled_with_advance');
+
+                return $lockedGrn->fresh([
+                    'items.product',
+                    'items.purchaseOrderItem',
+                    'purchaseOrder',
+                    'advanceMatchesAsBill.advanceGoodsReceived',
+                    'advanceMatchesAsBill.advanceStockBatch',
                 ]);
             }
 

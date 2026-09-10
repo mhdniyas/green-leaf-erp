@@ -340,6 +340,59 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $this->assertEquals(1, GoodsReceived::openWarehouseAdvance($this->warehouseA->id)->count());
     }
 
+    public function test_approved_bill_available_is_reconciled_without_changing_inventory(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $billGrn = $po->goodsReceiveds->firstOrFail();
+        $billGrn->update(['bill_status' => 'bill_available']);
+
+        $billBatch = StockBatch::create([
+            'product_id' => $this->apple->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'goods_received_id' => $billGrn->id,
+            'goods_received_item_id' => $billGrn->items->firstOrFail()->id,
+            'purchase_grade' => 'A',
+            'grading_mode' => 'sort_required',
+            'created_by' => $this->warehouseUser->id,
+            'reference' => 'BATCH-BILL-'.uniqid(),
+            'received_at' => '2026-08-25',
+            'total_kg' => 60.0,
+            'cost_per_kg' => 50.0,
+            'status' => BatchStatus::Pending,
+            'warehouse_receive_pending' => false,
+            'warehouse_confirmed_at' => now(),
+            'warehouse_confirmed_by' => $this->warehouseUser->id,
+        ]);
+
+        $inventoryBefore = (float) StockBatch::where('warehouse_id', $this->warehouseA->id)->sum('total_kg');
+        $stockMovementCountBefore = StockMovement::count();
+
+        $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
+        $this->assertEquals(1, $preview['summary']['ready_bills']);
+        $this->assertEquals($billGrn->id, $preview['ready_bills'][0]['source_goods_received_id']);
+
+        $response = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
+            'warehouse_id' => $this->warehouseA->id,
+            'plan_hash' => $preview['plan_hash'],
+            'client_submission_id' => (string) Str::uuid(),
+        ]);
+
+        $response->assertOk();
+        $this->assertEquals(1, $response->json('data.summary.processed'));
+        $this->assertEquals(60.0, (float) AdvanceReceiveMatch::where('bill_goods_received_id', $billGrn->id)->sum('base_qty'));
+        $this->assertEquals('bill_available', $billGrn->fresh()->bill_status);
+        $this->assertEquals(60.0, (float) $billBatch->fresh()->total_kg);
+        $this->assertFalse((bool) $billBatch->fresh()->warehouse_receive_pending);
+        $this->assertEquals($inventoryBefore, (float) StockBatch::where('warehouse_id', $this->warehouseA->id)->sum('total_kg'));
+        $this->assertEquals($stockMovementCountBefore, StockMovement::count());
+
+        $nextPreview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
+        $this->assertEquals(0, $nextPreview['summary']['ready_bills']);
+    }
+
     public function test_advances_60_and_40_fully_clear_100_bill(): void
     {
         Sanctum::actingAs($this->warehouseUser);
@@ -394,10 +447,10 @@ class AutoAdvanceClearExecutionTest extends TestCase
         ]);
 
         $res->assertOk();
-        // Partial was executed: 40 KG matched, PO status = partially_received
+        // Auto-clear records the allocation only; the bill receipt state stays unchanged.
         $this->assertEquals(1, $res->json('data.summary.processed'));
         $this->assertEquals(40.0, (float) AdvanceReceiveMatch::where('purchase_order_id', $po->id)->sum('base_qty'));
-        $this->assertEquals(POStatus::PartiallyReceived->value, $po->fresh()->status->value);
+        $this->assertEquals(POStatus::Approved->value, $po->fresh()->status->value);
     }
 
     public function test_multi_product_full_coverage_execution(): void
@@ -480,7 +533,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
 
         $res->assertOk();
         $this->assertEquals($pendingGrn->id, $res->json('data.processed.0.result_goods_received_id'));
-        $this->assertEquals('bill_available', $pendingGrn->fresh()->bill_status);
+        $this->assertEquals('bill_pending', $pendingGrn->fresh()->bill_status);
     }
 
     public function test_create_bill_grn_mode_execution(): void

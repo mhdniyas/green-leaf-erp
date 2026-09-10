@@ -1665,8 +1665,8 @@ class AdminCashbookReportsController extends Controller
         $matchPlan = null;
         $matchableBillsCount = 0;
         $matchedBaseQtyPlan = 0.0;
-        if ($tab === 'receive_bills' || $tab === 'match_details') {
-            $targetWarehouseForPlan = $selectedWarehouseId ?? ($availableWarehouses->first()?->id ?? 1);
+        if ($selectedWarehouseId !== null && ($tab === 'receive_bills' || $tab === 'match_details')) {
+            $targetWarehouseForPlan = $selectedWarehouseId;
             try {
                 $matchPlan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($targetWarehouseForPlan, (int) $request->user()->id);
                 $matchableBillsCount = count($matchPlan['ready_bills'] ?? []);

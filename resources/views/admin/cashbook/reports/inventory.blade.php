@@ -2430,9 +2430,13 @@
                 },
 
                 openAutoClear() {
+                    if (!this.currentWarehouseId) {
+                        alert('Select a warehouse before previewing Auto Match.');
+                        return;
+                    }
                     this.autoClearModalOpen = true;
                     this.isLoadingAutoClear = true;
-                    const whId = this.currentWarehouseId || 1;
+                    const whId = this.currentWarehouseId;
                     fetch(`${config.autoPlanUrl}?warehouse_id=${whId}`, {
                         headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrfToken }
                     })
@@ -2455,8 +2459,12 @@
 
                 executeAutoClear() {
                     if (!this.autoClearPlan || !this.autoClearPlan.plan_hash) return;
+                    if (!this.currentWarehouseId) {
+                        alert('Select a warehouse before executing Auto Match.');
+                        return;
+                    }
                     this.isExecutingAutoClear = true;
-                    const whId = this.currentWarehouseId || 1;
+                    const whId = this.currentWarehouseId;
                     const clientSubId = 'web-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
                     fetch(config.autoExecuteUrl, {
                         method: 'POST',
