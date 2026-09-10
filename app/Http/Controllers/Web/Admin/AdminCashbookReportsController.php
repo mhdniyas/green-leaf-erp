@@ -1661,11 +1661,14 @@ class AdminCashbookReportsController extends Controller
             'authorized_warehouse_ids' => $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds,
         ]);
 
-        // K. Matchable Bills Plan (Computed on demand for matching tabs)
+        // K. Matchable Bills Plan
+        // The receive-bills page loads the preview through its dedicated endpoint.
+        // Building it while rendering the page duplicates the work and can exceed
+        // the web request timeout for warehouses with large matching histories.
         $matchPlan = null;
         $matchableBillsCount = 0;
         $matchedBaseQtyPlan = 0.0;
-        if ($selectedWarehouseId !== null && ($tab === 'receive_bills' || $tab === 'match_details')) {
+        if ($selectedWarehouseId !== null && $tab === 'match_details') {
             $targetWarehouseForPlan = $selectedWarehouseId;
             try {
                 $matchPlan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($targetWarehouseForPlan, (int) $request->user()->id);

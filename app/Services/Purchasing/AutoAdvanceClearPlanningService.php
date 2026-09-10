@@ -231,6 +231,47 @@ class AutoAdvanceClearPlanningService
             ? AdvanceReceiveMatch::query()->whereIn('purchase_order_id', $allPendingOrderIds)->get()
             : collect();
 
+        // Index allocations once. The planner can contain hundreds of bills, and
+        // repeatedly filtering the full match collection for every bill line made
+        // the preview exceed the web request timeout on large warehouses.
+        $exactMatchesByGrnItem = [];
+        $fallbackMatchesByGrnPoItem = [];
+        $fallbackMatchesByGrnProduct = [];
+        $legacyMatchesByPoItem = [];
+        $totalMatchesByPoItem = [];
+
+        foreach ($existingMatches as $match) {
+            $baseQty = (float) $match->base_qty;
+            $poItemId = $match->purchase_order_item_id;
+
+            if ($poItemId !== null) {
+                $totalMatchesByPoItem[$poItemId] = ($totalMatchesByPoItem[$poItemId] ?? 0.0) + $baseQty;
+            }
+
+            if ($match->bill_goods_received_id === null) {
+                if ($poItemId !== null) {
+                    $legacyMatchesByPoItem[$poItemId] = ($legacyMatchesByPoItem[$poItemId] ?? 0.0) + $baseQty;
+                }
+
+                continue;
+            }
+
+            $billGrnId = (int) $match->bill_goods_received_id;
+            if ($match->bill_goods_received_item_id !== null) {
+                $itemId = (int) $match->bill_goods_received_item_id;
+                $exactMatchesByGrnItem[$billGrnId][$itemId] = ($exactMatchesByGrnItem[$billGrnId][$itemId] ?? 0.0) + $baseQty;
+
+                continue;
+            }
+
+            if ($poItemId !== null) {
+                $fallbackMatchesByGrnPoItem[$billGrnId][$poItemId] = ($fallbackMatchesByGrnPoItem[$billGrnId][$poItemId] ?? 0.0) + $baseQty;
+            } else {
+                $productId = (int) $match->product_id;
+                $fallbackMatchesByGrnProduct[$billGrnId][$productId] = ($fallbackMatchesByGrnProduct[$billGrnId][$productId] ?? 0.0) + $baseQty;
+            }
+        }
+
         $billTargets = [];
 
         foreach ($pendingOrders as $order) {
@@ -274,35 +315,17 @@ class AutoAdvanceClearPlanningService
                     $itemBase = round((float) $pItem->received_qty * $conv, 3);
 
                     // 1. Allocation linked to this exact GRN
-                    $exactGrnMatchedBase = (float) $existingMatches
-                        ->where('purchase_order_id', $order->id)
-                        ->filter(function ($m) use ($pItem, $pGrn): bool {
-                            if ($m->bill_goods_received_id !== null) {
-                                if ((int) $m->bill_goods_received_id === (int) $pGrn->id) {
-                                    if ($m->bill_goods_received_item_id !== null) {
-                                        return (int) $m->bill_goods_received_item_id === (int) $pItem->id;
-                                    }
-
-                                    return $pItem->purchase_order_item_id
-                                        ? (int) $m->purchase_order_item_id === (int) $pItem->purchase_order_item_id
-                                        : (int) $m->product_id === (int) $pItem->product_id;
-                                }
-
-                                return false;
-                            }
-
-                            return false;
-                        })
-                        ->sum('base_qty');
+                    $exactGrnMatchedBase = (float) ($exactMatchesByGrnItem[$pGrn->id][$pItem->id] ?? 0.0);
+                    if ($pItem->purchase_order_item_id) {
+                        $exactGrnMatchedBase += (float) ($fallbackMatchesByGrnPoItem[$pGrn->id][$pItem->purchase_order_item_id] ?? 0.0);
+                    } else {
+                        $exactGrnMatchedBase += (float) ($fallbackMatchesByGrnProduct[$pGrn->id][$pItem->product_id] ?? 0.0);
+                    }
 
                     // 2. PO-item fallback: ONLY for legacy allocations without GRN linkage
                     $legacyMatchedBase = 0.0;
                     if ($pItem->purchase_order_item_id) {
-                        $totalUnlinkedLegacy = (float) $existingMatches
-                            ->where('purchase_order_id', $order->id)
-                            ->whereNull('bill_goods_received_id')
-                            ->where('purchase_order_item_id', $pItem->purchase_order_item_id)
-                            ->sum('base_qty');
+                        $totalUnlinkedLegacy = (float) ($legacyMatchesByPoItem[$pItem->purchase_order_item_id] ?? 0.0);
 
                         $alreadyAbsorbed = (float) ($legacyUnlinkedAppliedByPoItem[$pItem->purchase_order_item_id] ?? 0.0);
                         $legacyAvailable = max(0.0, round($totalUnlinkedLegacy - $alreadyAbsorbed, 3));
@@ -322,10 +345,7 @@ class AutoAdvanceClearPlanningService
                             $poConv = $this->resolveStrictUnitConversion($prod, $poUnit) ?? 1.0;
                             $poOrderedBase = round((float) $poItem->quantity * $poConv, 3);
                             $poCompletedBase = (float) ($completedItemReceivedBase[$poItem->id] ?? 0.0);
-                            $totalExistingAllocOnPo = (float) $existingMatches
-                                ->where('purchase_order_id', $order->id)
-                                ->where('purchase_order_item_id', $poItem->id)
-                                ->sum('base_qty');
+                            $totalExistingAllocOnPo = (float) ($totalMatchesByPoItem[$poItem->id] ?? 0.0);
                             $alreadyAllocatedInPlan = (float) ($allocatedInPlanByPoItem[$poItem->id] ?? 0.0);
                             $maxReceivableRemaining = max(0.0, round($poOrderedBase - $poCompletedBase - $totalExistingAllocOnPo - $alreadyAllocatedInPlan, 3));
                             $remBase = min($remBase, $maxReceivableRemaining);
@@ -370,10 +390,7 @@ class AutoAdvanceClearPlanningService
                     $unit = $poItem->purchase_unit ?: $poItem->unit ?: $poItem->product?->unit;
                     $conv = $this->resolveStrictUnitConversion($prod, $unit) ?? 1.0;
                     $itemBase = round((float) $poItem->quantity * $conv, 3);
-                    $alreadyMatchedBase = (float) $existingMatches
-                        ->where('purchase_order_id', $order->id)
-                        ->where('purchase_order_item_id', $poItem->id)
-                        ->sum('base_qty');
+                    $alreadyMatchedBase = (float) ($totalMatchesByPoItem[$poItem->id] ?? 0.0);
                     $remBase = max(0.0, round($itemBase - $alreadyMatchedBase, 3));
                     $remQty = $conv > 0 ? round($remBase / $conv, 3) : $remBase;
 
