@@ -7,6 +7,8 @@ namespace App\Services\Cashbook\CashFlow;
 use App\DTOs\Cashbook\CashFlowTreeNode;
 use App\DTOs\Cashbook\MoneyMovement;
 use App\DTOs\Cashbook\MonthlyReconciliationSummary;
+use App\Models\Supplier;
+use App\Models\User;
 use App\Services\Cashbook\CashFlow\Sources\BankCashFlowSource;
 use App\Services\Cashbook\CashFlow\Sources\EmployeeCashFlowSource;
 use App\Services\Cashbook\CashFlow\Sources\JournalCashFlowSource;
@@ -351,21 +353,24 @@ class CashFlowTreeService
         $totalSpent = 0.0;
         $totalClosing = 0.0;
 
-        // Collect all unique purchaser IDs from openings and movements
+        // Collect only actual purchaser IDs from openings and purchaser movements
         $purchaserIds = collect(array_keys($openings))
-            ->concat($purchaserMovements->pluck('fromEntityId')->filter())
-            ->concat($purchaserMovements->pluck('toEntityId')->filter())
+            ->concat($purchaserMovements->map(fn (MoneyMovement $m) => $m->metadata['purchaser_id'] ?? ($m->fromEntityType === 'purchaser' ? $m->fromEntityId : ($m->toEntityType === 'purchaser' ? $m->toEntityId : null)))->filter())
             ->unique()
             ->values();
 
         foreach ($purchaserIds as $pId) {
             $pId = (int) $pId;
-            $currMovements = $purchaserMovements->filter(fn (MoneyMovement $m): bool => ($m->metadata['purchaser_id'] ?? null) === $pId
-                || ($m->toEntityType === 'purchaser' && $m->toEntityId === $pId)
-                || ($m->fromEntityType === 'purchaser' && $m->fromEntityId === $pId));
+            $currMovements = $purchaserMovements->filter(fn (MoneyMovement $m): bool => (int) ($m->metadata['purchaser_id'] ?? 0) === $pId
+                || ($m->toEntityType === 'purchaser' && (int) $m->toEntityId === $pId)
+                || ($m->fromEntityType === 'purchaser' && (int) $m->fromEntityId === $pId));
 
             $opening = (float) ($openings[$pId]['opening_advance'] ?? 0.0);
-            $pName = $openings[$pId]['purchaser_name'] ?? ($currMovements->first()?->toEntityName ?? ('Purchaser #'.$pId));
+            $pName = $openings[$pId]['purchaser_name']
+                ?? $currMovements->first(fn (MoneyMovement $m): bool => $m->fromEntityType === 'purchaser')?->fromEntityName
+                ?? $currMovements->first(fn (MoneyMovement $m): bool => $m->toEntityType === 'purchaser')?->toEntityName
+                ?? User::find($pId)?->name
+                ?? ('Purchaser #'.$pId);
 
             $fundingAmt = (float) $currMovements->where('movementType', 'purchaser_funding')->sum('amount');
             $purchasesAmt = (float) $currMovements->where('movementType', 'cash_purchase')->sum('amount');
@@ -521,20 +526,24 @@ class CashFlowTreeService
         $totalPaid = 0.0;
         $totalClosing = 0.0;
 
+        // Collect only actual vendor IDs from openings and vendor movements
         $vendorIds = collect(array_keys($openings))
-            ->concat($vendorMovements->pluck('fromEntityId')->filter())
-            ->concat($vendorMovements->pluck('toEntityId')->filter())
+            ->concat($vendorMovements->map(fn (MoneyMovement $m) => $m->metadata['supplier_id'] ?? ($m->toEntityType === 'vendor' ? $m->toEntityId : ($m->fromEntityType === 'vendor' ? $m->fromEntityId : null)))->filter())
             ->unique()
             ->values();
 
         foreach ($vendorIds as $vId) {
             $vId = (int) $vId;
-            $currMovements = $vendorMovements->filter(fn (MoneyMovement $m): bool => ($m->metadata['supplier_id'] ?? null) === $vId
-                || ($m->fromEntityType === 'vendor' && $m->fromEntityId === $vId)
-                || ($m->toEntityType === 'vendor' && $m->toEntityId === $vId));
+            $currMovements = $vendorMovements->filter(fn (MoneyMovement $m): bool => (int) ($m->metadata['supplier_id'] ?? 0) === $vId
+                || ($m->fromEntityType === 'vendor' && (int) $m->fromEntityId === $vId)
+                || ($m->toEntityType === 'vendor' && (int) $m->toEntityId === $vId));
 
             $opening = (float) ($openings[$vId]['opening_payable'] ?? 0.0);
-            $vName = $openings[$vId]['supplier_name'] ?? ($currMovements->first()?->toEntityName ?? ('Vendor #'.$vId));
+            $vName = $openings[$vId]['supplier_name']
+                ?? $currMovements->first(fn (MoneyMovement $m): bool => $m->toEntityType === 'vendor')?->toEntityName
+                ?? $currMovements->first(fn (MoneyMovement $m): bool => $m->fromEntityType === 'vendor')?->fromEntityName
+                ?? Supplier::find($vId)?->name
+                ?? ('Vendor #'.$vId);
 
             $newBills = (float) $currMovements->where('movementType', 'vendor_credit_bill')->sum('amount');
             $cashPaid = (float) $currMovements->where('movementType', 'vendor_credit_payment')->sum('amount');
@@ -652,18 +661,22 @@ class CashFlowTreeService
         $totalOut = 0.0;
         $totalClosing = 0.0;
 
+        // Collect only actual employee IDs from openings and employee movements
         $employeeIds = collect(array_keys($openings))
-            ->concat($employeeMovements->pluck('toEntityId')->filter())
+            ->concat($employeeMovements->map(fn (MoneyMovement $m) => $m->metadata['employee_id'] ?? ($m->toEntityType === 'employee' ? $m->toEntityId : null))->filter())
             ->unique()
             ->values();
 
         foreach ($employeeIds as $empId) {
             $empId = (int) $empId;
-            $currMovements = $employeeMovements->filter(fn (MoneyMovement $m): bool => ($m->metadata['employee_id'] ?? null) === $empId
-                || $m->toEntityId === $empId);
+            $currMovements = $employeeMovements->filter(fn (MoneyMovement $m): bool => (int) ($m->metadata['employee_id'] ?? 0) === $empId
+                || ($m->toEntityType === 'employee' && (int) $m->toEntityId === $empId));
 
             $opening = (float) ($openings[$empId]['opening_advance'] ?? 0.0);
-            $empName = $openings[$empId]['employee_name'] ?? ($currMovements->first()?->toEntityName ?? ('Employee #'.$empId));
+            $empName = $openings[$empId]['employee_name']
+                ?? $currMovements->first(fn (MoneyMovement $m): bool => $m->toEntityType === 'employee')?->toEntityName
+                ?? User::find($empId)?->name
+                ?? ('Employee #'.$empId);
 
             $advances = (float) $currMovements->where('movementType', 'employee_advance')->sum('amount');
             $salaries = (float) $currMovements->where('movementType', 'salary_payment')->sum('amount');
