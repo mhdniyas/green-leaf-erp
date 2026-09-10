@@ -341,6 +341,13 @@ class AutoAdvanceClearExecutionService
         $coverageOk = true;
 
         foreach ($plannedItem['lines'] as $line) {
+            if (($line['matches'] ?? []) === []) {
+                // A partial bill may contain other products with no available
+                // advance. They are not part of this execution and must remain
+                // open rather than blocking valid allocations on this bill.
+                continue;
+            }
+
             $lineProductId = (int) $line['product_id'];
             $billItemId = (int) ($line['source_item_id'] ?? 0);
             $plannedBillBaseQty = (float) collect($line['matches'])->sum('base_qty');

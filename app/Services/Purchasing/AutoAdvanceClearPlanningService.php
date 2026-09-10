@@ -14,6 +14,8 @@ use Illuminate\Support\Carbon;
 
 class AutoAdvanceClearPlanningService
 {
+    private const PURCHASE_ORDER_BATCH_LIMIT = 100;
+
     public function __construct(
         private readonly WarehouseReceiptStateResolver $receiptStateResolver,
         private readonly AdvanceAvailableBalanceCalculator $balanceCalculator,
@@ -76,6 +78,7 @@ class AutoAdvanceClearPlanningService
             ])
             ->orderBy('order_date')
             ->orderBy('id')
+            ->limit(self::PURCHASE_ORDER_BATCH_LIMIT)
             ->get();
 
         // 2. Pre-load all confirmed open advances for this warehouse (ordered deterministically by received_at ASC, id ASC)

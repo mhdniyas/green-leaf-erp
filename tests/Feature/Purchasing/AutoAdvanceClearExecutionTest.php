@@ -278,6 +278,50 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $this->assertDatabaseCount('advance_receive_matches', 1);
     }
 
+    public function test_preview_limits_each_auto_match_batch_to_one_hundred_purchase_orders(): void
+    {
+        $this->createAdvance($this->warehouseA, $this->apple, 101.0, '2026-09-10');
+
+        for ($index = 0; $index < 101; $index++) {
+            $this->createPendingBill($this->warehouseA, [[
+                'product_id' => $this->apple->id,
+                'quantity' => 1.0,
+                'unit' => 'kg',
+            ]], sprintf('2026-08-%02d', ($index % 28) + 1), 'PO-BATCH');
+        }
+
+        $preview = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertSame(100, $preview['summary']['pending_bills']);
+        $this->assertCount(100, $preview['ready_bills']);
+    }
+
+    public function test_execution_keeps_unmatched_lines_open_without_blocking_a_partial_bill_match(): void
+    {
+        Sanctum::actingAs($this->warehouseUser);
+
+        $this->banana->update(['unit' => 'box']);
+        $this->createAdvance($this->warehouseA, $this->apple, 10.0, '2026-09-10');
+        $this->createPendingBill($this->warehouseA, [
+            ['product_id' => $this->apple->id, 'quantity' => 10.0, 'unit' => 'kg'],
+            ['product_id' => $this->banana->id, 'quantity' => 5.0, 'unit' => 'kg'],
+        ], '2026-09-10');
+
+        $preview = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
+
+        $this->assertCount(1, $preview['ready_bills']);
+        $this->assertSame('partial_match', $preview['ready_bills'][0]['match_type']);
+
+        $response = $this->postJson('/api/v1/purchasing/grns/auto-clear', [
+            'warehouse_id' => $this->warehouseA->id,
+            'plan_hash' => $preview['plan_hash'],
+            'client_submission_id' => (string) Str::uuid(),
+        ]);
+
+        $response->assertOk()->assertJsonPath('data.status', 'completed');
+        $this->assertDatabaseCount('advance_receive_matches', 1);
+    }
+
     public function test_execution_requires_warehouse_authorization(): void
     {
         Sanctum::actingAs($this->restrictedUser);
