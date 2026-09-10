@@ -2465,7 +2465,7 @@
                     }
                     this.isExecutingAutoClear = true;
                     const whId = this.currentWarehouseId;
-                    const clientSubId = 'web-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+                    const clientSubId = crypto.randomUUID();
                     fetch(config.autoExecuteUrl, {
                         method: 'POST',
                         headers: {
@@ -2479,8 +2479,15 @@
                             client_submission_id: clientSubId
                         })
                     })
-                    .then(res => res.json())
-                    .then(res => {
+                    .then(async response => {
+                        const result = await response.json();
+                        if (!response.ok || result.status !== 'success') {
+                            throw new Error(result.message || 'Auto Match execution failed.');
+                        }
+
+                        return result;
+                    })
+                    .then(() => {
                         this.isExecutingAutoClear = false;
                         this.closeAutoClear();
                         window.location.reload();
