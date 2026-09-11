@@ -7,6 +7,7 @@ use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminAutoLoadAllController;
 use App\Http\Controllers\Web\Admin\AdminCashbookReportsController;
+use App\Http\Controllers\Web\Admin\AdminDailyAutoMatchController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CashbookSettlementController;
@@ -671,6 +672,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/', [CashbookController::class, 'index'])->name('index');
             Route::get('cash-flow-tree', [CashFlowTreeController::class, 'index'])->name('cash-flow-tree.index');
             Route::get('cash-flow-tree/drilldown', [CashFlowTreeController::class, 'drilldown'])->name('cash-flow-tree.drilldown');
+            Route::get('cash-flow-tree/edge-drilldown', [CashFlowTreeController::class, 'edgeDrilldown'])->name('cash-flow-tree.edge-drilldown');
             Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
             Route::get('overview-cards', [AdminCashbookReportsController::class, 'hub'])->name('reports.hub');
             Route::get('reports', [CashbookController::class, 'reports'])->name('reports');
@@ -680,6 +682,9 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills', [AdminCashbookReportsController::class, 'glBills'])->name('reports.gl-bills');
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
+            Route::get('auto-match', [AdminDailyAutoMatchController::class, 'index'])->name('auto-match');
+            Route::get('auto-match/preview', [AdminDailyAutoMatchController::class, 'preview'])->name('auto-match.preview');
+            Route::post('auto-match/execute', [AdminDailyAutoMatchController::class, 'execute'])->name('auto-match.execute');
             Route::get('inventory', [AdminCashbookReportsController::class, 'inventory'])->name('inventory');
             Route::get('inventory/pending-bills-days', [AdminCashbookReportsController::class, 'pendingBillsDaysSummary'])->name('inventory.pending-bills-days');
             Route::get('inventory/pending-bills-day-details', [AdminCashbookReportsController::class, 'pendingBillsDayDetails'])->name('inventory.pending-bills-day-details');

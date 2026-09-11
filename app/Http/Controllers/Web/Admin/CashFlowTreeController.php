@@ -54,10 +54,33 @@ final class CashFlowTreeController extends Controller
             'filters' => $filters,
             'tree' => $result['tree'],
             'summary' => $result['summary'],
+            'mapData' => $result['map_data'],
             'shops' => $shops,
             'purchasers' => $purchasers,
             'vendors' => $vendors,
             'accounts' => $accounts,
+        ]);
+    }
+
+    public function edgeDrilldown(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $month = (string) $request->query('month', now()->format('Y-m'));
+        $fromId = (string) $request->query('from_id', '');
+        $toId = (string) $request->query('to_id', '');
+        $movementType = (string) $request->query('movement_type', '');
+
+        $result = $this->treeService->build($month);
+        $movements = $this->treeService->findEdgeMovements($result['movements'], $fromId, $toId, $movementType ?: null);
+
+        return response()->json([
+            'status' => 'success',
+            'from_id' => $fromId,
+            'to_id' => $toId,
+            'movement_count' => $movements->count(),
+            'total_amount' => round((float) $movements->sum('amount'), 2),
+            'movements' => $movements->map(fn (MoneyMovement $m): array => $m->toArray())->values()->all(),
         ]);
     }
 

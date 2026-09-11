@@ -95,12 +95,11 @@
                         <span>Move to Damage</span>
                     </button>
 
-                    <button type="button"
-                            @click="openAutoClear()"
-                            class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-700 text-white text-xs font-black hover:bg-emerald-800 transition-all shadow-md hover:shadow-lg cursor-pointer">
+                    <a href="{{ route('admin.cashbook.auto-match', array_filter(['warehouse_id' => $selectedWarehouseId, 'date' => $selectedDate])) }}"
+                       class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-700 text-white text-xs font-black hover:bg-emerald-800 transition-all shadow-md hover:shadow-lg cursor-pointer">
                         <i data-lucide="sparkles" class="w-4 h-4 text-emerald-200"></i>
-                        <span>Match &amp; Clear Bills</span>
-                    </button>
+                        <span>Open Daily Auto Match</span>
+                    </a>
                 </div>
             </div>
 
@@ -719,6 +718,9 @@
                                     <tr class="hover:bg-slate-50/60 transition-colors">
                                         <td class="p-3.5 pl-5 font-mono font-black text-slate-900">
                                             <span>{{ $row['po_number'] }}</span>
+                                            @if(!empty($row['grn_number']))
+                                                <span class="block text-[10px] text-slate-500 font-semibold">{{ $row['grn_number'] }}</span>
+                                            @endif
                                             <span class="block text-[10px] text-slate-400">{{ \Carbon\Carbon::parse($row['order_date'])->format('d M Y') }}</span>
                                         </td>
                                         <td class="p-3.5 font-bold text-slate-800">

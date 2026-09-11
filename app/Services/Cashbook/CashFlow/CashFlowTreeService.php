@@ -115,10 +115,14 @@ class CashFlowTreeService
             $allMovements
         );
 
+        // 6. Build Map Data (Nodes & Flow Edges for Interactive Canvas)
+        $mapData = $this->buildMapData($root, $allMovements, $summary);
+
         return [
             'tree' => $root,
             'summary' => $summary,
             'movements' => $allMovements,
+            'map_data' => $mapData,
         ];
     }
 
@@ -883,5 +887,466 @@ class CashFlowTreeService
             unexplainedDifference: $unexplainedDifference,
             needsReviewAmount: $reviewNode->closingBalance
         );
+    }
+
+    /**
+     * Build nodes and edges for the interactive Money Map canvas.
+     *
+     * @param  Collection<int, MoneyMovement>  $allMovements
+     * @return array{nodes: array<int, array<string, mixed>>, edges: array<int, array<string, mixed>>}
+     */
+    public function buildMapData(CashFlowTreeNode $root, Collection $allMovements, MonthlyReconciliationSummary $summary): array
+    {
+        $nodes = [];
+        $this->flattenNodes($root, null, 0, $nodes);
+
+        $edges = $this->calculateFlowEdges($root, $allMovements, $summary);
+
+        return [
+            'nodes' => $nodes,
+            'edges' => $edges,
+        ];
+    }
+
+    /**
+     * Recursively flatten tree nodes for the canvas registry.
+     *
+     * @param  array<int, array<string, mixed>>  $nodes
+     */
+    protected function flattenNodes(CashFlowTreeNode $node, ?string $parentId, int $level, array &$nodes): void
+    {
+        $nodes[] = [
+            'id' => $node->id,
+            'parent_id' => $parentId,
+            'level' => $level,
+            'type' => $node->entityType,
+            'label' => $node->title,
+            'subtitle' => $node->subtitle,
+            'badge' => $node->badge,
+            'opening' => round((float) $node->openingBalance, 2),
+            'inflow' => round((float) $node->totalIn, 2),
+            'outflow' => round((float) $node->totalOut, 2),
+            'closing' => round((float) $node->closingBalance, 2),
+            'holding' => round((float) $node->closingBalance, 2),
+            'child_count' => count($node->children),
+            'movements_count' => count($node->movements),
+            'metadata' => $node->metadata,
+        ];
+
+        foreach ($node->children as $child) {
+            $this->flattenNodes($child, $node->id, $level + 1, $nodes);
+        }
+    }
+
+    /**
+     * Calculate directional money flow edges between nodes.
+     *
+     * @param  Collection<int, MoneyMovement>  $allMovements
+     * @return array<int, array<string, mixed>>
+     */
+    protected function calculateFlowEdges(CashFlowTreeNode $root, Collection $allMovements, MonthlyReconciliationSummary $summary): array
+    {
+        $edges = [];
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // LEVEL 1: HIGH-LEVEL BRANCH FLOWS
+        // ─────────────────────────────────────────────────────────────────────────
+
+        // 1. Root -> Banks: Company Vaults Opening Position
+        if ($summary->openingCompanyMoney > 0.001) {
+            $edges[] = [
+                'id' => 'edge_root_banks',
+                'from' => 'root',
+                'to' => 'branch_banks',
+                'from_label' => 'Main Company',
+                'to_label' => 'Banks & Vaults',
+                'amount' => round($summary->openingCompanyMoney, 2),
+                'formatted_amount' => $this->formatLakhs($summary->openingCompanyMoney),
+                'movement_count' => 1,
+                'movement_type' => 'opening_pool',
+                'direction' => 'forward',
+                'level' => 1,
+            ];
+        }
+
+        // 2. Shops -> Banks: Shop Settlements (Cash / Paytm / UPI deposited to Bank)
+        $shopSettlements = (float) $allMovements->whereIn('movementType', ['shop_settlement', 'shop_payment_allocation'])->sum('amount');
+        $shopSettlementCount = $allMovements->whereIn('movementType', ['shop_settlement', 'shop_payment_allocation'])->count();
+        if ($shopSettlements > 0.001) {
+            $edges[] = [
+                'id' => 'edge_shops_banks',
+                'from' => 'branch_shops',
+                'to' => 'branch_banks',
+                'from_label' => 'Shops',
+                'to_label' => 'Banks & Accounts',
+                'amount' => round($shopSettlements, 2),
+                'formatted_amount' => $this->formatLakhs($shopSettlements),
+                'movement_count' => $shopSettlementCount,
+                'movement_type' => 'shop_settlement',
+                'direction' => 'forward',
+                'level' => 1,
+            ];
+        }
+
+        // 3. Banks -> Purchasers: Company Funding / Cash Advances
+        $purchaserFunding = (float) $allMovements->where('movementType', 'purchaser_funding')->sum('amount');
+        $purchaserFundingCount = $allMovements->where('movementType', 'purchaser_funding')->count();
+        if ($purchaserFunding > 0.001) {
+            $edges[] = [
+                'id' => 'edge_banks_purchasers',
+                'from' => 'branch_banks',
+                'to' => 'branch_purchasers',
+                'from_label' => 'Banks & Accounts',
+                'to_label' => 'Purchasers',
+                'amount' => round($purchaserFunding, 2),
+                'formatted_amount' => $this->formatLakhs($purchaserFunding),
+                'movement_count' => $purchaserFundingCount,
+                'movement_type' => 'purchaser_funding',
+                'direction' => 'forward',
+                'level' => 1,
+            ];
+        }
+
+        // 4. Purchasers -> Banks: Unused Advance Returned
+        $purchaserReturns = (float) $allMovements->where('movementType', 'purchaser_return')->sum('amount');
+        $purchaserReturnsCount = $allMovements->where('movementType', 'purchaser_return')->count();
+        if ($purchaserReturns > 0.001) {
+            $edges[] = [
+                'id' => 'edge_purchasers_banks_return',
+                'from' => 'branch_purchasers',
+                'to' => 'branch_banks',
+                'from_label' => 'Purchasers',
+                'to_label' => 'Banks & Accounts',
+                'amount' => round($purchaserReturns, 2),
+                'formatted_amount' => $this->formatLakhs($purchaserReturns),
+                'movement_count' => $purchaserReturnsCount,
+                'movement_type' => 'purchaser_return',
+                'direction' => 'return',
+                'level' => 1,
+            ];
+        }
+
+        // 5. Purchasers -> Vendors: Cash Purchases at Mandi
+        $cashPurchases = (float) $allMovements->where('movementType', 'cash_purchase')->sum('amount');
+        $cashPurchasesCount = $allMovements->where('movementType', 'cash_purchase')->count();
+        if ($cashPurchases > 0.001) {
+            $edges[] = [
+                'id' => 'edge_purchasers_vendors',
+                'from' => 'branch_purchasers',
+                'to' => 'branch_vendors',
+                'from_label' => 'Purchasers',
+                'to_label' => 'Vendors',
+                'amount' => round($cashPurchases, 2),
+                'formatted_amount' => $this->formatLakhs($cashPurchases),
+                'movement_count' => $cashPurchasesCount,
+                'movement_type' => 'cash_purchase',
+                'direction' => 'forward',
+                'level' => 1,
+            ];
+        }
+
+        // 6. Banks -> Vendors: Bank Settlement of Credit Bills
+        $vendorPayments = (float) $allMovements->where('movementType', 'vendor_credit_payment')->sum('amount');
+        $vendorPaymentsCount = $allMovements->where('movementType', 'vendor_credit_payment')->count();
+        if ($vendorPayments > 0.001) {
+            $edges[] = [
+                'id' => 'edge_banks_vendors',
+                'from' => 'branch_banks',
+                'to' => 'branch_vendors',
+                'from_label' => 'Banks & Accounts',
+                'to_label' => 'Credit Vendors',
+                'amount' => round($vendorPayments, 2),
+                'formatted_amount' => $this->formatLakhs($vendorPayments),
+                'movement_count' => $vendorPaymentsCount,
+                'movement_type' => 'vendor_credit_payment',
+                'direction' => 'forward',
+                'level' => 1,
+            ];
+        }
+
+        // 7. Banks -> Employees: Payroll Salaries & Advance Disbursements
+        $payroll = (float) $allMovements->whereIn('movementType', ['salary_payment', 'employee_advance'])->sum('amount');
+        $payrollCount = $allMovements->whereIn('movementType', ['salary_payment', 'employee_advance'])->count();
+        if ($payroll > 0.001) {
+            $edges[] = [
+                'id' => 'edge_banks_employees',
+                'from' => 'branch_banks',
+                'to' => 'branch_employees',
+                'from_label' => 'Banks & Accounts',
+                'to_label' => 'Employees & Staff',
+                'amount' => round($payroll, 2),
+                'formatted_amount' => $this->formatLakhs($payroll),
+                'movement_count' => $payrollCount,
+                'movement_type' => 'payroll',
+                'direction' => 'forward',
+                'level' => 1,
+            ];
+        }
+
+        // 8. Root -> Needs Review: Unexplained Difference
+        if (abs($summary->unexplainedDifference) > 0.001) {
+            $edges[] = [
+                'id' => 'edge_root_review',
+                'from' => 'root',
+                'to' => 'branch_review',
+                'from_label' => 'Reconciliation Audit',
+                'to_label' => 'Needs Review / Gap',
+                'amount' => round(abs($summary->unexplainedDifference), 2),
+                'formatted_amount' => $this->formatLakhs(abs($summary->unexplainedDifference)),
+                'movement_count' => 1,
+                'movement_type' => 'unexplained_difference',
+                'direction' => 'alert',
+                'level' => 1,
+            ];
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // LEVEL 2: SPECIFIC ENTITY CROSS-FLOWS (Shops -> Banks, Banks -> Purchasers, etc.)
+        // ─────────────────────────────────────────────────────────────────────────
+
+        // 1. Specific Shop -> Specific Bank Accounts
+        $shopBankMovements = $allMovements->filter(fn (MoneyMovement $m): bool => $m->sourceType === 'shop'
+            && in_array($m->movementType, ['shop_settlement', 'shop_payment_allocation'], true)
+            && $m->toEntityType === 'company_bank'
+            && ! empty($m->toEntityId)
+            && ! empty($m->fromEntityId));
+
+        $shopBankGroups = $shopBankMovements->groupBy(fn (MoneyMovement $m): string => "shop_{$m->fromEntityId}_bank_{$m->toEntityId}");
+        foreach ($shopBankGroups as $key => $items) {
+            $amt = (float) $items->sum('amount');
+            if ($amt > 0.001) {
+                $first = $items->first();
+                $edges[] = [
+                    'id' => "edge_{$key}",
+                    'from' => "shop_{$first->fromEntityId}",
+                    'to' => "bank_{$first->toEntityId}",
+                    'from_label' => $first->fromEntityName,
+                    'to_label' => $first->toEntityName,
+                    'amount' => round($amt, 2),
+                    'formatted_amount' => $this->formatLakhs($amt),
+                    'movement_count' => $items->count(),
+                    'movement_type' => 'shop_settlement',
+                    'direction' => 'forward',
+                    'level' => 2,
+                ];
+            }
+        }
+
+        // 2. Specific Internal Bank Transfers
+        $transferMovements = $allMovements->filter(fn (MoneyMovement $m): bool => $m->isInternalTransfer());
+        $transferGroups = $transferMovements->groupBy(fn (MoneyMovement $m): string => "bank_{$m->fromEntityId}_bank_{$m->toEntityId}");
+        foreach ($transferGroups as $key => $items) {
+            $amt = (float) $items->sum('amount');
+            if ($amt > 0.001) {
+                $first = $items->first();
+                $edges[] = [
+                    'id' => "edge_{$key}",
+                    'from' => "bank_{$first->fromEntityId}",
+                    'to' => "bank_{$first->toEntityId}",
+                    'from_label' => $first->fromEntityName,
+                    'to_label' => $first->toEntityName,
+                    'amount' => round($amt, 2),
+                    'formatted_amount' => $this->formatLakhs($amt),
+                    'movement_count' => $items->count(),
+                    'movement_type' => 'internal_bank_transfer',
+                    'direction' => 'internal',
+                    'level' => 2,
+                ];
+            }
+        }
+
+        // 3. Bank -> Purchaser Funding
+        $fundingMovements = $allMovements->filter(fn (MoneyMovement $m): bool => $m->movementType === 'purchaser_funding');
+        $fundingGroups = $fundingMovements->groupBy(fn (MoneyMovement $m): string => 'bank_'.($m->fromEntityId ?: 1)."_purchaser_{$m->toEntityId}");
+        foreach ($fundingGroups as $key => $items) {
+            $amt = (float) $items->sum('amount');
+            if ($amt > 0.001) {
+                $first = $items->first();
+                $fromNodeId = $first->fromEntityId ? "bank_{$first->fromEntityId}" : 'branch_banks';
+                $edges[] = [
+                    'id' => "edge_{$key}",
+                    'from' => $fromNodeId,
+                    'to' => "purchaser_{$first->toEntityId}",
+                    'from_label' => $first->fromEntityName,
+                    'to_label' => $first->toEntityName,
+                    'amount' => round($amt, 2),
+                    'formatted_amount' => $this->formatLakhs($amt),
+                    'movement_count' => $items->count(),
+                    'movement_type' => 'purchaser_funding',
+                    'direction' => 'forward',
+                    'level' => 2,
+                ];
+            }
+        }
+
+        // 4. Purchaser -> Vendor Cash Buys
+        $purchaseMovements = $allMovements->filter(fn (MoneyMovement $m): bool => $m->movementType === 'cash_purchase');
+        $purchaseGroups = $purchaseMovements->groupBy(function (MoneyMovement $m): string {
+            $pId = (int) ($m->metadata['purchaser_id'] ?? $m->fromEntityId);
+            $vId = $m->toEntityId ? "vendor_{$m->toEntityId}" : 'purchaser_'.$pId.'_vendor_'.md5($m->toEntityName);
+
+            return "purchaser_{$pId}_{$vId}";
+        });
+
+        foreach ($purchaseGroups as $key => $items) {
+            $amt = (float) $items->sum('amount');
+            if ($amt > 0.001) {
+                $first = $items->first();
+                $pId = (int) ($first->metadata['purchaser_id'] ?? $first->fromEntityId);
+                $toNodeId = $first->toEntityId ? "vendor_{$first->toEntityId}" : 'purchaser_'.$pId.'_vendor_'.md5($first->toEntityName);
+
+                $edges[] = [
+                    'id' => "edge_{$key}",
+                    'from' => "purchaser_{$pId}",
+                    'to' => $toNodeId,
+                    'from_label' => $first->fromEntityName,
+                    'to_label' => $first->toEntityName,
+                    'amount' => round($amt, 2),
+                    'formatted_amount' => $this->formatLakhs($amt),
+                    'movement_count' => $items->count(),
+                    'movement_type' => 'cash_purchase',
+                    'direction' => 'forward',
+                    'level' => 2,
+                ];
+            }
+        }
+
+        // 5. Purchaser -> Bank Returns
+        $returnMovements = $allMovements->filter(fn (MoneyMovement $m): bool => $m->movementType === 'purchaser_return');
+        $returnGroups = $returnMovements->groupBy(fn (MoneyMovement $m): string => "purchaser_{$m->fromEntityId}_bank_".($m->toEntityId ?: 1));
+        foreach ($returnGroups as $key => $items) {
+            $amt = (float) $items->sum('amount');
+            if ($amt > 0.001) {
+                $first = $items->first();
+                $toNodeId = $first->toEntityId ? "bank_{$first->toEntityId}" : 'branch_banks';
+                $edges[] = [
+                    'id' => "edge_{$key}",
+                    'from' => "purchaser_{$first->fromEntityId}",
+                    'to' => $toNodeId,
+                    'from_label' => $first->fromEntityName,
+                    'to_label' => $first->toEntityName,
+                    'amount' => round($amt, 2),
+                    'formatted_amount' => $this->formatLakhs($amt),
+                    'movement_count' => $items->count(),
+                    'movement_type' => 'purchaser_return',
+                    'direction' => 'return',
+                    'level' => 2,
+                ];
+            }
+        }
+
+        // 6. Bank -> Credit Vendor Settlements
+        $vendorSettlementMovements = $allMovements->filter(fn (MoneyMovement $m): bool => $m->movementType === 'vendor_credit_payment');
+        $vendorSettlementGroups = $vendorSettlementMovements->groupBy(fn (MoneyMovement $m): string => 'bank_'.($m->fromEntityId ?: 1)."_vendor_{$m->toEntityId}");
+        foreach ($vendorSettlementGroups as $key => $items) {
+            $amt = (float) $items->sum('amount');
+            if ($amt > 0.001) {
+                $first = $items->first();
+                $fromNodeId = $first->fromEntityId ? "bank_{$first->fromEntityId}" : 'branch_banks';
+                $edges[] = [
+                    'id' => "edge_{$key}",
+                    'from' => $fromNodeId,
+                    'to' => "vendor_{$first->toEntityId}",
+                    'from_label' => $first->fromEntityName,
+                    'to_label' => $first->toEntityName,
+                    'amount' => round($amt, 2),
+                    'formatted_amount' => $this->formatLakhs($amt),
+                    'movement_count' => $items->count(),
+                    'movement_type' => 'vendor_credit_payment',
+                    'direction' => 'forward',
+                    'level' => 2,
+                ];
+            }
+        }
+
+        return $edges;
+    }
+
+    /**
+     * Find movements related to a specific directed edge.
+     *
+     * @param  Collection<int, MoneyMovement>  $allMovements
+     * @return Collection<int, MoneyMovement>
+     */
+    public function findEdgeMovements(Collection $allMovements, string $fromId, string $toId, ?string $movementType = null): Collection
+    {
+        return $allMovements->filter(function (MoneyMovement $m) use ($fromId, $toId, $movementType): bool {
+            if ($movementType && $m->movementType !== $movementType) {
+                return false;
+            }
+
+            // Internal transfer
+            if (str_starts_with($fromId, 'bank_') && str_starts_with($toId, 'bank_')) {
+                $fAcc = (int) str_replace('bank_', '', $fromId);
+                $tAcc = (int) str_replace('bank_', '', $toId);
+
+                return $m->isInternalTransfer() && (int) $m->fromEntityId === $fAcc && (int) $m->toEntityId === $tAcc;
+            }
+
+            // Shop to Bank
+            if (str_starts_with($fromId, 'shop_') && str_starts_with($toId, 'bank_')) {
+                $sId = (int) str_replace('shop_', '', $fromId);
+                $bId = (int) str_replace('bank_', '', $toId);
+
+                return in_array($m->movementType, ['shop_settlement', 'shop_payment_allocation'], true)
+                    && (int) ($m->metadata['shop_id'] ?? $m->fromEntityId) === $sId
+                    && (int) ($m->metadata['company_account_id'] ?? $m->toEntityId) === $bId;
+            }
+
+            // Bank to Purchaser
+            if (str_starts_with($fromId, 'bank_') && str_starts_with($toId, 'purchaser_')) {
+                $pId = (int) str_replace('purchaser_', '', $toId);
+
+                return $m->movementType === 'purchaser_funding'
+                    && (int) ($m->metadata['purchaser_id'] ?? $m->toEntityId) === $pId;
+            }
+
+            // Purchaser to Vendor
+            if (str_starts_with($fromId, 'purchaser_') && str_starts_with($toId, 'vendor_')) {
+                $pId = (int) str_replace('purchaser_', '', $fromId);
+                $vId = (int) str_replace('vendor_', '', $toId);
+
+                return $m->movementType === 'cash_purchase'
+                    && (int) ($m->metadata['purchaser_id'] ?? $m->fromEntityId) === $pId
+                    && (int) ($m->metadata['supplier_id'] ?? $m->toEntityId) === $vId;
+            }
+
+            // Purchaser Return to Bank
+            if (str_starts_with($fromId, 'purchaser_') && str_starts_with($toId, 'bank_')) {
+                $pId = (int) str_replace('purchaser_', '', $fromId);
+
+                return $m->movementType === 'purchaser_return'
+                    && (int) ($m->metadata['purchaser_id'] ?? $m->fromEntityId) === $pId;
+            }
+
+            // Bank to Vendor Payment
+            if (str_starts_with($fromId, 'bank_') && str_starts_with($toId, 'vendor_')) {
+                $vId = (int) str_replace('vendor_', '', $toId);
+
+                return $m->movementType === 'vendor_credit_payment'
+                    && (int) ($m->metadata['supplier_id'] ?? $m->toEntityId) === $vId;
+            }
+
+            return false;
+        })->values();
+    }
+
+    /**
+     * Format currency amount into Lakhs / Thousands for concise canvas labels.
+     */
+    protected function formatLakhs(float $amt): string
+    {
+        $abs = abs($amt);
+        if ($abs >= 10000000) {
+            return '₹'.number_format($amt / 10000000, 2).'Cr';
+        }
+        if ($abs >= 100000) {
+            return '₹'.number_format($amt / 100000, 2).'L';
+        }
+        if ($abs >= 1000) {
+            return '₹'.number_format($amt / 1000, 1).'K';
+        }
+
+        return '₹'.number_format($amt, 2);
     }
 }
