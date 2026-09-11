@@ -263,8 +263,27 @@
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="bill in plan.ready_bills" :key="bill.goods_received_id">
                                 <tr class="hover:bg-slate-50/80 transition">
-                                    <td class="p-4 font-black text-slate-900" x-text="bill.grn_number"></td>
-                                    <td class="p-4 text-slate-600" x-text="bill.po_number"></td>
+                                    <td class="p-4">
+                                        <a :href="'/purchasing/grns/' + bill.goods_received_id"
+                                           target="_blank"
+                                           class="font-black text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1">
+                                            <span x-text="bill.grn_number"></span>
+                                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                        </a>
+                                    </td>
+                                    <td class="p-4">
+                                        <template x-if="bill.purchase_order_id">
+                                            <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                               target="_blank"
+                                               class="font-bold text-slate-700 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
+                                                <span x-text="bill.po_number"></span>
+                                                <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                            </a>
+                                        </template>
+                                        <template x-if="!bill.purchase_order_id">
+                                            <span class="text-slate-500" x-text="bill.po_number || '—'"></span>
+                                        </template>
+                                    </td>
                                     <td class="p-4 text-slate-700" x-text="bill.supplier_name"></td>
                                     <td class="p-4">
                                         <div class="space-y-1">
@@ -322,8 +341,27 @@
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="bill in plan.partial_bills" :key="bill.goods_received_id">
                                 <tr class="hover:bg-slate-50/80 transition">
-                                    <td class="p-4 font-black text-slate-900" x-text="bill.grn_number"></td>
-                                    <td class="p-4 text-slate-600" x-text="bill.po_number"></td>
+                                    <td class="p-4">
+                                        <a :href="'/purchasing/grns/' + bill.goods_received_id"
+                                           target="_blank"
+                                           class="font-black text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1">
+                                            <span x-text="bill.grn_number"></span>
+                                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                        </a>
+                                    </td>
+                                    <td class="p-4">
+                                        <template x-if="bill.purchase_order_id">
+                                            <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                               target="_blank"
+                                               class="font-bold text-slate-700 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
+                                                <span x-text="bill.po_number"></span>
+                                                <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                            </a>
+                                        </template>
+                                        <template x-if="!bill.purchase_order_id">
+                                            <span class="text-slate-500" x-text="bill.po_number || '—'"></span>
+                                        </template>
+                                    </td>
                                     <td class="p-4 text-slate-700" x-text="bill.supplier_name"></td>
                                     <td class="p-4">
                                         <div class="space-y-1">
@@ -381,8 +419,27 @@
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="bill in plan.blocked_bills" :key="bill.goods_received_id">
                                 <tr class="hover:bg-slate-50/80 transition">
-                                    <td class="p-4 font-black text-slate-900" x-text="bill.grn_number"></td>
-                                    <td class="p-4 text-slate-600" x-text="bill.po_number"></td>
+                                    <td class="p-4">
+                                        <a :href="'/purchasing/grns/' + bill.goods_received_id"
+                                           target="_blank"
+                                           class="font-black text-rose-700 hover:text-rose-900 hover:underline inline-flex items-center gap-1">
+                                            <span x-text="bill.grn_number"></span>
+                                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                        </a>
+                                    </td>
+                                    <td class="p-4">
+                                        <template x-if="bill.purchase_order_id">
+                                            <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                               target="_blank"
+                                               class="font-bold text-slate-700 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
+                                                <span x-text="bill.po_number"></span>
+                                                <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                            </a>
+                                        </template>
+                                        <template x-if="!bill.purchase_order_id">
+                                            <span class="text-slate-500" x-text="bill.po_number || '—'"></span>
+                                        </template>
+                                    </td>
                                     <td class="p-4 text-slate-700" x-text="bill.supplier_name"></td>
                                     <td class="p-4">
                                         <div class="space-y-1">
@@ -441,7 +498,14 @@
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="adv in plan.open_advances" :key="adv.id">
                                 <tr class="hover:bg-slate-50/80 transition">
-                                    <td class="p-4 font-black text-slate-900" x-text="adv.grn_number"></td>
+                                    <td class="p-4">
+                                        <a :href="'/purchasing/grns/' + adv.id"
+                                           target="_blank"
+                                           class="font-black text-indigo-700 hover:text-indigo-900 hover:underline inline-flex items-center gap-1">
+                                            <span x-text="adv.grn_number"></span>
+                                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                        </a>
+                                    </td>
                                     <td class="p-4 text-slate-600" x-text="adv.received_at"></td>
                                     <td class="p-4">
                                         <span class="px-2 py-0.5 rounded-lg text-[10px] font-black"
@@ -500,7 +564,19 @@
                                 <tr class="hover:bg-slate-50/80 transition">
                                     <td class="p-4 font-black text-slate-900" x-text="row.product_name"></td>
                                     <td class="p-4 text-slate-500" x-text="row.product_sku"></td>
-                                    <td class="p-4 text-slate-700 font-black" x-text="row.advance_grn_number"></td>
+                                    <td class="p-4">
+                                        <template x-if="row.advance_goods_received_id">
+                                            <a :href="'/purchasing/grns/' + row.advance_goods_received_id"
+                                               target="_blank"
+                                               class="font-black text-slate-800 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
+                                                <span x-text="row.advance_grn_number"></span>
+                                                <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                            </a>
+                                        </template>
+                                        <template x-if="!row.advance_goods_received_id">
+                                            <span class="text-slate-700 font-black" x-text="row.advance_grn_number"></span>
+                                        </template>
+                                    </td>
                                     <td class="p-4 text-right text-slate-600" x-text="formatNumber(row.received_qty)"></td>
                                     <td class="p-4 text-right text-emerald-700 font-black" x-text="formatNumber(row.matched_qty)"></td>
                                     <td class="p-4 text-right text-indigo-700 font-black text-sm" x-text="formatNumber(row.remaining_qty)"></td>
@@ -719,6 +795,16 @@ function dailyAutoMatchComponent() {
             if (window.lucide) {
                 this.$nextTick(() => window.lucide.createIcons());
             }
+            this.$watch('activeSection', () => {
+                this.$nextTick(() => {
+                    if (window.lucide) { window.lucide.createIcons(); }
+                });
+            });
+            this.$watch('plan', () => {
+                this.$nextTick(() => {
+                    if (window.lucide) { window.lucide.createIcons(); }
+                });
+            });
         },
 
         get hasMatchableBills() {
