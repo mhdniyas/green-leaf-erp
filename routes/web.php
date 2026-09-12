@@ -760,6 +760,7 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/purchase', [CashbookController::class, 'companyFinancePurchaseDashboard'])->name('finance.purchase');
             Route::get('finance/purchase/purchasers', [CashbookController::class, 'companyFinancePurchaseSection'])->defaults('section', 'purchasers')->name('finance.purchase.purchasers');
             Route::get('finance/purchase/purchasers/{purchaser:public_uuid}', [CashbookController::class, 'companyFinancePurchasePurchaser'])->name('finance.purchase.purchasers.show');
+            Route::get('finance/purchase/purchasers/{purchaser:public_uuid}/vendors/{supplier:public_uuid}', [CashbookController::class, 'companyFinancePurchasePurchaserVendorDetail'])->withoutScopedBindings()->name('finance.purchase.purchasers.vendors.show');
             Route::get('finance/purchase/vendors', [CashbookController::class, 'companyFinancePurchaseSection'])->defaults('section', 'vendors')->name('finance.purchase.vendors');
             Route::get('finance/purchase/vendors/{supplier:public_uuid}', [CashbookController::class, 'companyFinancePurchaseVendor'])->name('finance.purchase.vendors.show');
             Route::get('finance/purchase/categories', [CashbookController::class, 'companyFinancePurchaseSection'])->defaults('section', 'categories')->name('finance.purchase.categories');

@@ -109,6 +109,7 @@ use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchasePriceReportingService;
 use App\Services\Purchasing\PurchaseReportingService;
 use App\Services\Purchasing\PurchaserExpenseReportService;
+use App\Services\Purchasing\PurchaserVendorSummaryService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -4847,7 +4848,7 @@ final class CashbookController extends Controller
         )));
     }
 
-    public function companyFinancePurchasePurchaser(Request $request, User $purchaser, PurchaseReportingService $purchaseReportingService, PurchaserFinanceService $purchaserFinanceService, PurchaserSettlementService $purchaserSettlementService): View
+    public function companyFinancePurchasePurchaser(Request $request, User $purchaser, PurchaseReportingService $purchaseReportingService, PurchaserFinanceService $purchaserFinanceService, PurchaserSettlementService $purchaserSettlementService, PurchaserVendorSummaryService $purchaserVendorSummaryService): View
     {
         $this->ensureMainAdmin($request);
         $validated = $request->validate([
@@ -4870,6 +4871,12 @@ final class CashbookController extends Controller
         }
 
         $detail = $purchaseReportingService->purchaserDetail((int) $purchaser->id, $filters, $tab);
+        $vendorSummaryRows = ($tab === 'overview')
+            ? $purchaserVendorSummaryService->getVendorRows($purchaser, $filters)
+            : collect();
+        $vendorSummaryKpi = ($tab === 'overview')
+            ? $purchaserVendorSummaryService->getSummaryFromRows($vendorSummaryRows)
+            : $purchaserVendorSummaryService->emptySummary();
         $financeSummary = $purchaserFinanceService->summaryFor((int) $purchaser->id);
         $fundingSplits = ($tab === 'funding')
             ? $purchaserFinanceService->fundingSplitsFor((int) $purchaser->id, $filters['start_date'], $filters['end_date'])
@@ -4885,10 +4892,28 @@ final class CashbookController extends Controller
                 : null,
         ] : null;
 
-        return view('admin.cashbook.finance.purchase.detail', array_merge($this->purchaseLayoutData(), compact('filters', 'detail', 'tab', 'financeSummary', 'fundingSplits', 'finance', 'financeSearch', 'financePayment', 'settlement'), [
+        return view('admin.cashbook.finance.purchase.detail', array_merge($this->purchaseLayoutData(), compact('filters', 'detail', 'tab', 'financeSummary', 'fundingSplits', 'finance', 'financeSearch', 'financePayment', 'settlement', 'vendorSummaryKpi', 'vendorSummaryRows'), [
             'kind' => 'purchaser',
             'record' => $purchaser,
         ]));
+    }
+
+    public function companyFinancePurchasePurchaserVendorDetail(Request $request, User $purchaser, Supplier $supplier, PurchaserVendorSummaryService $purchaserVendorSummaryService): View
+    {
+        $this->ensureMainAdmin($request);
+        abort_unless($purchaser->hasRole('purchaser') || PurchaserCart::query()->where('user_id', $purchaser->id)->exists(), 404);
+
+        $filters = $this->purchaseDetailFilters($request);
+        $vendorSummary = $purchaserVendorSummaryService->getVendorDetail($purchaser, $supplier, $filters);
+        $transactions = $purchaserVendorSummaryService->getVendorTransactions($purchaser, $supplier, $filters);
+
+        return view('admin.cashbook.finance.purchase.purchaser-vendor-detail', array_merge($this->purchaseLayoutData(), compact(
+            'purchaser',
+            'supplier',
+            'filters',
+            'vendorSummary',
+            'transactions'
+        )));
     }
 
     public function fundingReversalPreview(Request $request, User $purchaser, PurchaserCredit $credit, PurchaserSettlementService $purchaserSettlementService): JsonResponse

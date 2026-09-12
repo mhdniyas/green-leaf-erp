@@ -128,6 +128,120 @@
         </div>
     </section>
 
+    {{-- Vendor Summary Section (Section 1 & 2) --}}
+    <section class="space-y-4">
+        <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-lg font-black text-slate-950">Vendor Summary</h2>
+                <p class="text-xs font-semibold text-slate-500">Purchases and company settlement breakdown by vendor for the selected period ({{ $filters['start_date'] }} to {{ $filters['end_date'] }}).</p>
+            </div>
+            <div class="flex items-center gap-1.5 text-xs">
+                <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 font-bold text-slate-700">
+                    <i data-lucide="calendar" class="h-3.5 w-3.5 text-slate-500"></i>
+                    Period: <span class="text-emerald-700 uppercase font-black">{{ $filters['period'] }}</span>
+                </span>
+            </div>
+        </div>
+
+        {{-- Top Summary Cards --}}
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                <span class="text-[10px] font-black uppercase text-slate-400">Total Purchase</span>
+                <strong class="mt-2 block font-mono text-lg font-black text-slate-950">₹{{ number_format((float) ($vendorSummaryKpi['total_purchase'] ?? 0), 2) }}</strong>
+                <span class="mt-0.5 block text-[10px] text-slate-500">{{ $vendorSummaryKpi['bills_count'] ?? 0 }} bills</span>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                <span class="text-[10px] font-black uppercase text-slate-400">Cash</span>
+                <strong class="mt-2 block font-mono text-lg font-black text-emerald-700">₹{{ number_format((float) ($vendorSummaryKpi['cash_purchase'] ?? 0), 2) }}</strong>
+                <span class="mt-0.5 block text-[10px] text-slate-500">Cash purchase amount</span>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                <span class="text-[10px] font-black uppercase text-slate-400">Credit</span>
+                <strong class="mt-2 block font-mono text-lg font-black text-amber-700">₹{{ number_format((float) ($vendorSummaryKpi['credit_purchase'] ?? 0), 2) }}</strong>
+                <span class="mt-0.5 block text-[10px] text-slate-500">Total credit purchases</span>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                <span class="text-[10px] font-black uppercase text-slate-400">Other Modes</span>
+                <strong class="mt-2 block font-mono text-lg font-black text-purple-700">₹{{ number_format((float) ($vendorSummaryKpi['other_modes_purchase'] ?? 0), 2) }}</strong>
+                <span class="mt-0.5 block text-[10px] text-slate-500">UPI, Bank, Online</span>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                <span class="text-[10px] font-black uppercase text-slate-400">Credit Paid by Company</span>
+                <strong class="mt-2 block font-mono text-lg font-black text-blue-700">₹{{ number_format((float) ($vendorSummaryKpi['credit_paid_by_company'] ?? 0), 2) }}</strong>
+                <span class="mt-0.5 block text-[10px] text-slate-500">Allocated settlements</span>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+                <span class="text-[10px] font-black uppercase text-slate-400">Credit Outstanding</span>
+                <strong class="mt-2 block font-mono text-lg font-black {{ ($vendorSummaryKpi['credit_outstanding'] ?? 0) > 0 ? 'text-rose-700' : 'text-slate-700' }}">₹{{ number_format((float) ($vendorSummaryKpi['credit_outstanding'] ?? 0), 2) }}</strong>
+                <span class="mt-0.5 block text-[10px] text-slate-500">Remaining credit</span>
+            </div>
+        </div>
+
+        {{-- Vendor Summary Table --}}
+        <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+            <div class="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+                <h3 class="text-xs font-black uppercase tracking-wider text-slate-700">Vendor Purchases Breakdown</h3>
+                <span class="text-[11px] font-bold text-slate-400">{{ count($vendorSummaryRows ?? []) }} vendors</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full min-w-[56rem] text-left text-xs">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
+                        <tr>
+                            <th class="p-3">Vendor</th>
+                            <th class="p-3 text-right">Cash</th>
+                            <th class="p-3 text-right">Credit Purchase</th>
+                            <th class="p-3 text-right">Paid by Company</th>
+                            <th class="p-3 text-right">Credit Outstanding</th>
+                            <th class="p-3 text-right">Other Modes</th>
+                            <th class="p-3 text-right">Total Purchase</th>
+                            <th class="p-3 text-right">Bills</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($vendorSummaryRows as $row)
+                            @php
+                                $vendorDetailUrl = route('admin.cashbook.finance.purchase.purchasers.vendors.show', ['purchaser' => $record->public_uuid, 'supplier' => $row->supplier_public_uuid] + $detailContext);
+                            @endphp
+                            <tr class="hover:bg-slate-50/80 transition cursor-pointer" onclick="window.location='{{ $vendorDetailUrl }}'">
+                                <td class="p-3 font-bold">
+                                    <a href="{{ $vendorDetailUrl }}" class="text-emerald-700 hover:underline flex items-center gap-1.5">
+                                        <span>{{ $row->supplier_name }}</span>
+                                        <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 text-slate-400"></i>
+                                    </a>
+                                </td>
+                                <td class="p-3 text-right font-mono font-medium text-slate-700">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
+                                <td class="p-3 text-right font-mono font-medium text-amber-700">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
+                                <td class="p-3 text-right font-mono font-medium text-blue-700">₹{{ number_format((float) $row->paid_by_company, 2) }}</td>
+                                <td class="p-3 text-right font-mono font-medium {{ (float) $row->credit_outstanding > 0 ? 'text-rose-700 font-bold' : 'text-slate-500' }}">₹{{ number_format((float) $row->credit_outstanding, 2) }}</td>
+                                <td class="p-3 text-right font-mono font-medium text-purple-700">₹{{ number_format((float) $row->other_modes_purchase, 2) }}</td>
+                                <td class="p-3 text-right font-mono font-bold text-slate-950">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
+                                <td class="p-3 text-right font-mono text-slate-600">{{ number_format((int) $row->bills_count) }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="8" class="p-8 text-center text-slate-400">No vendor purchases recorded for this purchaser in the selected period.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                    @if(count($vendorSummaryRows ?? []) > 0)
+                        <tfoot class="border-t-2 border-slate-200 bg-slate-50/90 font-black">
+                            <tr>
+                                <td class="p-3 text-xs uppercase tracking-wider text-slate-900">TOTAL</td>
+                                <td class="p-3 text-right font-mono text-emerald-800">₹{{ number_format((float) ($vendorSummaryKpi['cash_purchase'] ?? 0), 2) }}</td>
+                                <td class="p-3 text-right font-mono text-amber-800">₹{{ number_format((float) ($vendorSummaryKpi['credit_purchase'] ?? 0), 2) }}</td>
+                                <td class="p-3 text-right font-mono text-blue-800">₹{{ number_format((float) ($vendorSummaryKpi['credit_paid_by_company'] ?? 0), 2) }}</td>
+                                <td class="p-3 text-right font-mono text-rose-800">₹{{ number_format((float) ($vendorSummaryKpi['credit_outstanding'] ?? 0), 2) }}</td>
+                                <td class="p-3 text-right font-mono text-purple-800">₹{{ number_format((float) ($vendorSummaryKpi['other_modes_purchase'] ?? 0), 2) }}</td>
+                                <td class="p-3 text-right font-mono text-slate-950 text-sm">₹{{ number_format((float) ($vendorSummaryKpi['total_purchase'] ?? 0), 2) }}</td>
+                                <td class="p-3 text-right font-mono text-slate-900">{{ number_format((int) ($vendorSummaryKpi['bills_count'] ?? 0)) }}</td>
+                            </tr>
+                        </tfoot>
+                    @endif
+                </table>
+            </div>
+        </div>
+    </section>
+
     <section>
         <div class="mb-3 flex items-center justify-between gap-3">
             <div><h2 class="font-black text-slate-950">Finance Summary</h2><p class="text-xs font-semibold text-slate-500">Current cumulative balance</p></div>
@@ -155,10 +269,70 @@
         @if($detail['invoices']->hasPages())<div class="border-t border-slate-200 p-4">{{ $detail['invoices']->links() }}</div>@endif
     </section>
 @elseif($tab === 'vendors')
-    <section class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div class="border-b border-slate-200 p-4"><h2 class="font-black text-slate-950">Vendors</h2><p class="mt-1 text-xs text-slate-500">Suppliers used during the selected period.</p></div>
-        <div class="hidden overflow-x-auto md:block"><table class="w-full min-w-[44rem] text-left text-xs"><thead class="bg-slate-50 text-[10px] uppercase text-slate-500"><tr><th class="p-3">Vendor</th><th class="p-3">Categories</th><th class="p-3 text-right">Cash</th><th class="p-3 text-right">Credit</th><th class="p-3 text-right">Total</th><th class="p-3 text-right">Invoices</th></tr></thead><tbody class="divide-y divide-slate-100">@forelse($detail['vendors'] as $vendor)<tr><td class="p-3"><a href="{{ route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $vendor->supplier_public_uuid] + $detailContext) }}" class="font-black text-emerald-700">{{ $vendor->supplier_name }}</a></td><td class="p-3">{{ collect(explode(',', (string) $vendor->category_tags))->map(fn ($tag) => explode('|', $tag, 2)[1] ?? $tag)->join(', ') }}</td><td class="p-3 text-right font-mono">₹{{ number_format((float) $vendor->cash_purchase, 2) }}</td><td class="p-3 text-right font-mono">₹{{ number_format((float) $vendor->credit_purchase, 2) }}</td><td class="p-3 text-right font-mono font-bold">₹{{ number_format((float) $vendor->total_purchase, 2) }}</td><td class="p-3 text-right font-mono">{{ number_format((int) $vendor->invoice_count) }}</td></tr>@empty<tr><td colspan="6" class="p-6 text-center text-slate-400">No vendors in this period.</td></tr>@endforelse</tbody></table></div>
-        <div class="divide-y divide-slate-100 md:hidden">@forelse($detail['vendors'] as $vendor)<a href="{{ route('admin.cashbook.finance.purchase.vendors.show', ['supplier' => $vendor->supplier_public_uuid] + $detailContext) }}" class="block space-y-2 p-4 text-xs"><div class="flex justify-between gap-3"><strong class="text-emerald-700">{{ $vendor->supplier_name }}</strong><strong class="font-mono">₹{{ number_format((float) $vendor->total_purchase, 2) }}</strong></div><p class="text-slate-500">{{ collect(explode(',', (string) $vendor->category_tags))->map(fn ($tag) => explode('|', $tag, 2)[1] ?? $tag)->join(', ') }}</p><div class="grid grid-cols-3 gap-2 text-slate-600"><span>Cash<br><b class="font-mono">₹{{ number_format((float) $vendor->cash_purchase, 2) }}</b></span><span>Credit<br><b class="font-mono">₹{{ number_format((float) $vendor->credit_purchase, 2) }}</b></span><span>Invoices<br><b class="font-mono">{{ number_format((int) $vendor->invoice_count) }}</b></span></div></a>@empty<p class="p-6 text-center text-sm text-slate-400">No vendors in this period.</p>@endforelse</div>
+    <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+        <div class="border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+            <div>
+                <h2 class="font-black text-slate-950">Vendors</h2>
+                <p class="mt-0.5 text-xs text-slate-500">Suppliers used during the selected period.</p>
+            </div>
+            <span class="text-xs font-bold text-slate-400">{{ count($vendorSummaryRows ?? []) }} vendors</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[56rem] text-left text-xs">
+                <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
+                    <tr>
+                        <th class="p-3">Vendor</th>
+                        <th class="p-3 text-right">Cash</th>
+                        <th class="p-3 text-right">Credit Purchase</th>
+                        <th class="p-3 text-right">Paid by Company</th>
+                        <th class="p-3 text-right">Credit Outstanding</th>
+                        <th class="p-3 text-right">Other Modes</th>
+                        <th class="p-3 text-right">Total Purchase</th>
+                        <th class="p-3 text-right">Bills</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @forelse($vendorSummaryRows as $row)
+                        @php
+                            $vendorDetailUrl = route('admin.cashbook.finance.purchase.purchasers.vendors.show', ['purchaser' => $record->public_uuid, 'supplier' => $row->supplier_public_uuid] + $detailContext);
+                        @endphp
+                        <tr class="hover:bg-slate-50/80 transition cursor-pointer" onclick="window.location='{{ $vendorDetailUrl }}'">
+                            <td class="p-3 font-bold">
+                                <a href="{{ $vendorDetailUrl }}" class="text-emerald-700 hover:underline flex items-center gap-1.5">
+                                    <span>{{ $row->supplier_name }}</span>
+                                    <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 text-slate-400"></i>
+                                </a>
+                            </td>
+                            <td class="p-3 text-right font-mono font-medium text-slate-700">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium text-amber-700">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium text-blue-700">₹{{ number_format((float) $row->paid_by_company, 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium {{ (float) $row->credit_outstanding > 0 ? 'text-rose-700 font-bold' : 'text-slate-500' }}">₹{{ number_format((float) $row->credit_outstanding, 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium text-purple-700">₹{{ number_format((float) $row->other_modes_purchase, 2) }}</td>
+                            <td class="p-3 text-right font-mono font-bold text-slate-950">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
+                            <td class="p-3 text-right font-mono text-slate-600">{{ number_format((int) $row->bills_count) }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="8" class="p-8 text-center text-slate-400">No vendors in this period.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+                @if(count($vendorSummaryRows ?? []) > 0)
+                    <tfoot class="border-t-2 border-slate-200 bg-slate-50/90 font-black">
+                        <tr>
+                            <td class="p-3 text-xs uppercase tracking-wider text-slate-900">TOTAL</td>
+                            <td class="p-3 text-right font-mono text-emerald-800">₹{{ number_format((float) ($vendorSummaryKpi['cash_purchase'] ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono text-amber-800">₹{{ number_format((float) ($vendorSummaryKpi['credit_purchase'] ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono text-blue-800">₹{{ number_format((float) ($vendorSummaryKpi['credit_paid_by_company'] ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono text-rose-800">₹{{ number_format((float) ($vendorSummaryKpi['credit_outstanding'] ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono text-purple-800">₹{{ number_format((float) ($vendorSummaryKpi['other_modes_purchase'] ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono text-slate-950 text-sm">₹{{ number_format((float) ($vendorSummaryKpi['total_purchase'] ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono text-slate-900">{{ number_format((int) ($vendorSummaryKpi['bills_count'] ?? 0)) }}</td>
+                        </tr>
+                    </tfoot>
+                @endif
+            </table>
+        </div>
     </section>
 @elseif($tab === 'categories')
     <section class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
