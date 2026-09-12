@@ -198,6 +198,7 @@ class RolePermissionSeeder extends Seeder
                 'purchasing.grn.view',
                 'purchasing.grn.create',
                 'purchaser.reports.sales.view',
+                'purchaser.reports.items.view',
                 'sales.order.view',
                 'warehouse.receive.view',
                 'warehouse.receive.confirm',

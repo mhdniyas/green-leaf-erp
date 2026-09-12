@@ -53,19 +53,19 @@ class WarehouseHomeSummaryController extends Controller
 
         // 2. Loadout counts
         $loadoutPendingQuery = ShopOrder::query()
-            ->whereDate('delivery_date', $today)
-            ->whereIn('loadout_status', ['pending', 'not_started'])
-            ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId));
+            ->whereDate('business_date', $today)
+            ->whereIn('delivery_status', ['pending_delivery', 'pending_approval'])
+            ->when($warehouseId !== null, fn ($q) => $q->whereHas('items.product', fn ($pq) => $pq->where('default_warehouse_id', $warehouseId)));
 
         $loadoutPartialQuery = ShopOrder::query()
-            ->whereDate('delivery_date', $today)
-            ->whereIn('loadout_status', ['partially_loaded', 'partial', 'in_progress'])
-            ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId));
+            ->whereDate('business_date', $today)
+            ->whereIn('delivery_status', ['ready_for_dispatch', 'partially_delivered', 'delivery_issue'])
+            ->when($warehouseId !== null, fn ($q) => $q->whereHas('items.product', fn ($pq) => $pq->where('default_warehouse_id', $warehouseId)));
 
         $loadoutCompletedTodayQuery = ShopOrder::query()
-            ->whereDate('delivery_date', $today)
-            ->whereIn('loadout_status', ['completed', 'loaded', 'delivered'])
-            ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId));
+            ->whereDate('business_date', $today)
+            ->whereIn('delivery_status', ['delivered', 'in_transit'])
+            ->when($warehouseId !== null, fn ($q) => $q->whereHas('items.product', fn ($pq) => $pq->where('default_warehouse_id', $warehouseId)));
 
         $receivePendingCount = $receivePendingQuery->count();
         $loadoutPendingCount = $loadoutPendingQuery->count();
