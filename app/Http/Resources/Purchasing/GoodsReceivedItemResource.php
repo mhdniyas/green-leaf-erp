@@ -20,6 +20,7 @@ class GoodsReceivedItemResource extends JsonResource
             'product_sku' => $this->product?->sku,
             'product_unit' => $this->product?->unit ?? $this->received_unit ?? 'KG',
             'unit' => $this->product?->unit ?? $this->received_unit ?? 'KG',
+            'received_unit' => $this->received_unit ?? $this->product?->unit ?? 'KG',
             'received_qty' => (float) $this->received_qty,
             'variance' => (float) $this->variance,
             'product' => $this->whenLoaded('product'),

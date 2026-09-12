@@ -8,6 +8,12 @@ use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\Actions\Purchasing\RecordGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Purchasing\POStatus;
+use App\Enums\Inventory\BatchStatus;
+use App\Models\AdvanceReceiveMatch;
+use App\Models\Product;
+use App\Models\ProductUnit;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\JournalEntry;
@@ -429,4 +435,319 @@ class GoodsReceivedService
             ->where('reference', $grn->grn_number)
             ->delete();
     }
+
+    public function updateAdvanceReceive(GoodsReceived $grn, array $data, int $userId): GoodsReceived
+    {
+        abort_unless(
+            $grn->isWarehouseAdvance() || $grn->purchase_order_id === null,
+            422,
+            'Only advance warehouse receipts can be edited through this action.'
+        );
+
+        if ($grn->status === 'cancelled') {
+            throw ValidationException::withMessages([
+                'advance' => 'Cancelled advance receipts cannot be edited.',
+            ]);
+        }
+
+        // Check if fully matched
+        $totalMatchedBase = (float) $grn->advanceMatchesAsAdvance()->sum('base_qty');
+        $currentReceivedBase = (float) $grn->received_base_qty;
+        if ($totalMatchedBase > 0 && $totalMatchedBase >= $currentReceivedBase - 0.0001) {
+            throw ValidationException::withMessages([
+                'advance' => 'This advance receipt is fully matched to a bill and cannot be edited.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($grn, $data, $userId): GoodsReceived {
+            $user = User::find($userId);
+            $auditChanges = [];
+
+            $existingItems = $grn->items()->get()->keyBy('id');
+            $processedItemIds = [];
+
+            $itemsInput = $data['items'] ?? [];
+            if (empty($itemsInput)) {
+                throw ValidationException::withMessages([
+                    'items' => 'At least one item is required.',
+                ]);
+            }
+
+            foreach ($itemsInput as $index => $itemInput) {
+                $itemId = isset($itemInput['id']) ? (int) $itemInput['id'] : null;
+                $productId = (int) ($itemInput['product_id'] ?? 0);
+                $product = Product::findOrFail($productId);
+                $newQty = round((float) ($itemInput['received_qty'] ?? 0), 3);
+                if ($newQty <= 0) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.received_qty" => 'Received quantity must be greater than zero.',
+                    ]);
+                }
+
+                $rawUnit = (string) ($itemInput['received_unit'] ?? $itemInput['unit'] ?? $product->unit);
+                $newUnit = ProductUnit::normalizeUnit($rawUnit);
+                $conv = (float) ($product->conversionToBaseForUnit($newUnit) ?? 1.0);
+                $newBaseQty = round($newQty * $conv, 3);
+
+                /** @var GoodsReceivedItem|null $grnItem */
+                $grnItem = $itemId && $existingItems->has($itemId) ? $existingItems->get($itemId) : null;
+
+                if ($grnItem) {
+                    $processedItemIds[] = $grnItem->id;
+                    $oldProduct = $grnItem->product ?? Product::find($grnItem->product_id);
+                    $oldUnit = (string) $grnItem->received_unit;
+                    $oldQty = (float) $grnItem->received_qty;
+                    $oldConv = (float) ($oldProduct?->conversionToBaseForUnit($oldUnit) ?? 1.0);
+                    $oldBaseQty = round($oldQty * $oldConv, 3);
+
+                    // Check matches for this item or product
+                    $itemMatchedBase = (float) AdvanceReceiveMatch::query()
+                        ->where('advance_goods_received_id', $grn->id)
+                        ->where(function ($mq) use ($grnItem): void {
+                            $mq->where('advance_goods_received_item_id', $grnItem->id)
+                                ->orWhere(function ($mqq) use ($grnItem): void {
+                                    $mqq->whereNull('advance_goods_received_item_id')
+                                        ->where('product_id', $grnItem->product_id);
+                                });
+                        })
+                        ->sum('base_qty');
+
+                    // If product changed and there was already a match, prevent change
+                    if ($grnItem->product_id !== $productId && $itemMatchedBase > 0.0001) {
+                        throw ValidationException::withMessages([
+                            "items.{$index}.product_id" => "Product {$oldProduct?->name} has already been matched to a bill and cannot be changed.",
+                        ]);
+                    }
+
+                    // Partial match rule: New base quantity cannot be less than already matched quantity
+                    if ($newBaseQty < $itemMatchedBase - 0.0001) {
+                        throw ValidationException::withMessages([
+                            "items.{$index}.received_qty" => "Quantity cannot be reduced below the already matched quantity of {$itemMatchedBase} KG for {$product->name}.",
+                        ]);
+                    }
+
+                    $difference = round($newBaseQty - $oldBaseQty, 3);
+
+                    /** @var StockBatch|null $batch */
+                    $batch = StockBatch::query()
+                        ->where('goods_received_id', $grn->id)
+                        ->where(function ($bq) use ($grnItem): void {
+                            $bq->where('goods_received_item_id', $grnItem->id)
+                                ->orWhere('product_id', $grnItem->product_id);
+                        })
+                        ->first();
+
+                    if ($batch) {
+                        $oldBatchTotal = (float) $batch->total_kg;
+                        $newBatchTotal = max(0.0, round($oldBatchTotal + $difference, 3));
+                        $batch->update([
+                            'product_id' => $productId,
+                            'total_kg' => $newBatchTotal,
+                        ]);
+                    }
+
+                    // Update item
+                    $grnItem->update([
+                        'product_id' => $productId,
+                        'received_qty' => $newQty,
+                        'received_unit' => $newUnit,
+                        'variance' => 0.0,
+                    ]);
+
+                    $auditChanges[] = [
+                        'item_id' => $grnItem->id,
+                        'product_id' => $productId,
+                        'product_name' => $product->name,
+                        'before_qty' => $oldQty,
+                        'before_unit' => $oldUnit,
+                        'before_base_qty' => $oldBaseQty,
+                        'after_qty' => $newQty,
+                        'after_unit' => $newUnit,
+                        'after_base_qty' => $newBaseQty,
+                        'difference_base_kg' => $difference,
+                    ];
+                } else {
+                    // New item added to advance
+                    $newItem = $grn->items()->create([
+                        'product_id' => $productId,
+                        'received_qty' => $newQty,
+                        'received_unit' => $newUnit,
+                        'variance' => 0.0,
+                    ]);
+                    $processedItemIds[] = $newItem->id;
+
+                    StockBatch::create([
+                        'product_id' => $productId,
+                        'warehouse_id' => $grn->warehouse_id,
+                        'goods_received_id' => $grn->id,
+                        'goods_received_item_id' => $newItem->id,
+                        'purchase_grade' => 'A',
+                        'grading_mode' => 'sort_required',
+                        'created_by' => $userId,
+                        'reference' => 'BATCH-'.strtoupper(Str::random(8)),
+                        'received_at' => $data['received_at'] ?? $grn->received_at,
+                        'total_kg' => $newBaseQty,
+                        'cost_per_kg' => 0.0,
+                        'transport_cost' => 0.0,
+                        'labour_cost' => 0.0,
+                        'status' => BatchStatus::Pending,
+                        'warehouse_receive_pending' => false,
+                        'warehouse_confirmed_at' => now(),
+                        'warehouse_confirmed_by' => $userId,
+                        'notes' => "Auto-created from GRN: {$grn->grn_number}",
+                    ]);
+
+                    $auditChanges[] = [
+                        'item_id' => $newItem->id,
+                        'product_id' => $productId,
+                        'product_name' => $product->name,
+                        'action' => 'item_added',
+                        'after_qty' => $newQty,
+                        'after_unit' => $newUnit,
+                        'after_base_qty' => $newBaseQty,
+                    ];
+                }
+            }
+
+            // Remove any items that were omitted
+            foreach ($existingItems as $oldItem) {
+                if (! in_array($oldItem->id, $processedItemIds, true)) {
+                    $matched = (float) AdvanceReceiveMatch::query()
+                        ->where('advance_goods_received_id', $grn->id)
+                        ->where('product_id', $oldItem->product_id)
+                        ->sum('base_qty');
+
+                    if ($matched > 0.0001) {
+                        throw ValidationException::withMessages([
+                            'items' => "Cannot remove item {$oldItem->product?->name} because {$matched} KG has already been matched.",
+                        ]);
+                    }
+
+                    StockBatch::query()
+                        ->where('goods_received_id', $grn->id)
+                        ->where('goods_received_item_id', $oldItem->id)
+                        ->update(['total_kg' => 0.0, 'status' => BatchStatus::Closed]);
+                    StockBatch::query()
+                        ->where('goods_received_id', $grn->id)
+                        ->where('goods_received_item_id', $oldItem->id)
+                        ->delete();
+
+                    $oldItem->delete();
+
+                    $auditChanges[] = [
+                        'item_id' => $oldItem->id,
+                        'product_id' => $oldItem->product_id,
+                        'action' => 'item_removed',
+                    ];
+                }
+            }
+
+            // Update GRN attributes
+            $grnUpdates = ['updated_by' => $userId];
+            if (array_key_exists('bill_number', $data)) {
+                $grnUpdates['bill_number'] = $data['bill_number'] !== null ? trim((string) $data['bill_number']) : null;
+            }
+            if (array_key_exists('notes', $data)) {
+                $grnUpdates['notes'] = $data['notes'] !== null ? trim((string) $data['notes']) : null;
+            }
+            if (! empty($data['received_at'])) {
+                $grnUpdates['received_at'] = $data['received_at'];
+            }
+            $grn->update($grnUpdates);
+
+            if (! empty($auditChanges)) {
+                activity()
+                    ->performedOn($grn)
+                    ->causedBy(User::find($userId))
+                    ->withProperties([
+                        'changed_by' => $userId,
+                        'user_name' => $user?->name,
+                        'action' => 'advance_receive.edited',
+                        'changes' => $auditChanges,
+                    ])
+                    ->log('advance_receive.edited');
+            }
+
+            return $grn->fresh(['items.product', 'receivedBy', 'updatedBy']);
+        });
+    }
+
+    public function deleteAdvanceReceive(GoodsReceived $grn, int $userId): array
+    {
+        abort_unless(
+            $grn->isWarehouseAdvance() || $grn->purchase_order_id === null,
+            422,
+            'Only advance warehouse receipts can be deleted through this action.'
+        );
+
+        if ($grn->status === 'cancelled') {
+            throw ValidationException::withMessages([
+                'advance' => 'This advance receipt is already cancelled.',
+            ]);
+        }
+
+        // Check if any quantity is matched
+        $totalMatchedBase = (float) $grn->advanceMatchesAsAdvance()->sum('base_qty');
+        if ($totalMatchedBase > 0.0001) {
+            throw ValidationException::withMessages([
+                'advance' => "Cannot delete advance receipt because {$totalMatchedBase} KG has already been matched to a bill.",
+            ]);
+        }
+
+        return DB::transaction(function () use ($grn, $userId): array {
+            $user = User::find($userId);
+            $reversedDetails = [];
+
+            // Reverse linked stock batches
+            $batches = StockBatch::query()
+                ->where('goods_received_id', $grn->id)
+                ->get();
+
+            foreach ($batches as $batch) {
+                $revKg = (float) $batch->total_kg;
+                $reversedDetails[] = [
+                    'batch_id' => $batch->id,
+                    'product_id' => $batch->product_id,
+                    'reversed_total_kg' => $revKg,
+                ];
+
+                $batch->update([
+                    'total_kg' => 0.0,
+                    'status' => BatchStatus::Closed,
+                ]);
+                $batch->delete();
+            }
+
+            // Soft delete items
+            foreach ($grn->items as $item) {
+                $item->delete();
+            }
+
+            // Update GRN status to cancelled and soft delete
+            $grn->update([
+                'status' => 'cancelled',
+                'updated_by' => $userId,
+            ]);
+            $grn->delete();
+
+            activity()
+                ->performedOn($grn)
+                ->causedBy(User::find($userId))
+                ->withProperties([
+                    'cancelled_by' => $userId,
+                    'user_name' => $user?->name,
+                    'action' => 'advance_receive.cancelled',
+                    'reversed_batches' => $reversedDetails,
+                ])
+                ->log('advance_receive.cancelled');
+
+            return [
+                'id' => $grn->id,
+                'grn_number' => $grn->grn_number,
+                'status' => 'cancelled',
+                'reversed_batches' => $reversedDetails,
+            ];
+        });
+    }
+
 }

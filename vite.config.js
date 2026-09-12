@@ -13,7 +13,6 @@ export default defineConfig({
                 'resources/js/shop-owner/app.js',
                 'resources/css/purchase-manager/app.css',
                 'resources/js/purchase-manager/app.js',
-                'resources/js/cash-flow-3d.js',
             ],
             refresh: true,
             fonts: [

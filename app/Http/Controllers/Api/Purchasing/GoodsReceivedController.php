@@ -342,4 +342,41 @@ class GoodsReceivedController extends Controller
 
         abort(403, 'Unauthorized.');
     }
+
+    public function update(Request $request, GoodsReceived $grn): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.id' => ['nullable', 'integer'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.received_qty' => ['required', 'numeric', 'min:0.001'],
+            'items.*.received_unit' => ['nullable', 'string', 'max:30'],
+            'items.*.unit' => ['nullable', 'string', 'max:30'],
+            'bill_number' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'received_at' => ['nullable', 'date'],
+        ]);
+
+        $updated = $this->service->updateAdvanceReceive($grn, $validated, (int) $request->user()->id);
+
+        return ApiResponse::success(
+            new GoodsReceivedResource($updated->load(['items.product', 'receivedBy', 'updatedBy', 'purchaseOrder'])),
+            'Advance receipt updated and inventory adjusted successfully'
+        );
+    }
+
+    public function destroy(Request $request, GoodsReceived $grn): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $result = $this->service->deleteAdvanceReceive($grn, (int) $request->user()->id);
+
+        return ApiResponse::success(
+            $result,
+            'Advance receipt deleted and inventory reversed successfully'
+        );
+    }
+
 }

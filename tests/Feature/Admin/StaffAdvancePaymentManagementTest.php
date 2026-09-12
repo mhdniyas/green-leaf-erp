@@ -47,6 +47,8 @@ class StaffAdvancePaymentManagementTest extends TestCase
             'name' => 'Demo Branch',
             'code' => 'DEMO',
             'status' => 'active',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
         ]);
 
         ShopLedgerProfile::query()->create([
@@ -236,6 +238,66 @@ class StaffAdvancePaymentManagementTest extends TestCase
 
         $this->assertDatabaseMissing('employee_advance_requests', ['id' => $advance->id]);
         $this->assertDatabaseMissing('shop_staff_payments', ['id' => $payment->id]);
+    }
+
+    public function test_admin_can_approve_pending_advance_request(): void
+    {
+        $advance = EmployeeAdvanceRequest::query()->create([
+            'employee_id' => $this->employee->id,
+            'shop_id' => $this->shop->id,
+            'requested_by' => $this->admin->id,
+            'requested_on' => '2026-09-10',
+            'payroll_month' => '2026-09-01',
+            'requested_amount' => 5000,
+            'status' => 'pending',
+            'request_note' => 'Personal emergency',
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.staff.advance-requests.review', $advance), [
+                'decision' => 'approve',
+                'approved_amount' => 4500.00,
+                'fund_source' => 'sales_income',
+                'review_note' => 'Approved 4500 from sales income',
+            ]);
+
+        $response->assertRedirect(route('admin.staff.advance-payments.index', ['payroll_month' => '2026-09']));
+        $response->assertSessionHas('success');
+
+        $advance->refresh();
+        $this->assertSame('approved', $advance->status);
+        $this->assertEquals(4500.00, (float) $advance->approved_amount);
+        $this->assertSame('sales_income', $advance->approved_fund_source);
+        $this->assertSame('Approved 4500 from sales income', $advance->review_note);
+        $this->assertNotNull($advance->shop_staff_payment_id);
+    }
+
+    public function test_admin_can_reject_pending_advance_request(): void
+    {
+        $advance = EmployeeAdvanceRequest::query()->create([
+            'employee_id' => $this->employee->id,
+            'shop_id' => $this->shop->id,
+            'requested_by' => $this->admin->id,
+            'requested_on' => '2026-09-10',
+            'payroll_month' => '2026-09-01',
+            'requested_amount' => 5000,
+            'status' => 'pending',
+            'request_note' => 'Personal emergency',
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.staff.advance-requests.review', $advance), [
+                'decision' => 'reject',
+                'review_note' => 'Limit exceeded for this month',
+            ]);
+
+        $response->assertRedirect(route('admin.staff.advance-payments.index', ['payroll_month' => '2026-09']));
+        $response->assertSessionHas('warning');
+
+        $advance->refresh();
+        $this->assertSame('rejected', $advance->status);
+        $this->assertSame('Limit exceeded for this month', $advance->review_note);
+        $this->assertNull($advance->shop_staff_payment_id);
     }
 
     public function test_unauthorized_user_cannot_update_or_delete_advance(): void

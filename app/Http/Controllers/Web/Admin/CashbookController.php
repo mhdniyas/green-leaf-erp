@@ -76,6 +76,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\VendorAdvance;
 use App\Models\VendorSettlement;
+use App\Models\Warehouse;
 use App\Models\WastageEntry;
 use App\Services\Cashbook\BankSettlementExpectedAmountService;
 use App\Services\Cashbook\CashbookShopSyncService;
@@ -103,6 +104,7 @@ use App\Services\Finance\VendorSettlementCorrectionService;
 use App\Services\Finance\VendorSettlementService;
 use App\Services\HR\PayrollPaymentService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
+use App\Services\Purchasing\DailyPurchaseReportService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchasePriceReportingService;
 use App\Services\Purchasing\PurchaseReportingService;
@@ -4502,6 +4504,46 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         return redirect()->route('admin.cashbook.finance.purchase.reports.credit-purchases', $request->query());
+    }
+
+    public function companyFinancePurchaseDailyReport(Request $request, DailyPurchaseReportService $dailyReportService): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'period' => ['nullable', 'in:today,yesterday,month,this_month,custom,between,range'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+
+        $filters = [
+            'period' => $validated['period'] ?? 'month',
+            'start_date' => $validated['start_date'] ?? null,
+            'end_date' => $validated['end_date'] ?? null,
+            'warehouse_id' => isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null,
+            'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
+        ];
+
+        $reportData = $dailyReportService->getDailyReportData($filters);
+
+        $warehouses = Warehouse::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
+        $purchaserIds = PurchaserCart::query()->distinct()->pluck('user_id')->filter()->all();
+        $purchasers = User::query()
+            ->whereHas('roles', fn ($q) => $q->whereIn('name', ['purchaser', 'procurement_manager', 'admin']))
+            ->when(! empty($purchaserIds), fn ($q) => $q->orWhereIn('id', $purchaserIds))
+            ->orderBy('name')
+            ->get(['id', 'name', 'public_uuid']);
+
+        return view('admin.cashbook.finance.purchase.reports.daily', array_merge(
+            $this->purchaseLayoutData(),
+            compact('filters', 'reportData', 'warehouses', 'purchasers')
+        ));
     }
 
     public function companyFinancePurchaserExpenseReport(Request $request, PurchaserExpenseReportService $reportService): View

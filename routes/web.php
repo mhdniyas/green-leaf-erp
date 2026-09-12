@@ -770,6 +770,7 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/purchase/purchaser-expenses/export/pdf', [CashbookController::class, 'companyFinancePurchaserExpenseReportPdf'])->name('finance.purchase.purchaser-expenses.export.pdf');
             Route::get('finance/purchase/purchaser-expenses/export/csv', [CashbookController::class, 'companyFinancePurchaserExpenseReportCsv'])->name('finance.purchase.purchaser-expenses.export.csv');
             Route::get('finance/purchase/purchaser-expenses/export/excel', [CashbookController::class, 'companyFinancePurchaserExpenseReportExcel'])->name('finance.purchase.purchaser-expenses.export.excel');
+            Route::get('finance/purchase/reports/daily', [CashbookController::class, 'companyFinancePurchaseDailyReport'])->name('finance.purchase.reports.daily');
             Route::get('finance/purchase/reports/credit-purchases', [CashbookController::class, 'companyFinancePurchaseCreditReport'])->name('finance.purchase.reports.credit-purchases');
             Route::get('finance/purchase/reports/purchasers', [CashbookController::class, 'companyFinancePurchasePurchaserReport'])->name('finance.purchase.reports.purchasers');
             Route::get('finance/purchase/reports/prices', [CashbookController::class, 'companyFinancePurchasePriceReport'])->name('finance.purchase.reports.prices');

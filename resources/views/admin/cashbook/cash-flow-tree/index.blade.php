@@ -1,6 +1,6 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', 'Monthly Cash Flow Money Map — Green Leaf')
+@section('title', 'Monthly Cash Flow Tree — Green Leaf')
 
 @section('content')
 <div x-data="cashFlowTreeApp()" class="space-y-4 pb-12">
@@ -17,7 +17,7 @@
                     <span>/</span>
                     <span class="text-slate-800">Monthly Cash Flow</span>
                 </div>
-                <h1 class="text-xl font-black text-slate-900 font-sans tracking-tight">Interactive Money Map</h1>
+                <h1 class="text-xl font-black text-slate-900 font-sans tracking-tight">Cash Flow Hierarchy &amp; Matrix</h1>
             </div>
 
             <form method="GET" action="{{ route('admin.cashbook.cash-flow-tree.index') }}" class="flex items-center gap-2">
@@ -41,23 +41,12 @@
             </form>
         </div>
 
-        {{-- Center: View Mode Switcher [ 🗺️ Money Map | 🌳 Tree View | 📋 Table Matrix ] --}}
+        {{-- Center: View Mode Switcher [ 🌳 Tree View | 📋 Table Matrix ] --}}
         <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 self-start lg:self-auto">
             <button 
                 type="button" 
-                @click="viewMode = 'diagram'" 
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition font-sans"
-                :class="viewMode === 'diagram' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'"
-            >
-                <svg class="w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
-                </svg>
-                Money Map
-            </button>
-            <button 
-                type="button" 
                 @click="viewMode = 'tree'" 
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition font-sans"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition font-sans cursor-pointer"
                 :class="viewMode === 'tree' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'"
             >
                 <svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -68,7 +57,7 @@
             <button 
                 type="button" 
                 @click="viewMode = 'table'" 
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition font-sans"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition font-sans cursor-pointer"
                 :class="viewMode === 'table' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'"
             >
                 <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -146,15 +135,10 @@
     </div>
 
     {{-- ───────────────────────────────────────────────────────────────────────── --}}
-    {{-- MAIN VIEW CONTAINER (Diagram Canvas | Tree View | Table Matrix)           --}}
+    {{-- MAIN VIEW CONTAINER (Tree View | Table Matrix)                             --}}
     {{-- ───────────────────────────────────────────────────────────────────────── --}}
     <div>
-        {{-- 1. Money Map Flow Canvas (Default) --}}
-        <div x-show="viewMode === 'diagram'" x-cloak>
-            @include('admin.cashbook.cash-flow-tree._diagram')
-        </div>
-
-        {{-- 2. Hierarchical Tree View --}}
+        {{-- 1. Hierarchical Tree View --}}
         <div x-show="viewMode === 'tree'" x-cloak class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-6 overflow-x-auto">
             <div class="mb-4 pb-3 border-b border-slate-100 flex items-center justify-between">
                 <div>
@@ -166,14 +150,14 @@
             @include('admin.cashbook.cash-flow-tree._node', ['node' => $tree, 'level' => 0])
         </div>
 
-        {{-- 3. Table Matrix View --}}
+        {{-- 2. Table Matrix View --}}
         <div x-show="viewMode === 'table'" x-cloak>
             @include('admin.cashbook.cash-flow-tree._table')
         </div>
     </div>
 
     {{-- ───────────────────────────────────────────────────────────────────────── --}}
-    {{-- TRANSACTION DRILL-DOWN SLIDE-OVER DRAWER (For Nodes & Flow Connectors)    --}}
+    {{-- TRANSACTION DRILL-DOWN SLIDE-OVER DRAWER (For Nodes & Matrix)             --}}
     {{-- ───────────────────────────────────────────────────────────────────────── --}}
     <div 
         x-show="modalOpen" 
@@ -304,10 +288,8 @@
 
 <script>
 function cashFlowTreeApp() {
-    const rawMapData = @json($mapData ?? ['nodes' => [], 'edges' => []]);
-
     return {
-        viewMode: 'diagram',
+        viewMode: 'tree',
         entitySearch: '',
         modalOpen: false,
         loading: false,
@@ -320,278 +302,6 @@ function cashFlowTreeApp() {
         movements: [],
         searchQuery: '',
 
-        // Canvas state
-        panX: 40,
-        panY: 30,
-        scale: 0.95,
-        isDragging: false,
-        startX: 0,
-        startY: 0,
-
-        // Node expansion state (default: main groups open, children closed)
-        expandedNodes: ['root', 'branch_banks', 'branch_shops', 'branch_purchasers', 'branch_vendors', 'branch_employees'],
-
-        nodesRegistry: rawMapData.nodes || [],
-        rawEdges: rawMapData.edges || [],
-
-        init() {
-            // Adjust canvas start pan for screen size
-            if (window.innerWidth < 1024) {
-                this.scale = 0.65;
-                this.panX = 20;
-                this.panY = 20;
-            }
-        },
-
-        isExpanded(nodeId) {
-            return this.expandedNodes.includes(nodeId);
-        },
-
-        toggleNode(nodeId) {
-            if (this.isExpanded(nodeId)) {
-                this.expandedNodes = this.expandedNodes.filter(id => id !== nodeId);
-            } else {
-                this.expandedNodes.push(nodeId);
-            }
-        },
-
-        // Helper formatting for concise lakhs / thousands
-        formatLakhs(amt) {
-            const abs = Math.abs(amt);
-            if (abs >= 10000000) return (amt / 10000000).toFixed(2) + 'Cr';
-            if (abs >= 100000) return (amt / 100000).toFixed(2) + 'L';
-            if (abs >= 1000) return (amt / 1000).toFixed(1) + 'K';
-            return amt.toFixed(2);
-        },
-
-        // ─────────────────────────────────────────────────────────────────────
-        // COMPUTED CANVAS NODES WITH DETERMINISTIC 2D COORDINATES
-        // ─────────────────────────────────────────────────────────────────────
-        get visibleNodes() {
-            const list = [];
-            const q = this.entitySearch.toLowerCase().trim();
-
-            // Track columns for Level 1 branch positions
-            const columnX = {
-                'branch_shops': 140,
-                'branch_banks': 700,
-                'branch_purchasers': 1260,
-                'branch_vendors': 1820,
-                'branch_employees': 360,
-                'branch_review': 1020,
-            };
-
-            // Root Node
-            const rootNode = this.nodesRegistry.find(n => n.id === 'root');
-            if (rootNode) {
-                list.push({
-                    ...rootNode,
-                    x: 700,
-                    y: 40,
-                    width: 280,
-                    height: 120,
-                    cardClass: 'bg-gradient-to-br from-slate-900 to-indigo-950 border-2 border-brand-500 ring-4 ring-brand-500/20',
-                });
-            }
-
-            // Level 1 Branch Nodes
-            const level1Nodes = this.nodesRegistry.filter(n => n.parent_id === 'root');
-            level1Nodes.forEach(node => {
-                const x = columnX[node.id] ?? 700;
-                const y = (node.id === 'branch_employees' || node.id === 'branch_review') ? 720 : 230;
-
-                let cardClass = 'bg-slate-900 border border-slate-700/80';
-                if (node.id === 'branch_banks') cardClass = 'bg-slate-900/95 border-2 border-cyan-500 ring-2 ring-cyan-500/20';
-                if (node.id === 'branch_shops') cardClass = 'bg-slate-900/95 border border-emerald-500/60 ring-2 ring-emerald-500/10';
-                if (node.id === 'branch_purchasers') cardClass = 'bg-slate-900/95 border border-amber-500/60 ring-2 ring-amber-500/10';
-                if (node.id === 'branch_vendors') cardClass = 'bg-slate-900/95 border border-purple-500/60';
-                if (node.id === 'branch_review') cardClass = 'bg-amber-950/90 border border-amber-500';
-
-                list.push({
-                    ...node,
-                    x: x,
-                    y: y,
-                    width: 260,
-                    height: 120,
-                    cardClass: cardClass,
-                });
-
-                // If Level 1 is expanded, layout Level 2 child nodes
-                if (this.isExpanded(node.id)) {
-                    const children = this.nodesRegistry.filter(n => n.parent_id === node.id);
-                    children.forEach((child, idx) => {
-                        const childY = y + 150 + (idx * 135);
-                        list.push({
-                            ...child,
-                            x: x,
-                            y: childY,
-                            width: 260,
-                            height: 115,
-                            cardClass: 'bg-slate-900/90 border border-slate-700 hover:border-slate-500',
-                        });
-                    });
-                }
-            });
-
-            if (!q) {
-                return list;
-            }
-
-            // Apply search highlighting
-            return list.map(n => ({
-                ...n,
-                cardClass: (n.label.toLowerCase().includes(q) || (n.subtitle && n.subtitle.toLowerCase().includes(q)))
-                    ? n.cardClass + ' ring-4 ring-amber-400 animate-pulse'
-                    : n.cardClass + ' opacity-40',
-            }));
-        },
-
-        // ─────────────────────────────────────────────────────────────────────
-        // COMPUTED SVG FLOW CONNECTORS WITH BEZIER CURVES
-        // ─────────────────────────────────────────────────────────────────────
-        get visibleEdges() {
-            const edges = [];
-            const nodeMap = new Map();
-            this.visibleNodes.forEach(n => nodeMap.set(n.id, n));
-
-            this.rawEdges.forEach(edge => {
-                const source = nodeMap.get(edge.from);
-                const target = nodeMap.get(edge.to);
-
-                if (!source || !target) {
-                    return;
-                }
-
-                // Compute start and end port coordinates
-                let x1, y1, x2, y2;
-
-                if (source.x < target.x) {
-                    // Left to Right
-                    x1 = source.x + source.width;
-                    y1 = source.y + (source.height / 2);
-                    x2 = target.x;
-                    y2 = target.y + (target.height / 2);
-                } else if (source.x > target.x) {
-                    // Right to Left
-                    x1 = source.x;
-                    y1 = source.y + (source.height / 2);
-                    x2 = target.x + target.width;
-                    y2 = target.y + (target.height / 2);
-                } else {
-                    // Vertical Top to Bottom
-                    x1 = source.x + (source.width / 2);
-                    y1 = source.y + source.height;
-                    x2 = target.x + (target.width / 2);
-                    y2 = target.y;
-                }
-
-                // Cubic Bezier curve control points
-                const dx = Math.abs(x2 - x1) * 0.5;
-                const dy = Math.abs(y2 - y1) * 0.5;
-                let cx1, cy1, cx2, cy2;
-
-                if (Math.abs(x2 - x1) > Math.abs(y2 - y1)) {
-                    cx1 = x1 + (x2 > x1 ? dx : -dx);
-                    cy1 = y1;
-                    cx2 = x2 - (x2 > x1 ? dx : -dx);
-                    cy2 = y2;
-                } else {
-                    cx1 = x1;
-                    cy1 = y1 + (y2 > y1 ? dy : -dy);
-                    cx2 = x2;
-                    cy2 = y2 - (y2 > y1 ? dy : -dy);
-                }
-
-                const pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-                const midX = 0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2;
-                const midY = 0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2;
-
-                // Theme colors based on flow direction & type
-                let color = '#60a5fa'; // Brand blue
-                let theme = 'brand';
-                let badgeClass = 'bg-slate-900 text-brand-300 border-brand-500/40';
-
-                if (edge.movement_type === 'shop_settlement') {
-                    color = '#34d399'; // Emerald
-                    theme = 'emerald';
-                    badgeClass = 'bg-slate-900 text-emerald-300 border-emerald-500/40';
-                } else if (edge.movement_type === 'cash_purchase') {
-                    color = '#fbbf24'; // Amber
-                    theme = 'amber';
-                    badgeClass = 'bg-slate-900 text-amber-300 border-amber-500/40';
-                } else if (edge.movement_type === 'internal_bank_transfer') {
-                    color = '#22d3ee'; // Cyan
-                    theme = 'cyan';
-                    badgeClass = 'bg-slate-900 text-cyan-300 border-cyan-500/40';
-                } else if (edge.direction === 'return' || edge.movement_type === 'unexplained_difference') {
-                    color = '#f87171'; // Rose
-                    theme = 'rose';
-                    badgeClass = 'bg-slate-900 text-rose-300 border-rose-500/40';
-                }
-
-                const strokeWidth = Math.min(6, Math.max(2, Math.round(Math.log10(edge.amount + 1) * 1.2)));
-
-                edges.push({
-                    ...edge,
-                    x1, y1, x2, y2,
-                    pathD,
-                    midX, midY,
-                    color,
-                    theme,
-                    badgeClass,
-                    strokeWidth,
-                });
-            });
-
-            return edges;
-        },
-
-        // ─────────────────────────────────────────────────────────────────────
-        // PAN & ZOOM CANVAS INTERACTIONS
-        // ─────────────────────────────────────────────────────────────────────
-        onMouseDown(e) {
-            // Only drag on canvas background or SVG
-            if (e.target.closest('.node-card') || e.target.closest('button')) {
-                return;
-            }
-            this.isDragging = true;
-            this.startX = e.clientX - this.panX;
-            this.startY = e.clientY - this.panY;
-        },
-
-        onMouseMove(e) {
-            if (!this.isDragging) return;
-            this.panX = e.clientX - this.startX;
-            this.panY = e.clientY - this.startY;
-        },
-
-        onMouseUp() {
-            this.isDragging = false;
-        },
-
-        onWheel(e) {
-            const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-            const newScale = Math.min(2.0, Math.max(0.35, this.scale * zoomFactor));
-            this.scale = newScale;
-        },
-
-        zoomIn() {
-            this.scale = Math.min(2.0, this.scale + 0.15);
-        },
-
-        zoomOut() {
-            this.scale = Math.max(0.35, this.scale - 0.15);
-        },
-
-        resetView() {
-            this.scale = 0.95;
-            this.panX = 40;
-            this.panY = 30;
-        },
-
-        // ─────────────────────────────────────────────────────────────────────
-        // TRANSACTION DRILLDOWN DATA FETCHING
-        // ─────────────────────────────────────────────────────────────────────
         get filteredMovements() {
             if (!this.searchQuery.trim()) {
                 return this.movements;
@@ -639,42 +349,6 @@ function cashFlowTreeApp() {
             .catch(err => {
                 this.loading = false;
                 console.error('Failed to load drilldown:', err);
-            });
-        },
-
-        fetchEdgeDrilldown(edge) {
-            this.modalOpen = true;
-            this.loading = true;
-            this.modalTitle = `${edge.from_label} → ${edge.to_label}`;
-            this.modalBadge = `${edge.movement_count} Transactions (₹${Number(edge.amount).toLocaleString('en-IN', {minimumFractionDigits: 2})})`;
-            this.searchQuery = '';
-            this.movements = [];
-            this.modalOpening = 0;
-            this.modalIn = 0;
-            this.modalOut = edge.amount;
-            this.modalClosing = 0;
-
-            const month = '{{ $month }}';
-            const url = `{{ route('admin.cashbook.cash-flow-tree.edge-drilldown') }}?month=${month}&from_id=${encodeURIComponent(edge.from)}&to_id=${encodeURIComponent(edge.to)}&movement_type=${encodeURIComponent(edge.movement_type || '')}`;
-
-            fetch(url, {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(res => res.json())
-            .then(data => {
-                this.loading = false;
-                if (data.status === 'success') {
-                    this.movements = data.movements || [];
-                } else {
-                    this.movements = [];
-                }
-            })
-            .catch(err => {
-                this.loading = false;
-                console.error('Failed to load edge drilldown:', err);
             });
         }
     }
