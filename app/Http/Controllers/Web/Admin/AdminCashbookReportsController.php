@@ -1503,19 +1503,18 @@ class AdminCashbookReportsController extends Controller
         $nextDate = Carbon::parse($date)->addDay()->toDateString();
         $isToday = ($date === today()->toDateString());
 
-        // 3. Tab Routing (Default: current_inventory)
-        $rawTab = (string) ($request->input('tab') ?: $request->input('section', 'current_inventory'));
+        // 3. Tab Routing (Default: advance_pending)
+        $rawTab = (string) ($request->input('tab') ?: $request->input('section', 'advance_pending'));
         $tab = match ($rawTab) {
-            'current_inventory', 'current_stock', 'stock', 'inventory' => 'current_inventory',
-            'receive_bills', 'pending_bills', 'bill_pending', 'pending_reconciliation' => 'receive_bills',
-            'stock_without_bill', 'unbilled_inventory', 'today_advances', 'advance_bills' => 'stock_without_bill',
+            'advance_pending', 'stock_without_bill', 'unbilled_inventory', 'today_advances', 'advance_bills' => 'advance_pending',
+            'bills_match', 'receive_bills', 'pending_bills', 'bill_pending', 'pending_reconciliation', 'match_details' => 'bills_match',
+            'loadout_without_bill', 'unbilled_loadout' => 'loadout_without_bill',
+            'inventory', 'current_inventory', 'current_stock', 'stock' => 'inventory',
+            'physical_check', 'physical_count', 'adjustments' => 'physical_check',
             'shop_returns', 'returns', 'shop_return' => 'shop_returns',
             'damage', 'wastage' => 'damage',
-            'physical_check', 'physical_count', 'adjustments' => 'physical_check',
-            'match_details' => 'match_details',
             'unit_differences' => 'unit_differences',
-            'unbilled_loadout' => 'current_inventory',
-            default => 'current_inventory',
+            default => 'advance_pending',
         };
 
         $search = trim((string) $request->input('search', ''));
@@ -1654,53 +1653,44 @@ class AdminCashbookReportsController extends Controller
             ->first();
         $pendingBillsCount = (int) ($receiptCounts->pending_bills_count ?? 0);
 
-        // awaiting_approval_count = all POs currently visible in the Receive Bills tab
-        // (same query as paginateMatchCandidates — includes POs with no GRN yet, pending GRNs, and approved GRNs awaiting warehouse confirm)
+        // awaiting_approval_count = all POs currently visible in the Receive Bills / Bills & Match tab
         $awaitingApprovalCount = app(AdvanceReceiveReconciliationService::class)->countMatchCandidates([
             'warehouse_id' => $selectedWarehouseId,
             'authorized_warehouse_ids' => $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds,
         ]);
 
-        // K. Matchable Bills Plan
-        // The receive-bills page loads the preview through its dedicated endpoint.
-        // Building it while rendering the page duplicates the work and can exceed
-        // the web request timeout for warehouses with large matching histories.
+        // K. Matchable Bills Plan (Ready to Match)
         $matchPlan = null;
-        $matchableBillsCount = 0;
+        $readyToMatchCount = 0;
         $matchedBaseQtyPlan = 0.0;
-        if ($selectedWarehouseId !== null && $tab === 'match_details') {
-            $targetWarehouseForPlan = $selectedWarehouseId;
+        $targetWarehouseForPlan = $selectedWarehouseId ?? ($availableWarehouses->count() === 1 ? $availableWarehouses->first()->id : null);
+        if ($targetWarehouseForPlan !== null) {
             try {
-                $matchPlan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($targetWarehouseForPlan, (int) $request->user()->id);
-                $matchableBillsCount = count($matchPlan['ready_bills'] ?? []);
+                $matchPlan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan((int) $targetWarehouseForPlan, (int) $request->user()->id);
+                $readyToMatchCount = count($matchPlan['ready_bills'] ?? []);
                 $matchedBaseQtyPlan = (float) ($matchPlan['summary']['matched_base_qty'] ?? 0.0);
             } catch (Throwable $e) {
                 Log::warning("Could not build auto clear plan for warehouse {$targetWarehouseForPlan}: {$e->getMessage()}");
             }
         }
 
-        // L. Open Unbilled Advances Calculation
-        $needsOpenAdvances = ($tab === 'stock_without_bill' || $tab === 'current_inventory');
-        if ($needsOpenAdvances) {
-            $openAdvancesQuery = GoodsReceived::query()
-                ->where(function (Builder $tq): void {
-                    $tq->where('receipt_type', 'warehouse_advance')
-                        ->orWhere(function (Builder $legacy): void {
-                            $legacy->whereNull('receipt_type')
-                                ->whereNull('purchase_order_id');
-                        });
-                })
-                ->where('status', '!=', 'cancelled')
-                ->where('bill_status', 'bill_pending')
-                ->with('items.product');
-            app(WarehouseReceiptReadScope::class)->receipts(
-                $openAdvancesQuery,
-                $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-            );
-            $openAdvances = $openAdvancesQuery->orderBy('received_at')->get();
-        } else {
-            $openAdvances = collect();
-        }
+        // L. Open Unbilled Advances Calculation (Advance Pending)
+        $openAdvancesQuery = GoodsReceived::query()
+            ->where(function (Builder $tq): void {
+                $tq->where('receipt_type', 'warehouse_advance')
+                    ->orWhere(function (Builder $legacy): void {
+                        $legacy->whereNull('receipt_type')
+                            ->whereNull('purchase_order_id');
+                    });
+            })
+            ->where('status', '!=', 'cancelled')
+            ->where('bill_status', 'bill_pending')
+            ->with('items.product');
+        app(WarehouseReceiptReadScope::class)->receipts(
+            $openAdvancesQuery,
+            $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
+        );
+        $openAdvances = $openAdvancesQuery->orderBy('received_at')->get();
         $openAdvIds = $openAdvances->pluck('id');
         $preloadedMatches = $openAdvIds->isNotEmpty()
             ? AdvanceReceiveMatch::query()->whereIn('advance_goods_received_id', $openAdvIds)->get()
@@ -1712,7 +1702,7 @@ class AdminCashbookReportsController extends Controller
         $unbilledAdvRows = [];
         $unbilledAdvGrns = [];
 
-        $isStockWithoutBillTab = ($tab === 'stock_without_bill');
+        $isAdvancePendingTab = in_array($tab, ['advance_pending', 'stock_without_bill'], true);
 
         foreach ($openAdvances as $adv) {
             $itemBalances = $calc->calculateItemAvailableBase($adv, null, $preloadedMatches);
@@ -1733,7 +1723,7 @@ class AdminCashbookReportsController extends Controller
                         $unbilledInventoryKg += $rem;
                         $grnMissingKg += $rem;
 
-                        if ($isStockWithoutBillTab) {
+                        if ($isAdvancePendingTab) {
                             $matchesSearch = true;
                             if ($search !== '') {
                                 $searchLower = strtolower($search);
@@ -1780,7 +1770,7 @@ class AdminCashbookReportsController extends Controller
             if ($hasActiveUnbilledItem) {
                 $unbilledInventoryCount++;
 
-                if ($isStockWithoutBillTab) {
+                if ($isAdvancePendingTab) {
                     $grnMatchesSearch = true;
                     if ($search !== '') {
                         $searchLower = strtolower($search);
@@ -1812,15 +1802,74 @@ class AdminCashbookReportsController extends Controller
         }
         $unbilledInventoryKg = round($unbilledInventoryKg, 2);
 
-        // M. Unit Differences Count
-        $unitDifferencesCount = ($tab === 'unit_differences' || $tab === 'stock_without_bill')
-            ? app(AdvanceReceiveReconciliationService::class)->countUnitDifferences([
-                'warehouse_id' => $selectedWarehouseId,
-                'authorized_warehouse_ids' => $authorizedWarehouseIds,
+        // M. Loadout Without Bill Calculation
+        $billedProductIdsOnDate = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', function (Builder $g) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
+                $g->where('receipt_type', '!=', 'warehouse_advance')
+                    ->where('status', '!=', 'cancelled')
+                    ->whereDate('received_at', $date);
+                app(WarehouseReceiptReadScope::class)->receipts(
+                    $g,
+                    $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
+                );
+            })
+            ->pluck('product_id')
+            ->unique()
+            ->all();
+
+        $loadoutItemsQuery = DB::table('shop_order_items')
+            ->join('shop_orders', 'shop_orders.id', '=', 'shop_order_items.shop_order_id')
+            ->join('shops', 'shops.id', '=', 'shop_orders.shop_id')
+            ->join('products', 'products.id', '=', 'shop_order_items.product_id')
+            ->whereDate('shop_orders.business_date', $date)
+            ->whereNull('shop_order_items.deleted_at')
+            ->when($selectedWarehouseId !== null, fn ($q) => $q->where('products.default_warehouse_id', $selectedWarehouseId))
+            ->when($authorizedWarehouseIds !== null, fn ($q) => $q->whereIn('products.default_warehouse_id', $authorizedWarehouseIds))
+            ->where(function ($q): void {
+                $q->where('shop_order_items.sorting_status', 'loaded')
+                    ->orWhere('shop_order_items.loaded_qty', '>', 0)
+                    ->orWhere('shop_order_items.actual_weight', '>', 0);
+            })
+            ->select([
+                'shop_order_items.id as item_id',
+                'shop_orders.business_date',
+                'shop_orders.order_number',
+                'shops.name as shop_name',
+                'shops.code as shop_code',
+                'products.id as product_id',
+                'products.name as product_name',
+                'products.sku as product_sku',
+                'products.unit as product_unit',
+                DB::raw('COALESCE(shop_order_items.actual_weight, shop_order_items.loaded_qty, 0) as loaded_qty'),
             ])
-            : 0;
+            ->get();
+
+        $unbilledLoadoutsAll = $loadoutItemsQuery->filter(function ($row) use ($billedProductIdsOnDate, $unbilledByProductId): bool {
+            $prodId = (int) $row->product_id;
+            $hasBill = in_array($prodId, $billedProductIdsOnDate, true);
+            $hasAdvance = ($unbilledByProductId[$prodId] ?? 0.0) > 0.0001;
+            $loadedQty = (float) $row->loaded_qty;
+
+            return ! $hasBill && ! $hasAdvance && $loadedQty > 0.0001;
+        })->values();
+
+        $unbilledLoadoutCount = $unbilledLoadoutsAll->count();
+        $unbilledLoadoutKg = round((float) $unbilledLoadoutsAll->sum('loaded_qty'), 2);
+
+        // N. Unit Differences Count
+        $unitDifferencesCount = app(AdvanceReceiveReconciliationService::class)->countUnitDifferences([
+            'warehouse_id' => $selectedWarehouseId,
+            'authorized_warehouse_ids' => $authorizedWarehouseIds,
+        ]);
 
         $summary = [
+            'advance_pending_count' => $unbilledInventoryCount,
+            'advance_pending_kg' => $unbilledInventoryKg,
+            'bills_pending_count' => $awaitingApprovalCount,
+            'ready_to_match_count' => $readyToMatchCount,
+            'ready_to_match_kg' => $matchedBaseQtyPlan,
+            'unbilled_loadout_count' => $unbilledLoadoutCount,
+            'unbilled_loadout_kg' => $unbilledLoadoutKg,
             'bills_received_count' => $billsReceivedCount,
             'bills_received_qty' => round($billsReceivedQty, 2),
             'advance_receives_count' => $advanceReceivesCount,
@@ -1836,7 +1885,7 @@ class AdminCashbookReportsController extends Controller
             'today_advances_count' => $advanceReceivesCount,
             'pending_bills_count' => $pendingBillsCount,
             'awaiting_approval_count' => $awaitingApprovalCount,
-            'matchable_bills_count' => $matchableBillsCount,
+            'matchable_bills_count' => $readyToMatchCount,
             'matched_base_qty_plan' => $matchedBaseQtyPlan,
             'unbilled_inventory_count' => $unbilledInventoryCount,
             'unbilled_inventory_kg' => $unbilledInventoryKg,
@@ -1848,6 +1897,7 @@ class AdminCashbookReportsController extends Controller
         $pendingBills = null;
         $matchDetailsPlan = null;
         $stockWithoutBill = null;
+        $unbilledLoadouts = null;
         $shopReturns = null;
         $damageEntries = null;
         $physicalCheckProducts = null;
@@ -1872,7 +1922,7 @@ class AdminCashbookReportsController extends Controller
         $rawDirection = strtolower((string) $request->input('direction', 'asc'));
         $direction = in_array($rawDirection, ['asc', 'desc'], true) ? $rawDirection : 'asc';
 
-        if ($tab === 'current_inventory') {
+        if (in_array($tab, ['inventory', 'current_inventory'], true)) {
             $productsQuery = Product::query()
                 ->where('is_active', true)
                 ->with('category:id,name');
@@ -1940,8 +1990,6 @@ class AdminCashbookReportsController extends Controller
                     return $direction === 'desc' ? -$cmp : $cmp;
                 })->values();
             } else {
-                // Default sorting:
-                // If no search filter is given, order products with positive sellable, pending vendor bill, or stock deficit first
                 if ($search === '') {
                     $currentInventoryRows = $currentInventoryRows->sortBy([
                         fn (array $a, array $b): int => ($b['current_sellable'] > 0 || $b['pending_vendor_bill'] > 0 || $b['stock_deficit'] > 0) <=> ($a['current_sellable'] > 0 || $a['pending_vendor_bill'] > 0 || $a['stock_deficit'] > 0),
@@ -1972,15 +2020,14 @@ class AdminCashbookReportsController extends Controller
             $damageProducts = $damageProductsQuery->orderBy('name')->get(['id', 'name', 'sku', 'unit']);
         }
 
-        if ($tab === 'receive_bills') {
+        if (in_array($tab, ['bills_match', 'receive_bills', 'match_details'], true)) {
             $pendingBills = app(AdvanceReceiveReconciliationService::class)->paginateMatchCandidates([
                 'search' => $search,
                 'warehouse_id' => $selectedWarehouseId,
                 'authorized_warehouse_ids' => $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds,
             ], 20)->withQueryString();
-        } elseif ($tab === 'match_details') {
-            $matchDetailsPlan = $matchPlan ?? app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($targetWarehouseForPlan, (int) $request->user()->id);
-        } elseif ($tab === 'stock_without_bill') {
+            $matchDetailsPlan = $matchPlan;
+        } elseif (in_array($tab, ['advance_pending', 'stock_without_bill'], true)) {
             $filteredUnbilledGrns = collect($unbilledAdvGrns);
             if ($search !== '') {
                 $searchLower = strtolower($search);
@@ -2003,6 +2050,27 @@ class AdminCashbookReportsController extends Controller
             $stockWithoutBill = new LengthAwarePaginator(
                 $filteredUnbilledGrns->forPage($page, $perPage)->values(),
                 $filteredUnbilledGrns->count(),
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()]
+            );
+        } elseif (in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true)) {
+            $filteredLoadouts = $unbilledLoadoutsAll;
+            if ($search !== '') {
+                $searchLower = strtolower($search);
+                $filteredLoadouts = $filteredLoadouts->filter(function ($r) use ($searchLower): bool {
+                    return str_contains(strtolower($r->shop_name ?? ''), $searchLower)
+                        || str_contains(strtolower($r->product_name ?? ''), $searchLower)
+                        || str_contains(strtolower($r->product_sku ?? ''), $searchLower)
+                        || str_contains(strtolower($r->order_number ?? ''), $searchLower);
+                })->values();
+            }
+
+            $page = max(1, $request->integer('page', 1));
+            $perPage = 20;
+            $unbilledLoadouts = new LengthAwarePaginator(
+                $filteredLoadouts->forPage($page, $perPage)->values(),
+                $filteredLoadouts->count(),
                 $perPage,
                 $page,
                 ['path' => $request->url(), 'query' => $request->query()]
@@ -2153,6 +2221,7 @@ class AdminCashbookReportsController extends Controller
             'unbilledInventory' => $stockWithoutBill,
             'unbilledAdvRows' => $unbilledAdvRows,
             'unbilledAdvGrns' => $unbilledAdvGrns,
+            'unbilledLoadouts' => $unbilledLoadouts,
             'shopReturns' => $shopReturns,
             'damageEntries' => $damageEntries,
             'damageProducts' => $damageProducts,

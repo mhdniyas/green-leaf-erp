@@ -154,9 +154,9 @@
 
         <!-- Blocked Bills -->
         <div class="p-4 rounded-3xl bg-rose-50/60 border border-rose-200/80 shadow-xs flex flex-col justify-between">
-            <span class="text-[11px] font-black uppercase tracking-wider text-rose-800">Blocked / No Adv</span>
+            <span class="text-[11px] font-black uppercase tracking-wider text-rose-800">Blocked Bills</span>
             <div class="mt-2 flex items-baseline gap-1">
-                <span class="text-2xl font-black text-rose-700" x-text="plan?.summary?.blocked_bills ?? '{{ $plan['summary']['blocked_bills'] ?? 0 }}'"></span>
+                <span class="text-2xl font-black text-rose-700" x-text="actionableBlockedBills.length"></span>
                 <span class="text-xs font-bold text-rose-600">bills</span>
             </div>
         </div>
@@ -201,7 +201,7 @@
                 <i data-lucide="alert-octagon" class="w-4 h-4 text-rose-600"></i>
                 <span>Blocked Bills</span>
                 <span class="px-2 py-0.5 rounded-full text-[10px] bg-rose-100 text-rose-800 font-black"
-                      x-text="plan?.blocked_bills?.length ?? '{{ count($plan['blocked_bills'] ?? []) }}'"></span>
+                      x-text="actionableBlockedBills.length"></span>
             </button>
 
             <button type="button"
@@ -394,7 +394,7 @@
 
     <!-- SECTION 3: BLOCKED BILLS -->
     <div x-show="activeSection === 'blocked_bills'" class="space-y-4">
-        <template x-if="!plan || !plan.blocked_bills || plan.blocked_bills.length === 0">
+        <template x-if="actionableBlockedBills.length === 0">
             <div class="rounded-3xl border border-slate-200 bg-white p-12 text-center text-slate-500">
                 <i data-lucide="check" class="w-12 h-12 text-emerald-400 mx-auto mb-3"></i>
                 <h4 class="text-sm font-black text-slate-800">No Blocked Bills</h4>
@@ -402,7 +402,7 @@
             </div>
         </template>
 
-        <template x-if="plan && plan.blocked_bills && plan.blocked_bills.length > 0">
+        <template x-if="actionableBlockedBills.length > 0">
             <div class="rounded-3xl border border-slate-200 bg-white shadow-xs overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-xs text-slate-700 border-collapse">
@@ -417,7 +417,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-bold">
-                            <template x-for="bill in plan.blocked_bills" :key="bill.goods_received_id">
+                            <template x-for="bill in actionableBlockedBills" :key="bill.goods_received_id">
                                 <tr class="hover:bg-slate-50/80 transition">
                                     <td class="p-4">
                                         <a :href="'/purchasing/grns/' + bill.goods_received_id"
@@ -443,7 +443,7 @@
                                     <td class="p-4 text-slate-700" x-text="bill.supplier_name"></td>
                                     <td class="p-4">
                                         <div class="space-y-1">
-                                            <template x-for="line in bill.lines" :key="line.item_id">
+                                            <template x-for="line in (bill.lines || []).filter(l => (l.reason || l.classification || '').toUpperCase() !== 'NO_ADVANCE')" :key="line.item_id">
                                                 <div class="text-[11px] flex items-center gap-2">
                                                     <span class="font-black text-slate-800" x-text="line.product_name"></span>
                                                     <span class="text-slate-500" x-text="line.quantity + ' ' + line.unit"></span>
@@ -812,6 +812,14 @@ function dailyAutoMatchComponent() {
             const readyCount = this.plan.ready_bills ? this.plan.ready_bills.length : 0;
             const partialCount = this.plan.partial_bills ? this.plan.partial_bills.length : 0;
             return (readyCount + partialCount) > 0;
+        },
+
+        get actionableBlockedBills() {
+            if (!this.plan || !this.plan.blocked_bills) return [];
+            return this.plan.blocked_bills.filter(bill => {
+                const reason = (bill.blocked_reason || bill.reason || '').toUpperCase();
+                return reason !== 'NO_ADVANCE' && reason !== 'NONE';
+            });
         },
 
         formatNumber(val) {

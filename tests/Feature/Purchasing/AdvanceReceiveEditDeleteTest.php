@@ -8,7 +8,6 @@ use App\Enums\Inventory\BatchStatus;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\Category;
 use App\Models\GoodsReceived;
-use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\StockBatch;
 use App\Models\User;
@@ -24,7 +23,9 @@ class AdvanceReceiveEditDeleteTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private Warehouse $warehouse;
+
     private Product $product;
 
     protected function setUp(): void

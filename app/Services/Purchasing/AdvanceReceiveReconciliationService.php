@@ -1813,25 +1813,40 @@ class AdvanceReceiveReconciliationService
                 }
 
                 $strictConv = app(AdvanceAvailableBalanceCalculator::class)->resolveStrictUnitConversion($product, $billUnit);
-                $hasUnitMismatch = false;
                 $candidateUnits = [];
+                $incompatibleUnits = [];
                 $totalAdvAvailQty = 0.0;
+                $compatibleAdvQty = 0.0;
+                $incompatibleAdvQty = 0.0;
 
                 foreach ($candidates as $cand) {
-                    $totalAdvAvailQty += (float) $cand['available_qty'];
+                    $candAvail = (float) $cand['available_qty'];
+                    $totalAdvAvailQty += $candAvail;
                     $candUnit = (string) ($cand['unit'] ?? $product->unit);
                     $candidateUnits[] = $candUnit;
                     $normCandUnit = ProductUnit::normalizeUnit($candUnit);
 
-                    if ($normBillUnit !== $normCandUnit) {
+                    if ($normBillUnit === $normCandUnit) {
+                        // Same normalized unit: 1:1 compatible directly
+                        $compatibleAdvQty += $candAvail;
+                    } else {
+                        // Different unit: check configured conversion
                         $candConv = app(AdvanceAvailableBalanceCalculator::class)->resolveStrictUnitConversion($product, $candUnit);
-                        if ($strictConv === null || $candConv === null) {
-                            $hasUnitMismatch = true;
+                        if ($strictConv !== null && $candConv !== null && $strictConv > 0) {
+                            $compatibleAdvQty += $candAvail * ($candConv / $strictConv);
+                        } else {
+                            $incompatibleAdvQty += $candAvail;
+                            $incompatibleUnits[] = $candUnit;
                         }
                     }
                 }
 
-                if ($hasUnitMismatch || $strictConv === null) {
+                $incompatibleUnits = array_values(array_unique($incompatibleUnits));
+
+                // A unit difference exists only when:
+                // 1. There are incompatible advance candidates in the pool, AND
+                // 2. The compatible advances cannot cover the remaining bill quantity
+                if (! empty($incompatibleUnits) && $compatibleAdvQty < $remainingBillQty) {
                     $diffRows->push([
                         'purchase_order_id' => $order->id,
                         'goods_received_id' => $tItem['goods_received_id'],
@@ -1852,7 +1867,7 @@ class AdvanceReceiveReconciliationService
                         'advance_units' => array_values(array_unique($candidateUnits)),
                         'already_matched_qty' => round($alreadyMatchedQty, 3),
                         'remaining_bill_qty' => $remainingBillQty,
-                        'reason' => "Unit mismatch: Bill in {$billUnit}, Advance in ".implode('/', array_unique($candidateUnits)).' (No conversion configured)',
+                        'reason' => "Unit mismatch: Bill in {$billUnit}, Advance in ".implode('/', $incompatibleUnits).' (No conversion configured)',
                         'candidates' => $candidates,
                     ]);
                 }

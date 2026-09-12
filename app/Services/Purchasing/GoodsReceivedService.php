@@ -7,26 +7,26 @@ namespace App\Services\Purchasing;
 use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\Actions\Purchasing\RecordGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
-use App\Enums\Purchasing\POStatus;
 use App\Enums\Inventory\BatchStatus;
+use App\Enums\Purchasing\POStatus;
 use App\Models\AdvanceReceiveMatch;
-use App\Models\Product;
-use App\Models\ProductUnit;
-use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\JournalEntry;
+use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Repositories\Inventory\StockBatchRepository;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class GoodsReceivedService
 {
@@ -34,6 +34,7 @@ class GoodsReceivedService
         private readonly GoodsReceivedRepository $repository,
         private readonly RecordGoodsReceiptAction $recordGoodsReceiptAction,
         private readonly ApproveGoodsReceiptAction $approveGoodsReceiptAction,
+        private readonly StockBatchRepository $stockBatchRepository,
     ) {}
 
     public function paginate(array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -576,7 +577,7 @@ class GoodsReceivedService
                     ]);
                     $processedItemIds[] = $newItem->id;
 
-                    StockBatch::create([
+                    $this->stockBatchRepository->create([
                         'product_id' => $productId,
                         'warehouse_id' => $grn->warehouse_id,
                         'goods_received_id' => $grn->id,
@@ -584,7 +585,7 @@ class GoodsReceivedService
                         'purchase_grade' => 'A',
                         'grading_mode' => 'sort_required',
                         'created_by' => $userId,
-                        'reference' => 'BATCH-'.strtoupper(Str::random(8)),
+                        'reference' => $this->stockBatchRepository->generateReference(),
                         'received_at' => $data['received_at'] ?? $grn->received_at,
                         'total_kg' => $newBaseQty,
                         'cost_per_kg' => 0.0,
@@ -749,5 +750,4 @@ class GoodsReceivedService
             ];
         });
     }
-
 }

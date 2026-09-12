@@ -318,14 +318,13 @@ class WarehouseReceiveFlowTest extends TestCase
         $response = $this->get('/admin/cashbook/inventory');
         $response->assertOk()
             ->assertSee('Inventory Action Center')
-            ->assertSee('Current Inventory')
-            ->assertSee('Receive Bills')
-            ->assertSee('Stock Without Bill')
-            ->assertSee('Shop Returns')
-            ->assertSee('Damage')
+            ->assertSee('Advance Pending')
+            ->assertSee('Bills &amp; Match', false)
+            ->assertSee('Loadout Without Bill')
+            ->assertSee('Inventory')
             ->assertSee('Physical Check');
 
-        foreach (['current_inventory', 'receive_bills', 'stock_without_bill', 'shop_returns', 'damage', 'physical_check', 'today_advances', 'pending_bills', 'unbilled_inventory', 'unit_differences'] as $tab) {
+        foreach (['advance_pending', 'bills_match', 'loadout_without_bill', 'inventory', 'physical_check', 'current_inventory', 'receive_bills', 'stock_without_bill', 'shop_returns', 'damage', 'today_advances', 'pending_bills', 'unbilled_inventory', 'unit_differences'] as $tab) {
             $tabResponse = $this->get('/admin/cashbook/inventory?tab='.$tab.'&warehouse_id='.$warehouse->id.'&date='.now()->toDateString());
             $tabResponse->assertOk();
         }

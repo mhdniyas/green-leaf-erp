@@ -378,5 +378,4 @@ class GoodsReceivedController extends Controller
             'Advance receipt deleted and inventory reversed successfully'
         );
     }
-
 }

@@ -216,196 +216,608 @@
         </div>
 
         <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- DAILY SUMMARY GRID (SECTION 7)                                     -->
+        <!-- TOP SUMMARY — ONLY 4 CARDS                                         -->
         <!-- ────────────────────────────────────────────────────────────────── -->
-        <div class="space-y-2">
-            <div class="flex items-center justify-between px-1">
-                <span class="text-[11px] font-black uppercase tracking-wider text-slate-500">
-                    Daily Summary ({{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }})
-                </span>
-                <span class="text-[11px] font-bold text-slate-400">
-                    Warehouse Scope: {{ $selectedWarehouseId && $availableWarehouses->firstWhere('id', $selectedWarehouseId) ? $availableWarehouses->firstWhere('id', $selectedWarehouseId)->name : 'All Warehouses' }}
-                </span>
-            </div>
-
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-2.5">
-                <!-- 1. Bills Received -->
-                <div class="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Bills Received</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-slate-900">{{ $summary['bills_received_count'] }} <span class="text-[10px] text-slate-400 font-bold">GRNs</span></span>
-                        <span class="text-[11px] font-mono font-bold text-slate-600">{{ number_format($summary['bills_received_qty'], 1) }}</span>
-                    </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <!-- 1. Advance Pending -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'advance_pending', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
+               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['advance_pending', 'stock_without_bill'], true) ? 'border-purple-300 bg-purple-50/60 ring-2 ring-purple-500/20' : 'border-slate-200/90 bg-white hover:border-purple-200' }}">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-black uppercase tracking-wider text-purple-800">1. Advance Pending</span>
+                    <i data-lucide="package-search" class="w-4 h-4 text-purple-600"></i>
                 </div>
-
-                <!-- 2. Advance Receives -->
-                <div class="rounded-2xl border border-purple-200/80 bg-purple-50/40 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-purple-700 block">Advance Receives</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-purple-950">{{ $summary['advance_receives_count'] }} <span class="text-[10px] text-purple-600 font-bold">GRNs</span></span>
-                        <span class="text-[11px] font-mono font-bold text-purple-800">{{ number_format($summary['advance_receives_qty'], 1) }}</span>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <div class="text-2xl font-black text-slate-900">
+                        {{ $summary['advance_pending_count'] }}
+                        <span class="text-xs font-bold text-slate-400 font-sans">Advances</span>
                     </div>
+                    <span class="text-xs font-mono font-bold text-purple-700">{{ number_format($summary['advance_pending_kg'], 1) }} KG</span>
                 </div>
+                <p class="mt-1 text-[11px] text-slate-500 font-medium">Stock received without bill</p>
+            </a>
 
-                <!-- 3. Advance Matched -->
-                <div class="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-emerald-700 block">Advance Matched</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-emerald-950">{{ number_format($summary['advance_matched_qty'], 1) }}</span>
-                        <span class="text-[10px] font-bold text-emerald-700">KG Matched</span>
-                    </div>
+            <!-- 2. Bills Pending -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'bills_match', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
+               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true) ? 'border-amber-300 bg-amber-50/60 ring-2 ring-amber-500/20' : 'border-slate-200/90 bg-white hover:border-amber-200' }}">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-black uppercase tracking-wider text-amber-800">2. Bills Pending</span>
+                    <i data-lucide="file-clock" class="w-4 h-4 text-amber-600"></i>
                 </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <div class="text-2xl font-black text-slate-900">
+                        {{ $summary['bills_pending_count'] }}
+                        <span class="text-xs font-bold text-slate-400 font-sans">Bills</span>
+                    </div>
+                    <span class="text-xs font-bold text-amber-700">Awaiting Approval</span>
+                </div>
+                <p class="mt-1 text-[11px] text-slate-500 font-medium">Purchaser bills to approve &amp; receive</p>
+            </a>
 
-                <!-- 4. New Physical Receive -->
-                <div class="rounded-2xl border border-teal-200/80 bg-teal-50/40 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-teal-700 block">New Phys. Receive</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-teal-950">{{ number_format($summary['new_physical_receive_qty'], 1) }}</span>
-                        <span class="text-[10px] font-bold text-teal-700">KG Direct</span>
-                    </div>
+            <!-- 3. Ready to Match -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'bills_match', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
+               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['bills_match', 'receive_bills', 'match_details'], true) && $summary['ready_to_match_count'] > 0 ? 'border-emerald-300 bg-emerald-50/60 ring-2 ring-emerald-500/20' : 'border-slate-200/90 bg-white hover:border-emerald-200' }}">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-black uppercase tracking-wider text-emerald-800">3. Ready to Match</span>
+                    <i data-lucide="sparkles" class="w-4 h-4 text-emerald-600"></i>
                 </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <div class="text-2xl font-black text-slate-900">
+                        {{ $summary['ready_to_match_count'] }}
+                        <span class="text-xs font-bold text-slate-400 font-sans">Ready</span>
+                    </div>
+                    <span class="text-xs font-mono font-bold text-emerald-700">{{ number_format($summary['ready_to_match_kg'], 1) }} KG</span>
+                </div>
+                <p class="mt-1 text-[11px] text-slate-500 font-medium">Matchable against open advances</p>
+            </a>
 
-                <!-- 5. Shop Returns -->
-                <div class="rounded-2xl border border-blue-200/80 bg-blue-50/40 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-blue-700 block">Shop Returns</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-blue-950">{{ number_format($summary['shop_returns_qty'], 1) }}</span>
-                        <span class="text-[10px] font-bold text-blue-700">{{ $summary['shop_returns_count'] }} items</span>
-                    </div>
+            <!-- 4. Loadout Without Bill -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'loadout_without_bill', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
+               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true) ? 'border-rose-300 bg-rose-50/60 ring-2 ring-rose-500/20' : 'border-slate-200/90 bg-white hover:border-rose-200' }}">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-black uppercase tracking-wider text-rose-800">4. Loadout Without Bill</span>
+                    <i data-lucide="truck" class="w-4 h-4 text-rose-600"></i>
                 </div>
-
-                <!-- 6. Loadout Qty -->
-                <div class="rounded-2xl border border-sky-200/80 bg-sky-50/40 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-sky-700 block">Loadout Dispatched</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-sky-950">{{ number_format($summary['loadout_qty'], 1) }}</span>
-                        <span class="text-[10px] font-bold text-sky-700">KG Loaded</span>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <div class="text-2xl font-black text-slate-900">
+                        {{ $summary['unbilled_loadout_count'] }}
+                        <span class="text-xs font-bold text-slate-400 font-sans">Lines</span>
                     </div>
+                    <span class="text-xs font-mono font-bold text-rose-700">{{ number_format($summary['unbilled_loadout_kg'], 1) }} KG</span>
                 </div>
-
-                <!-- 7. Damage Qty -->
-                <div class="rounded-2xl border border-rose-200/80 bg-rose-50/40 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-rose-700 block">Damage / Wastage</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-rose-950">{{ number_format($summary['damage_qty'], 1) }}</span>
-                        <span class="text-[10px] font-bold text-rose-700">KG Wrote-off</span>
-                    </div>
-                </div>
-
-                <!-- 8. Physical Adjustments -->
-                <div class="rounded-2xl border border-amber-200/80 bg-amber-50/40 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-amber-700 block">Physical Adjust.</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black {{ $summary['physical_adjustment_qty'] >= 0 ? 'text-amber-950' : 'text-rose-950' }}">
-                            {{ $summary['physical_adjustment_qty'] > 0 ? '+' : '' }}{{ number_format($summary['physical_adjustment_qty'], 1) }}
-                        </span>
-                        <span class="text-[10px] font-bold text-amber-700">KG Diff</span>
-                    </div>
-                </div>
-
-                <!-- 9. Closing Inventory -->
-                <div class="rounded-2xl border border-emerald-300 bg-emerald-100/70 p-3 shadow-2xs">
-                    <span class="text-[9px] font-black uppercase tracking-wider text-emerald-900 block">Closing Inventory</span>
-                    <div class="mt-1 flex items-baseline justify-between">
-                        <span class="text-base font-black text-emerald-950">{{ number_format($summary['closing_inventory_qty'], 1) }}</span>
-                        <span class="text-[10px] font-bold text-emerald-800">KG Stock</span>
-                    </div>
-                </div>
-            </div>
+                <p class="mt-1 text-[11px] text-slate-500 font-medium">Loaded with no bill &amp; no advance</p>
+            </a>
         </div>
 
         <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- ACTION CENTER NAVIGATION TABS (SECTION 8)                          -->
+        <!-- ACTION CENTER NAVIGATION TABS (FINAL 5 TABS)                       -->
         <!-- ────────────────────────────────────────────────────────────────── -->
         <div class="flex flex-wrap gap-1 rounded-2xl bg-slate-100 p-1 shadow-inner self-start">
-            <!-- 1. Current Inventory -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'current_inventory', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'current_inventory' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="boxes" class="w-3.5 h-3.5 {{ $tab === 'current_inventory' ? 'text-emerald-600' : 'text-slate-400' }}"></i>
-                <span>Current Inventory</span>
+            <!-- 1. Advance Pending -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'advance_pending', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['advance_pending', 'stock_without_bill'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="package-search" class="w-3.5 h-3.5 {{ in_array($tab, ['advance_pending', 'stock_without_bill'], true) ? 'text-purple-600' : 'text-slate-400' }}"></i>
+                <span>Advance Pending</span>
+                @if($summary['advance_pending_count'] > 0)
+                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-purple-100 text-purple-800">
+                        {{ $summary['advance_pending_count'] }}
+                    </span>
+                @endif
             </a>
 
-            <!-- 2. Receive Bills -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'receive_bills', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'receive_bills' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="file-clock" class="w-3.5 h-3.5 {{ $tab === 'receive_bills' ? 'text-amber-600' : 'text-slate-400' }}"></i>
-                <span>Receive Bills</span>
-                @if($summary['pending_bills_count'] > 0)
+            <!-- 2. Bills & Match -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'bills_match', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="file-clock" class="w-3.5 h-3.5 {{ in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true) ? 'text-amber-600' : 'text-slate-400' }}"></i>
+                <span>Bills &amp; Match</span>
+                @if($summary['bills_pending_count'] > 0)
                     <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-amber-100 text-amber-800">
-                        {{ $summary['pending_bills_count'] }}
+                        {{ $summary['bills_pending_count'] }}
                     </span>
                 @endif
             </a>
 
-            <!-- 3. Stock Without Bill -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'stock_without_bill', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'stock_without_bill' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="package-search" class="w-3.5 h-3.5 {{ $tab === 'stock_without_bill' ? 'text-indigo-600' : 'text-slate-400' }}"></i>
-                <span>Stock Without Bill</span>
-                @if($summary['unbilled_inventory_count'] > 0)
-                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-indigo-100 text-indigo-800">
-                        {{ $summary['unbilled_inventory_count'] }}
-                    </span>
-                @endif
-            </a>
-
-            <!-- 4. Shop Returns -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'shop_returns', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'shop_returns' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="undo-2" class="w-3.5 h-3.5 {{ $tab === 'shop_returns' ? 'text-blue-600' : 'text-slate-400' }}"></i>
-                <span>Shop Returns</span>
-                @if($summary['shop_returns_count'] > 0)
-                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-blue-100 text-blue-800">
-                        {{ $summary['shop_returns_count'] }}
-                    </span>
-                @endif
-            </a>
-
-            <!-- 5. Damage -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'damage', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'damage' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="trash-2" class="w-3.5 h-3.5 {{ $tab === 'damage' ? 'text-rose-600' : 'text-slate-400' }}"></i>
-                <span>Damage</span>
-                @if($summary['damage_qty'] > 0)
+            <!-- 3. Loadout Without Bill -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'loadout_without_bill', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="truck" class="w-3.5 h-3.5 {{ in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true) ? 'text-rose-600' : 'text-slate-400' }}"></i>
+                <span>Loadout Without Bill</span>
+                @if($summary['unbilled_loadout_count'] > 0)
                     <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-rose-100 text-rose-800">
-                        {{ number_format($summary['damage_qty'], 1) }} KG
+                        {{ $summary['unbilled_loadout_count'] }}
                     </span>
                 @endif
             </a>
 
-            <!-- 6. Physical Check -->
+            <!-- 4. Inventory -->
+            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'inventory', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
+               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['inventory', 'current_inventory'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
+                <i data-lucide="boxes" class="w-3.5 h-3.5 {{ in_array($tab, ['inventory', 'current_inventory'], true) ? 'text-emerald-600' : 'text-slate-400' }}"></i>
+                <span>Inventory</span>
+            </a>
+
+            <!-- 5. Physical Check -->
             <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'physical_check', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
                class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'physical_check' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="clipboard-check" class="w-3.5 h-3.5 {{ $tab === 'physical_check' ? 'text-amber-600' : 'text-slate-400' }}"></i>
+                <i data-lucide="clipboard-check" class="w-3.5 h-3.5 {{ $tab === 'physical_check' ? 'text-blue-600' : 'text-slate-400' }}"></i>
                 <span>Physical Check</span>
             </a>
-
-            <!-- 7. Exception: Unit Differences (Only shown when differences exist) -->
-            @if(($summary['unit_differences_count'] ?? 0) > 0)
-                <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'unit_differences', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-                   class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'unit_differences' ? 'bg-white text-slate-900 shadow-sm' : 'text-rose-600 hover:text-rose-800' }}">
-                    <i data-lucide="scale" class="w-3.5 h-3.5 text-rose-600"></i>
-                    <span>Unit Issues</span>
-                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-rose-100 text-rose-800">
-                        {{ $summary['unit_differences_count'] }}
-                    </span>
-                </a>
-            @endif
         </div>
 
         <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 1: CURRENT INVENTORY (MAIN TAB)                                -->
+        <!-- TAB 1: ADVANCE PENDING (REUSE STOCK WITHOUT BILL)                  -->
         <!-- ────────────────────────────────────────────────────────────────── -->
-        @if($tab === 'current_inventory')
+        @if(in_array($tab, ['advance_pending', 'stock_without_bill'], true))
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="package-search" class="w-4 h-4 text-purple-600"></i>
+                            <span>Advance Pending — Physical Stock Without Vendor Bill</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
+                            Advance physical stock received in warehouse where vendor bill has not yet arrived or matched
+                        </p>
+                    </div>
+
+                    <div class="flex items-center gap-2 self-start sm:self-auto">
+                        <button type="button"
+                                @click="openShareMissingBillsModal()"
+                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-black transition-all shadow-sm cursor-pointer">
+                            <i data-lucide="share-2" class="w-4 h-4 text-purple-200"></i>
+                            <span>Share</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Multi-select Action Bar for Advance GRN Manual Clear -->
+                <div x-show="selectedClearAdvanceIds.length > 0"
+                     x-cloak
+                     class="mx-4 sm:mx-5 p-3 rounded-2xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3 transition-all">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-600 text-white text-xs font-black" x-text="selectedClearAdvanceIds.length"></span>
+                        <span class="text-xs font-black text-amber-950">
+                            <span x-text="selectedClearAdvanceIds.length"></span> Advance GRN(s) selected
+                        </span>
+                        <span class="text-xs text-amber-700 font-semibold">
+                            (Total Pending Qty: <span class="font-mono font-bold" x-text="getSelectedAdvancesTotalQty().toFixed(2)"></span> KG)
+                        </span>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                @click="selectedClearAdvanceIds = []"
+                                class="px-3 py-1.5 rounded-xl border border-amber-300 text-amber-800 hover:bg-amber-100 text-xs font-bold transition cursor-pointer">
+                            Clear Selection
+                        </button>
+                        <button type="button"
+                                @click="openClearAdvancesModal()"
+                                class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition shadow-xs cursor-pointer">
+                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                            <span>Manual Clear (<span x-text="selectedClearAdvanceIds.length"></span>)</span>
+                        </button>
+                    </div>
+                </div>
+
+                @if(!$stockWithoutBill || $stockWithoutBill->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">No Advance Pending</h3>
+                        <p class="text-xs text-slate-500 mt-1">All advance physical intake in this warehouse has been matched with vendor bills.</p>
+                    </div>
+                @else
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5 w-10 text-center">
+                                        <input type="checkbox"
+                                               @change="toggleSelectAllAdvances($event)"
+                                               :checked="isAllAdvancesSelected()"
+                                               class="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
+                                    </th>
+                                    <th class="p-3.5">Date</th>
+                                    <th class="p-3.5">Advance Ref</th>
+                                    <th class="p-3.5">Product</th>
+                                    <th class="p-3.5 text-right font-black text-slate-700">Qty</th>
+                                    <th class="p-3.5 text-right font-black text-purple-800">Pending Qty</th>
+                                    <th class="p-3.5 text-center">Age</th>
+                                    <th class="p-3.5 text-right pr-5">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($stockWithoutBill as $grn)
+                                    @php
+                                        $grnId = (int) $grn['id'];
+                                        $grnNum = $grn['grn_number'] ?? "GRN #{$grnId}";
+                                        $recDate = $grn['received_at'] ? \Carbon\Carbon::parse($grn['received_at'])->format('d M Y') : 'N/A';
+                                        $age = (int) ($grn['age_days'] ?? 0);
+                                        $missingTotal = (float) ($grn['total_missing_qty'] ?? 0.0);
+                                        $items = $grn['items'] ?? [];
+                                        $totalReceivedQty = array_sum(array_column($items, 'received_qty'));
+                                    @endphp
+                                    <tr class="hover:bg-slate-50/60 transition-colors" :class="isAdvanceSelected({{ $grnId }}) ? 'bg-amber-50/40' : ''">
+                                        <td class="p-3.5 pl-5 text-center align-top">
+                                            <input type="checkbox"
+                                                   :checked="isAdvanceSelected({{ $grnId }})"
+                                                   @change="toggleAdvanceSelection({{ $grnId }})"
+                                                   class="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
+                                        </td>
+                                        <td class="p-3.5 align-top font-bold text-slate-600 text-xs whitespace-nowrap">
+                                            {{ $recDate }}
+                                        </td>
+                                        <td class="p-3.5 align-top">
+                                            <div class="font-mono font-black text-sm text-purple-950">
+                                                {{ $grnNum }}
+                                            </div>
+                                        </td>
+                                        <td class="p-3.5 align-top">
+                                            <div class="space-y-1.5">
+                                                @foreach($items as $it)
+                                                    <div class="flex items-center justify-between gap-4 p-1.5 rounded-xl bg-slate-50 border border-slate-100">
+                                                        <div>
+                                                            <span class="font-black text-slate-900">{{ $it['name'] }}</span>
+                                                            @if(!empty($it['sku']))
+                                                                <span class="font-mono text-[10px] text-slate-400 ml-1">({{ $it['sku'] }})</span>
+                                                            @endif
+                                                        </div>
+                                                        <div class="text-right whitespace-nowrap text-[11px]">
+                                                            <span class="font-bold text-slate-500">Rec: {{ number_format((float)$it['received_qty'], 2) }}</span>
+                                                            <span class="text-slate-300 mx-1">|</span>
+                                                            <span class="font-black text-purple-700">Pending: {{ number_format((float)$it['missing_qty'], 2) }} {{ $it['unit'] }}</span>
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-700 align-top whitespace-nowrap">
+                                            {{ number_format($totalReceivedQty, 2) }} <span class="text-[10px] text-slate-400">KG</span>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-black text-sm text-purple-700 align-top whitespace-nowrap">
+                                            {{ number_format($missingTotal, 2) }} <span class="text-[10px] text-purple-400">KG</span>
+                                        </td>
+                                        <td class="p-3.5 text-center font-bold align-top whitespace-nowrap {{ $age > 3 ? 'text-rose-600' : 'text-slate-600' }}">
+                                            {{ $age }} {{ Str::plural('day', $age) }}
+                                        </td>
+                                        <td class="p-3.5 text-right pr-5 align-top whitespace-nowrap">
+                                            <button type="button"
+                                                    @click="openClearSingleAdvance({{ $grnId }})"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition shadow-2xs cursor-pointer">
+                                                <i data-lucide="check" class="w-3 h-3"></i>
+                                                <span>Manual Clear</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-100">
+                        {{ $stockWithoutBill->links() }}
+                    </div>
+                @endif
+            </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 2: BILLS & MATCH (RECEIVE BILLS + AUTO MATCH + UNIT ISSUES)    -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @elseif(in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true))
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="file-clock" class="w-4 h-4 text-amber-600"></i>
+                            <span>Bills &amp; Match Reconciliation</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
+                            Approve pending purchaser bills and reconcile with open advance stock
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold">
+                            <span>Bills Pending:</span>
+                            <strong class="font-black font-mono">{{ $summary['bills_pending_count'] }}</strong>
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold">
+                            <span>Ready to Match:</span>
+                            <strong class="font-black font-mono">{{ $summary['ready_to_match_count'] }}</strong>
+                        </span>
+                        <button type="button"
+                                @click="openPendingBillsModal()"
+                                @if(($summary['awaiting_approval_count'] ?? 0) === 0) disabled @endif
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-black transition-all shadow-xs {{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer' : 'bg-slate-300 cursor-not-allowed' }}">
+                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                            <span>Approve All{{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? ' (' . $summary['awaiting_approval_count'] . ')' : '' }}</span>
+                        </button>
+                        <button type="button"
+                                @click="openAutoClear()"
+                                @if(($summary['ready_to_match_count'] ?? 0) === 0) disabled @endif
+                                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-black transition-all shadow-xs {{ ($summary['ready_to_match_count'] ?? 0) > 0 ? 'bg-emerald-700 hover:bg-emerald-800 cursor-pointer' : 'bg-slate-300 cursor-not-allowed' }}">
+                            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                            <span>Match All{{ ($summary['ready_to_match_count'] ?? 0) > 0 ? ' (' . $summary['ready_to_match_count'] . ')' : '' }}</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Small Unit Issues Warning Section Inside Bills & Match -->
+                @if(($summary['unit_differences_count'] ?? 0) > 0)
+                    <div class="mx-4 sm:mx-5 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-600 shrink-0"></i>
+                            <span class="text-xs font-bold text-rose-900">
+                                <strong>{{ $summary['unit_differences_count'] }} product(s)</strong> have unit mismatch issues between bill and stock units.
+                            </span>
+                        </div>
+                        <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'unit_differences', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId])) }}"
+                           class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-black shadow-2xs transition">
+                            <i data-lucide="wrench" class="w-3 h-3 text-rose-200"></i>
+                            <span>Review Unit Issues</span>
+                        </a>
+                    </div>
+                @endif
+
+                <!-- Ready to Match Section -->
+                @if($matchDetailsPlan && count($matchDetailsPlan['ready_bills'] ?? []) > 0)
+                    <div class="mx-4 sm:mx-5 p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 space-y-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="sparkles" class="w-4 h-4 text-emerald-600"></i>
+                                <span class="text-xs font-black text-emerald-950 uppercase tracking-wider">
+                                    Ready to Match ({{ count($matchDetailsPlan['ready_bills']) }} Bills • {{ number_format((float)($matchDetailsPlan['summary']['matched_base_qty'] ?? 0), 1) }} KG)
+                                </span>
+                            </div>
+                            <button type="button"
+                                    @click="openAutoClear()"
+                                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs transition cursor-pointer">
+                                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                                <span>Match All</span>
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            @foreach(array_slice($matchDetailsPlan['ready_bills'], 0, 6) as $rb)
+                                <div class="p-2.5 rounded-xl bg-white border border-emerald-200/60 flex items-center justify-between text-xs">
+                                    <span class="font-mono font-black text-slate-900">{{ $rb['reference'] ?? ('PO #' . ($rb['purchase_order_id'] ?? '')) }}</span>
+                                    <span class="font-mono font-bold text-emerald-700">{{ number_format((float)($rb['matched_base_qty'] ?? 0), 1) }} KG</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                @if(!$pendingBills || $pendingBills->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">All Bills Reconciled</h3>
+                        <p class="text-xs text-slate-500 mt-1">There are no pending approved purchase bills requiring match or warehouse receiving.</p>
+                    </div>
+                @else
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5">Bill</th>
+                                    <th class="p-3.5">Product</th>
+                                    <th class="p-3.5 text-right">Qty</th>
+                                    <th class="p-3.5 text-center">Status</th>
+                                    <th class="p-3.5 text-center pr-5">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($pendingBills as $row)
+                                    @php
+                                        $poId = $row['id'];
+                                        $grnId = $row['grn_id'] ?? $row['goods_received_id'] ?? null;
+                                        $billBase = (float) ($row['total_bill_base_qty'] ?? $row['required_base_qty'] ?? $row['quantity'] ?? 0);
+                                        $alreadyMatched = (float) ($row['total_matched_base_qty'] ?? $row['already_matched_base_qty'] ?? 0);
+                                        $remainingBase = max(0.0, round($billBase - $alreadyMatched, 2));
+                                        $isReceived = ($row['receipt_status'] ?? '') === 'received' || (isset($row['warehouse_receive_pending']) && ! $row['warehouse_receive_pending']);
+                                        $rawStatus = $row['match_status'] ?? $row['reconciliation_status'] ?? '';
+                                        $matchStatus = match($rawStatus) {
+                                            'FULLY_MATCHED' => 'Advance Matched',
+                                            'PARTIALLY_MATCHED' => 'Partial Match',
+                                            'UNIT_DIFFERENCE' => 'Unit Issue',
+                                            default => '',
+                                        };
+                                    @endphp
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="p-3.5 pl-5 font-mono font-black text-slate-900">
+                                            <span>{{ $row['po_number'] }}</span>
+                                            @if(!empty($row['grn_number']))
+                                                <span class="block text-[10px] text-slate-500 font-semibold">{{ $row['grn_number'] }}</span>
+                                            @endif
+                                            <span class="block text-[10px] text-slate-400 font-sans font-medium">{{ \Carbon\Carbon::parse($row['order_date'])->format('d M Y') }} • {{ $row['supplier_name'] }}</span>
+                                        </td>
+                                        <td class="p-3.5">
+                                            <div class="flex flex-wrap gap-1 max-w-xs">
+                                                @if(!empty($row['match_summary_items']))
+                                                    @foreach(array_slice($row['match_summary_items'], 0, 3) as $it)
+                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-800">
+                                                            {{ $it['product_name'] }} ({{ (float) ($it['quantity'] ?? $it['ordered_qty'] ?? $it['qty'] ?? 0) }} {{ $it['unit'] }})
+                                                        </span>
+                                                    @endforeach
+                                                    @if(count($row['match_summary_items']) > 3)
+                                                        <span class="text-[10px] font-bold text-slate-400 self-center">
+                                                            +{{ count($row['match_summary_items']) - 3 }} more
+                                                        </span>
+                                                    @endif
+                                                @else
+                                                    <span class="text-slate-400 italic text-[11px]">—</span>
+                                                @endif
+                                            </div>
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-black text-slate-900">
+                                            <div>{{ number_format($billBase, 2) }} <span class="text-[10px] text-slate-400">KG</span></div>
+                                            @if($alreadyMatched > 0)
+                                                <span class="text-[10px] text-emerald-700 font-bold block">{{ number_format($alreadyMatched, 2) }} matched</span>
+                                            @endif
+                                        </td>
+                                        <td class="p-3.5 text-center">
+                                            <div class="flex flex-col items-center gap-1">
+                                                @if($isReceived)
+                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                        <i data-lucide="check" class="w-3 h-3"></i>
+                                                        <span>Received</span>
+                                                    </span>
+                                                @else
+                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                                                        <i data-lucide="clock" class="w-3 h-3"></i>
+                                                        <span>Pending Approval</span>
+                                                    </span>
+                                                @endif
+
+                                                @if(!empty($matchStatus))
+                                                    <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[9px] font-black uppercase border {{ $matchStatus === 'Advance Matched' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200' }}">
+                                                        {{ $matchStatus }}
+                                                    </span>
+                                                @endif
+                                            </div>
+                                        </td>
+                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1.5">
+                                            @if(! $isReceived)
+                                                <button type="button"
+                                                        @click="approveAndReceiveSingle({{ $grnId ? (int)$grnId : 'null' }}, {{ $poId }})"
+                                                        :disabled="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}"
+                                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition shadow-2xs cursor-pointer disabled:opacity-50">
+                                                    <template x-if="processingPoId !== {{ $poId }} && processingPoId !== {{ $grnId ? (int)$grnId : -1 }}">
+                                                        <span class="flex items-center gap-1">
+                                                            <i data-lucide="check" class="w-3 h-3 text-white"></i>
+                                                            <span>Approve</span>
+                                                        </span>
+                                                    </template>
+                                                    <template x-if="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}">
+                                                        <span class="flex items-center gap-1">
+                                                            <span class="inline-block animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
+                                                            <span>Approving...</span>
+                                                        </span>
+                                                    </template>
+                                                </button>
+                                            @else
+                                                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-500 text-[10px] font-black">
+                                                    <i data-lucide="check-check" class="w-3 h-3 text-emerald-600"></i>
+                                                    <span>Received</span>
+                                                </span>
+                                            @endif
+
+                                            <button type="button"
+                                                    @click="openManualMatch({{ $poId }}, '{{ $row['po_number'] }}', '{{ addslashes($row['supplier_name']) }}')"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-black hover:bg-slate-800 transition shadow-2xs cursor-pointer">
+                                                <i data-lucide="link" class="w-3 h-3 text-emerald-400"></i>
+                                                <span>Match Bill</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-100">
+                        {{ $pendingBills->links() }}
+                    </div>
+                @endif
+            </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 3: LOADOUT WITHOUT BILL (DISPATCHED EXCEPTIONS)                -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @elseif(in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true))
+            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="truck" class="w-4 h-4 text-rose-600"></i>
+                            <span>Loadout Without Bill — Dispatched Exceptions</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
+                            Shop loadouts on <strong class="text-slate-800">{{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</strong> where no vendor bill and no open advance exists
+                        </p>
+                    </div>
+
+                    @if($unbilledLoadouts)
+                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
+                            Showing {{ $unbilledLoadouts->firstItem() ?? 0 }}–{{ $unbilledLoadouts->lastItem() ?? 0 }} of {{ $unbilledLoadouts->total() }} exceptions
+                        </span>
+                    @endif
+                </div>
+
+                @if(!$unbilledLoadouts || $unbilledLoadouts->isEmpty())
+                    <div class="p-12 text-center">
+                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-base font-black text-slate-900">No Dispatched Exceptions</h3>
+                        <p class="text-xs text-slate-500 mt-1">All dispatched loadout items on this date are covered by bills or advances.</p>
+                    </div>
+                @else
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                    <th class="p-3.5 pl-5">Date</th>
+                                    <th class="p-3.5">Shop</th>
+                                    <th class="p-3.5">Product</th>
+                                    <th class="p-3.5 text-right font-black text-rose-900">Loaded Qty</th>
+                                    <th class="p-3.5 text-center pr-5">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-xs">
+                                @foreach($unbilledLoadouts as $row)
+                                    @php
+                                        $bDate = \Carbon\Carbon::parse($row->business_date)->format('d M Y');
+                                    @endphp
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="p-3.5 pl-5 font-bold text-slate-600 text-xs whitespace-nowrap">
+                                            {{ $bDate }}
+                                        </td>
+                                        <td class="p-3.5 font-black text-slate-900">
+                                            <span>{{ $row->shop_name }}</span>
+                                            @if(!empty($row->shop_code))
+                                                <span class="block text-[10px] font-mono text-slate-400">{{ $row->shop_code }}</span>
+                                            @endif
+                                        </td>
+                                        <td class="p-3.5 font-black text-slate-900">
+                                            <span>{{ $row->product_name }}</span>
+                                            @if(!empty($row->product_sku))
+                                                <span class="block text-[10px] font-mono text-slate-400">{{ $row->product_sku }}</span>
+                                            @endif
+                                        </td>
+                                        <td class="p-3.5 text-right font-mono font-black text-rose-900 text-sm">
+                                            {{ number_format((float) $row->loaded_qty, 2) }} <span class="text-[10px] text-rose-400">{{ $row->product_unit ?? 'KG' }}</span>
+                                        </td>
+                                        <td class="p-3.5 text-center pr-5">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-rose-50 text-rose-800 border border-rose-200">
+                                                No Bill Created
+                                            </span>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-100">
+                        {{ $unbilledLoadouts->links() }}
+                    </div>
+                @endif
+            </div>
+
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 4: INVENTORY (RENAME CURRENT INVENTORY -> INVENTORY)            -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        @elseif(in_array($tab, ['inventory', 'current_inventory'], true))
             <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
                 <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                         <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                             <i data-lucide="boxes" class="w-4 h-4 text-emerald-600"></i>
-                            <span>Current Sellable Warehouse Inventory</span>
+                            <span>Inventory</span>
                         </h2>
                         <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Current physical stock split into <strong>With Bill</strong> and <strong>Without Bill (Unbilled Advance)</strong>
+                            Authoritative warehouse sellable stock split into <strong>With Bill</strong> and <strong>Without Bill (Unbilled Advance)</strong>
                         </p>
                     </div>
 
@@ -483,19 +895,9 @@
                                             @endif
                                         </a>
                                     </th>
-                                    <th class="p-3.5">
-                                        <a href="{{ $buildSortUrl('category') }}" class="group inline-flex items-center gap-1 font-black {{ $sort === 'category' ? 'text-slate-900' : 'text-slate-600' }} hover:text-slate-900 transition">
-                                            <span>Category</span>
-                                            @if($sort === 'category')
-                                                <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-slate-900 stroke-[2.5]"></i>
-                                            @else
-                                                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500"></i>
-                                            @endif
-                                        </a>
-                                    </th>
                                     <th class="p-3.5 text-right">
                                         <a href="{{ $buildSortUrl('current_sellable') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'current_sellable' ? 'text-slate-900' : 'text-slate-700' }} hover:text-slate-900 transition w-full">
-                                            <span>Current Sellable</span>
+                                            <span>Current Qty</span>
                                             @if($sort === 'current_sellable')
                                                 <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-slate-900 stroke-[2.5]"></i>
                                             @else
@@ -514,19 +916,9 @@
                                         </a>
                                     </th>
                                     <th class="p-3.5 text-right">
-                                        <a href="{{ $buildSortUrl('without_bill') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'without_bill' ? 'text-indigo-950 font-black' : 'text-indigo-800' }} hover:text-indigo-950 transition w-full">
+                                        <a href="{{ $buildSortUrl('without_bill') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'without_bill' ? 'text-purple-950 font-black' : 'text-purple-800' }} hover:text-purple-950 transition w-full">
                                             <span>Without Bill</span>
                                             @if($sort === 'without_bill')
-                                                <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-indigo-800 stroke-[2.5]"></i>
-                                            @else
-                                                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-indigo-300 group-hover:text-indigo-600"></i>
-                                            @endif
-                                        </a>
-                                    </th>
-                                    <th class="p-3.5 text-right">
-                                        <a href="{{ $buildSortUrl('pending_vendor_bill') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'pending_vendor_bill' ? 'text-purple-950 font-black' : 'text-purple-800' }} hover:text-purple-950 transition w-full">
-                                            <span>Pending Vendor Bill</span>
-                                            @if($sort === 'pending_vendor_bill')
                                                 <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-purple-800 stroke-[2.5]"></i>
                                             @else
                                                 <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-purple-300 group-hover:text-purple-600"></i>
@@ -543,7 +935,7 @@
                                             @endif
                                         </a>
                                     </th>
-                                    <th class="p-3.5 text-center pr-5">Quick Actions</th>
+                                    <th class="p-3.5 text-center pr-5">Quick Action</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 text-xs">
@@ -577,10 +969,7 @@
                                         </td>
                                         <td class="p-3.5 font-black text-slate-900">
                                             <span>{{ $row['name'] }}</span>
-                                            <span class="block text-[10px] font-mono text-slate-400">{{ $row['sku'] }}</span>
-                                        </td>
-                                        <td class="p-3.5 font-bold text-slate-600">
-                                            {{ $row['category'] }}
+                                            <span class="block text-[10px] font-mono text-slate-400">{{ $row['sku'] }} • {{ $row['category'] }}</span>
                                         </td>
                                         <td class="p-3.5 text-right font-mono font-black text-sm {{ $currSellable > 0 ? 'text-slate-900' : 'text-slate-400' }}">
                                             {{ number_format($currSellable, 2) }} <span class="text-[10px] text-slate-400 font-sans">{{ $unit }}</span>
@@ -588,11 +977,8 @@
                                         <td class="p-3.5 text-right font-mono font-bold text-emerald-700">
                                             {{ number_format($withBillOnHand, 2) }} <span class="text-[10px] text-emerald-400 font-sans">{{ $unit }}</span>
                                         </td>
-                                        <td class="p-3.5 text-right font-mono font-black {{ $withoutBillOnHand > 0 ? 'text-indigo-700' : 'text-slate-400' }}">
-                                            {{ number_format($withoutBillOnHand, 2) }} <span class="text-[10px] text-indigo-400 font-sans">{{ $unit }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-bold {{ $pendingVendorBill > 0 ? 'text-purple-700 font-black' : 'text-slate-400' }}">
-                                            {{ number_format($pendingVendorBill, 2) }} <span class="text-[10px] {{ $pendingVendorBill > 0 ? 'text-purple-400' : 'text-slate-400' }} font-sans">{{ $unit }}</span>
+                                        <td class="p-3.5 text-right font-mono font-black {{ $withoutBillOnHand > 0 ? 'text-purple-700' : 'text-slate-400' }}">
+                                            {{ number_format($withoutBillOnHand, 2) }} <span class="text-[10px] text-purple-400 font-sans">{{ $unit }}</span>
                                         </td>
                                         <td class="p-3.5 text-right font-mono font-bold">
                                             @if($stockDeficit > 0.001)
@@ -605,6 +991,11 @@
                                             @endif
                                         </td>
                                         <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1">
+                                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'physical_check', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $row['sku']])) }}"
+                                               class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px] font-bold border border-blue-200 transition">
+                                                <i data-lucide="clipboard-check" class="w-3 h-3 text-blue-600"></i>
+                                                <span>Physical Check</span>
+                                            </a>
                                             @if($currSellable > 0)
                                                 <button type="button"
                                                         @click="openDamageModalSingle({{ $row['product_id'] }}, '{{ addslashes($row['name']) }}', '{{ $unit }}', {{ $currSellable }}, '{{ addslashes($row['sku']) }}')"
@@ -612,20 +1003,7 @@
                                                     <i data-lucide="trash-2" class="w-3 h-3 text-rose-600"></i>
                                                     <span>Damage</span>
                                                 </button>
-                                            @else
-                                                <button type="button"
-                                                        disabled
-                                                        title="No sellable stock available to move to damage"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-400 text-[11px] font-bold border border-slate-200 opacity-50 cursor-not-allowed">
-                                                    <i data-lucide="trash-2" class="w-3 h-3 text-slate-400"></i>
-                                                    <span>Damage</span>
-                                                </button>
                                             @endif
-                                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'physical_check', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $row['sku']])) }}"
-                                               class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 text-[11px] font-bold border border-slate-200 transition">
-                                                <i data-lucide="clipboard-check" class="w-3 h-3 text-slate-600"></i>
-                                                <span>Count</span>
-                                            </a>
                                         </td>
                                     </tr>
                                 @endforeach
@@ -640,616 +1018,7 @@
             </div>
 
         <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 2: RECEIVE BILLS (SECTION 3)                                   -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif($tab === 'receive_bills' || $tab === 'pending_bills')
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="file-clock" class="w-4 h-4 text-amber-600"></i>
-                            <span>Pending Purchaser Bills Awaiting Reconciliation</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">Approved vendor bills ready for advance matching and physical intake</p>
-                    </div>
-                    <div class="flex items-center gap-3 self-start sm:self-auto">
-                        @if($pendingBills)
-                            <span class="text-xs font-bold text-slate-400">
-                                Showing {{ $pendingBills->firstItem() ?? 0 }}–{{ $pendingBills->lastItem() ?? 0 }} of {{ $pendingBills->total() }} pending bills
-                            </span>
-                        @endif
-                        <button type="button"
-                                @click="openPendingBillsModal()"
-                                @if(($summary['awaiting_approval_count'] ?? 0) === 0) disabled @endif
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-black transition-all shadow-xs {{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer' : 'bg-slate-300 cursor-not-allowed' }}">
-                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
-                            <span>Approve &amp; Receive All{{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? ' (' . $summary['awaiting_approval_count'] . ')' : '' }}</span>
-                        </button>
-                    </div>
-                </div>
-
-                @if(!$pendingBills || $pendingBills->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-<h3 class="text-base font-black text-slate-900">All Bills Reconciled</h3>
-                        <p class="text-xs text-slate-500 mt-1">There are no pending approved purchase bills requiring match or warehouse receiving.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5">Bill / PO</th>
-                                    <th class="p-3.5">Supplier</th>
-                                    <th class="p-3.5">Products</th>
-                                    <th class="p-3.5 text-right">Bill Qty</th>
-                                    <th class="p-3.5 text-right">Already Matched</th>
-                                    <th class="p-3.5 text-right">Still To Receive</th>
-                                    <th class="p-3.5 text-center">Status</th>
-                                    <th class="p-3.5 text-center pr-5">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($pendingBills as $row)
-                                    @php
-                                        $poId = $row['id'];
-                                        $grnId = $row['grn_id'] ?? $row['goods_received_id'] ?? null;
-                                        $billBase = (float) ($row['total_bill_base_qty'] ?? $row['required_base_qty'] ?? $row['quantity'] ?? 0);
-                                        $alreadyMatched = (float) ($row['total_matched_base_qty'] ?? $row['already_matched_base_qty'] ?? 0);
-                                        $remainingBase = max(0.0, round($billBase - $alreadyMatched, 2));
-                                        $isReceived = ($row['receipt_status'] ?? '') === 'received' || (isset($row['warehouse_receive_pending']) && ! $row['warehouse_receive_pending']);
-                                        $rawStatus = $row['match_status'] ?? $row['reconciliation_status'] ?? 'NO ADVANCE';
-                                        $matchStatus = match($rawStatus) {
-                                            'FULLY_MATCHED' => 'Advance Matched',
-                                            'PARTIALLY_MATCHED' => 'Partial Match',
-                                            'UNIT_DIFFERENCE' => 'Unit Issue',
-                                            'NO_ADVANCE', 'UNMATCHED' => 'No Advance',
-                                            default => $rawStatus,
-                                        };
-                                        $statusClass = match($matchStatus) {
-                                            'Advance Matched' => 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                                            'Partial Match' => 'bg-amber-100 text-amber-800 border-amber-200',
-                                            'Unit Issue' => 'bg-rose-100 text-rose-800 border-rose-200',
-                                            default => 'bg-slate-100 text-slate-600 border-slate-200',
-                                        };
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors">
-                                        <td class="p-3.5 pl-5 font-mono font-black text-slate-900">
-                                            <span>{{ $row['po_number'] }}</span>
-                                            @if(!empty($row['grn_number']))
-                                                <span class="block text-[10px] text-slate-500 font-semibold">{{ $row['grn_number'] }}</span>
-                                            @endif
-                                            <span class="block text-[10px] text-slate-400">{{ \Carbon\Carbon::parse($row['order_date'])->format('d M Y') }}</span>
-                                        </td>
-                                        <td class="p-3.5 font-bold text-slate-800">
-                                            {{ $row['supplier_name'] }}
-                                        </td>
-                                        <td class="p-3.5">
-                                            <div class="flex flex-wrap gap-1 max-w-xs">
-                                                @if(!empty($row['match_summary_items']))
-                                                    @foreach(array_slice($row['match_summary_items'], 0, 3) as $it)
-                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-800">
-                                                            {{ $it['product_name'] }} ({{ (float) ($it['quantity'] ?? $it['ordered_qty'] ?? $it['qty'] ?? 0) }} {{ $it['unit'] }})
-                                                        </span>
-                                                    @endforeach
-                                                    @if(count($row['match_summary_items']) > 3)
-                                                        <span class="text-[10px] font-bold text-slate-400 self-center">
-                                                            +{{ count($row['match_summary_items']) - 3 }} more
-                                                        </span>
-                                                    @endif
-                                                @else
-                                                    <span class="text-slate-400 italic text-[11px]">—</span>
-                                                @endif
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-bold text-slate-800">
-                                            {{ number_format($billBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-bold text-emerald-700">
-                                            {{ number_format($alreadyMatched, 2) }} <span class="text-[10px] text-slate-400">KG</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-slate-900">
-                                            {{ number_format($remainingBase, 2) }} <span class="text-[10px] text-slate-400">KG</span>
-                                        </td>
-                                        <td class="p-3.5 text-center">
-                                            <div class="flex flex-col items-center gap-1">
-                                                @if($isReceived)
-                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                        <i data-lucide="check" class="w-3 h-3"></i>
-                                                        <span>Received</span>
-                                                    </span>
-                                                @else
-                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
-                                                        <i data-lucide="clock" class="w-3 h-3"></i>
-                                                        <span>Pending Approval</span>
-                                                    </span>
-                                                @endif
-
-                                                @if($matchStatus !== 'No Advance')
-                                                    <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[9px] font-black uppercase border {{ $statusClass }}">
-                                                        {{ $matchStatus }}
-                                                    </span>
-                                                @endif
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1.5">
-                                            @if(! $isReceived)
-                                                <button type="button"
-                                                        @click="approveAndReceiveSingle({{ $grnId ? (int)$grnId : 'null' }}, {{ $poId }})"
-                                                        :disabled="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}"
-                                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition shadow-2xs cursor-pointer disabled:opacity-50">
-                                                    <template x-if="processingPoId !== {{ $poId }} && processingPoId !== {{ $grnId ? (int)$grnId : -1 }}">
-                                                        <span class="flex items-center gap-1">
-                                                            <i data-lucide="check" class="w-3 h-3 text-white"></i>
-                                                            <span>Approve &amp; Receive</span>
-                                                        </span>
-                                                    </template>
-                                                    <template x-if="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}">
-                                                        <span class="flex items-center gap-1">
-                                                            <span class="inline-block animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
-                                                            <span>Receiving...</span>
-                                                        </span>
-                                                    </template>
-                                                </button>
-                                            @else
-                                                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-500 text-[10px] font-black">
-                                                    <i data-lucide="check-check" class="w-3 h-3 text-emerald-600"></i>
-                                                    <span>Received</span>
-                                                </span>
-                                            @endif
-
-                                            <button type="button"
-                                                    @click="openManualMatch({{ $poId }}, '{{ $row['po_number'] }}', '{{ addslashes($row['supplier_name']) }}')"
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-black hover:bg-slate-800 transition shadow-2xs cursor-pointer">
-                                                <i data-lucide="link" class="w-3 h-3 text-emerald-400"></i>
-                                                <span>Match Bill</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $pendingBills->links() }}
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 3: STOCK WITHOUT BILL (SECTION 2)                              -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif($tab === 'stock_without_bill')
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="package-search" class="w-4 h-4 text-indigo-600"></i>
-                            <span>Physical Stock Without Vendor Bill (Open Advances)</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Advance physical stock received in warehouse where vendor bill has not yet arrived or matched
-                        </p>
-                    </div>
-
-                    <div class="flex items-center gap-2 self-start sm:self-auto">
-                        <button type="button"
-                                @click="openShareMissingBillsModal()"
-                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-black transition-all shadow-sm cursor-pointer">
-                            <i data-lucide="share-2" class="w-4 h-4 text-indigo-200"></i>
-                            <span>Share Missing Bills</span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Multi-select Action Bar for Advance GRN Manual Clear -->
-                <div x-show="selectedClearAdvanceIds.length > 0"
-                     x-cloak
-                     class="mx-4 sm:mx-5 p-3 rounded-2xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3 transition-all">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-600 text-white text-xs font-black" x-text="selectedClearAdvanceIds.length"></span>
-                        <span class="text-xs font-black text-amber-950">
-                            <span x-text="selectedClearAdvanceIds.length"></span> Advance GRN(s) selected
-                        </span>
-                        <span class="text-xs text-amber-700 font-semibold">
-                            (Total Missing Qty: <span class="font-mono font-bold" x-text="getSelectedAdvancesTotalQty().toFixed(2)"></span> KG)
-                        </span>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                        <button type="button"
-                                @click="selectedClearAdvanceIds = []"
-                                class="px-3 py-1.5 rounded-xl border border-amber-300 text-amber-800 hover:bg-amber-100 text-xs font-bold transition cursor-pointer">
-                            Clear Selection
-                        </button>
-                        <button type="button"
-                                @click="openClearAdvancesModal()"
-                                class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition shadow-xs cursor-pointer">
-                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
-                            <span>Clear Selected Advances (<span x-text="selectedClearAdvanceIds.length"></span>)</span>
-                        </button>
-                    </div>
-                </div>
-
-                @if(!$stockWithoutBill || $stockWithoutBill->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Missing Bills</h3>
-                        <p class="text-xs text-slate-500 mt-1">All advance physical intake in this warehouse has been matched with vendor bills.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5 w-10 text-center">
-                                        <input type="checkbox"
-                                               @change="toggleSelectAllAdvances($event)"
-                                               :checked="isAllAdvancesSelected()"
-                                               class="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
-                                    </th>
-                                    <th class="p-3.5">Advance GRN & Date</th>
-                                    <th class="p-3.5">Product Line Items</th>
-                                    <th class="p-3.5 text-right font-black text-indigo-800">Total Missing Qty</th>
-                                    <th class="p-3.5 text-center">Age</th>
-                                    <th class="p-3.5 text-center">Status</th>
-                                    <th class="p-3.5 text-right pr-5">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($stockWithoutBill as $grn)
-                                    @php
-                                        $grnId = (int) $grn['id'];
-                                        $grnNum = $grn['grn_number'] ?? "GRN #{$grnId}";
-                                        $recDate = $grn['received_at'] ? \Carbon\Carbon::parse($grn['received_at'])->format('d M Y') : 'N/A';
-                                        $age = (int) ($grn['age_days'] ?? 0);
-                                        $missingTotal = (float) ($grn['total_missing_qty'] ?? 0.0);
-                                        $items = $grn['items'] ?? [];
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors" :class="isAdvanceSelected({{ $grnId }}) ? 'bg-amber-50/40' : ''">
-                                        <td class="p-3.5 pl-5 text-center align-top">
-                                            <input type="checkbox"
-                                                   :checked="isAdvanceSelected({{ $grnId }})"
-                                                   @change="toggleAdvanceSelection({{ $grnId }})"
-                                                   class="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
-                                        </td>
-                                        <td class="p-3.5 align-top">
-                                            <div class="font-mono font-black text-sm text-indigo-900 flex items-center gap-1.5">
-                                                <span>{{ $grnNum }}</span>
-                                            </div>
-                                            <div class="font-bold text-slate-500 text-[11px] mt-0.5">
-                                                {{ $recDate }}
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 align-top">
-                                            <div class="space-y-1.5">
-                                                @foreach($items as $it)
-                                                    <div class="flex items-center justify-between gap-4 p-1.5 rounded-xl bg-slate-50 border border-slate-100">
-                                                        <div>
-                                                            <span class="font-black text-slate-900">{{ $it['name'] }}</span>
-                                                            @if(!empty($it['sku']))
-                                                                <span class="font-mono text-[10px] text-slate-400 ml-1">({{ $it['sku'] }})</span>
-                                                            @endif
-                                                        </div>
-                                                        <div class="text-right whitespace-nowrap text-[11px]">
-                                                            <span class="font-bold text-slate-500">Rec: {{ number_format((float)$it['received_qty'], 2) }}</span>
-                                                            <span class="text-slate-300 mx-1">|</span>
-                                                            <span class="font-bold text-purple-700">Matched: {{ number_format((float)$it['matched_qty'], 2) }}</span>
-                                                            <span class="text-slate-300 mx-1">|</span>
-                                                            <span class="font-black text-indigo-700">Missing: {{ number_format((float)$it['missing_qty'], 2) }} {{ $it['unit'] }}</span>
-                                                        </div>
-                                                    </div>
-                                                @endforeach
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-sm text-indigo-700 align-top whitespace-nowrap">
-                                            {{ number_format($missingTotal, 2) }} <span class="text-[10px] text-indigo-400">KG</span>
-                                        </td>
-                                        <td class="p-3.5 text-center font-bold align-top whitespace-nowrap {{ $age > 3 ? 'text-rose-600' : 'text-slate-600' }}">
-                                            {{ $age }} {{ Str::plural('day', $age) }}
-                                        </td>
-                                        <td class="p-3.5 text-center align-top whitespace-nowrap">
-                                            <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-indigo-50 text-indigo-800 border border-indigo-200">
-                                                <span>AWAITING BILL</span>
-                                            </span>
-                                        </td>
-                                        <td class="p-3.5 text-right pr-5 align-top whitespace-nowrap">
-                                            <button type="button"
-                                                    @click="openClearSingleAdvance({{ $grnId }})"
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition shadow-2xs cursor-pointer">
-                                                <i data-lucide="check" class="w-3 h-3"></i>
-                                                <span>Clear GRN</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $stockWithoutBill->links() }}
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 4: SHOP RETURNS (SECTION 4)                                    -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif($tab === 'shop_returns')
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="undo-2" class="w-4 h-4 text-blue-600"></i>
-                            <span>Returns From Shops (Sale Reversals)</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Stock returned back to warehouse sellable stock on <strong class="text-slate-800">{{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</strong>
-                        </p>
-                    </div>
-
-                    @if($shopReturns)
-                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
-                            Showing {{ $shopReturns->firstItem() ?? 0 }}–{{ $shopReturns->lastItem() ?? 0 }} of {{ $shopReturns->total() }} returns
-                        </span>
-                    @endif
-                </div>
-
-                <!-- Multi-select Action Bar for Shop Returns -->
-                <div x-show="selectedReturnProducts.length > 0"
-                     x-cloak
-                     class="mx-4 sm:mx-5 p-3 rounded-2xl bg-rose-50 border border-rose-200 flex flex-wrap items-center justify-between gap-3 transition-all">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white text-xs font-black" x-text="selectedReturnProducts.length"></span>
-                        <span class="text-xs font-black text-rose-950">
-                            <span x-text="selectedReturnProducts.length"></span> returned item(s) selected
-                        </span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button type="button"
-                                @click="selectedReturnProducts = []"
-                                class="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-rose-100/60 transition cursor-pointer">
-                            Clear Selection
-                        </button>
-                        <button type="button"
-                                @click="openDamageModalForSelection('returns')"
-                                class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-black shadow-xs transition cursor-pointer">
-                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                            <span>Move Selected to Damage</span>
-                        </button>
-                    </div>
-                </div>
-
-                @if(!$shopReturns || $shopReturns->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Shop Returns Today</h3>
-                        <p class="text-xs text-slate-500 mt-1">There are no shop return movements recorded for {{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5 w-10 text-center">
-                                        <input type="checkbox"
-                                               @change="toggleSelectAllReturns($event)"
-                                               :checked="isAllReturnsSelected()"
-                                               class="w-4 h-4 rounded text-rose-600 border-slate-300 focus:ring-rose-500 cursor-pointer">
-                                    </th>
-                                    <th class="p-3.5">Shop</th>
-                                    <th class="p-3.5">Invoice</th>
-                                    <th class="p-3.5">Product</th>
-                                    <th class="p-3.5 text-right text-blue-900 font-black">Returned Qty</th>
-                                    <th class="p-3.5">Warehouse</th>
-                                    <th class="p-3.5 text-center">Finalized / Return Time</th>
-                                    <th class="p-3.5 text-center">Current Status</th>
-                                    <th class="p-3.5 text-center pr-5">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($shopReturns as $ret)
-                                    @php
-                                        $shop = $ret->shopOrderItem?->shopOrder?->shop;
-                                        $order = $ret->shopOrderItem?->shopOrder;
-                                        $invoice = $order?->invoice;
-                                        $prod = $ret->product;
-                                        $unit = $prod?->unit ?? 'KG';
-                                        $retQty = (float) $ret->quantity;
-                                        $sellable = max(0.0, (float) ($currentStockByProduct[$ret->product_id] ?? 0.0));
-                                        $avail = min($retQty, $sellable);
-                                        $retPayload = [
-                                            'product_id' => $ret->product_id,
-                                            'name' => $prod?->name ?? ('Product #' . $ret->product_id),
-                                            'sku' => $prod?->sku ?? '',
-                                            'unit' => $unit,
-                                            'available_qty' => $avail,
-                                            'quantity' => $avail > 0 ? $avail : 0.0,
-                                            'reason' => 'transit_damage',
-                                            'grade' => 'U',
-                                            'shop_name' => $shop?->name ?? '',
-                                            'invoice_number' => $invoice?->invoice_number ?? '',
-                                            'order_ref' => $invoice?->invoice_number ?? $order?->order_number ?? '',
-                                        ];
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors">
-                                        <td class="p-3.5 pl-5 text-center">
-                                            <input type="checkbox"
-                                                   @change="toggleReturnProduct({{ json_encode($retPayload) }}, $event)"
-                                                   :checked="isReturnSelected({{ $ret->product_id }})"
-                                                   {{ $avail <= 0 ? 'disabled' : '' }}
-                                                   class="w-4 h-4 rounded text-rose-600 border-slate-300 focus:ring-rose-500 cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed">
-                                        </td>
-                                        <td class="p-3.5 font-black text-slate-900">
-                                            <span>{{ $shop?->name ?? 'Shop' }}</span>
-                                            <span class="block text-[10px] font-mono text-slate-400">{{ $shop?->code }}</span>
-                                        </td>
-                                        <td class="p-3.5 font-mono font-bold text-slate-900">
-                                            @if($invoice)
-                                                <a href="{{ route('purchasing.shop-invoices.show', $invoice->invoice_number) }}" class="text-cyan-700 hover:text-cyan-900 hover:underline">
-                                                    {{ $invoice->invoice_number }}
-                                                </a>
-                                                @if($order?->order_number)
-                                                    <span class="block text-[10px] text-slate-400 font-sans">{{ $order->order_number }}</span>
-                                                @endif
-                                            @else
-                                                <span class="text-slate-600">{{ $order?->order_number ?? ('Item #' . $ret->shop_order_item_id) }}</span>
-                                            @endif
-                                        </td>
-                                        <td class="p-3.5 font-bold text-slate-900">
-                                            <span>{{ $prod?->name ?? 'Product #' . $ret->product_id }}</span>
-                                            <span class="block text-[10px] font-mono text-slate-400">{{ $prod?->sku }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-blue-900">
-                                            +{{ number_format($retQty, 2) }} <span class="text-[10px] text-blue-400">{{ $unit }}</span>
-                                            @if($avail < $retQty)
-                                                <span class="block text-[10px] text-amber-600 font-sans font-bold" title="Current sellable stock is lower than returned quantity">
-                                                    ({{ number_format($avail, 2) }} avail)
-                                                </span>
-                                            @endif
-                                        </td>
-                                        <td class="p-3.5 font-bold text-slate-700">
-                                            {{ $ret->warehouse?->name ?? '—' }}
-                                        </td>
-                                        <td class="p-3.5 text-center font-medium text-slate-500 whitespace-nowrap">
-                                            {{ $ret->created_at?->format('H:i') ?? '—' }}
-                                        </td>
-                                        <td class="p-3.5 text-center whitespace-nowrap">
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800">
-                                                Finalized
-                                            </span>
-                                        </td>
-                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap">
-                                            @if($avail > 0)
-                                                <button type="button"
-                                                        @click="openDamageModalSingle({{ $ret->product_id }}, '{{ addslashes($prod?->name ?? '') }}', '{{ $unit }}', {{ $avail }}, '{{ addslashes($prod?->sku ?? '') }}')"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 text-[11px] font-bold border border-rose-200 transition cursor-pointer">
-                                                    <i data-lucide="trash-2" class="w-3 h-3 text-rose-600"></i>
-                                                    <span>Move to Damage</span>
-                                                </button>
-                                            @else
-                                                <button type="button"
-                                                        disabled
-                                                        title="No sellable stock currently available to move to damage"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-400 text-[11px] font-bold border border-slate-200 opacity-50 cursor-not-allowed">
-                                                    <i data-lucide="trash-2" class="w-3 h-3 text-slate-400"></i>
-                                                    <span>Move to Damage</span>
-                                                </button>
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $shopReturns->links() }}
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 5: DAMAGE (SECTION 5)                                          -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif($tab === 'damage')
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="trash-2" class="w-4 h-4 text-rose-600"></i>
-                            <span>Daily Damage &amp; Wastage Write-Offs</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Damaged items written off from sellable warehouse stock on <strong class="text-slate-800">{{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</strong>
-                        </p>
-                    </div>
-
-                    <div class="flex items-center gap-2 self-start sm:self-auto">
-                        <button type="button"
-                                @click="openDamageModal()"
-                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-black transition-all shadow-sm cursor-pointer">
-                            <i data-lucide="plus" class="w-4 h-4 text-rose-200"></i>
-                            <span>Record Damage</span>
-                        </button>
-                    </div>
-                </div>
-
-                @if(!$damageEntries || $damageEntries->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Damage Entries Today</h3>
-                        <p class="text-xs text-slate-500 mt-1">There is zero wastage/damage recorded on {{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5">Product</th>
-                                    <th class="p-3.5 text-right text-rose-900 font-black">Damaged Qty</th>
-                                    <th class="p-3.5">Reason</th>
-                                    <th class="p-3.5">Date</th>
-                                    <th class="p-3.5">Source / Batch</th>
-                                    <th class="p-3.5 text-center pr-5">Recorded By</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($damageEntries as $entry)
-                                    @php
-                                        $prod = $entry->product;
-                                        $unit = $prod?->unit ?? 'KG';
-                                        $reasonLabel = $entry->reason instanceof \App\Enums\Inventory\WastageReason ? $entry->reason->label() : (string) $entry->reason;
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors">
-                                        <td class="p-3.5 pl-5 font-black text-slate-900">
-                                            <span>{{ $prod?->name ?? 'Product #' . $entry->product_id }}</span>
-                                            <span class="block text-[10px] font-mono text-slate-400">{{ $prod?->sku }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-rose-900">
-                                            -{{ number_format((float) $entry->quantity, 2) }} <span class="text-[10px] text-rose-400">{{ $unit }}</span>
-                                        </td>
-                                        <td class="p-3.5">
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-lg bg-rose-50 text-rose-800 border border-rose-200 font-bold text-[11px]">
-                                                {{ $reasonLabel }}
-                                            </span>
-                                        </td>
-                                        <td class="p-3.5 font-bold text-slate-600 whitespace-nowrap">
-                                            {{ $entry->wastage_date?->format('d M Y') ?? '—' }}
-                                        </td>
-                                        <td class="p-3.5 text-slate-600 font-medium">
-                                            <span>{{ $entry->batch?->reference ?? 'Direct Warehouse Stock' }}</span>
-                                            @if($entry->notes)
-                                                <span class="block text-[10px] text-slate-400 truncate max-w-xs">{{ $entry->notes }}</span>
-                                            @endif
-                                        </td>
-                                        <td class="p-3.5 text-center pr-5 font-bold text-slate-700">
-                                            {{ $entry->recordedBy?->name ?? 'Staff' }}
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $damageEntries->links() }}
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 6: PHYSICAL CHECK (SECTION 6)                                  -->
+        <!-- TAB 5: PHYSICAL CHECK                                              -->
         <!-- ────────────────────────────────────────────────────────────────── -->
         @elseif($tab === 'physical_check')
             <div class="space-y-6">
@@ -1257,11 +1026,11 @@
                     <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div>
                             <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                                <i data-lucide="clipboard-check" class="w-4 h-4 text-amber-600"></i>
-                                <span>Physical Count Reconciliation &amp; Stock Audit</span>
+                                <i data-lucide="clipboard-check" class="w-4 h-4 text-blue-600"></i>
+                                <span>Physical Check</span>
                             </h2>
                             <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                                Enter physical counts to reconcile variances via canonical StockAdjustmentService
+                                Reconcile system inventory with physical count via StockAdjustmentService or write off to damage
                             </p>
                         </div>
 
@@ -1286,10 +1055,9 @@
                                 <thead>
                                     <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
                                         <th class="p-3.5 pl-5">Product</th>
-                                        <th class="p-3.5">Category</th>
-                                        <th class="p-3.5 text-right font-black text-slate-900">ERP Balance</th>
-                                        <th class="p-3.5 text-center w-40">Physical Count</th>
-                                        <th class="p-3.5 text-right font-black">Variance</th>
+                                        <th class="p-3.5 text-right font-black text-slate-900">System Qty</th>
+                                        <th class="p-3.5 text-center w-40">Physical Qty</th>
+                                        <th class="p-3.5 text-right font-black">Difference</th>
                                         <th class="p-3.5 text-center pr-5">Action</th>
                                     </tr>
                                 </thead>
@@ -1312,10 +1080,7 @@
                                             }">
                                             <td class="p-3.5 pl-5 font-black text-slate-900">
                                                 <span>{{ $row['name'] }}</span>
-                                                <span class="block text-[10px] font-mono text-slate-400">{{ $row['sku'] }}</span>
-                                            </td>
-                                            <td class="p-3.5 font-bold text-slate-600">
-                                                {{ $row['category'] }}
+                                                <span class="block text-[10px] font-mono text-slate-400">{{ $row['sku'] }} • {{ $row['category'] }}</span>
                                             </td>
                                             <td class="p-3.5 text-right font-mono font-black text-slate-900">
                                                 {{ number_format($erpBal, 2) }} <span class="text-[10px] text-slate-400 font-sans">{{ $unit }}</span>
@@ -1326,7 +1091,7 @@
                                                            step="0.01"
                                                            min="0"
                                                            x-model="counted"
-                                                           class="w-full text-center px-2 py-1 text-xs font-mono font-black rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+                                                           class="w-full text-center px-2 py-1 text-xs font-mono font-black rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
                                                 </div>
                                             </td>
                                             <td class="p-3.5 text-right font-mono font-black"
@@ -1334,7 +1099,7 @@
                                                 <span x-text="(diff > 0 ? '+' : '') + diff.toFixed(2)"></span>
                                                 <span class="text-[10px] font-sans text-slate-400">{{ $unit }}</span>
                                             </td>
-                                            <td class="p-3.5 text-center pr-5 whitespace-nowrap">
+                                            <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1.5">
                                                 <form method="POST" action="{{ route('inventory.stock.adjustments.store', $row['product'] ?? $prodId) }}" class="inline-block" onsubmit="return confirm('Confirm physical stock adjustment?');">
                                                     @csrf
                                                     <input type="hidden" name="system_qty" value="{{ $erpBal }}">
@@ -1350,9 +1115,18 @@
                                                             class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-black transition disabled:opacity-30 cursor-pointer"
                                                             :class="diff === 0 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : (diff > 0 ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs' : 'bg-rose-700 hover:bg-rose-800 text-white shadow-2xs')">
                                                         <i data-lucide="check" class="w-3 h-3"></i>
-                                                        <span>Reconcile</span>
+                                                        <span>Update Inventory</span>
                                                     </button>
                                                 </form>
+
+                                                @if($erpBal > 0)
+                                                    <button type="button"
+                                                            @click="openDamageModalSingle({{ $prodId }}, '{{ addslashes($row['name']) }}', '{{ $unit }}', {{ $erpBal }}, '{{ addslashes($row['sku']) }}')"
+                                                            class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold border border-rose-200 transition cursor-pointer">
+                                                        <i data-lucide="trash-2" class="w-3 h-3 text-rose-600"></i>
+                                                        <span>Move to Damage</span>
+                                                    </button>
+                                                @endif
                                             </td>
                                         </tr>
                                     @endforeach
@@ -1371,7 +1145,7 @@
                     <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-3">
                         <div class="p-4 sm:p-5 border-b border-slate-100">
                             <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                                <i data-lucide="history" class="w-4 h-4 text-amber-600"></i>
+                                <i data-lucide="history" class="w-4 h-4 text-blue-600"></i>
                                 <span>Adjustments Recorded on {{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</span>
                             </h3>
                         </div>

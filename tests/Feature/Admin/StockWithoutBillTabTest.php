@@ -50,7 +50,7 @@ class StockWithoutBillTabTest extends TestCase
         $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=stock_without_bill&date=2026-09-09');
 
         $response->assertStatus(200);
-        $response->assertViewHas('tab', 'stock_without_bill');
+        $response->assertViewHas('tab', 'advance_pending');
         $response->assertViewHas('unbilledAdvRows');
         $response->assertViewHas('unbilledAdvGrns');
         $response->assertViewHas('unbilledInventory');
@@ -79,7 +79,7 @@ class StockWithoutBillTabTest extends TestCase
         $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=stock_without_bill&date=2026-09-09');
 
         $response->assertStatus(200);
-        $response->assertViewHas('tab', 'stock_without_bill');
+        $response->assertViewHas('tab', 'advance_pending');
         $this->assertNotEmpty($response->viewData('unbilledAdvGrns'));
     }
 
@@ -180,6 +180,6 @@ class StockWithoutBillTabTest extends TestCase
         $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=stock_without_bill&date=2026-09-09');
 
         $response->assertStatus(200);
-        $response->assertViewHas('tab', 'stock_without_bill');
+        $response->assertViewHas('tab', 'advance_pending');
     }
 }
