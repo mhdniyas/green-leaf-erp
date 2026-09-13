@@ -10,6 +10,7 @@ use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseGradePrice;
+use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\Shop;
@@ -319,13 +320,13 @@ class PurchaserRouteCachingPhase3Test extends TestCase
         $res->assertSee('12.50');
     }
 
-    public function test_purchaser_cart_cancel_overdue_work_invalidates_cache(): void
+    public function test_purchaser_cancel_overdue_work_invalidates_cache(): void
     {
         // Prime cache
         $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => '2026-08-24']))->assertOk();
 
         // Bulk cancel overdue work (which uses query()->update() bypass)
-        PurchaserCart::cancelOverdueCartsAndOrders(Carbon::parse('2026-08-25'));
+        PurchaseOrder::cancelOverdueOrders(Carbon::parse('2026-08-25'));
         $this->commitTestTransaction();
 
         // Next read executes cleanly

@@ -2,14 +2,11 @@
 
 namespace App\Models;
 
-use App\Enums\Purchasing\POStatus;
-use App\Services\Purchasing\PurchaserReadCacheService;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class PurchaserCart extends Model
 {
@@ -158,27 +155,5 @@ class PurchaserCart extends Model
         } while (self::query()->where('cart_number', $cartNumber)->exists());
 
         return $cartNumber;
-    }
-
-    public static function cancelOverdueCartsAndOrders(Carbon $operationalDate): void
-    {
-        self::query()
-            ->where('business_date', '<', $operationalDate->toDateString())
-            ->where('status', 'draft')
-            ->update(['status' => 'cancelled']);
-
-        PurchaseOrder::query()
-            ->where('order_date', '<', $operationalDate->toDateString())
-            ->whereIn('status', [
-                POStatus::Draft,
-                POStatus::Approved,
-                POStatus::SentToSupplier,
-                POStatus::PartiallyReceived,
-            ])
-            ->update(['status' => POStatus::Cancelled]);
-
-        DB::afterCommit(function (): void {
-            app(PurchaserReadCacheService::class)->invalidate(['carts', 'orders']);
-        });
     }
 }

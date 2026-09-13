@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Purchasing\POStatus;
+use App\Services\Purchasing\PurchaserReadCacheService;
 use Database\Factories\PurchaseOrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
@@ -147,5 +150,22 @@ class PurchaseOrder extends Model
                     });
             })
             ->exists();
+    }
+
+    public static function cancelOverdueOrders(Carbon $operationalDate): void
+    {
+        self::query()
+            ->where('order_date', '<', $operationalDate->toDateString())
+            ->whereIn('status', [
+                POStatus::Draft,
+                POStatus::Approved,
+                POStatus::SentToSupplier,
+                POStatus::PartiallyReceived,
+            ])
+            ->update(['status' => POStatus::Cancelled]);
+
+        DB::afterCommit(function (): void {
+            app(PurchaserReadCacheService::class)->invalidate(['orders']);
+        });
     }
 }

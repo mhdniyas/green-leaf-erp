@@ -43,7 +43,7 @@ class PurchaserRequestPerformanceAndCleanupTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_cleanup_command_cancels_only_overdue_eligible_work_and_is_idempotent(): void
+    public function test_cleanup_command_cancels_only_overdue_eligible_purchase_orders_and_is_idempotent(): void
     {
         $overdueCart = $this->cart('2026-08-23', 'draft');
         $currentCart = $this->cart('2026-08-24', 'draft');
@@ -70,7 +70,7 @@ class PurchaserRequestPerformanceAndCleanupTest extends TestCase
         $this->artisan('purchaser:cancel-overdue-work')->assertSuccessful();
         $this->artisan('purchaser:cancel-overdue-work')->assertSuccessful();
 
-        $this->assertSame('cancelled', $overdueCart->refresh()->status);
+        $this->assertSame('draft', $overdueCart->refresh()->status);
         $this->assertSame('draft', $currentCart->refresh()->status);
         $this->assertSame('submitted', $submittedCart->refresh()->status);
         $this->assertSame(POStatus::Cancelled, $overdueOrder->refresh()->status);
