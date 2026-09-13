@@ -25,6 +25,8 @@
             receivingSingleId: null,
             receivingPending: false,
             receivingDate: null,
+            savingItemId: null,
+            availableUnits: ['kg', 'box', 'piece', 'bunch', 'bag', 'packet', 'crate'],
             search: '',
             perPage: 50,
             currentPage: 1,
@@ -335,8 +337,55 @@
                 const message = lines.join('\n');
                 window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent(message), '_blank', 'noopener');
             },
+            getUnitsForItem(item) {
+                const list = [...this.availableUnits];
+                if (item && item.unit) {
+                    const uTrim = item.unit.trim().toLowerCase();
+                    if (uTrim && !list.map(u => u.toLowerCase()).includes(uTrim)) {
+                        list.push(item.unit.trim());
+                    }
+                }
+                return list;
+            },
+            async toggleItemUnit(item, targetUnit) {
+                if (!item || !targetUnit) return;
+                const currentUnit = (item.unit || '').trim().toLowerCase();
+                const newUnit = targetUnit.trim().toLowerCase();
+                if (currentUnit === newUnit || this.saving) return;
+
+                this.saving = true;
+                this.savingItemId = item.id;
+                try {
+                    const res = await fetch('{{ route('admin.cashbook.inventory.update-item-unit') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            goods_received_item_id: item.id,
+                            new_unit: targetUnit
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        item.unit = targetUnit;
+                        window.location.reload();
+                    } else {
+                        alert(data.message || 'Failed to update unit');
+                        this.saving = false;
+                        this.savingItemId = null;
+                    }
+                } catch (e) {
+                    alert('Error updating unit: ' + e.message);
+                    this.saving = false;
+                    this.savingItemId = null;
+                }
+            },
             async saveUnit(itemId, newUnit) {
                 this.saving = true;
+                this.savingItemId = itemId;
                 try {
                     const res = await fetch('{{ route('admin.cashbook.inventory.update-item-unit') }}', {
                         method: 'POST',
@@ -356,10 +405,12 @@
                     } else {
                         alert(data.message || 'Failed to update unit');
                         this.saving = false;
+                        this.savingItemId = null;
                     }
                 } catch (e) {
                     alert('Error updating unit: ' + e.message);
                     this.saving = false;
+                    this.savingItemId = null;
                 }
             }
          }">
@@ -941,7 +992,7 @@
 
         <!-- Fix Unit Modal -->
         <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-            <div @click.outside="modalOpen = false" class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div @click.outside="modalOpen = false" class="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div>
                         <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
@@ -950,46 +1001,48 @@
                         </h3>
                         <p class="text-xs text-slate-500 mt-0.5" x-text="currentRow?.product_code ? `${currentRow.product_code} · ${currentRow.product_name}` : currentRow?.product_name"></p>
                     </div>
-                    <button type="button" @click="modalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base">✕</button>
+                    <button type="button" @click="modalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
                 </div>
 
                 <div class="space-y-3 max-h-96 overflow-y-auto pr-1">
                     <template x-for="item in currentRow?.editable_items || []" :key="item.id">
-                        <div class="p-3 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3 text-xs">
-                            <div>
+                        <div class="p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                            <div class="min-w-[140px]">
                                 <div class="flex items-center gap-1.5">
-                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider"
-                                          :class="item.type === 'Advance' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'"
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider"
+                                          :class="item.type === 'Advance' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'"
                                           x-text="item.type"></span>
-                                    <span class="font-bold text-slate-800" x-text="item.grn_number"></span>
+                                    <span class="font-bold text-slate-900" x-text="item.grn_number"></span>
                                 </div>
                                 <div class="text-slate-500 font-mono mt-1">
-                                    Qty: <span class="font-bold text-slate-800" x-text="item.qty"></span> <span x-text="item.unit"></span>
+                                    Qty: <span class="font-bold text-slate-800" x-text="item.qty"></span> <span class="font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100" x-text="item.unit"></span>
                                 </div>
                             </div>
 
-                            <form @submit.prevent="saveUnit(item.id, $event.target.new_unit.value)" class="flex items-center gap-1.5">
-                                <select name="new_unit" class="h-8 px-2 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
-                                    <option value="kg" :selected="item.unit.toLowerCase() === 'kg'">kg</option>
-                                    <option value="piece" :selected="item.unit.toLowerCase() === 'piece'">piece</option>
-                                    <option value="box" :selected="item.unit.toLowerCase() === 'box'">box</option>
-                                    <option value="bunch" :selected="item.unit.toLowerCase() === 'bunch'">bunch</option>
-                                    <option value="bag" :selected="item.unit.toLowerCase() === 'bag'">bag</option>
-                                    <option value="packet" :selected="item.unit.toLowerCase() === 'packet'">packet</option>
-                                    <option value="crate" :selected="item.unit.toLowerCase() === 'crate'">crate</option>
-                                </select>
-                                <button type="submit"
-                                        :disabled="saving"
-                                        class="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
-                                    Save
-                                </button>
-                            </form>
+                            <!-- Toggle Pill Buttons -->
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <template x-for="u in getUnitsForItem(item)" :key="u">
+                                    <button type="button"
+                                            @click="toggleItemUnit(item, u)"
+                                            :disabled="saving"
+                                            :title="'Set unit to ' + u"
+                                            :class="item.unit.toLowerCase() === u.toLowerCase()
+                                                ? 'bg-indigo-600 text-white font-bold shadow-xs ring-2 ring-indigo-300 ring-offset-1 cursor-default'
+                                                : 'bg-white hover:bg-slate-100 hover:text-indigo-700 text-slate-700 border border-slate-200 hover:border-indigo-300 cursor-pointer'"
+                                            class="px-2.5 py-1 rounded-lg text-xs font-semibold transition disabled:opacity-50 inline-flex items-center gap-1">
+                                        <i data-lucide="loader-2" x-show="savingItemId === item.id && item.unit.toLowerCase() !== u.toLowerCase()" class="w-3 h-3 animate-spin text-indigo-500"></i>
+                                        <i data-lucide="check" x-show="item.unit.toLowerCase() === u.toLowerCase() && savingItemId !== item.id" class="w-3 h-3 text-white"></i>
+                                        <span x-text="u"></span>
+                                    </button>
+                                </template>
+                            </div>
                         </div>
                     </template>
                 </div>
 
-                <div class="flex justify-end pt-2">
-                    <button type="button" @click="modalOpen = false" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+                <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <p class="text-[11px] text-slate-400">Click any unit to instantly toggle and update.</p>
+                    <button type="button" @click="modalOpen = false" class="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
                         Close
                     </button>
                 </div>
