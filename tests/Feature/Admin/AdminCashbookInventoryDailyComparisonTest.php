@@ -438,4 +438,48 @@ class AdminCashbookInventoryDailyComparisonTest extends TestCase
         $this->assertEquals($this->tomato->id, $rows->first()['product_id']);
         $this->assertEquals(12.00, $rows->first()['advance_qty']);
     }
+
+    public function test_inventory_page_warehouse_dropdown_includes_all_authorized_warehouses_when_one_warehouse_selected(): void
+    {
+        $this->actingAs($this->admin);
+
+        // Access with warehouse_id=2 (Fruit Warehouse)
+        $response = $this->get('/admin/cashbook/inventory?date=2026-09-01&warehouse_id='.$this->warehouseFruit->id);
+
+        $response->assertOk();
+        $warehouses = $response->viewData('warehouses');
+
+        // Both Vegetable and Fruit warehouses should be available in dropdown
+        $this->assertCount(2, $warehouses);
+        $this->assertTrue($warehouses->contains('id', $this->warehouseVeg->id));
+        $this->assertTrue($warehouses->contains('id', $this->warehouseFruit->id));
+    }
+
+    public function test_inventory_page_rows_contain_stock_balance(): void
+    {
+        $grn = GoodsReceived::factory()->create([
+            'warehouse_id' => $this->warehouseFruit->id,
+            'receipt_type' => 'warehouse_advance',
+            'status' => 'received',
+            'received_at' => '2026-09-01 10:00:00',
+        ]);
+
+        GoodsReceivedItem::factory()->create([
+            'goods_received_id' => $grn->id,
+            'product_id' => $this->apple->id,
+            'received_qty' => 10.00,
+            'received_unit' => 'box',
+        ]);
+
+        $this->actingAs($this->admin);
+
+        $response = $this->get('/admin/cashbook/inventory?date=2026-09-01&warehouse_id='.$this->warehouseFruit->id);
+
+        $response->assertOk();
+        $rows = $response->viewData('rows');
+        $this->assertNotEmpty($rows);
+        $row = $rows->first();
+        $this->assertArrayHasKey('stock_balance', $row);
+        $this->assertArrayHasKey('formatted_stock_balance', $row);
+    }
 }

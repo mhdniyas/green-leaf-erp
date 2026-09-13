@@ -1466,12 +1466,16 @@ class AdminCashbookReportsController extends Controller
             abort(404, 'Warehouse not found.');
         }
 
+        $userAuthorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user()
+        );
+
         $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
             $request->user(),
             $selectedWarehouseId
         );
 
-        if ($selectedWarehouseId !== null && $authorizedWarehouseIds !== null && ! in_array($selectedWarehouseId, $authorizedWarehouseIds, true)) {
+        if ($selectedWarehouseId !== null && $userAuthorizedWarehouseIds !== null && ! in_array($selectedWarehouseId, $userAuthorizedWarehouseIds, true)) {
             abort(403, 'Unauthorized warehouse access.');
         }
 
@@ -1516,7 +1520,7 @@ class AdminCashbookReportsController extends Controller
 
         $warehouses = Warehouse::query()
             ->where('is_active', true)
-            ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('id', $authorizedWarehouseIds))
+            ->when($userAuthorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('id', $userAuthorizedWarehouseIds))
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
 
@@ -1601,6 +1605,9 @@ class AdminCashbookReportsController extends Controller
             })
             ->get();
 
+        $stockCollection = app(StockMovementRepository::class)->currentStockByProductAndGrade(null, $selectedWarehouseId);
+        $stockByProductId = $stockCollection->groupBy('product_id')->map(fn ($items): float => (float) collect($items)->sum('current_stock'));
+
         $rows = [];
 
         $formatNumber = static function (float $val): string {
@@ -1613,6 +1620,10 @@ class AdminCashbookReportsController extends Controller
             $product = $products->get($productId);
             $prodAdvItems = $advanceItems->where('product_id', $productId);
             $prodBillItems = $billItems->where('product_id', $productId);
+
+            $stockBalance = round((float) ($stockByProductId->get($productId) ?? 0.0), 2);
+            $stockUnit = $product?->unit ?? 'kg';
+            $formattedStockBalance = $formatNumber($stockBalance).' '.$stockUnit;
 
             // Group advance items by unit
             $advByUnit = [];
@@ -1710,6 +1721,8 @@ class AdminCashbookReportsController extends Controller
                     'unmatched_adv_qty' => $unmatchedAdvQty,
                     'match_pct' => $matchPct,
                     'formatted_match_pct' => round($matchPct).'%',
+                    'stock_balance' => $stockBalance,
+                    'formatted_stock_balance' => $formattedStockBalance,
                     'unit_mismatch' => false,
                     'action_type' => $actionType,
                     'editable_items' => array_merge($advData['items'], $billData['items']),
@@ -1757,6 +1770,8 @@ class AdminCashbookReportsController extends Controller
                     'unmatched_adv_qty' => $advQtyTotal,
                     'match_pct' => null,
                     'formatted_match_pct' => '--',
+                    'stock_balance' => $stockBalance,
+                    'formatted_stock_balance' => $formattedStockBalance,
                     'unit_mismatch' => true,
                     'action_type' => 'fix_unit',
                     'editable_items' => array_merge($advItemsList, $billItemsList),
@@ -1787,6 +1802,8 @@ class AdminCashbookReportsController extends Controller
                         'unmatched_adv_qty' => $advQty,
                         'match_pct' => 0.0,
                         'formatted_match_pct' => '0%',
+                        'stock_balance' => $stockBalance,
+                        'formatted_stock_balance' => $formattedStockBalance,
                         'unit_mismatch' => false,
                         'action_type' => 'none',
                         'editable_items' => $advData['items'],
@@ -1818,6 +1835,8 @@ class AdminCashbookReportsController extends Controller
                         'unmatched_adv_qty' => 0.0,
                         'match_pct' => 0.0,
                         'formatted_match_pct' => '0%',
+                        'stock_balance' => $stockBalance,
+                        'formatted_stock_balance' => $formattedStockBalance,
                         'unit_mismatch' => false,
                         'action_type' => 'none',
                         'editable_items' => $billData['items'],
@@ -2523,14 +2542,20 @@ class AdminCashbookReportsController extends Controller
                 })->implode(', ');
             }
 
+            $totalQty = $type === 'po'
+                ? (float) $record->items->sum('quantity')
+                : (float) $record->items->sum('received_qty');
+
             return [
                 'sl' => $index + 1,
                 'id' => $record->id,
                 'type' => $type,
                 'bill_number' => $billNumber,
+                'grn_number' => $type === 'grn' ? ($record->grn_number ?: 'GRN-'.$record->id) : ($record->po_number ?: 'PO-'.$record->id),
                 'supplier_name' => $supplierName,
                 'items_count' => $itemsCount,
                 'items_summary' => $itemsSummary ?: 'No items',
+                'qty' => $totalQty,
                 'status' => 'Pending Receive',
             ];
         })->values()->all();

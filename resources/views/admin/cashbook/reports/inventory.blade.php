@@ -79,6 +79,8 @@
                             const valA = a.match_pct === null || a.match_pct === undefined ? -1 : Number(a.match_pct);
                             const valB = b.match_pct === null || b.match_pct === undefined ? -1 : Number(b.match_pct);
                             res = valA - valB;
+                        } else if (this.sortColumn === 'stock_balance') {
+                            res = (Number(a.stock_balance) || 0) - (Number(b.stock_balance) || 0);
                         }
                         return this.sortDirection === 'asc' ? res : -res;
                     });
@@ -672,6 +674,15 @@
                                     </span>
                                 </div>
                             </th>
+                            <th scope="col" @click="sortBy('stock_balance')" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-right cursor-pointer hover:bg-slate-100/80 transition">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <span>Inv Balance</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none">
+                                        <span :class="sortColumn === 'stock_balance' && sortDirection === 'asc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'stock_balance' && sortDirection === 'desc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
                             <th scope="col" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-center w-36">
                                 Action
                             </th>
@@ -730,6 +741,12 @@
                                     </template>
                                 </td>
 
+                                <!-- Inventory Balance -->
+                                <td class="py-2.5 px-4 text-right font-mono font-bold">
+                                    <span :class="Number(row.stock_balance) < 0 ? 'text-rose-600' : (Number(row.stock_balance) > 0 ? 'text-slate-900' : 'text-slate-400')"
+                                          x-text="row.formatted_stock_balance"></span>
+                                </td>
+
                                 <!-- Action -->
                                 <td class="py-2.5 px-4 text-center">
                                     <template x-if="row.action_type === 'fix_unit'">
@@ -772,7 +789,7 @@
                         </template>
 
                         <tr x-show="filteredRows.length === 0">
-                            <td colspan="7" class="py-8 text-center text-slate-400 font-semibold">
+                            <td colspan="8" class="py-8 text-center text-slate-400 font-semibold">
                                 <span x-show="search">No products matching "<span x-text="search"></span>".</span>
                                 <span x-show="!search">No receipts or advance entries recorded for {{ \Carbon\Carbon::parse($date)->format('d M Y') }}.</span>
                             </td>
