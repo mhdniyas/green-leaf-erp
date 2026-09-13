@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class SingleItemUnitCorrectionTest extends TestCase
@@ -24,9 +25,13 @@ class SingleItemUnitCorrectionTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private Warehouse $warehouse;
+
     private Supplier $supplier;
+
     private Product $cauliflower;
+
     private Product $potato;
 
     protected function setUp(): void
@@ -278,7 +283,7 @@ class SingleItemUnitCorrectionTest extends TestCase
 
         $payload = [
             'purchase_order_id' => $po->id,
-            'client_submission_id' => (string) \Illuminate\Support\Str::uuid(),
+            'client_submission_id' => (string) Str::uuid(),
             'receipt_type' => 'normal_purchase',
             'warehouse_id' => $this->warehouse->id,
             'received_at' => '2026-09-13 10:00:00',

@@ -26,6 +26,8 @@ class StoreGoodsReceivedRequest extends FormRequest
             'items.*.purchase_order_item_id' => ['required', 'integer', 'exists:purchase_order_items,id'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.received_qty' => ['required', 'numeric', 'min:0'],
+            'items.*.received_unit' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'items.*.unit' => ['sometimes', 'nullable', 'string', 'max:20'],
         ];
     }
 }

@@ -389,10 +389,15 @@ class GoodsReceivedService
                 $poItem = PurchaseOrderItem::findOrFail($item['purchase_order_item_id']);
                 $variance = $item['received_qty'] - (float) $poItem->quantity;
 
+                $receivedUnit = ! empty($item['received_unit'])
+                    ? ProductUnit::normalizeUnit((string) $item['received_unit'])
+                    : ($poItem->purchase_unit ?: (Product::find($item['product_id'])?->unit ?? 'kg'));
+
                 $grn->items()->create([
                     'purchase_order_item_id' => $poItem->id,
                     'product_id' => $item['product_id'],
                     'received_qty' => $item['received_qty'],
+                    'received_unit' => $receivedUnit,
                     'variance' => $variance,
                 ]);
             }

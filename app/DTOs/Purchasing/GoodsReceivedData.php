@@ -35,11 +35,15 @@ final readonly class GoodsReceivedData
         $reqItems = $request->input('items', []);
 
         foreach ($reqItems as $item) {
+            $rawUnit = isset($item['received_unit']) && $item['received_unit'] !== null && trim((string) $item['received_unit']) !== ''
+                ? (string) $item['received_unit']
+                : (isset($item['unit']) && $item['unit'] !== null && trim((string) $item['unit']) !== '' ? (string) $item['unit'] : null);
+
             $items[] = [
                 'purchase_order_item_id' => isset($item['purchase_order_item_id']) && $item['purchase_order_item_id'] !== null ? (int) $item['purchase_order_item_id'] : null,
                 'product_id' => (int) ($item['product_id'] ?? 0),
                 'received_qty' => (float) ($item['received_qty'] ?? 0.000),
-                'received_unit' => isset($item['received_unit']) && $item['received_unit'] !== null ? (string) $item['received_unit'] : null,
+                'received_unit' => $rawUnit,
             ];
         }
 

@@ -317,17 +317,17 @@ class WarehouseReceiveFlowTest extends TestCase
 
         $response = $this->get('/admin/cashbook/inventory');
         $response->assertOk()
-            ->assertSee('Inventory Action Center')
-            ->assertSee('Advance Pending')
-            ->assertSee('Bills &amp; Match', false)
-            ->assertSee('Loadout Without Bill')
-            ->assertSee('Inventory')
-            ->assertSee('Physical Check');
+            ->assertSee('Daily Inventory Comparison')
+            ->assertSee('Product')
+            ->assertSee('Advance')
+            ->assertSee('Bill')
+            ->assertSee('Diff')
+            ->assertSee('Previous Day')
+            ->assertSee('Next Day');
 
-        foreach (['advance_pending', 'bills_match', 'loadout_without_bill', 'inventory', 'physical_check', 'current_inventory', 'receive_bills', 'stock_without_bill', 'shop_returns', 'damage', 'today_advances', 'pending_bills', 'unbilled_inventory', 'unit_differences'] as $tab) {
-            $tabResponse = $this->get('/admin/cashbook/inventory?tab='.$tab.'&warehouse_id='.$warehouse->id.'&date='.now()->toDateString());
-            $tabResponse->assertOk();
-        }
+        $dateResponse = $this->get('/admin/cashbook/inventory?date='.now()->toDateString());
+        $dateResponse->assertOk()
+            ->assertSee('Daily Inventory Comparison');
     }
 
     public function test_advance_goods_receipt_without_po_creates_bill_pending_receipt_and_stock_batches_for_multiple_products(): void
@@ -480,60 +480,60 @@ class WarehouseReceiveFlowTest extends TestCase
         ]);
 
         // Verify Before: Pending YES
-        $pendingBefore = $this->getJson("/api/v1/purchasing/orders?status=pending");
+        $pendingBefore = $this->getJson('/api/v1/purchasing/orders?status=pending');
         $pendingBefore->assertOk();
-        $pendingIdsBefore = collect($pendingBefore->json("data"))->pluck("id")->all();
+        $pendingIdsBefore = collect($pendingBefore->json('data'))->pluck('id')->all();
         $this->assertContains($po->id, $pendingIdsBefore);
 
         // 2. Receive the bill (like Flutter does)
-        $submissionId = "flutter-sub-" . uniqid();
+        $submissionId = 'flutter-sub-'.uniqid();
         $receivePayload = [
-            "client_submission_id" => $submissionId,
-            "purchase_order_id" => $po->id,
-            "received_at" => now()->toDateString(),
-            "bill_status" => "bill_available",
-            "bill_number" => "BILL-TEST-001",
-            "items" => [
+            'client_submission_id' => $submissionId,
+            'purchase_order_id' => $po->id,
+            'received_at' => now()->toDateString(),
+            'bill_status' => 'bill_available',
+            'bill_number' => 'BILL-TEST-001',
+            'items' => [
                 [
-                    "purchase_order_item_id" => $poItem->id,
-                    "product_id" => $this->productA->id,
-                    "received_qty" => 10.00,
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $this->productA->id,
+                    'received_qty' => 10.00,
                 ],
             ],
         ];
 
-        $receiveRes = $this->postJson("/api/v1/purchasing/grns", $receivePayload);
-        $receiveRes->assertCreated()->assertJsonPath("success", true);
-        $grnId = $receiveRes->json("data.id");
+        $receiveRes = $this->postJson('/api/v1/purchasing/grns', $receivePayload);
+        $receiveRes->assertCreated()->assertJsonPath('success', true);
+        $grnId = $receiveRes->json('data.id');
 
         // Check GRN exists once
-        $this->assertEquals(1, GoodsReceived::where("purchase_order_id", $po->id)->count());
+        $this->assertEquals(1, GoodsReceived::where('purchase_order_id', $po->id)->count());
 
         // Check StockBatch exists once & warehouse_receive_pending = false
-        $batches = StockBatch::where("goods_received_id", $grnId)->get();
+        $batches = StockBatch::where('goods_received_id', $grnId)->get();
         $this->assertCount(1, $batches);
         $this->assertFalse((bool) $batches->first()->warehouse_receive_pending);
         $this->assertEquals(10.00, (float) $batches->first()->total_kg);
 
         // Verify After Receive: Pending NO
-        $pendingAfter = $this->getJson("/api/v1/purchasing/orders?status=pending");
+        $pendingAfter = $this->getJson('/api/v1/purchasing/orders?status=pending');
         $pendingAfter->assertOk();
-        $pendingIdsAfter = collect($pendingAfter->json("data"))->pluck("id")->all();
+        $pendingIdsAfter = collect($pendingAfter->json('data'))->pluck('id')->all();
         $this->assertNotContains($po->id, $pendingIdsAfter);
 
         // Verify Reload: Pending NO
-        $pendingReload = $this->getJson("/api/v1/purchasing/orders?status=pending");
+        $pendingReload = $this->getJson('/api/v1/purchasing/orders?status=pending');
         $pendingReload->assertOk();
-        $pendingIdsReload = collect($pendingReload->json("data"))->pluck("id")->all();
+        $pendingIdsReload = collect($pendingReload->json('data'))->pluck('id')->all();
         $this->assertNotContains($po->id, $pendingIdsReload);
 
         // Verify Retry with same client_submission_id does NOT duplicate GRN or inventory
-        $retryRes = $this->postJson("/api/v1/purchasing/grns", $receivePayload);
+        $retryRes = $this->postJson('/api/v1/purchasing/grns', $receivePayload);
         $retryRes->assertSuccessful();
 
-        $this->assertEquals(1, GoodsReceived::where("purchase_order_id", $po->id)->count());
-        $this->assertEquals(1, StockBatch::where("goods_received_id", $grnId)->count());
-        $this->assertEquals(10.00, (float) StockBatch::where("goods_received_id", $grnId)->sum("total_kg"));
+        $this->assertEquals(1, GoodsReceived::where('purchase_order_id', $po->id)->count());
+        $this->assertEquals(1, StockBatch::where('goods_received_id', $grnId)->count());
+        $this->assertEquals(10.00, (float) StockBatch::where('goods_received_id', $grnId)->sum('total_kg'));
     }
 
     public function test_flutter_warehouse_receive_with_existing_pending_grn_confirms_existing(): void
@@ -556,40 +556,40 @@ class WarehouseReceiveFlowTest extends TestCase
 
         // Pre-create a GRN that has pending batch (simulate old/stuck GRN)
         $existingGrn = GoodsReceived::factory()->create([
-            "purchase_order_id" => $po->id,
-            "status" => "approved",
-            "bill_status" => "bill_available",
-            "received_at" => now()->toDateString(),
+            'purchase_order_id' => $po->id,
+            'status' => 'approved',
+            'bill_status' => 'bill_available',
+            'received_at' => now()->toDateString(),
         ]);
 
         StockBatch::factory()->create([
-            "goods_received_id" => $existingGrn->id,
-            "product_id" => $this->productA->id,
-            "total_kg" => 15.00,
-            "warehouse_receive_pending" => true,
+            'goods_received_id' => $existingGrn->id,
+            'product_id' => $this->productA->id,
+            'total_kg' => 15.00,
+            'warehouse_receive_pending' => true,
         ]);
 
         // Calling receive now should NOT create another GRN
         $receivePayload = [
-            "client_submission_id" => "new-sub-key-123",
-            "purchase_order_id" => $po->id,
-            "received_at" => now()->toDateString(),
-            "bill_status" => "bill_available",
-            "items" => [
+            'client_submission_id' => 'new-sub-key-123',
+            'purchase_order_id' => $po->id,
+            'received_at' => now()->toDateString(),
+            'bill_status' => 'bill_available',
+            'items' => [
                 [
-                    "purchase_order_item_id" => $poItem->id,
-                    "product_id" => $this->productA->id,
-                    "received_qty" => 15.00,
+                    'purchase_order_item_id' => $poItem->id,
+                    'product_id' => $this->productA->id,
+                    'received_qty' => 15.00,
                 ],
             ],
         ];
 
-        $res = $this->postJson("/api/v1/purchasing/grns", $receivePayload);
+        $res = $this->postJson('/api/v1/purchasing/grns', $receivePayload);
         $res->assertSuccessful();
 
-        $this->assertEquals(1, GoodsReceived::where("purchase_order_id", $po->id)->count(), "No duplicate GRN");
-        $this->assertEquals(1, StockBatch::where("goods_received_id", $existingGrn->id)->count(), "Stock batch count is 1");
-        $this->assertFalse((bool) StockBatch::where("goods_received_id", $existingGrn->id)->first()->warehouse_receive_pending);
-        $this->assertEquals(15.00, (float) StockBatch::where("goods_received_id", $existingGrn->id)->sum("total_kg"));
+        $this->assertEquals(1, GoodsReceived::where('purchase_order_id', $po->id)->count(), 'No duplicate GRN');
+        $this->assertEquals(1, StockBatch::where('goods_received_id', $existingGrn->id)->count(), 'Stock batch count is 1');
+        $this->assertFalse((bool) StockBatch::where('goods_received_id', $existingGrn->id)->first()->warehouse_receive_pending);
+        $this->assertEquals(15.00, (float) StockBatch::where('goods_received_id', $existingGrn->id)->sum('total_kg'));
     }
 }

@@ -14,6 +14,140 @@
             </div>
         </section>
 
+        <!-- Search Purchase Orders Section -->
+        <section class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4">
+                <div>
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Lookup</p>
+                    <h3 class="mt-1 text-xl font-black text-slate-950">Search Purchase Orders</h3>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">Find any PO by PO number, Supplier, Product, or GRN reference.</p>
+                </div>
+            </div>
+
+            <form method="GET" action="{{ route('purchasing.orders.index') }}" class="mt-4 flex flex-wrap items-center gap-3">
+                <div class="relative flex-1 min-w-[240px]">
+                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+                    </div>
+                    <input type="text"
+                           name="search"
+                           value="{{ $search ?? '' }}"
+                           placeholder="Search PO # (e.g. PO-PURCH-20260911-70A5), Supplier, or Product..."
+                           class="w-full rounded-2xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-xs font-bold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition shadow-2xs">
+                </div>
+
+                <div class="relative">
+                    <input type="date"
+                           name="date"
+                           value="{{ $searchDate ?? '' }}"
+                           class="rounded-2xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition shadow-2xs cursor-pointer">
+                </div>
+
+                <button type="submit"
+                        class="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-600 hover:bg-cyan-700 px-5 py-2.5 text-xs font-black text-white transition shadow-sm hover:shadow cursor-pointer">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+                    <span>Search</span>
+                </button>
+
+                @if(!empty($search) || !empty($searchDate) || !empty($searchStatus))
+                    <a href="{{ route('purchasing.orders.index') }}"
+                       class="inline-flex items-center justify-center px-4 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition">
+                        Clear
+                    </a>
+                @endif
+            </form>
+
+            @if($searchResults !== null)
+                <div class="mt-5 border-t border-slate-100 pt-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-xs font-black uppercase tracking-wider text-slate-700">Search Results ({{ $searchResults->total() }})</h4>
+                    </div>
+
+                    @if($searchResults->isEmpty())
+                        <p class="text-xs font-semibold text-slate-500 bg-slate-50 p-4 rounded-xl">No purchase orders found matching your search criteria.</p>
+                    @else
+                        <div class="overflow-hidden rounded-xl border border-slate-200">
+                            <div class="overflow-x-auto">
+                                <table class="w-full border-collapse text-left text-xs text-slate-600">
+                                    <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-700 border-b border-slate-200">
+                                        <tr>
+                                            <th class="px-4 py-3">PO Number</th>
+                                            <th class="px-4 py-3">Date</th>
+                                            <th class="px-4 py-3">Supplier</th>
+                                            <th class="px-4 py-3">Status</th>
+                                            <th class="px-4 py-3">Items</th>
+                                            <th class="px-4 py-3">GRN #</th>
+                                            <th class="px-4 py-3 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 bg-white font-medium">
+                                        @foreach($searchResults as $po)
+                                            <tr class="hover:bg-slate-50/60 transition-colors">
+                                                <td class="px-4 py-3 font-bold text-slate-900 whitespace-nowrap">
+                                                    <a href="{{ route('purchasing.orders.show', $po) }}" class="text-cyan-700 hover:text-cyan-900 hover:underline">
+                                                        {{ $po->po_number }}
+                                                    </a>
+                                                </td>
+                                                <td class="px-4 py-3 whitespace-nowrap font-semibold text-slate-700">
+                                                    {{ $po->order_date?->format('d M Y') }}
+                                                </td>
+                                                <td class="px-4 py-3 font-bold text-slate-800">
+                                                    {{ $po->supplier?->name ?? 'N/A' }}
+                                                </td>
+                                                <td class="px-4 py-3 whitespace-nowrap">
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border {{ $po->status?->color() ?? 'bg-slate-100 text-slate-700 border-slate-200' }}">
+                                                        {{ $po->status?->label() ?? $po->status?->value ?? 'N/A' }}
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3">
+                                                    <div class="flex flex-wrap gap-1 max-w-xs">
+                                                        @foreach($po->items->take(3) as $poItem)
+                                                            <span class="inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                                                                {{ $poItem->product?->name }}: {{ (float)$poItem->quantity }} {{ $poItem->product?->unit }}
+                                                            </span>
+                                                        @endforeach
+                                                        @if($po->items->count() > 3)
+                                                            <span class="text-[10px] text-slate-400 font-bold">+{{ $po->items->count() - 3 }} more</span>
+                                                        @endif
+                                                    </div>
+                                                </td>
+                                                <td class="px-4 py-3 whitespace-nowrap">
+                                                    @if($po->goodsReceiveds->isNotEmpty())
+                                                        <div class="flex flex-col gap-0.5">
+                                                            @foreach($po->goodsReceiveds as $grn)
+                                                                <a href="{{ route('purchasing.grns.show', $grn) }}" class="text-[11px] font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline">
+                                                                    {{ $grn->grn_number }}
+                                                                </a>
+                                                            @endforeach
+                                                        </div>
+                                                    @else
+                                                        <span class="text-slate-400 text-xs">—</span>
+                                                    @endif
+                                                </td>
+                                                <td class="px-4 py-3 text-right whitespace-nowrap">
+                                                    <a href="{{ route('purchasing.orders.show', $po) }}"
+                                                       class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition shadow-2xs">
+                                                        <span>View</span>
+                                                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        @if($searchResults->hasPages())
+                            <div class="mt-4">
+                                {!! $searchResults->links() !!}
+                            </div>
+                        @endif
+                    @endif
+                </div>
+            @endif
+        </section>
+
         <section class="grid grid-cols-2 gap-3 sm:gap-4">
             <article class="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[2rem] sm:p-5">
                 <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Tomorrow</p>

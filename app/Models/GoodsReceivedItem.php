@@ -8,6 +8,7 @@ use Database\Factories\GoodsReceivedItemFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
@@ -44,6 +45,25 @@ class GoodsReceivedItem extends Model
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (GoodsReceivedItem $item): void {
+            if (empty($item->received_unit)) {
+                if ($item->purchase_order_item_id && $item->relationLoaded('purchaseOrderItem') && $item->purchaseOrderItem?->purchase_unit) {
+                    $item->received_unit = $item->purchaseOrderItem->purchase_unit;
+                } elseif ($item->purchase_order_item_id && ($poItem = PurchaseOrderItem::find($item->purchase_order_item_id)) && $poItem->purchase_unit) {
+                    $item->received_unit = $poItem->purchase_unit;
+                } elseif ($item->product_id && $item->relationLoaded('product') && $item->product?->unit) {
+                    $item->received_unit = $item->product->unit;
+                } elseif ($item->product_id && ($prod = Product::find($item->product_id)) && $prod->unit) {
+                    $item->received_unit = $prod->unit;
+                } else {
+                    $item->received_unit = 'kg';
+                }
+            }
+        });
+    }
 
     public function getActivitylogOptions(): LogOptions
     {

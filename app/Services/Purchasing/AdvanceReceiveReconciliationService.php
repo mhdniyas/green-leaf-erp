@@ -550,9 +550,9 @@ class AdvanceReceiveReconciliationService
                     ]);
                 }
 
-                $billWarehouseId = (int) ($lockedGrn->warehouse_id ?? $fallbackWarehouseId);
+                $billWarehouseId = (int) ($data->warehouseId ?? $advanceGrn->warehouse_id ?? 0);
                 $advanceWarehouseId = (int) ($advanceGrn->warehouse_id ?? $advanceGrn->destination_shop_id ?? 0);
-                if ($advanceWarehouseId !== $billWarehouseId) {
+                if ($data->warehouseId !== null && $advanceWarehouseId !== $billWarehouseId) {
                     throw ValidationException::withMessages([
                         'advance_matches' => "Advance Receive {$advanceGrn->grn_number} belongs to a different warehouse.",
                     ]);
@@ -578,9 +578,19 @@ class AdvanceReceiveReconciliationService
                 }
 
                 $productId = (int) ($match['product_id'] ?? 0);
-                $billItemId = (int) ($match['goods_received_item_id'] ?? 0);
-                $billItem = $lockedGrn->items->firstWhere('id', $billItemId);
-                if (! $billItem || (int) $billItem->product_id !== $productId) {
+                $poItemId = isset($match['purchase_order_item_id']) && $match['purchase_order_item_id']
+                    ? (int) $match['purchase_order_item_id']
+                    : null;
+
+                $matchingReqItem = collect($data->items)->first(function ($it) use ($productId, $poItemId): bool {
+                    if ($poItemId !== null && ! empty($it['purchase_order_item_id'])) {
+                        return (int) $it['purchase_order_item_id'] === $poItemId;
+                    }
+
+                    return (int) $it['product_id'] === $productId;
+                });
+
+                if (! $matchingReqItem) {
                     throw ValidationException::withMessages([
                         'advance_matches' => 'The selected bill item does not belong to this received bill or product.',
                     ]);
@@ -688,13 +698,16 @@ class AdvanceReceiveReconciliationService
                     : null;
 
                 $variance = $poItem ? ($item['received_qty'] - (float) $poItem->quantity) : 0.0;
+                $receivedUnit = ! empty($item['received_unit'])
+                    ? ProductUnit::normalizeUnit((string) $item['received_unit'])
+                    : ($poItem?->purchase_unit ?: (Product::find($item['product_id'])?->unit ?? 'kg'));
 
                 /** @var GoodsReceivedItem $grnItem */
                 $grnItem = $billGrn->items()->create([
                     'purchase_order_item_id' => $poItem?->id,
                     'product_id' => $item['product_id'],
                     'received_qty' => $item['received_qty'],
-                    'received_unit' => $item['received_unit'] ?? 'kg',
+                    'received_unit' => $receivedUnit,
                     'variance' => $variance,
                 ]);
 

@@ -69,13 +69,36 @@ class PurchaseOrderController extends Controller
             ->latest('business_date')
             ->paginate(15, ['*'], 'carts_page')
             ->withQueryString();
-
         $cancelledPOs = PurchaseOrder::query()
             ->where('status', POStatus::Cancelled)
             ->with(['supplier', 'createdBy', 'items.product'])
             ->latest('order_date')
             ->paginate(15, ['*'], 'pos_page')
             ->withQueryString();
+
+        $search = trim((string) $request->input('search', ''));
+        $searchStatus = $request->input('status');
+        $searchDate = $request->input('date');
+
+        $searchResults = null;
+        if ($search !== '' || ! empty($searchStatus) || ! empty($searchDate)) {
+            $searchResults = PurchaseOrder::query()
+                ->when($search !== '', function ($q) use ($search): void {
+                    $q->where(function ($sq) use ($search): void {
+                        $sq->where('po_number', 'like', "%{$search}%")
+                            ->orWhere('notes', 'like', "%{$search}%")
+                            ->orWhereHas('supplier', fn ($supQ) => $supQ->where('name', 'like', "%{$search}%"))
+                            ->orWhereHas('items.product', fn ($prodQ) => $prodQ->where('name', 'like', "%{$search}%")->orWhere('sku', 'like', "%{$search}%"))
+                            ->orWhereHas('goodsReceiveds', fn ($grnQ) => $grnQ->where('grn_number', 'like', "%{$search}%"));
+                    });
+                })
+                ->when(! empty($searchStatus), fn ($q) => $q->where('status', $searchStatus))
+                ->when(! empty($searchDate), fn ($q) => $q->whereDate('order_date', $searchDate))
+                ->with(['supplier', 'createdBy', 'items.product', 'goodsReceiveds'])
+                ->latest('order_date')
+                ->paginate(20, ['*'], 'search_page')
+                ->withQueryString();
+        }
 
         return view('purchase-manager.orders.index', compact(
             'todayDate',
@@ -86,6 +109,10 @@ class PurchaseOrderController extends Controller
             'recentDeliveredShops',
             'cancelledCarts',
             'cancelledPOs',
+            'search',
+            'searchStatus',
+            'searchDate',
+            'searchResults',
         ));
     }
 

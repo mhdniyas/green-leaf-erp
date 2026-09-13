@@ -697,6 +697,11 @@ Route::middleware('auth')->group(function () {
             Route::post('inventory/manual-match/{order}', [AdminCashbookReportsController::class, 'manualMatchExecute'])->name('inventory.manual-match');
             Route::post('inventory/resolve-unit-difference', [AdminCashbookReportsController::class, 'resolveUnitDifference'])->name('inventory.resolve-unit-difference');
             Route::post('inventory/fix-advance-units', [AdminCashbookReportsController::class, 'fixAdvanceUnits'])->name('inventory.fix-advance-units');
+            Route::post('inventory/update-item-unit', [AdminCashbookReportsController::class, 'updateItemUnit'])->name('inventory.update-item-unit');
+            Route::post('inventory/match-day', [AdminCashbookReportsController::class, 'matchDayInventory'])->name('inventory.match-day');
+            Route::post('inventory/match-all-day', [AdminCashbookReportsController::class, 'matchAllDayInventory'])->name('inventory.match-all-day');
+            Route::post('inventory/receive-all-pending-bills', [AdminCashbookReportsController::class, 'receiveAllPendingBills'])->name('inventory.receive-all-pending-bills');
+            Route::post('inventory/receive-single-bill', [AdminCashbookReportsController::class, 'receiveSingleBill'])->name('inventory.receive-single-bill');
             Route::post('inventory/move-to-damage', [AdminCashbookReportsController::class, 'moveToDamage'])->name('inventory.move-to-damage');
             Route::post('inventory/clear-advances', [AdminCashbookReportsController::class, 'clearAdvances'])->name('inventory.clear-advances');
             Route::get('bill-changes', [AdminCashbookReportsController::class, 'billChanges'])->name('bill-changes');

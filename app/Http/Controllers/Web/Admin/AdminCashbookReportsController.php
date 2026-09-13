@@ -25,12 +25,10 @@ use App\Models\PurchaseProductFilter;
 use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
-use App\Models\StockAdjustment;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
-use App\Models\WastageEntry;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Inventory\WastageService;
@@ -1457,806 +1455,1003 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
-     * Cashbook Operational Inventory Reconciliation Screen:
-     * Show the Inventory Operational Reconciliation Dashboard.
-     *
-     * 1. Today Advances (Advance Receives recorded on selected date)
-    /**
-     * Cashbook Inventory Action Center:
-     * 1. Current Inventory (Sellable balance, With Bill, Without Bill)
-     * 2. Receive Bills (Pending Bills, Approvals, Advance Matching)
-     * 3. Stock Without Bill (Unbilled Advances > 0, Age, Share Missing Bills)
-     * 4. Shop Returns (StockMovement type = sale_reversal)
-     * 5. Damage (WastageEntry on date, Move to Damage)
-     * 6. Physical Check (Reconciliation count vs ERP balance)
-     * 7. Unit Differences (Exception tab)
+     * Daily Inventory Comparison (Advance vs Bill by Product and Unit)
      */
     public function inventory(Request $request): View
     {
         $this->ensureAuthorized($request);
 
-        // 1. Warehouse Authorization Scoping
-        $requestedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        $selectedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        if ($selectedWarehouseId !== null && ! Warehouse::query()->where('id', $selectedWarehouseId)->exists()) {
+            abort(404, 'Warehouse not found.');
+        }
+
         $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
             $request->user(),
-            null
+            $selectedWarehouseId
         );
 
-        $availableWarehouses = Warehouse::query()
-            ->active()
+        if ($selectedWarehouseId !== null && $authorizedWarehouseIds !== null && ! in_array($selectedWarehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        if ($request->filled('date')) {
+            $date = Carbon::parse((string) $request->input('date'))->toDateString();
+        } else {
+            $latestAdvDate = GoodsReceived::query()
+                ->where('receipt_type', 'warehouse_advance')
+                ->where('status', '!=', 'cancelled')
+                ->whereNotNull('received_at')
+                ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
+                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds))
+                ->latest('received_at')
+                ->value('received_at');
+
+            $latestBillDate = GoodsReceivedItem::query()
+                ->whereHas('goodsReceived', function (Builder $q): void {
+                    $q->where(function (Builder $sub): void {
+                        $sub->where('receipt_type', '!=', 'warehouse_advance')
+                            ->orWhereNull('receipt_type');
+                    })
+                        ->where('status', '!=', 'cancelled')
+                        ->whereNotNull('received_at');
+                })
+                ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId)))
+                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds)))
+                ->join('goods_received', 'goods_received_items.goods_received_id', '=', 'goods_received.id')
+                ->latest('goods_received.received_at')
+                ->value('goods_received.received_at');
+
+            $latestDates = array_filter([$latestAdvDate, $latestBillDate]);
+            $latestReceiptDate = ! empty($latestDates) ? max($latestDates) : null;
+
+            $date = $latestReceiptDate
+                ? ($latestReceiptDate instanceof Carbon ? $latestReceiptDate->toDateString() : Carbon::parse($latestReceiptDate)->toDateString())
+                : today()->toDateString();
+        }
+
+        $carbonDate = Carbon::parse($date);
+        $prevDate = $carbonDate->copy()->subDay()->toDateString();
+        $nextDate = $carbonDate->copy()->addDay()->toDateString();
+
+        $warehouses = Warehouse::query()
+            ->where('is_active', true)
             ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('id', $authorizedWarehouseIds))
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
 
-        if ($requestedWarehouseId !== null) {
-            if (! $availableWarehouses->contains('id', $requestedWarehouseId)) {
-                if (! Warehouse::query()->where('id', $requestedWarehouseId)->exists() || ($authorizedWarehouseIds !== null && ! in_array($requestedWarehouseId, $authorizedWarehouseIds, true))) {
-                    abort(403, 'Unauthorized warehouse access.');
-                }
-            }
-        }
-
-        $selectedWarehouseId = $requestedWarehouseId;
-
-        // 2. Date Controls
-        $selectedDate = $request->input('date', today()->toDateString());
-        $date = Carbon::parse($selectedDate)->toDateString();
-        $prevDate = Carbon::parse($date)->subDay()->toDateString();
-        $nextDate = Carbon::parse($date)->addDay()->toDateString();
-        $isToday = ($date === today()->toDateString());
-
-        // 3. Tab Routing (Default: advance_pending)
-        $rawTab = (string) ($request->input('tab') ?: $request->input('section', 'advance_pending'));
-        $tab = match ($rawTab) {
-            'advance_pending', 'stock_without_bill', 'unbilled_inventory', 'today_advances', 'advance_bills' => 'advance_pending',
-            'bills_match', 'receive_bills', 'pending_bills', 'bill_pending', 'pending_reconciliation', 'match_details' => 'bills_match',
-            'loadout_without_bill', 'unbilled_loadout' => 'loadout_without_bill',
-            'inventory', 'current_inventory', 'current_stock', 'stock' => 'inventory',
-            'physical_check', 'physical_count', 'adjustments' => 'physical_check',
-            'shop_returns', 'returns', 'shop_return' => 'shop_returns',
-            'damage', 'wastage' => 'damage',
-            'unit_differences' => 'unit_differences',
-            default => 'advance_pending',
-        };
-
-        $search = trim((string) $request->input('search', ''));
-        $shopId = $request->input('shop_id');
-        $timeframe = (string) $request->input('timeframe', $isToday ? 'today' : 'custom');
-        $calc = app(AdvanceAvailableBalanceCalculator::class);
-        $stockRepo = app(StockMovementRepository::class);
-
-        // 4. Base Queries & Summary Metrics
-        // A. Bills Received (Direct or standard bill GRNs on date)
-        $billsReceivedStats = GoodsReceivedItem::query()
-            ->whereHas('goodsReceived', function (Builder $g) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
-                $g->where('receipt_type', '!=', 'warehouse_advance')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereDate('received_at', $date);
-                app(WarehouseReceiptReadScope::class)->receipts(
-                    $g,
-                    $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-                );
-            })
-            ->selectRaw('COUNT(DISTINCT goods_received_id) as grn_count, COALESCE(SUM(received_qty), 0) as total_qty')
-            ->first();
-        $billsReceivedCount = (int) ($billsReceivedStats->grn_count ?? 0);
-        $billsReceivedQty = (float) ($billsReceivedStats->total_qty ?? 0);
-
-        // B. Advance Receives (Warehouse advances on date)
-        $advReceivesStats = GoodsReceivedItem::query()
-            ->whereHas('goodsReceived', function (Builder $g) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
-                $g->where('receipt_type', 'warehouse_advance')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereDate('received_at', $date);
-                app(WarehouseReceiptReadScope::class)->receipts(
-                    $g,
-                    $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-                );
-            })
-            ->selectRaw('COUNT(DISTINCT goods_received_id) as grn_count, COALESCE(SUM(received_qty), 0) as total_qty')
-            ->first();
-        $advanceReceivesCount = (int) ($advReceivesStats->grn_count ?? 0);
-        $advanceReceivesQty = (float) ($advReceivesStats->total_qty ?? 0);
-
-        // C. Advance Matched Qty (Matches confirmed on date)
-        $advanceMatchedQuery = AdvanceReceiveMatch::query()
-            ->where(function (Builder $q) use ($date): void {
-                $q->whereDate('confirmed_at', $date)
-                    ->orWhere(fn (Builder $q2) => $q2->whereNull('confirmed_at')->whereDate('created_at', $date));
-            })
-            ->when($selectedWarehouseId !== null || $authorizedWarehouseIds !== null, function (Builder $q) use ($selectedWarehouseId, $authorizedWarehouseIds): void {
-                $q->whereHas('advanceGoodsReceived', function (Builder $g) use ($selectedWarehouseId, $authorizedWarehouseIds): void {
-                    app(WarehouseReceiptReadScope::class)->receipts(
-                        $g,
-                        $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-                    );
-                });
-            });
-        $advanceMatchedQty = (float) $advanceMatchedQuery->sum('base_qty');
-
-        // D. New Physical Receive Qty (Physical direct non-advance intake on date)
-        $newPhysicalReceiveQuery = StockMovement::query()
-            ->where('type', StockMovementType::In->value)
-            ->whereDate('created_at', $date)
-            ->whereHas('batch', function (Builder $bq): void {
-                $bq->whereDoesntHave('goodsReceived', fn (Builder $rq) => $rq->where('receipt_type', 'warehouse_advance'));
-            })
-            ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
-            ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds));
-        $newPhysicalReceiveQty = (float) $newPhysicalReceiveQuery->sum('quantity');
-
-        // E. Shop Returns (Shop Invoice finalization returns on date)
-        $shopReturnsStats = StockMovement::query()
-            ->where('type', StockMovementType::SaleReversal->value)
-            ->where('notes', 'like', 'Delivery shortage added back to inventory%')
-            ->whereDate('created_at', $date)
-            ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
-            ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds))
-            ->whereNotExists(function ($sub): void {
-                $sub->select(DB::raw(1))
-                    ->from('stock_movements as sm_rev')
-                    ->where('sm_rev.type', StockMovementType::Out->value)
-                    ->whereRaw("sm_rev.notes LIKE CONCAT('%Source movement: ', stock_movements.id, '%')");
-            })
-            ->selectRaw('COUNT(*) as aggregate_count, COALESCE(SUM(quantity), 0) as aggregate_qty')
-            ->first();
-        $shopReturnsCount = (int) ($shopReturnsStats->aggregate_count ?? 0);
-        $shopReturnsQty = (float) ($shopReturnsStats->aggregate_qty ?? 0);
-
-        // F. Loadout Qty (StockMovement type = out on date)
-        $loadoutQtyQuery = StockMovement::query()
-            ->where('type', StockMovementType::Out->value)
-            ->whereDate('created_at', $date)
-            ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
-            ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds));
-        $loadoutQty = (float) $loadoutQtyQuery->sum('quantity');
-
-        // G. Damage Qty (WastageEntry on date)
-        $damageQtyQuery = WastageEntry::query()
-            ->whereDate('wastage_date', $date)
-            ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
-                $q->where(function (Builder $sub) use ($selectedWarehouseId): void {
-                    $sub->whereHas('batch', fn (Builder $bq) => $bq->where('warehouse_id', $selectedWarehouseId))
-                        ->orWhereNull('batch_id');
-                });
-            })
-            ->when($authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
-                $q->where(function (Builder $sub) use ($authorizedWarehouseIds): void {
-                    $sub->whereHas('batch', fn (Builder $bq) => $bq->whereIn('warehouse_id', $authorizedWarehouseIds))
-                        ->orWhereNull('batch_id');
-                });
-            });
-        $damageQty = (float) $damageQtyQuery->sum('quantity');
-
-        // H. Physical Adjustments (StockAdjustment variance on date)
-        $adjSumQuery = StockAdjustment::query()
-            ->whereDate('business_date', $date)
-            ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
-            ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds));
-        $physicalAdjustmentQty = (float) $adjSumQuery->sum('variance_qty');
-
-        // I. Closing / Current Inventory Balance (Sum of sellable balance)
-        $currentStockCollection = $stockRepo->currentStockByProductAndGrade($date, $selectedWarehouseId);
-        $closingInventoryQty = (float) $currentStockCollection->sum('current_stock');
-        $currentStockByProduct = $currentStockCollection->groupBy('product_id')->map(fn (Collection $rows): float => (float) $rows->sum('current_stock'));
-
-        // J. Pending Bills & Approvals (Combined Single Aggregate Query)
-        $receiptCounts = GoodsReceived::query()
-            ->where(function (Builder $g) use ($selectedWarehouseId, $authorizedWarehouseIds): void {
-                app(WarehouseReceiptReadScope::class)->receipts(
-                    $g,
-                    $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-                );
-            })
-            ->selectRaw("
-                SUM(CASE WHEN status = 'approved' AND bill_status = 'bill_pending' AND (receipt_type != 'warehouse_advance' OR receipt_type IS NULL) THEN 1 ELSE 0 END) as pending_bills_count,
-                SUM(CASE WHEN status = 'pending_approval' AND (receipt_type != 'warehouse_advance' OR receipt_type IS NULL) THEN 1 ELSE 0 END) as awaiting_approval_count
-            ")
-            ->first();
-        $pendingBillsCount = (int) ($receiptCounts->pending_bills_count ?? 0);
-
-        // awaiting_approval_count = all POs currently visible in the Receive Bills / Bills & Match tab
-        $awaitingApprovalCount = app(AdvanceReceiveReconciliationService::class)->countMatchCandidates([
-            'warehouse_id' => $selectedWarehouseId,
-            'authorized_warehouse_ids' => $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds,
-        ]);
-
-        // K. Matchable Bills Plan (Ready to Match)
-        $matchPlan = null;
-        $readyToMatchCount = 0;
-        $matchedBaseQtyPlan = 0.0;
-        $targetWarehouseForPlan = $selectedWarehouseId ?? ($availableWarehouses->count() === 1 ? $availableWarehouses->first()->id : null);
-        if ($targetWarehouseForPlan !== null) {
-            try {
-                $matchPlan = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan((int) $targetWarehouseForPlan, (int) $request->user()->id);
-                $readyToMatchCount = count($matchPlan['ready_bills'] ?? []);
-                $matchedBaseQtyPlan = (float) ($matchPlan['summary']['matched_base_qty'] ?? 0.0);
-            } catch (Throwable $e) {
-                Log::warning("Could not build auto clear plan for warehouse {$targetWarehouseForPlan}: {$e->getMessage()}");
-            }
-        }
-
-        // L. Open Unbilled Advances Calculation (Advance Pending)
-        $openAdvancesQuery = GoodsReceived::query()
-            ->where(function (Builder $tq): void {
-                $tq->where('receipt_type', 'warehouse_advance')
-                    ->orWhere(function (Builder $legacy): void {
-                        $legacy->whereNull('receipt_type')
-                            ->whereNull('purchase_order_id');
-                    });
-            })
-            ->where('status', '!=', 'cancelled')
-            ->where('bill_status', 'bill_pending')
-            ->with('items.product');
-        app(WarehouseReceiptReadScope::class)->receipts(
-            $openAdvancesQuery,
-            $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-        );
-        $openAdvances = $openAdvancesQuery->orderBy('received_at')->get();
-        $openAdvIds = $openAdvances->pluck('id');
-        $preloadedMatches = $openAdvIds->isNotEmpty()
-            ? AdvanceReceiveMatch::query()->whereIn('advance_goods_received_id', $openAdvIds)->get()
-            : collect();
-
-        $unbilledInventoryCount = 0;
-        $unbilledInventoryKg = 0.0;
-        $unbilledByProductId = [];
-        $unbilledAdvRows = [];
-        $unbilledAdvGrns = [];
-
-        $isAdvancePendingTab = in_array($tab, ['advance_pending', 'stock_without_bill'], true);
-
-        foreach ($openAdvances as $adv) {
-            $itemBalances = $calc->calculateItemAvailableBase($adv, null, $preloadedMatches);
-            $advDate = Carbon::parse($adv->received_at ?? $adv->created_at ?? now());
-            $ageDays = max(0, (int) $advDate->diffInDays(Carbon::parse($date), false));
-
-            $hasActiveUnbilledItem = false;
-            $grnItems = [];
-            $grnMissingKg = 0.0;
-
-            if ($adv->items && $adv->items->isNotEmpty()) {
-                foreach ($adv->items as $advItem) {
-                    $rem = (float) ($itemBalances[$advItem->id] ?? 0.0);
-                    if ($rem > 0.0001) {
-                        $hasActiveUnbilledItem = true;
-                        $prodId = (int) $advItem->product_id;
-                        $unbilledByProductId[$prodId] = ($unbilledByProductId[$prodId] ?? 0.0) + $rem;
-                        $unbilledInventoryKg += $rem;
-                        $grnMissingKg += $rem;
-
-                        if ($isAdvancePendingTab) {
-                            $matchesSearch = true;
-                            if ($search !== '') {
-                                $searchLower = strtolower($search);
-                                $matchesSearch = str_contains(strtolower($adv->grn_number ?? ''), $searchLower)
-                                    || str_contains(strtolower($advItem->product?->name ?? ''), $searchLower)
-                                    || str_contains(strtolower($advItem->product?->sku ?? ''), $searchLower);
-                            }
-
-                            if ($matchesSearch) {
-                                $unbilledAdvRows[] = [
-                                    'advance_id' => $adv->id,
-                                    'item_id' => $advItem->id,
-                                    'product_id' => $advItem->product_id,
-                                    'product' => [
-                                        'id' => $advItem->product_id,
-                                        'name' => $advItem->product?->name ?? "Product #{$advItem->product_id}",
-                                        'sku' => $advItem->product?->sku ?? '',
-                                        'unit' => $advItem->received_unit ?? $advItem->product?->unit ?? 'KG',
-                                    ],
-                                    'received_qty' => (float) $advItem->received_qty,
-                                    'matched_qty' => (float) ($advItem->matched_qty ?? 0.0),
-                                    'missing_qty' => $rem,
-                                    'age_days' => $ageDays,
-                                    'received_at' => $adv->received_at ? $adv->received_at->toIso8601String() : ($adv->created_at ? $adv->created_at->toIso8601String() : null),
-                                    'grn_number' => $adv->grn_number ?? "GRN #{$adv->id}",
-                                ];
-                            }
-
-                            $grnItems[] = [
-                                'item_id' => $advItem->id,
-                                'product_id' => $advItem->product_id,
-                                'name' => $advItem->product?->name ?? "Product #{$advItem->product_id}",
-                                'sku' => $advItem->product?->sku ?? '',
-                                'unit' => $advItem->received_unit ?? $advItem->product?->unit ?? 'KG',
-                                'received_qty' => (float) $advItem->received_qty,
-                                'matched_qty' => (float) ($advItem->matched_qty ?? 0.0),
-                                'missing_qty' => $rem,
-                            ];
-                        }
-                    }
-                }
-            }
-
-            if ($hasActiveUnbilledItem) {
-                $unbilledInventoryCount++;
-
-                if ($isAdvancePendingTab) {
-                    $grnMatchesSearch = true;
-                    if ($search !== '') {
-                        $searchLower = strtolower($search);
-                        $grnMatchesSearch = str_contains(strtolower($adv->grn_number ?? ''), $searchLower);
-                        if (! $grnMatchesSearch) {
-                            foreach ($grnItems as $it) {
-                                if (str_contains(strtolower($it['name'] ?? ''), $searchLower) || str_contains(strtolower($it['sku'] ?? ''), $searchLower)) {
-                                    $grnMatchesSearch = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if ($grnMatchesSearch) {
-                        $unbilledAdvGrns[] = [
-                            'id' => $adv->id,
-                            'grn_number' => $adv->grn_number ?? "GRN #{$adv->id}",
-                            'received_at' => $adv->received_at ? $adv->received_at->toIso8601String() : ($adv->created_at ? $adv->created_at->toIso8601String() : null),
-                            'age_days' => $ageDays,
-                            'warehouse_id' => $adv->warehouse_id,
-                            'total_missing_qty' => round($grnMissingKg, 2),
-                            'items' => $grnItems,
-                            'items_summary' => implode(', ', array_map(fn ($i) => "{$i['name']} (".number_format($i['missing_qty'], 2)." {$i['unit']})", $grnItems)),
-                        ];
-                    }
-                }
-            }
-        }
-        $unbilledInventoryKg = round($unbilledInventoryKg, 2);
-
-        // M. Loadout Without Bill Calculation
-        $billedProductIdsOnDate = GoodsReceivedItem::query()
-            ->whereHas('goodsReceived', function (Builder $g) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
-                $g->where('receipt_type', '!=', 'warehouse_advance')
-                    ->where('status', '!=', 'cancelled')
-                    ->whereDate('received_at', $date);
-                app(WarehouseReceiptReadScope::class)->receipts(
-                    $g,
-                    $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds
-                );
-            })
-            ->pluck('product_id')
-            ->unique()
-            ->all();
-
-        $loadoutItemsQuery = DB::table('shop_order_items')
-            ->join('shop_orders', 'shop_orders.id', '=', 'shop_order_items.shop_order_id')
-            ->join('shops', 'shops.id', '=', 'shop_orders.shop_id')
-            ->join('products', 'products.id', '=', 'shop_order_items.product_id')
-            ->whereDate('shop_orders.business_date', $date)
-            ->whereNull('shop_order_items.deleted_at')
-            ->when($selectedWarehouseId !== null, fn ($q) => $q->where('products.default_warehouse_id', $selectedWarehouseId))
-            ->when($authorizedWarehouseIds !== null, fn ($q) => $q->whereIn('products.default_warehouse_id', $authorizedWarehouseIds))
-            ->where(function ($q): void {
-                $q->where('shop_order_items.sorting_status', 'loaded')
-                    ->orWhere('shop_order_items.loaded_qty', '>', 0)
-                    ->orWhere('shop_order_items.actual_weight', '>', 0);
-            })
-            ->select([
-                'shop_order_items.id as item_id',
-                'shop_orders.shop_id',
-                'shop_orders.business_date',
-                'shop_orders.order_number',
-                'shops.name as shop_name',
-                'shops.code as shop_code',
-                'products.id as product_id',
-                'products.name as product_name',
-                'products.sku as product_sku',
-                'products.unit as product_unit',
-                'shop_order_items.unit as item_unit',
-                'shop_order_items.requested_unit',
-                'shop_order_items.actual_weight',
-                'shop_order_items.loaded_qty',
-                'shop_order_items.loaded_order_unit_qty',
-                DB::raw('COALESCE(shop_order_items.actual_weight, shop_order_items.loaded_qty, 0) as loaded_qty'),
-            ])
-            ->get();
-
-        $unbilledLoadoutsAll = $loadoutItemsQuery->filter(function ($row) use ($billedProductIdsOnDate, $unbilledByProductId): bool {
-            $prodId = (int) $row->product_id;
-            $hasBill = in_array($prodId, $billedProductIdsOnDate, true);
-            $hasAdvance = ($unbilledByProductId[$prodId] ?? 0.0) > 0.0001;
-            $loadedQty = (float) $row->loaded_qty;
-
-            return ! $hasBill && ! $hasAdvance && $loadedQty > 0.0001;
-        })->values();
-
-        $unbilledLoadoutCount = $unbilledLoadoutsAll->count();
-        $unbilledLoadoutKg = round((float) $unbilledLoadoutsAll->sum('loaded_qty'), 2);
-
-        // N. Unit Differences Count
-        $unitDifferencesCount = app(AdvanceReceiveReconciliationService::class)->countUnitDifferences([
-            'warehouse_id' => $selectedWarehouseId,
-            'authorized_warehouse_ids' => $authorizedWarehouseIds,
-        ]);
+        $selectedWarehouse = $selectedWarehouseId !== null ? $warehouses->firstWhere('id', $selectedWarehouseId) : null;
+        $comparisonRows = $this->buildInventoryComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
+        $pendingBillsCollection = $this->getPendingBillsForDate($date, $selectedWarehouseId, $authorizedWarehouseIds);
+        $pendingBillsCount = $pendingBillsCollection->count();
+        $pendingBillsList = $this->formatPendingBillsList($pendingBillsCollection);
 
         $summary = [
-            'advance_pending_count' => $unbilledInventoryCount,
-            'advance_pending_kg' => $unbilledInventoryKg,
-            'bills_pending_count' => $awaitingApprovalCount,
-            'ready_to_match_count' => $readyToMatchCount,
-            'ready_to_match_kg' => $matchedBaseQtyPlan,
-            'unbilled_loadout_count' => $unbilledLoadoutCount,
-            'unbilled_loadout_kg' => $unbilledLoadoutKg,
-            'bills_received_count' => $billsReceivedCount,
-            'bills_received_qty' => round($billsReceivedQty, 2),
-            'advance_receives_count' => $advanceReceivesCount,
-            'advance_receives_qty' => round($advanceReceivesQty, 2),
-            'advance_matched_qty' => round($advanceMatchedQty, 2),
-            'new_physical_receive_qty' => round($newPhysicalReceiveQty, 2),
-            'shop_returns_count' => $shopReturnsCount,
-            'shop_returns_qty' => round($shopReturnsQty, 2),
-            'loadout_qty' => round($loadoutQty, 2),
-            'damage_qty' => round($damageQty, 2),
-            'physical_adjustment_qty' => round($physicalAdjustmentQty, 2),
-            'closing_inventory_qty' => round($closingInventoryQty, 2),
-            'today_advances_count' => $advanceReceivesCount,
-            'pending_bills_count' => $pendingBillsCount,
-            'awaiting_approval_count' => $awaitingApprovalCount,
-            'matchable_bills_count' => $readyToMatchCount,
-            'matched_base_qty_plan' => $matchedBaseQtyPlan,
-            'unbilled_inventory_count' => $unbilledInventoryCount,
-            'unbilled_inventory_kg' => $unbilledInventoryKg,
-            'unit_differences_count' => $unitDifferencesCount,
+            'total_advance_qty' => round((float) $comparisonRows->sum('advance_qty'), 2),
+            'total_bill_qty' => round((float) $comparisonRows->sum('bill_qty'), 2),
+            'total_matched_qty' => round((float) $comparisonRows->sum('matched_bill_qty'), 2),
+            'total_unmatched_bill_qty' => round((float) $comparisonRows->sum('unmatched_bill_qty'), 2),
+            'unit_fix_count' => $comparisonRows->where('unit_mismatch', true)->count(),
+            'overall_match_pct' => (float) $comparisonRows->sum('bill_qty') > 0
+                ? round(((float) $comparisonRows->sum('matched_bill_qty') / (float) $comparisonRows->sum('bill_qty')) * 100, 1)
+                : 0.0,
         ];
-
-        // 5. Query Active Tab Specific Data
-        $currentInventory = null;
-        $pendingBills = null;
-        $matchDetailsPlan = null;
-        $stockWithoutBill = null;
-        $unbilledLoadouts = null;
-        $unbilledLoadoutsGrouped = [];
-        $shopReturns = null;
-        $damageEntries = null;
-        $physicalCheckProducts = null;
-        $recentAdjustments = null;
-        $unitDifferences = null;
-
-        $allowedSorts = [
-            'product',
-            'category',
-            'current_sellable',
-            'with_bill',
-            'without_bill',
-            'pending_vendor_bill',
-            'stock_deficit',
-        ];
-
-        $sort = $request->input('sort');
-        if (! in_array($sort, $allowedSorts, true)) {
-            $sort = null;
-        }
-
-        $rawDirection = strtolower((string) $request->input('direction', 'asc'));
-        $direction = in_array($rawDirection, ['asc', 'desc'], true) ? $rawDirection : 'asc';
-
-        if (in_array($tab, ['inventory', 'current_inventory'], true)) {
-            $productsQuery = Product::query()
-                ->where('is_active', true)
-                ->with('category:id,name');
-
-            if ($search !== '') {
-                $productsQuery->where(function (Builder $pq) use ($search): void {
-                    $pq->where('name', 'like', "%{$search}%")
-                        ->orWhere('sku', 'like', "%{$search}%");
-                });
-            }
-
-            $allProducts = $productsQuery->orderBy('name')->get();
-            $damageProducts = $allProducts->map(fn ($p) => [
-                'id' => $p->id,
-                'name' => $p->name,
-                'sku' => $p->sku,
-                'unit' => $p->unit ?? 'KG',
-            ]);
-
-            $stockByProduct = $currentStockByProduct;
-
-            $currentInventoryRows = $allProducts->map(function (Product $p) use ($stockByProduct, $unbilledByProductId): array {
-                $ledgerBalance = (float) ($stockByProduct[$p->id] ?? 0.0);
-                $unmatchedAdvanceQty = (float) ($unbilledByProductId[$p->id] ?? 0.0);
-
-                $currentSellable = max(0.0, $ledgerBalance);
-                $stockDeficit = max(0.0, -$ledgerBalance);
-                $pendingVendorBill = max(0.0, $unmatchedAdvanceQty);
-                $withoutBillOnHand = min($currentSellable, $pendingVendorBill);
-                $withBillOnHand = max(0.0, round($currentSellable - $withoutBillOnHand, 3));
-
-                return [
-                    'product' => $p,
-                    'product_id' => $p->id,
-                    'name' => $p->name,
-                    'sku' => $p->sku,
-                    'unit' => $p->unit,
-                    'category' => $p->category?->name ?? '—',
-                    'ledger_balance' => $ledgerBalance,
-                    'current_balance' => $ledgerBalance,
-                    'current_sellable' => $currentSellable,
-                    'stock_deficit' => $stockDeficit,
-                    'pending_vendor_bill' => $pendingVendorBill,
-                    'without_bill' => $withoutBillOnHand,
-                    'with_bill' => $withBillOnHand,
-                    'without_bill_on_hand' => $withoutBillOnHand,
-                    'with_bill_on_hand' => $withBillOnHand,
-                ];
-            });
-
-            // Global server-side sorting
-            if ($sort !== null) {
-                $currentInventoryRows = $currentInventoryRows->sort(function (array $a, array $b) use ($sort, $direction): int {
-                    $cmp = match ($sort) {
-                        'product' => strcasecmp($a['name'], $b['name']),
-                        'category' => strcasecmp($a['category'], $b['category']) ?: strcasecmp($a['name'], $b['name']),
-                        'current_sellable' => ($a['current_sellable'] <=> $b['current_sellable']) ?: strcasecmp($a['name'], $b['name']),
-                        'with_bill' => ($a['with_bill'] <=> $b['with_bill']) ?: strcasecmp($a['name'], $b['name']),
-                        'without_bill' => ($a['without_bill'] <=> $b['without_bill']) ?: strcasecmp($a['name'], $b['name']),
-                        'pending_vendor_bill' => ($a['pending_vendor_bill'] <=> $b['pending_vendor_bill']) ?: strcasecmp($a['name'], $b['name']),
-                        'stock_deficit' => ($a['stock_deficit'] <=> $b['stock_deficit']) ?: strcasecmp($a['name'], $b['name']),
-                        default => 0,
-                    };
-
-                    return $direction === 'desc' ? -$cmp : $cmp;
-                })->values();
-            } else {
-                if ($search === '') {
-                    $currentInventoryRows = $currentInventoryRows->sortBy([
-                        fn (array $a, array $b): int => ($b['current_sellable'] > 0 || $b['pending_vendor_bill'] > 0 || $b['stock_deficit'] > 0) <=> ($a['current_sellable'] > 0 || $a['pending_vendor_bill'] > 0 || $a['stock_deficit'] > 0),
-                        fn (array $a, array $b): int => strcasecmp($a['name'], $b['name']),
-                    ])->values();
-                } else {
-                    $currentInventoryRows = $currentInventoryRows->sortBy(fn (array $a): string => strtolower($a['name']))->values();
-                }
-            }
-
-            $page = max(1, $request->integer('page', 1));
-            $perPage = 30;
-            $currentInventory = new LengthAwarePaginator(
-                $currentInventoryRows->forPage($page, $perPage)->values(),
-                $currentInventoryRows->count(),
-                $perPage,
-                $page,
-                ['path' => $request->url(), 'query' => $request->query()]
-            );
-        } else {
-            $damageProductsQuery = Product::query()->where('is_active', true);
-            if ($search !== '') {
-                $damageProductsQuery->where(function (Builder $pq) use ($search): void {
-                    $pq->where('name', 'like', "%{$search}%")
-                        ->orWhere('sku', 'like', "%{$search}%");
-                });
-            }
-            $damageProducts = $damageProductsQuery->orderBy('name')->get(['id', 'name', 'sku', 'unit']);
-        }
-
-        if (in_array($tab, ['bills_match', 'receive_bills', 'match_details'], true)) {
-            $pendingBills = app(AdvanceReceiveReconciliationService::class)->paginateMatchCandidates([
-                'search' => $search,
-                'warehouse_id' => $selectedWarehouseId,
-                'authorized_warehouse_ids' => $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds,
-            ], 20)->withQueryString();
-            $matchDetailsPlan = $matchPlan;
-        } elseif (in_array($tab, ['advance_pending', 'stock_without_bill'], true)) {
-            $filteredUnbilledGrns = collect($unbilledAdvGrns);
-            if ($search !== '') {
-                $searchLower = strtolower($search);
-                $filteredUnbilledGrns = $filteredUnbilledGrns->filter(function (array $grn) use ($searchLower): bool {
-                    if (str_contains(strtolower($grn['grn_number'] ?? ''), $searchLower)) {
-                        return true;
-                    }
-                    foreach ($grn['items'] as $item) {
-                        if (str_contains(strtolower($item['name'] ?? ''), $searchLower) || str_contains(strtolower($item['sku'] ?? ''), $searchLower)) {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                })->values();
-            }
-
-            $page = max(1, $request->integer('page', 1));
-            $perPage = 20;
-            $stockWithoutBill = new LengthAwarePaginator(
-                $filteredUnbilledGrns->forPage($page, $perPage)->values(),
-                $filteredUnbilledGrns->count(),
-                $perPage,
-                $page,
-                ['path' => $request->url(), 'query' => $request->query()]
-            );
-        } elseif (in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true)) {
-            $filteredLoadouts = $unbilledLoadoutsAll;
-            if ($search !== '') {
-                $searchLower = strtolower($search);
-                $filteredLoadouts = $filteredLoadouts->filter(function ($r) use ($searchLower): bool {
-                    return str_contains(strtolower($r->shop_name ?? ''), $searchLower)
-                        || str_contains(strtolower($r->shop_code ?? ''), $searchLower)
-                        || str_contains(strtolower($r->product_name ?? ''), $searchLower)
-                        || str_contains(strtolower($r->product_sku ?? ''), $searchLower)
-                        || str_contains(strtolower($r->order_number ?? ''), $searchLower);
-                })->values();
-            }
-
-            $unbilledLoadoutsGrouped = $this->formatGroupedUnbilledLoadouts($filteredLoadouts, $calc);
-
-            $page = max(1, $request->integer('page', 1));
-            $perPage = 20;
-            $unbilledLoadouts = new LengthAwarePaginator(
-                $filteredLoadouts->forPage($page, $perPage)->values(),
-                $filteredLoadouts->count(),
-                $perPage,
-                $page,
-                ['path' => $request->url(), 'query' => $request->query()]
-            );
-        } elseif ($tab === 'shop_returns') {
-            $shopReturnsQuery = StockMovement::query()
-                ->where('type', StockMovementType::SaleReversal->value)
-                ->where('notes', 'like', 'Delivery shortage added back to inventory%')
-                ->whereDate('created_at', $date)
-                ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
-                ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds))
-                ->whereNotExists(function ($sub): void {
-                    $sub->select(DB::raw(1))
-                        ->from('stock_movements as sm_rev')
-                        ->where('sm_rev.type', StockMovementType::Out->value)
-                        ->whereRaw("sm_rev.notes LIKE CONCAT('%Source movement: ', stock_movements.id, '%')");
-                })
-                ->with([
-                    'product:id,name,sku,unit',
-                    'warehouse:id,name,code',
-                    'shopOrderItem.shopOrder.shop:id,name,code',
-                    'shopOrderItem.shopOrder.invoice',
-                    'createdBy:id,name',
-                ])
-                ->orderByDesc('id');
-
-            if ($search !== '') {
-                $shopReturnsQuery->where(function (Builder $q) use ($search): void {
-                    $q->whereHas('product', fn (Builder $pq) => $pq->where('name', 'like', "%{$search}%")->orWhere('sku', 'like', "%{$search}%"))
-                        ->orWhereHas('shopOrderItem.shopOrder.shop', fn (Builder $sq) => $sq->where('name', 'like', "%{$search}%")->orWhere('code', 'like', "%{$search}%"))
-                        ->orWhereHas('shopOrderItem.shopOrder.invoice', fn (Builder $iq) => $iq->where('invoice_number', 'like', "%{$search}%"))
-                        ->orWhereHas('shopOrderItem.shopOrder', fn (Builder $oq) => $oq->where('order_number', 'like', "%{$search}%"))
-                        ->orWhere('notes', 'like', "%{$search}%");
-                });
-            }
-
-            $shopReturns = $shopReturnsQuery->paginate(20)->withQueryString();
-        } elseif ($tab === 'damage') {
-            $damageQuery = WastageEntry::query()
-                ->whereDate('wastage_date', $date)
-                ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
-                    $q->where(function (Builder $sub) use ($selectedWarehouseId): void {
-                        $sub->whereHas('batch', fn (Builder $bq) => $bq->where('warehouse_id', $selectedWarehouseId))
-                            ->orWhereNull('batch_id');
-                    });
-                })
-                ->when($authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
-                    $q->where(function (Builder $sub) use ($authorizedWarehouseIds): void {
-                        $sub->whereHas('batch', fn (Builder $bq) => $bq->whereIn('warehouse_id', $authorizedWarehouseIds))
-                            ->orWhereNull('batch_id');
-                    });
-                })
-                ->with([
-                    'product:id,name,sku,unit',
-                    'batch:id,reference,warehouse_id',
-                    'recordedBy:id,name',
-                ])
-                ->orderByDesc('id');
-
-            if ($search !== '') {
-                $damageQuery->where(function (Builder $q) use ($search): void {
-                    $q->whereHas('product', fn (Builder $pq) => $pq->where('name', 'like', "%{$search}%")->orWhere('sku', 'like', "%{$search}%"))
-                        ->orWhere('notes', 'like', "%{$search}%");
-                });
-            }
-
-            $damageEntries = $damageQuery->paginate(20)->withQueryString();
-        } elseif ($tab === 'physical_check') {
-            $productsQuery = Product::query()
-                ->where('is_active', true)
-                ->with('category:id,name');
-
-            if ($search !== '') {
-                $productsQuery->where(function (Builder $pq) use ($search): void {
-                    $pq->where('name', 'like', "%{$search}%")
-                        ->orWhere('sku', 'like', "%{$search}%");
-                });
-            }
-
-            $checkProducts = $productsQuery->orderBy('name')->get();
-            $stockByProduct = $currentStockByProduct;
-
-            $checkRows = $checkProducts->map(function (Product $p) use ($stockByProduct): array {
-                return [
-                    'product' => $p,
-                    'product_id' => $p->id,
-                    'name' => $p->name,
-                    'sku' => $p->sku,
-                    'unit' => $p->unit,
-                    'category' => $p->category?->name ?? '—',
-                    'erp_balance' => (float) ($stockByProduct[$p->id] ?? 0.0),
-                ];
-            });
-
-            if ($search === '') {
-                $checkRows = $checkRows->sortBy([
-                    fn (array $a, array $b): int => ($b['erp_balance'] > 0) <=> ($a['erp_balance'] > 0),
-                    fn (array $a, array $b): int => strcmp($a['name'], $b['name']),
-                ])->values();
-            }
-
-            $page = max(1, $request->integer('page', 1));
-            $perPage = 25;
-            $physicalCheckProducts = new LengthAwarePaginator(
-                $checkRows->forPage($page, $perPage)->values(),
-                $checkRows->count(),
-                $perPage,
-                $page,
-                ['path' => $request->url(), 'query' => $request->query()]
-            );
-
-            $adjustmentsQuery = StockAdjustment::query()
-                ->whereDate('business_date', $date)
-                ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
-                ->when($authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds))
-                ->with(['product:id,name,sku,unit', 'warehouse:id,name', 'createdBy:id,name'])
-                ->orderByDesc('id');
-            $recentAdjustments = $adjustmentsQuery->get();
-        } elseif ($tab === 'unit_differences') {
-            $unitDifferences = app(AdvanceReceiveReconciliationService::class)->paginateUnitDifferences([
-                'search' => $search,
-                'warehouse_id' => $selectedWarehouseId,
-                'authorized_warehouse_ids' => $selectedWarehouseId !== null ? [$selectedWarehouseId] : $authorizedWarehouseIds,
-            ], 20)->withQueryString();
-        }
-
-        $dailyPendingAdvanceService = app(DailyPendingAdvanceWhatsAppService::class);
-        $dailyPendingAdvancesData = $dailyPendingAdvanceService->getDailyPendingAdvances(
-            $date,
-            $selectedWarehouseId,
-            $authorizedWarehouseIds
-        );
-        $dailyPendingAdvancesCount = $dailyPendingAdvancesData['total_pending_count'];
-        $whatsappSharePendingUrl = $dailyPendingAdvancesCount > 0
-            ? $dailyPendingAdvanceService->generateShareUrl($date, $selectedWarehouseId, $authorizedWarehouseIds)
-            : null;
 
         return view('admin.cashbook.reports.inventory', [
-            'tab' => $tab,
-            'section' => $tab,
-            'timeframe' => $timeframe,
-            'selectedDate' => $date,
+            'date' => $date,
             'prevDate' => $prevDate,
             'nextDate' => $nextDate,
-            'isToday' => $isToday,
-            'search' => $search,
-            'sort' => $sort,
-            'direction' => $direction,
-            'shopId' => $shopId,
+            'warehouses' => $warehouses,
+            'selectedWarehouse' => $selectedWarehouse,
             'selectedWarehouseId' => $selectedWarehouseId,
-            'availableWarehouses' => $availableWarehouses,
+            'rows' => $comparisonRows,
+            'pendingBillsCount' => $pendingBillsCount,
+            'pendingBillsList' => $pendingBillsList,
             'summary' => $summary,
-            'openAdvances' => $openAdvances,
-            'currentStockByProduct' => $currentStockByProduct,
-            'currentInventory' => $currentInventory,
-            'pendingBills' => $pendingBills,
-            'matchDetailsPlan' => $matchDetailsPlan,
-            'stockWithoutBill' => $stockWithoutBill,
-            'unbilledInventory' => $stockWithoutBill,
-            'unbilledAdvRows' => $unbilledAdvRows,
-            'unbilledAdvGrns' => $unbilledAdvGrns,
-            'unbilledLoadouts' => $unbilledLoadouts,
-            'unbilledLoadoutsGrouped' => $unbilledLoadoutsGrouped,
-            'shopReturns' => $shopReturns,
-            'damageEntries' => $damageEntries,
-            'damageProducts' => $damageProducts,
-            'physicalCheckProducts' => $physicalCheckProducts,
-            'recentAdjustments' => $recentAdjustments,
-            'unitDifferences' => $unitDifferences,
-            'whatsappSharePendingUrl' => $whatsappSharePendingUrl,
-            'dailyPendingAdvancesCount' => $dailyPendingAdvancesCount,
-            'dailyPendingAdvancesData' => $dailyPendingAdvancesData,
-            'activeTab' => 'inventory',
         ]);
+    }
+
+    /**
+     * Build day-wise comparison rows between Advance receipts and Purchase Bills for a given date.
+     */
+    protected function buildInventoryComparisonRows(string $date, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds): Collection
+    {
+        // 1. Query all Advance received items for the selected date (filtered by goods_received.warehouse_id)
+        $advanceItems = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', function (Builder $q) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
+                $q->where('receipt_type', 'warehouse_advance')
+                    ->where('status', '!=', 'cancelled')
+                    ->whereDate('received_at', $date)
+                    ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
+                    ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['product', 'goodsReceived'])
+            ->get();
+
+        // 2. Query all normal Purchase Bill received items for the selected date (filtered by product.default_warehouse_id)
+        $billItems = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', function (Builder $q) use ($date): void {
+                $q->where(function (Builder $sub): void {
+                    $sub->where('receipt_type', '!=', 'warehouse_advance')
+                        ->orWhereNull('receipt_type');
+                })
+                    ->where('status', '!=', 'cancelled')
+                    ->whereDate('received_at', $date);
+            })
+            ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
+                $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId));
+            })
+            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
+                $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['product', 'goodsReceived'])
+            ->get();
+
+        $allProductIds = $advanceItems->pluck('product_id')->merge($billItems->pluck('product_id'))->unique();
+        $products = Product::query()->whereIn('id', $allProductIds)->get()->keyBy('id');
+
+        // Preload matches for all advance and bill items on this date
+        $advItemIds = $advanceItems->pluck('id')->all();
+        $billItemIds = $billItems->pluck('id')->all();
+
+        $existingMatches = AdvanceReceiveMatch::query()
+            ->where(function (Builder $mq) use ($advItemIds, $billItemIds): void {
+                $mq->whereIn('advance_goods_received_item_id', $advItemIds)
+                    ->orWhereIn('bill_goods_received_item_id', $billItemIds);
+            })
+            ->get();
+
+        $rows = [];
+
+        $formatNumber = static function (float $val): string {
+            return (abs($val - (int) $val) < 0.0001)
+                ? (string) (int) $val
+                : rtrim(rtrim(number_format($val, 2, '.', ''), '0'), '.');
+        };
+
+        foreach ($allProductIds as $productId) {
+            $product = $products->get($productId);
+            $prodAdvItems = $advanceItems->where('product_id', $productId);
+            $prodBillItems = $billItems->where('product_id', $productId);
+
+            // Group advance items by unit
+            $advByUnit = [];
+            foreach ($prodAdvItems as $item) {
+                $unit = trim((string) ($item->received_unit ?: ($product?->unit ?? 'kg')));
+                $uKey = mb_strtolower($unit);
+                if (! isset($advByUnit[$uKey])) {
+                    $advByUnit[$uKey] = ['unit' => $unit, 'qty' => 0.0, 'items' => []];
+                }
+                $advByUnit[$uKey]['qty'] += (float) $item->received_qty;
+                $advByUnit[$uKey]['items'][] = [
+                    'id' => $item->id,
+                    'grn_number' => $item->goodsReceived?->grn_number ?? 'GRN-'.$item->goods_received_id,
+                    'type' => 'Advance',
+                    'qty' => (float) $item->received_qty,
+                    'unit' => $unit,
+                ];
+            }
+
+            // Group bill items by unit
+            $billByUnit = [];
+            foreach ($prodBillItems as $item) {
+                $unit = trim((string) ($item->received_unit ?: ($product?->unit ?? 'kg')));
+                $uKey = mb_strtolower($unit);
+                if (! isset($billByUnit[$uKey])) {
+                    $billByUnit[$uKey] = ['unit' => $unit, 'qty' => 0.0, 'items' => []];
+                }
+                $billByUnit[$uKey]['qty'] += (float) $item->received_qty;
+                $billByUnit[$uKey]['items'][] = [
+                    'id' => $item->id,
+                    'grn_number' => $item->goodsReceived?->grn_number ?? 'GRN-'.$item->goods_received_id,
+                    'type' => 'Bill',
+                    'qty' => (float) $item->received_qty,
+                    'unit' => $unit,
+                ];
+            }
+
+            $advUnitKeys = array_keys($advByUnit);
+            $billUnitKeys = array_keys($billByUnit);
+
+            $matchingUnitKeys = array_intersect($advUnitKeys, $billUnitKeys);
+            $unmatchedAdvKeys = array_diff($advUnitKeys, $matchingUnitKeys);
+            $unmatchedBillKeys = array_diff($billUnitKeys, $matchingUnitKeys);
+
+            // 1. Process exact matching units
+            foreach ($matchingUnitKeys as $uKey) {
+                $advData = $advByUnit[$uKey];
+                $billData = $billByUnit[$uKey];
+                $unit = $advData['unit'];
+
+                $advQty = (float) $advData['qty'];
+                $billQty = (float) $billData['qty'];
+                $diff = $advQty - $billQty;
+
+                $advItemIdsInGroup = collect($advData['items'])->pluck('id')->all();
+                $billItemIdsInGroup = collect($billData['items'])->pluck('id')->all();
+
+                $matchedAdvQty = (float) $existingMatches->whereIn('advance_goods_received_item_id', $advItemIdsInGroup)->sum('matched_qty');
+                $matchedBillQty = (float) $existingMatches->whereIn('bill_goods_received_item_id', $billItemIdsInGroup)->sum('matched_qty');
+
+                $unmatchedAdvQty = max(0.0, round($advQty - $matchedAdvQty, 3));
+                $unmatchedBillQty = max(0.0, round($billQty - $matchedBillQty, 3));
+
+                $matchPct = $billQty > 0 ? ($matchedBillQty / $billQty) * 100 : 0.0;
+
+                if (abs($diff) < 0.0001) {
+                    $formattedDiff = '0';
+                } else {
+                    $prefix = $diff > 0 ? '+' : '';
+                    $formattedDiff = $prefix.$formatNumber($diff).' '.$unit;
+                }
+
+                $actionType = 'none';
+                if ($billQty > 0 && $unmatchedBillQty <= 0.0001) {
+                    $actionType = 'matched';
+                } elseif ($unmatchedAdvQty > 0.0001 && $unmatchedBillQty > 0.0001) {
+                    $actionType = $matchedBillQty <= 0.0001 ? 'match' : 'match_remaining';
+                }
+
+                $rows[] = [
+                    'product_id' => $productId,
+                    'product_name' => $product?->name ?? 'Unknown Product',
+                    'sku' => $product?->sku ?? '',
+                    'product_code' => $product?->sku ?? '',
+                    'unit' => $unit,
+                    'advance_qty' => $advQty,
+                    'bill_qty' => $billQty,
+                    'formatted_advance' => $formatNumber($advQty).' '.$unit,
+                    'formatted_bill' => $formatNumber($billQty).' '.$unit,
+                    'diff' => $diff,
+                    'formatted_diff' => $formattedDiff,
+                    'matched_bill_qty' => $matchedBillQty,
+                    'unmatched_bill_qty' => $unmatchedBillQty,
+                    'bill_pending' => $unmatchedBillQty,
+                    'unmatched_adv_qty' => $unmatchedAdvQty,
+                    'match_pct' => $matchPct,
+                    'formatted_match_pct' => round($matchPct).'%',
+                    'unit_mismatch' => false,
+                    'action_type' => $actionType,
+                    'editable_items' => array_merge($advData['items'], $billData['items']),
+                ];
+            }
+
+            // 2. Process unmatched: If both unmatched advance and unmatched bill exist, it's a UNIT MISMATCH
+            if (! empty($unmatchedAdvKeys) && ! empty($unmatchedBillKeys)) {
+                $advQtyTotal = 0.0;
+                $advUnitNames = [];
+                $advItemsList = [];
+                foreach ($unmatchedAdvKeys as $uKey) {
+                    $advQtyTotal += $advByUnit[$uKey]['qty'];
+                    $advUnitNames[] = $advByUnit[$uKey]['unit'];
+                    $advItemsList = array_merge($advItemsList, $advByUnit[$uKey]['items']);
+                }
+
+                $billQtyTotal = 0.0;
+                $billUnitNames = [];
+                $billItemsList = [];
+                foreach ($unmatchedBillKeys as $uKey) {
+                    $billQtyTotal += $billByUnit[$uKey]['qty'];
+                    $billUnitNames[] = $billByUnit[$uKey]['unit'];
+                    $billItemsList = array_merge($billItemsList, $billByUnit[$uKey]['items']);
+                }
+
+                $advUnitStr = implode('/', array_unique($advUnitNames));
+                $billUnitStr = implode('/', array_unique($billUnitNames));
+
+                $rows[] = [
+                    'product_id' => $productId,
+                    'product_name' => $product?->name ?? 'Unknown Product',
+                    'sku' => $product?->sku ?? '',
+                    'product_code' => $product?->sku ?? '',
+                    'unit' => $advUnitStr.' vs '.$billUnitStr,
+                    'advance_qty' => $advQtyTotal,
+                    'bill_qty' => $billQtyTotal,
+                    'formatted_advance' => $formatNumber($advQtyTotal).' '.$advUnitStr,
+                    'formatted_bill' => $formatNumber($billQtyTotal).' '.$billUnitStr,
+                    'diff' => null,
+                    'formatted_diff' => 'Unit Mismatch',
+                    'matched_bill_qty' => 0.0,
+                    'unmatched_bill_qty' => $billQtyTotal,
+                    'bill_pending' => $billQtyTotal,
+                    'unmatched_adv_qty' => $advQtyTotal,
+                    'match_pct' => null,
+                    'formatted_match_pct' => '--',
+                    'unit_mismatch' => true,
+                    'action_type' => 'fix_unit',
+                    'editable_items' => array_merge($advItemsList, $billItemsList),
+                ];
+            } else {
+                // Unmatched Advance only (No bill with this unit)
+                foreach ($unmatchedAdvKeys as $uKey) {
+                    $advData = $advByUnit[$uKey];
+                    $unit = $advData['unit'];
+                    $advQty = (float) $advData['qty'];
+                    $diff = $advQty;
+
+                    $rows[] = [
+                        'product_id' => $productId,
+                        'product_name' => $product?->name ?? 'Unknown Product',
+                        'sku' => $product?->sku ?? '',
+                        'product_code' => $product?->sku ?? '',
+                        'unit' => $unit,
+                        'advance_qty' => $advQty,
+                        'bill_qty' => 0.0,
+                        'formatted_advance' => $formatNumber($advQty).' '.$unit,
+                        'formatted_bill' => '0 '.$unit,
+                        'diff' => $diff,
+                        'formatted_diff' => '+'.$formatNumber($diff).' '.$unit,
+                        'matched_bill_qty' => 0.0,
+                        'unmatched_bill_qty' => 0.0,
+                        'bill_pending' => 0.0,
+                        'unmatched_adv_qty' => $advQty,
+                        'match_pct' => 0.0,
+                        'formatted_match_pct' => '0%',
+                        'unit_mismatch' => false,
+                        'action_type' => 'none',
+                        'editable_items' => $advData['items'],
+                    ];
+                }
+
+                // Unmatched Bill only (No advance with this unit)
+                foreach ($unmatchedBillKeys as $uKey) {
+                    $billData = $billByUnit[$uKey];
+                    $unit = $billData['unit'];
+                    $billQty = (float) $billData['qty'];
+                    $diff = -$billQty;
+
+                    $rows[] = [
+                        'product_id' => $productId,
+                        'product_name' => $product?->name ?? 'Unknown Product',
+                        'sku' => $product?->sku ?? '',
+                        'product_code' => $product?->sku ?? '',
+                        'unit' => $unit,
+                        'advance_qty' => 0.0,
+                        'bill_qty' => $billQty,
+                        'formatted_advance' => '0 '.$unit,
+                        'formatted_bill' => $formatNumber($billQty).' '.$unit,
+                        'diff' => $diff,
+                        'formatted_diff' => '-'.$formatNumber($billQty).' '.$unit,
+                        'matched_bill_qty' => 0.0,
+                        'unmatched_bill_qty' => $billQty,
+                        'bill_pending' => $billQty,
+                        'unmatched_adv_qty' => 0.0,
+                        'match_pct' => 0.0,
+                        'formatted_match_pct' => '0%',
+                        'unit_mismatch' => false,
+                        'action_type' => 'none',
+                        'editable_items' => $billData['items'],
+                    ];
+                }
+            }
+        }
+
+        return collect($rows)
+            ->sortBy([
+                ['product_name', 'asc'],
+                ['unit', 'asc'],
+            ])
+            ->values();
+    }
+
+    /**
+     * Update received_unit metadata on a specific goods received item.
+     */
+    public function updateItemUnit(Request $request): JsonResponse|RedirectResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'goods_received_item_id' => ['required', 'integer', 'exists:goods_received_items,id'],
+            'new_unit' => ['required', 'string', 'max:50'],
+        ]);
+
+        $item = GoodsReceivedItem::with(['goodsReceived', 'product'])->findOrFail($validated['goods_received_item_id']);
+
+        $warehouseId = $item->goodsReceived?->warehouse_id;
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && $warehouseId !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $oldUnit = $item->received_unit;
+        $newUnit = trim($validated['new_unit']);
+
+        // Update ONLY received_unit metadata on the item - do not alter quantities or stock batches
+        $item->received_unit = $newUnit;
+        $item->save();
+
+        activity()
+            ->performedOn($item)
+            ->causedBy($request->user())
+            ->withProperties([
+                'action' => 'update_received_item_unit',
+                'goods_received_id' => $item->goods_received_id,
+                'goods_received_item_id' => $item->id,
+                'product_id' => $item->product_id,
+                'product_name' => $item->product?->name,
+                'old_unit' => $oldUnit,
+                'new_unit' => $newUnit,
+            ])
+            ->log("Updated received unit for item #{$item->id} from {$oldUnit} to {$newUnit}");
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Unit updated successfully.',
+                'data' => [
+                    'id' => $item->id,
+                    'old_unit' => $oldUnit,
+                    'new_unit' => $newUnit,
+                ],
+            ]);
+        }
+
+        return redirect()->back()->with('success', "Unit updated from {$oldUnit} to {$newUnit}.");
+    }
+
+    /**
+     * Perform FIFO inventory matching for a specific product and unit within the selected date.
+     */
+    protected function executeDayInventoryMatch(
+        string $date,
+        int $productId,
+        string $unit,
+        ?int $warehouseId,
+        ?array $authorizedWarehouseIds,
+        int $userId
+    ): array {
+        /** @var Product $product */
+        $product = Product::findOrFail($productId);
+        $normalizedUnit = ProductUnit::normalizeUnit($unit);
+
+        // 1. Fetch same-day Advance items
+        $advanceItems = GoodsReceivedItem::query()
+            ->where('product_id', $productId)
+            ->whereHas('goodsReceived', function (Builder $q) use ($date, $warehouseId, $authorizedWarehouseIds): void {
+                $q->where('receipt_type', 'warehouse_advance')
+                    ->where('status', '!=', 'cancelled')
+                    ->whereDate('received_at', $date)
+                    ->when($warehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $warehouseId))
+                    ->when($warehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['goodsReceived.stockBatches'])
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->filter(fn (GoodsReceivedItem $item): bool => ProductUnit::normalizeUnit((string) $item->received_unit) === $normalizedUnit);
+
+        // 2. Fetch same-day RECEIVED Bill items (must be approved / received)
+        $billItems = GoodsReceivedItem::query()
+            ->where('product_id', $productId)
+            ->whereHas('goodsReceived', function (Builder $q) use ($date): void {
+                $q->where(function (Builder $sub): void {
+                    $sub->where('receipt_type', '!=', 'warehouse_advance')
+                        ->orWhereNull('receipt_type');
+                })
+                    ->where('status', '!=', 'cancelled')
+                    ->whereDate('received_at', $date);
+            })
+            ->when($warehouseId !== null, function (Builder $q) use ($warehouseId): void {
+                $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $warehouseId));
+            })
+            ->when($warehouseId === null && $authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
+                $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['goodsReceived.stockBatches', 'purchaseOrderItem'])
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->filter(fn (GoodsReceivedItem $item): bool => ProductUnit::normalizeUnit((string) $item->received_unit) === $normalizedUnit);
+
+        if ($advanceItems->isEmpty() || $billItems->isEmpty()) {
+            return [
+                'matched_qty' => 0.0,
+                'matches_count' => 0,
+                'message' => 'No matching same-day Advance and Bill items found for this product and unit.',
+            ];
+        }
+
+        // Calculate remaining available qty on each item
+        $advItemAvail = [];
+        foreach ($advanceItems as $advItem) {
+            $alreadyMatched = (float) AdvanceReceiveMatch::query()
+                ->where('advance_goods_received_item_id', $advItem->id)
+                ->sum('matched_qty');
+            $advItemAvail[$advItem->id] = max(0.0, round((float) $advItem->received_qty - $alreadyMatched, 3));
+        }
+
+        $billItemAvail = [];
+        foreach ($billItems as $billItem) {
+            $alreadyMatched = (float) AdvanceReceiveMatch::query()
+                ->where('bill_goods_received_item_id', $billItem->id)
+                ->sum('matched_qty');
+            $billItemAvail[$billItem->id] = max(0.0, round((float) $billItem->received_qty - $alreadyMatched, 3));
+        }
+
+        $totalMatchedInRun = 0.0;
+        $matchesCreated = 0;
+
+        // FIFO matching loop within selected date only
+        foreach ($billItems as $billItem) {
+            if ($billItemAvail[$billItem->id] <= 0.0001) {
+                continue;
+            }
+
+            foreach ($advanceItems as $advItem) {
+                if ($advItemAvail[$advItem->id] <= 0.0001) {
+                    continue;
+                }
+
+                $matchQty = min($billItemAvail[$billItem->id], $advItemAvail[$advItem->id]);
+                if ($matchQty <= 0.0001) {
+                    continue;
+                }
+
+                $advGrn = $advItem->goodsReceived;
+                $billGrn = $billItem->goodsReceived;
+
+                $advBatch = $advGrn?->stockBatches->firstWhere('goods_received_item_id', $advItem->id)
+                    ?? $advGrn?->stockBatches->firstWhere('product_id', $productId);
+
+                $billBatch = $billGrn?->stockBatches->firstWhere('goods_received_item_id', $billItem->id)
+                    ?? $billGrn?->stockBatches->firstWhere('product_id', $productId);
+
+                // Create AdvanceReceiveMatch
+                AdvanceReceiveMatch::create([
+                    'advance_goods_received_id' => $advItem->goods_received_id,
+                    'advance_goods_received_item_id' => $advItem->id,
+                    'advance_stock_batch_id' => $advBatch?->id,
+                    'bill_goods_received_id' => $billItem->goods_received_id,
+                    'bill_goods_received_item_id' => $billItem->id,
+                    'purchase_order_id' => $billGrn?->purchase_order_id ?? $billItem->purchaseOrderItem?->purchase_order_id,
+                    'purchase_order_item_id' => $billItem->purchase_order_item_id,
+                    'product_id' => $productId,
+                    'matched_qty' => $matchQty,
+                    'matched_unit' => $unit,
+                    'base_qty' => $matchQty,
+                    'conversion_to_base' => 1.0,
+                    'confirmed_by' => $userId,
+                    'confirmed_at' => now(),
+                    'notes' => "Day-wise inventory match for {$product->name} on {$date}",
+                ]);
+
+                // Reduce BILL-side StockBatch only (Advance StockBatch remains intact!)
+                if ($billBatch) {
+                    $newBillBatchQty = max(0.0, round((float) $billBatch->total_kg - $matchQty, 3));
+                    $billBatch->update([
+                        'total_kg' => $newBillBatchQty,
+                        'notes' => trim(($billBatch->notes ?? '')." | Matched {$matchQty} {$unit} with Advance GRN #{$advGrn?->grn_number}"),
+                    ]);
+                }
+
+                // Update local available quantities
+                $billItemAvail[$billItem->id] = round($billItemAvail[$billItem->id] - $matchQty, 3);
+                $advItemAvail[$advItem->id] = round($advItemAvail[$advItem->id] - $matchQty, 3);
+
+                $totalMatchedInRun = round($totalMatchedInRun + $matchQty, 3);
+                $matchesCreated++;
+
+                if ($billItemAvail[$billItem->id] <= 0.0001) {
+                    break;
+                }
+            }
+        }
+
+        // Check if any Advance GRNs or Bill GRNs are now fully matched
+        foreach ($advanceItems as $advItem) {
+            $advGrn = $advItem->goodsReceived;
+            if ($advGrn) {
+                $freshMatches = AdvanceReceiveMatch::where('advance_goods_received_id', $advGrn->id)->get();
+                $allAdvItemsMatched = $advGrn->items->every(function (GoodsReceivedItem $it) use ($freshMatches): bool {
+                    $matched = (float) $freshMatches->where('advance_goods_received_item_id', $it->id)->sum('matched_qty');
+
+                    return $matched >= (float) $it->received_qty - 0.0001;
+                });
+                if ($allAdvItemsMatched && $advGrn->items->isNotEmpty()) {
+                    $advGrn->update(['bill_status' => 'bill_available']);
+                }
+            }
+        }
+
+        foreach ($billItems as $billItem) {
+            $billGrn = $billItem->goodsReceived;
+            if ($billGrn) {
+                $freshMatches = AdvanceReceiveMatch::where('bill_goods_received_id', $billGrn->id)->get();
+                $allBillItemsMatched = $billGrn->items->every(function (GoodsReceivedItem $it) use ($freshMatches): bool {
+                    $matched = (float) $freshMatches->where('bill_goods_received_item_id', $it->id)->sum('matched_qty');
+
+                    return $matched >= (float) $it->received_qty - 0.0001;
+                });
+                if ($allBillItemsMatched && $billGrn->items->isNotEmpty()) {
+                    $billGrn->update(['bill_status' => 'bill_available']);
+                }
+            }
+        }
+
+        if ($totalMatchedInRun > 0) {
+            activity()
+                ->performedOn($product)
+                ->causedBy(User::find($userId))
+                ->withProperties([
+                    'action' => 'day_wise_inventory_match',
+                    'date' => $date,
+                    'product_id' => $productId,
+                    'product_name' => $product->name,
+                    'unit' => $unit,
+                    'matched_qty' => $totalMatchedInRun,
+                    'matches_count' => $matchesCreated,
+                ])
+                ->log("Matched {$totalMatchedInRun} {$unit} for {$product->name} on {$date}");
+        }
+
+        return [
+            'matched_qty' => $totalMatchedInRun,
+            'matches_count' => $matchesCreated,
+            'message' => $totalMatchedInRun > 0
+                ? "Successfully matched {$totalMatchedInRun} {$unit} for {$product->name}."
+                : 'No additional quantities could be matched.',
+        ];
+    }
+
+    public function matchDayInventory(Request $request): JsonResponse|RedirectResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'unit' => ['required', 'string', 'max:50'],
+        ]);
+
+        $date = Carbon::parse($validated['date'])->toDateString();
+        $productId = (int) $validated['product_id'];
+        $unit = trim((string) $validated['unit']);
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && $warehouseId !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $userId = (int) $request->user()->id;
+
+        $result = DB::transaction(function () use ($date, $productId, $unit, $warehouseId, $authorizedWarehouseIds, $userId): array {
+            return $this->executeDayInventoryMatch($date, $productId, $unit, $warehouseId, $authorizedWarehouseIds, $userId);
+        });
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'status' => 'success',
+                'data' => $result,
+                'message' => $result['message'],
+            ]);
+        }
+
+        return redirect()->back()->with('success', $result['message']);
+    }
+
+    /**
+     * Match all eligible rows for the selected date and warehouse.
+     */
+    public function matchAllDayInventory(Request $request): JsonResponse|RedirectResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $date = Carbon::parse($validated['date'])->toDateString();
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        if ($authorizedWarehouseIds !== null && $warehouseId !== null && ! in_array($warehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $userId = (int) $request->user()->id;
+
+        $rows = $this->buildInventoryComparisonRows($date, $warehouseId, $authorizedWarehouseIds);
+
+        $matchedProductsCount = 0;
+        $totalMatchedQty = 0.0;
+        $skippedUnitMismatches = 0;
+
+        DB::transaction(function () use ($rows, $date, $warehouseId, $authorizedWarehouseIds, $userId, &$matchedProductsCount, &$totalMatchedQty, &$skippedUnitMismatches): void {
+            foreach ($rows as $row) {
+                if ($row['unit_mismatch']) {
+                    $skippedUnitMismatches++;
+
+                    continue;
+                }
+
+                if (in_array($row['action_type'], ['match', 'match_remaining'], true)) {
+                    $matchResult = $this->executeDayInventoryMatch(
+                        $date,
+                        (int) $row['product_id'],
+                        (string) $row['unit'],
+                        $warehouseId,
+                        $authorizedWarehouseIds,
+                        $userId
+                    );
+
+                    if ($matchResult['matched_qty'] > 0.0001) {
+                        $matchedProductsCount++;
+                        $totalMatchedQty = round($totalMatchedQty + $matchResult['matched_qty'], 3);
+                    }
+                }
+            }
+        });
+
+        // Recompute rows to get current pending count
+        $updatedRows = $this->buildInventoryComparisonRows($date, $warehouseId, $authorizedWarehouseIds);
+        $stillPendingRows = collect($updatedRows)->filter(function (array $r): bool {
+            return ($r['bill_qty'] > 0 && $r['unmatched_bill_qty'] > 0.0001) || $r['unit_mismatch'];
+        })->count();
+
+        $message = "Matched {$matchedProductsCount} products. Skipped {$skippedUnitMismatches} unit mismatches. {$stillPendingRows} rows still pending.";
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'status' => 'success',
+                'message' => $message,
+                'data' => [
+                    'matched_products_count' => $matchedProductsCount,
+                    'total_matched_qty' => $totalMatchedQty,
+                    'skipped_unit_mismatches' => $skippedUnitMismatches,
+                    'still_pending_rows' => $stillPendingRows,
+                ],
+            ]);
+        }
+
+        return redirect()->back()->with('success', $message);
+    }
+
+    /**
+     * Day-wise Admin Receive All Pending Purchase Bills for selected date & warehouse.
+     * Uses canonical ApproveGoodsReceiptAction::executeAndConfirmReceive flow.
+     */
+    public function receiveAllPendingBills(Request $request): JsonResponse|RedirectResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $user = $request->user();
+        abort_unless(
+            $user->isMainAdmin()
+            || $user->hasRole('admin')
+            || $user->hasRole('purchase')
+            || $user->hasAnyPermission(['purchasing.grn.approve', 'accounting.dashboard.view', 'accounting.report.view']),
+            403,
+            'Unauthorized to receive bills.'
+        );
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $date = Carbon::parse($validated['date'])->toDateString();
+        $requestedWarehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $user,
+            $requestedWarehouseId
+        );
+
+        if ($requestedWarehouseId !== null && $authorizedWarehouseIds !== null && ! in_array($requestedWarehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $pendingCandidates = $this->getPendingBillsForDate($date, $requestedWarehouseId, $authorizedWarehouseIds);
+
+        $receivedCount = 0;
+        $skippedCount = 0;
+        $failedCount = 0;
+
+        $approveAction = app(ApproveGoodsReceiptAction::class);
+        $userId = (int) $user->id;
+
+        foreach ($pendingCandidates as $candidate) {
+            try {
+                DB::transaction(function () use ($candidate, $approveAction, $userId, $requestedWarehouseId, &$receivedCount, &$skippedCount): void {
+                    $targetWarehouseId = $requestedWarehouseId;
+
+                    if ($candidate['type'] === 'po') {
+                        /** @var PurchaseOrder $po */
+                        $po = $candidate['record'];
+                        $po->loadMissing(['items.product', 'goodsReceiveds.stockBatches']);
+
+                        // Lock and check if a GRN already exists or was created concurrently
+                        $existingGrn = GoodsReceived::query()
+                            ->where('purchase_order_id', $po->id)
+                            ->where(function (Builder $sub): void {
+                                $sub->where('receipt_type', '!=', 'warehouse_advance')
+                                    ->orWhereNull('receipt_type');
+                            })
+                            ->lockForUpdate()
+                            ->first();
+
+                        if ($existingGrn !== null) {
+                            $hasBatches = StockBatch::query()->where('goods_received_id', $existingGrn->id)->exists();
+                            $hasPendingBatches = StockBatch::query()->where('goods_received_id', $existingGrn->id)->where('warehouse_receive_pending', true)->exists();
+                            if ($existingGrn->status === 'approved' && $hasBatches && ! $hasPendingBatches) {
+                                $skippedCount++;
+
+                                return;
+                            }
+
+                            $effectiveWh = $targetWarehouseId ?? $existingGrn->warehouse_id ?? $po->items->first()?->product?->default_warehouse_id;
+                            $approveAction->executeAndConfirmReceive($existingGrn, $userId, $effectiveWh);
+                            $receivedCount++;
+
+                            return;
+                        }
+
+                        // Create GRN for this PO
+                        $effectiveWh = $targetWarehouseId ?? $po->warehouse_id ?? $po->destination_shop_id ?? $po->items->first()?->product?->default_warehouse_id;
+                        $grn = GoodsReceived::create([
+                            'public_uuid' => (string) Str::uuid(),
+                            'warehouse_id' => $effectiveWh,
+                            'destination_shop_id' => $po->destination_shop_id,
+                            'purchase_order_id' => $po->id,
+                            'grn_number' => 'GRN-PO-'.str_replace('PO-', '', (string) ($po->po_number ?? $po->id)),
+                            'status' => 'pending_approval',
+                            'bill_status' => 'bill_pending',
+                            'receipt_type' => 'normal_purchase',
+                            'received_by' => $userId,
+                            'received_at' => $po->order_date ?? now(),
+                            'notes' => 'Created via Admin Inventory Receive All',
+                        ]);
+
+                        foreach ($po->items as $poItem) {
+                            GoodsReceivedItem::create([
+                                'goods_received_id' => $grn->id,
+                                'purchase_order_item_id' => $poItem->id,
+                                'product_id' => $poItem->product_id,
+                                'received_qty' => (float) $poItem->quantity,
+                                'received_unit' => $poItem->purchase_unit ?: ($poItem->product?->unit ?? 'kg'),
+                                'variance' => 0.0,
+                                'grade' => 'A',
+                            ]);
+                        }
+
+                        $approveAction->executeAndConfirmReceive($grn, $userId, $effectiveWh);
+                        $receivedCount++;
+                    } elseif ($candidate['type'] === 'grn') {
+                        /** @var GoodsReceived $grn */
+                        $grn = $candidate['record'];
+
+                        $lockedGrn = GoodsReceived::query()->whereKey($grn->id)->lockForUpdate()->first();
+                        if ($lockedGrn === null) {
+                            $skippedCount++;
+
+                            return;
+                        }
+
+                        $hasBatches = StockBatch::query()->where('goods_received_id', $lockedGrn->id)->exists();
+                        $hasPendingBatches = StockBatch::query()->where('goods_received_id', $lockedGrn->id)->where('warehouse_receive_pending', true)->exists();
+                        if ($lockedGrn->status === 'approved' && $hasBatches && ! $hasPendingBatches) {
+                            $skippedCount++;
+
+                            return;
+                        }
+
+                        $effectiveWh = $targetWarehouseId ?? $lockedGrn->warehouse_id ?? $lockedGrn->items->first()?->product?->default_warehouse_id;
+                        $approveAction->executeAndConfirmReceive($lockedGrn, $userId, $effectiveWh);
+                        $receivedCount++;
+                    }
+                });
+            } catch (Throwable $e) {
+                Log::error("Failed to receive pending bill: {$e->getMessage()}", [
+                    'candidate' => $candidate,
+                    'exception' => $e,
+                ]);
+                $failedCount++;
+            }
+        }
+
+        $remainingPending = $this->getPendingBillsForDate($date, $requestedWarehouseId, $authorizedWarehouseIds)->count();
+
+        $message = "{$receivedCount} bills received successfully".($remainingPending > 0 ? " ({$remainingPending} pending)" : ' (0 pending)');
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'status' => 'success',
+                'message' => $message,
+                'data' => [
+                    'received' => $receivedCount,
+                    'skipped' => $skippedCount,
+                    'failed' => $failedCount,
+                    'pending_remaining' => $remainingPending,
+                ],
+            ]);
+        }
+
+        return redirect()->back()->with('success', $message);
+    }
+
+    /**
+     * Get pending purchase bills / POs for a specific date and warehouse.
+     *
+     * @return Collection<int, array{type: 'po'|'grn', record: PurchaseOrder|GoodsReceived}>
+     */
+    protected function getPendingBillsForDate(string $date, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds): Collection
+    {
+        $pendingBills = collect();
+
+        // 1. Pending Purchase Orders for the selected date
+        $pos = PurchaseOrder::query()
+            ->whereDate('order_date', $date)
+            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
+            ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
+                $q->whereHas('items.product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId));
+            })
+            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
+                $q->whereHas('items.product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['items.product', 'goodsReceiveds.stockBatches', 'goodsReceiveds.items.product'])
+            ->get();
+
+        foreach ($pos as $po) {
+            $nonAdvanceGrns = $po->goodsReceiveds->filter(fn (GoodsReceived $g) => $g->receipt_type !== 'warehouse_advance' && $g->status !== 'cancelled');
+
+            if ($nonAdvanceGrns->isEmpty()) {
+                // PO has no non-advance GRN yet -> pending receive
+                $pendingBills->push([
+                    'type' => 'po',
+                    'record' => $po,
+                ]);
+            } else {
+                foreach ($nonAdvanceGrns as $grn) {
+                    $hasBatches = $grn->stockBatches->isNotEmpty();
+                    $hasPendingBatches = $grn->stockBatches->contains('warehouse_receive_pending', true);
+                    $isAlreadyFullyReceived = $grn->status === 'approved' && $hasBatches && ! $hasPendingBatches;
+
+                    if (! $isAlreadyFullyReceived) {
+                        $pendingBills->push([
+                            'type' => 'grn',
+                            'record' => $grn,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        // 2. Standalone GoodsReceived for the selected date (where purchase_order_id IS NULL)
+        $standaloneGrns = GoodsReceived::query()
+            ->whereNull('purchase_order_id')
+            ->whereDate('received_at', $date)
+            ->where(function (Builder $sub): void {
+                $sub->where('receipt_type', '!=', 'warehouse_advance')
+                    ->orWhereNull('receipt_type');
+            })
+            ->where('status', '!=', 'cancelled')
+            ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
+                $q->whereHas('items.product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId));
+            })
+            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
+                $q->whereHas('items.product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['items.product', 'stockBatches'])
+            ->get();
+
+        foreach ($standaloneGrns as $grn) {
+            $hasBatches = $grn->stockBatches->isNotEmpty();
+            $hasPendingBatches = $grn->stockBatches->contains('warehouse_receive_pending', true);
+            $isAlreadyFullyReceived = $grn->status === 'approved' && $hasBatches && ! $hasPendingBatches;
+
+            if (! $isAlreadyFullyReceived) {
+                $pendingBills->push([
+                    'type' => 'grn',
+                    'record' => $grn,
+                ]);
+            }
+        }
+
+        return $pendingBills;
     }
 
     /**
@@ -2289,6 +2484,167 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
+     * Format pending bill candidates for UI / API consumption.
+     *
+     * @param  Collection<int, array{type: 'po'|'grn', record: PurchaseOrder|GoodsReceived}>  $pendingCandidates
+     * @return array<int, array<string, mixed>>
+     */
+    protected function formatPendingBillsList(Collection $pendingCandidates): array
+    {
+        return $pendingCandidates->map(function (array $candidate, int $index): array {
+            $record = $candidate['record'];
+            $type = $candidate['type'];
+
+            if ($type === 'po') {
+                /** @var PurchaseOrder $po */
+                $po = $record;
+                $supplierName = $po->supplier?->name ?? 'N/A';
+                $billNumber = $po->po_number ?: 'PO #'.$po->id;
+                $itemsCount = $po->items->count();
+                $itemsSummary = $po->items->map(function ($it): string {
+                    $name = $it->product?->name ?? 'Item #'.$it->product_id;
+                    $qty = (float) $it->quantity;
+                    $unit = $it->purchase_unit ?: ($it->product?->unit ?? 'kg');
+
+                    return "{$name} ({$qty} {$unit})";
+                })->implode(', ');
+            } else {
+                /** @var GoodsReceived $grn */
+                $grn = $record;
+                $supplierName = $grn->purchaseOrder?->supplier?->name ?? 'Supplier';
+                $billNumber = $grn->grn_number ?: ($grn->purchaseOrder?->po_number ?: 'GRN #'.$grn->id);
+                $itemsCount = $grn->items->count();
+                $itemsSummary = $grn->items->map(function ($it): string {
+                    $name = $it->product?->name ?? 'Item #'.$it->product_id;
+                    $qty = (float) $it->received_qty;
+                    $unit = $it->received_unit ?: ($it->product?->unit ?? 'kg');
+
+                    return "{$name} ({$qty} {$unit})";
+                })->implode(', ');
+            }
+
+            return [
+                'sl' => $index + 1,
+                'id' => $record->id,
+                'type' => $type,
+                'bill_number' => $billNumber,
+                'supplier_name' => $supplierName,
+                'items_count' => $itemsCount,
+                'items_summary' => $itemsSummary ?: 'No items',
+                'status' => 'Pending Receive',
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * Day-wise Admin Receive a single pending Purchase Bill (by PO or GRN ID).
+     * Uses canonical ApproveGoodsReceiptAction::executeAndConfirmReceive flow.
+     */
+    public function receiveSingleBill(Request $request): JsonResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $user = $request->user();
+        abort_unless(
+            $user->isMainAdmin()
+            || $user->hasRole('admin')
+            || $user->hasRole('purchase')
+            || $user->hasAnyPermission(['purchasing.grn.approve', 'accounting.dashboard.view', 'accounting.report.view']),
+            403,
+            'Unauthorized to receive bills.'
+        );
+
+        $validated = $request->validate([
+            'type' => ['required', 'string', 'in:po,grn'],
+            'id' => ['required', 'integer'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $type = $validated['type'];
+        $id = (int) $validated['id'];
+        $requestedWarehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $user,
+            $requestedWarehouseId
+        );
+
+        if ($requestedWarehouseId !== null && $authorizedWarehouseIds !== null && ! in_array($requestedWarehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $approveAction = app(ApproveGoodsReceiptAction::class);
+        $userId = (int) $user->id;
+
+        $grn = DB::transaction(function () use ($type, $id, $requestedWarehouseId, $approveAction, $userId): GoodsReceived {
+            if ($type === 'po') {
+                $po = PurchaseOrder::query()->with(['items.product'])->findOrFail($id);
+
+                // Re-check if GRN was already created
+                $existingGrn = GoodsReceived::query()
+                    ->where('purchase_order_id', $po->id)
+                    ->where(function (Builder $sub): void {
+                        $sub->where('receipt_type', '!=', 'warehouse_advance')
+                            ->orWhereNull('receipt_type');
+                    })
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingGrn !== null) {
+                    $effectiveWh = $requestedWarehouseId ?? $existingGrn->warehouse_id ?? $po->items->first()?->product?->default_warehouse_id;
+
+                    return $approveAction->executeAndConfirmReceive($existingGrn, $userId, $effectiveWh);
+                }
+
+                // Create GRN for this PO
+                $effectiveWh = $requestedWarehouseId ?? $po->warehouse_id ?? $po->destination_shop_id ?? $po->items->first()?->product?->default_warehouse_id;
+                $newGrn = GoodsReceived::create([
+                    'public_uuid' => (string) Str::uuid(),
+                    'warehouse_id' => $effectiveWh,
+                    'destination_shop_id' => $po->destination_shop_id,
+                    'purchase_order_id' => $po->id,
+                    'grn_number' => 'GRN-PO-'.str_replace('PO-', '', (string) ($po->po_number ?? $po->id)),
+                    'status' => 'pending_approval',
+                    'bill_status' => 'bill_pending',
+                    'receipt_type' => 'normal_purchase',
+                    'received_by' => $userId,
+                    'received_at' => $po->order_date ?? now(),
+                    'notes' => 'Created via Admin Inventory Receive Single',
+                ]);
+
+                foreach ($po->items as $poItem) {
+                    GoodsReceivedItem::create([
+                        'goods_received_id' => $newGrn->id,
+                        'purchase_order_item_id' => $poItem->id,
+                        'product_id' => $poItem->product_id,
+                        'received_qty' => (float) $poItem->quantity,
+                        'received_unit' => $poItem->purchase_unit ?: ($poItem->product?->unit ?? 'kg'),
+                        'variance' => 0.0,
+                        'grade' => 'A',
+                    ]);
+                }
+
+                return $approveAction->executeAndConfirmReceive($newGrn, $userId, $effectiveWh);
+            } else {
+                $lockedGrn = GoodsReceived::query()->whereKey($id)->lockForUpdate()->firstOrFail();
+                $effectiveWh = $requestedWarehouseId ?? $lockedGrn->warehouse_id ?? $lockedGrn->items->first()?->product?->default_warehouse_id;
+
+                return $approveAction->executeAndConfirmReceive($lockedGrn, $userId, $effectiveWh);
+            }
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Bill #{$grn->grn_number} received successfully",
+            'data' => [
+                'grn_id' => $grn->id,
+                'grn_number' => $grn->grn_number,
+            ],
+        ]);
+    }
+
+    /**
      * Get day-level summary of pending bills for popup.
      */
     public function pendingBillsDaysSummary(Request $request): JsonResponse
@@ -2308,59 +2664,55 @@ class AdminCashbookReportsController extends Controller
             abort(403, 'Unauthorized warehouse access.');
         }
 
-        // Use the same PO-based query as paginateMatchCandidates so the modal
-        // shows all POs the table already shows — grouped by order_date.
+        // Query pending POs grouped by order_date
         $pos = PurchaseOrder::query()
             ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
-            ->where(function (Builder $pending): void {
-                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
-                    ->orWhere(function ($withoutReceipt): void {
-                        $withoutReceipt->whereDoesntHave('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
-                            ->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
-                    });
+            ->when($requestedWarehouseId !== null, function (Builder $q) use ($requestedWarehouseId): void {
+                $q->whereHas('items.product', fn (Builder $pq) => $pq->where('default_warehouse_id', $requestedWarehouseId));
             })
-            ->with(['items'])
+            ->when($requestedWarehouseId === null && $authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
+                $q->whereHas('items.product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['items.product', 'goodsReceiveds.stockBatches'])
             ->orderByDesc('order_date')
-            ->orderByDesc('id');
+            ->get();
 
-        app(WarehouseReceiptReadScope::class)->orders(
-            $pos,
-            $requestedWarehouseId !== null ? [$requestedWarehouseId] : $authorizedWarehouseIds
-        );
+        $dayCounts = [];
+        foreach ($pos as $po) {
+            $dateStr = $po->order_date instanceof Carbon ? $po->order_date->toDateString() : Carbon::parse($po->order_date)->toDateString();
+            $nonAdvanceGrns = $po->goodsReceiveds->filter(fn (GoodsReceived $g) => $g->receipt_type !== 'warehouse_advance' && $g->status !== 'cancelled');
 
-        $allPos = $pos->get();
+            $isPending = false;
+            if ($nonAdvanceGrns->isEmpty()) {
+                $isPending = true;
+            } else {
+                foreach ($nonAdvanceGrns as $grn) {
+                    $hasBatches = $grn->stockBatches->isNotEmpty();
+                    $hasPendingBatches = $grn->stockBatches->contains('warehouse_receive_pending', true);
+                    if (! ($grn->status === 'approved' && $hasBatches && ! $hasPendingBatches)) {
+                        $isPending = true;
+                        break;
+                    }
+                }
+            }
 
-        $grouped = $allPos->groupBy(function (PurchaseOrder $po): string {
-            return $po->order_date instanceof Carbon
-                ? $po->order_date->toDateString()
-                : (string) Carbon::parse($po->order_date ?? now())->toDateString();
-        });
+            if ($isPending) {
+                $dayCounts[$dateStr] = ($dayCounts[$dateStr] ?? 0) + 1;
+            }
+        }
 
         $days = [];
-        $totalBills = 0;
-        $totalQty = 0.0;
-
-        foreach ($grouped as $dateStr => $dayPos) {
-            $billCount = $dayPos->count();
-            $dayQty = round((float) $dayPos->sum(fn (PurchaseOrder $po) => $po->items->sum('quantity')), 2);
-            $totalBills += $billCount;
-            $totalQty += $dayQty;
-
+        foreach ($dayCounts as $dateStr => $count) {
             $days[] = [
                 'date' => $dateStr,
-                'formatted_date' => Carbon::parse($dateStr)->format('d M Y'),
-                'bill_count' => $billCount,
-                'total_qty' => $dayQty,
-                'po_ids' => $dayPos->pluck('id')->all(),
+                'formatted_date' => Carbon::parse($dateStr)->format('d-m-Y'),
+                'pending_count' => $count,
             ];
         }
 
         return response()->json([
             'status' => 'success',
             'data' => [
-                'warehouse_id' => $requestedWarehouseId,
-                'total_bills' => $totalBills,
-                'total_qty' => round($totalQty, 2),
                 'days' => $days,
             ],
         ]);
@@ -2390,53 +2742,15 @@ class AdminCashbookReportsController extends Controller
             abort(403, 'Unauthorized warehouse access.');
         }
 
-        $query = GoodsReceived::query()
-            ->where('status', 'pending_approval')
-            ->whereDate('received_at', $dateStr)
-            ->where(function (Builder $typeQ): void {
-                $typeQ->where('receipt_type', '!=', 'warehouse_advance')
-                    ->orWhereNull('receipt_type');
-            })
-            ->with([
-                'purchaseOrder.supplier',
-                'items.product',
-                'receivedBy:id,name',
-            ]);
-
-        app(WarehouseReceiptReadScope::class)->receipts(
-            $query,
-            $requestedWarehouseId !== null ? [$requestedWarehouseId] : $authorizedWarehouseIds
-        );
-
-        $grns = $query->orderBy('grn_number')->get();
-
-        $bills = $grns->map(function (GoodsReceived $grn): array {
-            $itemsSummary = $grn->items->map(function ($item): string {
-                $pName = $item->product?->name ?? 'Product #'.$item->product_id;
-                $qty = (float) $item->received_qty;
-                $unit = $item->received_unit ?: ($item->product?->unit ?? 'kg');
-
-                return "{$pName} ({$qty} {$unit})";
-            })->implode(', ');
-
-            return [
-                'id' => $grn->id,
-                'grn_number' => $grn->grn_number,
-                'po_number' => $grn->purchaseOrder?->po_number ?? ($grn->purchaseOrder?->order_number ?? '—'),
-                'supplier_name' => $grn->purchaseOrder?->supplier?->name ?? 'Supplier',
-                'products_summary' => $itemsSummary ?: 'No items',
-                'qty' => round((float) $grn->items->sum('received_qty'), 2),
-                'unit' => $grn->items->first()?->received_unit ?: 'KG',
-                'status' => 'Pending Approval',
-                'is_extra' => (bool) $grn->is_extra,
-            ];
-        })->values()->all();
+        $candidates = $this->getPendingBillsForDate($dateStr, $requestedWarehouseId, $authorizedWarehouseIds);
+        $bills = $this->formatPendingBillsList($candidates);
 
         return response()->json([
             'status' => 'success',
             'data' => [
                 'date' => $dateStr,
-                'formatted_date' => Carbon::parse($dateStr)->format('d M Y'),
+                'formatted_date' => Carbon::parse($dateStr)->format('d-m-Y'),
+                'total_pending' => count($bills),
                 'bills' => $bills,
             ],
         ]);
@@ -2544,7 +2858,7 @@ class AdminCashbookReportsController extends Controller
                                 'purchase_order_item_id' => $poItem->id,
                                 'product_id' => $poItem->product_id,
                                 'received_qty' => (float) $poItem->quantity,
-                                'received_unit' => $poItem->unit ?: $poItem->product?->unit,
+                                'received_unit' => $poItem->purchase_unit ?: ($poItem->product?->unit ?? 'kg'),
                                 'variance' => 0.0,
                                 'grade' => 'A',
                             ]);

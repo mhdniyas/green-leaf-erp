@@ -3517,6 +3517,7 @@ class PurchaserDashboardController extends Controller
                 'product_id' => $cartItem->product_id,
                 'grade' => $purchaseGrade,
                 'received_qty' => $quantity,
+                'received_unit' => $purchaseOrderItem->purchase_unit ?: $cartItem->product->unit,
                 'variance' => 0,
             ]);
         }

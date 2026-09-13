@@ -60,7 +60,7 @@ class ApproveGoodsReceiptAction
                         ? $approvedGrn->items->firstWhere('id', $batch->goods_received_item_id)
                         : $approvedGrn->items->firstWhere('product_id', $batch->product_id);
 
-                    $itemWarehouseId = $targetWarehouse ?? $batch->warehouse_id ?? $approvedGrn->warehouse_id ?? Warehouse::query()->value("id");
+                    $itemWarehouseId = $targetWarehouse ?? $batch->warehouse_id ?? $approvedGrn->warehouse_id ?? Warehouse::query()->value('id');
                     $itemWarehouseId = $itemWarehouseId !== null ? (int) $itemWarehouseId : null;
 
                     // Check if Advance matches already cover part or all of this item
@@ -280,7 +280,7 @@ class ApproveGoodsReceiptAction
             ? $grn->received_at->format('Y-m-d')
             : Carbon::parse($grn->received_at)->format('Y-m-d');
 
-        $warehouseId = $targetWarehouseId ?? $grn->warehouse_id ?? Warehouse::query()->value("id");
+        $warehouseId = $targetWarehouseId ?? $grn->warehouse_id ?? Warehouse::query()->value('id');
         $warehouseId = $warehouseId !== null ? (int) $warehouseId : null;
 
         foreach ($grn->items as $item) {

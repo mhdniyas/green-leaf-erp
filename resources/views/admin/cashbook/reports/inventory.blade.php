@@ -1,2534 +1,999 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', 'Admin Inventory Action Center — Green Leaf')
+@section('title', 'Daily Inventory Comparison — ' . \Carbon\Carbon::parse($date)->format('d M Y'))
 
 @section('header_title')
-    <i data-lucide="boxes" class="w-5 h-5 text-emerald-600"></i> Inventory Action Center
+    <i data-lucide="scale" class="w-5 h-5 text-emerald-600"></i> Daily Inventory Comparison
 @endsection
 
 @section('header_subtitle')
-    Authoritative warehouse sellable stock, bill receiving, unbilled advance reconciliation, shop returns, damage, and physical counts.
+    Daily warehouse Advance vs Purchase Bill received comparison by product and unit.
 @endsection
 
-@php
-    $currentPageProducts = collect($currentInventory?->items() ?? [])->map(fn ($r) => [
-        'product_id' => $r['product_id'],
-        'name' => $r['name'],
-        'sku' => $r['sku'],
-        'unit' => $r['unit'] ?? 'KG',
-        'available_qty' => (float) ($r['current_sellable'] ?? 0.0),
-        'quantity' => (float) max(0.01, (float) ($r['current_sellable'] ?? 0.0)),
-        'reason' => 'transit_damage',
-        'grade' => 'U',
-    ])->values()->all();
-
-    $currentPageReturns = collect($shopReturns?->items() ?? [])->map(function ($ret) use ($currentStockByProduct) {
-        $shop = $ret->shopOrderItem?->shopOrder?->shop;
-        $order = $ret->shopOrderItem?->shopOrder;
-        $invoice = $order?->invoice;
-        $prod = $ret->product;
-        $retQty = (float) $ret->quantity;
-        $sellable = max(0.0, (float) ($currentStockByProduct[$ret->product_id] ?? 0.0));
-        $avail = min($retQty, $sellable);
-        return [
-            'product_id' => $ret->product_id,
-            'name' => $prod?->name ?? ('Product #' . $ret->product_id),
-            'sku' => $prod?->sku ?? '',
-            'unit' => $prod?->unit ?? 'KG',
-            'available_qty' => $avail,
-            'quantity' => $avail > 0 ? $avail : 0.0,
-            'reason' => 'transit_damage',
-            'grade' => 'U',
-            'shop_name' => $shop?->name ?? '',
-            'invoice_number' => $invoice?->invoice_number ?? '',
-            'order_ref' => $invoice?->invoice_number ?? $order?->order_number ?? '',
-        ];
-    })->values()->all();
-@endphp
-
 @section('content')
-    <script>
-        window.inventoryActionCenterConfig = {
-            csrfToken: '{{ csrf_token() }}',
-            currentTab: '{{ $tab }}',
-            currentDate: '{{ $selectedDate }}',
-            currentWarehouseId: '{{ $selectedWarehouseId ?? '' }}',
-            currentWarehouseName: @json($selectedWarehouseId && $availableWarehouses->firstWhere('id', $selectedWarehouseId) ? $availableWarehouses->firstWhere('id', $selectedWarehouseId)->name : 'All Warehouses'),
-            currentSearch: @json($search ?? ''),
-            autoPlanUrl: '{{ route('admin.cashbook.inventory.auto-clear-plan') }}',
-            autoExecuteUrl: '{{ route('admin.cashbook.inventory.auto-clear-execute') }}',
-            pendingBillsDaysUrl: '{{ route('admin.cashbook.inventory.pending-bills-days') }}',
-            pendingBillsDayDetailsUrl: '{{ route('admin.cashbook.inventory.pending-bills-day-details') }}',
-            acceptPendingBillsUrl: '{{ route('admin.cashbook.inventory.accept-pending-bills') }}',
-            manualMatchUrlPrefix: '/admin/cashbook/inventory/manual-match-suggestions/',
-            manualExecuteUrlPrefix: '/admin/cashbook/inventory/manual-match/',
-            resolveUnitDiffUrl: '{{ route('admin.cashbook.inventory.resolve-unit-difference') }}',
-            fixAdvanceUnitsUrl: '{{ route('admin.cashbook.inventory.fix-advance-units') }}',
-            currentPageProducts: @json($currentPageProducts ?? []),
-            currentPageReturns: @json($currentPageReturns ?? []),
-            currentPageAdvances: @json($stockWithoutBill ? $stockWithoutBill->items() : ($unbilledAdvGrns ?? [])),
-            damageProducts: @json($damageProducts ?? []),
-            unbilledAdvGrns: @json($unbilledAdvGrns ?? []),
-            unbilledRows: @json($unbilledAdvRows ?? [])
-        };
-    </script>
-
-    <div class="mx-auto max-w-7xl space-y-6"
-         x-data="inventoryActionCenter(window.inventoryActionCenterConfig)">
-
-        <!-- Top Header & Actions Bar -->
-        <div class="flex flex-col gap-4">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                    <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl flex items-center gap-2">
-                        <span>Inventory Action Center</span>
-                    </h1>
-                    <p class="text-xs font-bold text-slate-500 mt-0.5">Physical sellable balances, bill processing, shop returns, damage write-offs, and count reconciliations</p>
-                </div>
-
-                <!-- Top Right Action Controls -->
-                <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                    <button type="button"
-                            @click="openDamageModal()"
-                            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-black transition-all shadow-xs cursor-pointer">
-                        <i data-lucide="trash-2" class="w-4 h-4 text-rose-600"></i>
-                        <span>Move to Damage</span>
-                    </button>
-
-                    <a href="{{ route('admin.cashbook.auto-match', array_filter(['warehouse_id' => $selectedWarehouseId, 'date' => $selectedDate])) }}"
-                       class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-700 text-white text-xs font-black hover:bg-emerald-800 transition-all shadow-md hover:shadow-lg cursor-pointer">
-                        <i data-lucide="sparkles" class="w-4 h-4 text-emerald-200"></i>
-                        <span>Open Daily Auto Match</span>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Date, Warehouse & Search Controls -->
-            <div class="rounded-3xl border border-slate-200/90 bg-white p-4 shadow-xs space-y-3">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <!-- Left: Warehouse Switcher & Date Controls -->
-                    <div class="flex flex-wrap items-center gap-2">
-                        <!-- Warehouse Switcher -->
-                        @if($availableWarehouses->count() > 1)
-                            <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="inline-flex items-center">
-                                <input type="hidden" name="tab" value="{{ $tab }}">
-                                <input type="hidden" name="date" value="{{ $selectedDate }}">
-                                @if($search) <input type="hidden" name="search" value="{{ $search }}"> @endif
-                                @if($sort) <input type="hidden" name="sort" value="{{ $sort }}"> @endif
-                                @if($direction) <input type="hidden" name="direction" value="{{ $direction }}"> @endif
-
-                                <div class="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 p-1 border border-slate-200/60">
-                                    <label for="inventory-warehouse-select" class="pl-2 text-xs font-black text-slate-600 flex items-center gap-1 cursor-pointer select-none">
-                                        <i data-lucide="warehouse" class="w-3.5 h-3.5 text-slate-500"></i>
-                                        <span>Warehouse:</span>
-                                    </label>
-                                    <select id="inventory-warehouse-select"
-                                            name="warehouse_id"
-                                            onchange="this.form.submit()"
-                                            class="px-2.5 py-1 text-xs font-black rounded-xl bg-white border border-slate-200 text-slate-900 shadow-2xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
-                                        <option value="">All Warehouses</option>
-                                        @foreach($availableWarehouses as $wh)
-                                            <option value="{{ $wh->id }}" {{ (string) $selectedWarehouseId === (string) $wh->id ? 'selected' : '' }}>
-                                                {{ $wh->name }}
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                </div>
-                            </form>
-                        @elseif($availableWarehouses->isNotEmpty())
-                            <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-slate-100 text-slate-700 text-xs font-black border border-slate-200/80">
-                                <i data-lucide="warehouse" class="w-3.5 h-3.5 text-slate-500"></i>
-                                <span class="text-slate-500 font-bold">Warehouse:</span>
-                                <span>{{ $availableWarehouses->first()->name }}</span>
-                            </div>
-                        @endif
-
-                        <!-- Day Navigation: Previous / Today / Date / Next -->
-                        <div class="inline-flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
-                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => $tab, 'date' => $prevDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search, 'sort' => $sort, 'direction' => $direction], fn ($v) => $v !== null && $v !== '')) }}"
-                               title="Previous Day ({{ $prevDate }})"
-                               class="inline-flex items-center justify-center w-7 h-7 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-white transition">
-                                <i data-lucide="chevron-left" class="w-4 h-4"></i>
-                            </a>
-
-                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => $tab, 'date' => today()->toDateString(), 'warehouse_id' => $selectedWarehouseId, 'search' => $search, 'sort' => $sort, 'direction' => $direction], fn ($v) => $v !== null && $v !== '')) }}"
-                               class="rounded-xl px-2.5 py-1 text-xs font-black transition-all {{ $isToday ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900' }}">
-                                Today
-                            </a>
-
-                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => $tab, 'date' => $nextDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search, 'sort' => $sort, 'direction' => $direction], fn ($v) => $v !== null && $v !== '')) }}"
-                               title="Next Day ({{ $nextDate }})"
-                               class="inline-flex items-center justify-center w-7 h-7 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-white transition">
-                                <i data-lucide="chevron-right" class="w-4 h-4"></i>
-                            </a>
-                        </div>
-
-                        <!-- Datepicker Input -->
-                        <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="inline-flex items-center">
-                            <input type="hidden" name="tab" value="{{ $tab }}">
-                            @if($selectedWarehouseId !== null && $selectedWarehouseId !== '') <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}"> @endif
-                            @if($search) <input type="hidden" name="search" value="{{ $search }}"> @endif
-                            @if($sort) <input type="hidden" name="sort" value="{{ $sort }}"> @endif
-                            @if($direction) <input type="hidden" name="direction" value="{{ $direction }}"> @endif
-
-                            <div class="relative flex items-center">
-                                <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none"></i>
-                                <input type="date"
-                                       name="date"
-                                       value="{{ $selectedDate }}"
-                                       onchange="this.form.submit()"
-                                       class="pl-8 pr-3 py-1.5 text-xs font-bold rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer">
-                            </div>
-                        </form>
-                    </div>
-
-                    <!-- Right: Search Bar -->
-                    <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="flex items-center gap-1.5 w-full sm:w-auto">
-                        <input type="hidden" name="tab" value="{{ $tab }}">
-                        <input type="hidden" name="date" value="{{ $selectedDate }}">
-                        @if($selectedWarehouseId !== null && $selectedWarehouseId !== '') <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}"> @endif
-                        @if($sort) <input type="hidden" name="sort" value="{{ $sort }}"> @endif
-                        @if($direction) <input type="hidden" name="direction" value="{{ $direction }}"> @endif
-
-                        <div class="relative flex-1 sm:w-64">
-                            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                            <input type="text"
-                                   name="search"
-                                   value="{{ $search }}"
-                                   placeholder="Search product, SKU, GRN..."
-                                   class="w-full pl-8 pr-3 py-1.5 text-xs font-medium rounded-xl bg-slate-50 border border-slate-200 shadow-2xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                        </div>
-
-                        <button type="submit" class="px-3.5 py-1.5 text-xs font-black rounded-xl bg-slate-900 text-white shadow-xs hover:bg-slate-800 transition-all cursor-pointer">
-                            Filter
-                        </button>
-
-                        @if($search)
-                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => $tab, 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'sort' => $sort, 'direction' => $direction], fn ($v) => $v !== null && $v !== '')) }}"
-                               title="Clear search"
-                               class="p-1.5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
-                                <i data-lucide="x" class="w-4 h-4"></i>
-                            </a>
-                        @endif
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TOP SUMMARY — ONLY 4 CARDS                                         -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <!-- 1. Advance Pending -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'advance_pending', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
-               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['advance_pending', 'stock_without_bill'], true) ? 'border-purple-300 bg-purple-50/60 ring-2 ring-purple-500/20' : 'border-slate-200/90 bg-white hover:border-purple-200' }}">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-black uppercase tracking-wider text-purple-800">1. Advance Pending</span>
-                    <i data-lucide="package-search" class="w-4 h-4 text-purple-600"></i>
-                </div>
-                <div class="mt-2 flex items-baseline justify-between">
-                    <div class="text-2xl font-black text-slate-900">
-                        {{ $summary['advance_pending_count'] }}
-                        <span class="text-xs font-bold text-slate-400 font-sans">Advances</span>
-                    </div>
-                    <span class="text-xs font-mono font-bold text-purple-700">{{ number_format($summary['advance_pending_kg'], 1) }} KG</span>
-                </div>
-                <p class="mt-1 text-[11px] text-slate-500 font-medium">Stock received without bill</p>
-            </a>
-
-            <!-- 2. Bills Pending -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'bills_match', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
-               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true) ? 'border-amber-300 bg-amber-50/60 ring-2 ring-amber-500/20' : 'border-slate-200/90 bg-white hover:border-amber-200' }}">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-black uppercase tracking-wider text-amber-800">2. Bills Pending</span>
-                    <i data-lucide="file-clock" class="w-4 h-4 text-amber-600"></i>
-                </div>
-                <div class="mt-2 flex items-baseline justify-between">
-                    <div class="text-2xl font-black text-slate-900">
-                        {{ $summary['bills_pending_count'] }}
-                        <span class="text-xs font-bold text-slate-400 font-sans">Bills</span>
-                    </div>
-                    <span class="text-xs font-bold text-amber-700">Awaiting Approval</span>
-                </div>
-                <p class="mt-1 text-[11px] text-slate-500 font-medium">Purchaser bills to approve &amp; receive</p>
-            </a>
-
-            <!-- 3. Ready to Match -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'bills_match', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
-               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['bills_match', 'receive_bills', 'match_details'], true) && $summary['ready_to_match_count'] > 0 ? 'border-emerald-300 bg-emerald-50/60 ring-2 ring-emerald-500/20' : 'border-slate-200/90 bg-white hover:border-emerald-200' }}">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-black uppercase tracking-wider text-emerald-800">3. Ready to Match</span>
-                    <i data-lucide="sparkles" class="w-4 h-4 text-emerald-600"></i>
-                </div>
-                <div class="mt-2 flex items-baseline justify-between">
-                    <div class="text-2xl font-black text-slate-900">
-                        {{ $summary['ready_to_match_count'] }}
-                        <span class="text-xs font-bold text-slate-400 font-sans">Ready</span>
-                    </div>
-                    <span class="text-xs font-mono font-bold text-emerald-700">{{ number_format($summary['ready_to_match_kg'], 1) }} KG</span>
-                </div>
-                <p class="mt-1 text-[11px] text-slate-500 font-medium">Matchable against open advances</p>
-            </a>
-
-            <!-- 4. Loadout Without Bill -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'loadout_without_bill', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId], fn ($v) => $v !== null && $v !== '')) }}"
-               class="block rounded-3xl border p-4 shadow-2xs transition-all hover:shadow-xs {{ in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true) ? 'border-rose-300 bg-rose-50/60 ring-2 ring-rose-500/20' : 'border-slate-200/90 bg-white hover:border-rose-200' }}">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-black uppercase tracking-wider text-rose-800">4. Loadout Without Bill</span>
-                    <i data-lucide="truck" class="w-4 h-4 text-rose-600"></i>
-                </div>
-                <div class="mt-2 flex items-baseline justify-between">
-                    <div class="text-2xl font-black text-slate-900">
-                        {{ $summary['unbilled_loadout_count'] }}
-                        <span class="text-xs font-bold text-slate-400 font-sans">Lines</span>
-                    </div>
-                    <span class="text-xs font-mono font-bold text-rose-700">{{ number_format($summary['unbilled_loadout_kg'], 1) }} KG</span>
-                </div>
-                <p class="mt-1 text-[11px] text-slate-500 font-medium">Loaded with no bill &amp; no advance</p>
-            </a>
-        </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- ACTION CENTER NAVIGATION TABS (FINAL 5 TABS)                       -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <div class="flex flex-wrap gap-1 rounded-2xl bg-slate-100 p-1 shadow-inner self-start">
-            <!-- 1. Advance Pending -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'advance_pending', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['advance_pending', 'stock_without_bill'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="package-search" class="w-3.5 h-3.5 {{ in_array($tab, ['advance_pending', 'stock_without_bill'], true) ? 'text-purple-600' : 'text-slate-400' }}"></i>
-                <span>Advance Pending</span>
-                @if($summary['advance_pending_count'] > 0)
-                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-purple-100 text-purple-800">
-                        {{ $summary['advance_pending_count'] }}
-                    </span>
-                @endif
-            </a>
-
-            <!-- 2. Bills & Match -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'bills_match', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="file-clock" class="w-3.5 h-3.5 {{ in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true) ? 'text-amber-600' : 'text-slate-400' }}"></i>
-                <span>Bills &amp; Match</span>
-                @if($summary['bills_pending_count'] > 0)
-                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-amber-100 text-amber-800">
-                        {{ $summary['bills_pending_count'] }}
-                    </span>
-                @endif
-            </a>
-
-            <!-- 3. Loadout Without Bill -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'loadout_without_bill', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="truck" class="w-3.5 h-3.5 {{ in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true) ? 'text-rose-600' : 'text-slate-400' }}"></i>
-                <span>Loadout Without Bill</span>
-                @if($summary['unbilled_loadout_count'] > 0)
-                    <span class="px-1.5 py-0.5 text-[10px] rounded-md font-bold bg-rose-100 text-rose-800">
-                        {{ $summary['unbilled_loadout_count'] }}
-                    </span>
-                @endif
-            </a>
-
-            <!-- 4. Inventory -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'inventory', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ in_array($tab, ['inventory', 'current_inventory'], true) ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="boxes" class="w-3.5 h-3.5 {{ in_array($tab, ['inventory', 'current_inventory'], true) ? 'text-emerald-600' : 'text-slate-400' }}"></i>
-                <span>Inventory</span>
-            </a>
-
-            <!-- 5. Physical Check -->
-            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'physical_check', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $search], fn ($v) => $v !== null && $v !== '')) }}"
-               class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-black transition-all {{ $tab === 'physical_check' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900' }}">
-                <i data-lucide="clipboard-check" class="w-3.5 h-3.5 {{ $tab === 'physical_check' ? 'text-blue-600' : 'text-slate-400' }}"></i>
-                <span>Physical Check</span>
-            </a>
-        </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 1: ADVANCE PENDING (REUSE STOCK WITHOUT BILL)                  -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @if(in_array($tab, ['advance_pending', 'stock_without_bill'], true))
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="package-search" class="w-4 h-4 text-purple-600"></i>
-                            <span>Advance Pending — Physical Stock Without Vendor Bill</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Advance physical stock received in warehouse where vendor bill has not yet arrived or matched
-                        </p>
-                    </div>
-
-                    <div class="flex items-center gap-2 self-start sm:self-auto">
-                        <button type="button"
-                                @click="openShareMissingBillsModal()"
-                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-black transition-all shadow-sm cursor-pointer">
-                            <i data-lucide="share-2" class="w-4 h-4 text-purple-200"></i>
-                            <span>Share</span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Multi-select Action Bar for Advance GRN Manual Clear -->
-                <div x-show="selectedClearAdvanceIds.length > 0"
-                     x-cloak
-                     class="mx-4 sm:mx-5 p-3 rounded-2xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3 transition-all">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-600 text-white text-xs font-black" x-text="selectedClearAdvanceIds.length"></span>
-                        <span class="text-xs font-black text-amber-950">
-                            <span x-text="selectedClearAdvanceIds.length"></span> Advance GRN(s) selected
-                        </span>
-                        <span class="text-xs text-amber-700 font-semibold">
-                            (Total Pending Qty: <span class="font-mono font-bold" x-text="getSelectedAdvancesTotalQty().toFixed(2)"></span> KG)
-                        </span>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                        <button type="button"
-                                @click="selectedClearAdvanceIds = []"
-                                class="px-3 py-1.5 rounded-xl border border-amber-300 text-amber-800 hover:bg-amber-100 text-xs font-bold transition cursor-pointer">
-                            Clear Selection
-                        </button>
-                        <button type="button"
-                                @click="openClearAdvancesModal()"
-                                class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition shadow-xs cursor-pointer">
-                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
-                            <span>Manual Clear (<span x-text="selectedClearAdvanceIds.length"></span>)</span>
-                        </button>
-                    </div>
-                </div>
-
-                @if(!$stockWithoutBill || $stockWithoutBill->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Advance Pending</h3>
-                        <p class="text-xs text-slate-500 mt-1">All advance physical intake in this warehouse has been matched with vendor bills.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5 w-10 text-center">
-                                        <input type="checkbox"
-                                               @change="toggleSelectAllAdvances($event)"
-                                               :checked="isAllAdvancesSelected()"
-                                               class="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
-                                    </th>
-                                    <th class="p-3.5">Date</th>
-                                    <th class="p-3.5">Advance Ref</th>
-                                    <th class="p-3.5">Product</th>
-                                    <th class="p-3.5 text-right font-black text-slate-700">Qty</th>
-                                    <th class="p-3.5 text-right font-black text-purple-800">Pending Qty</th>
-                                    <th class="p-3.5 text-center">Age</th>
-                                    <th class="p-3.5 text-right pr-5">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($stockWithoutBill as $grn)
-                                    @php
-                                        $grnId = (int) $grn['id'];
-                                        $grnNum = $grn['grn_number'] ?? "GRN #{$grnId}";
-                                        $recDate = $grn['received_at'] ? \Carbon\Carbon::parse($grn['received_at'])->format('d M Y') : 'N/A';
-                                        $age = (int) ($grn['age_days'] ?? 0);
-                                        $missingTotal = (float) ($grn['total_missing_qty'] ?? 0.0);
-                                        $items = $grn['items'] ?? [];
-                                        $totalReceivedQty = array_sum(array_column($items, 'received_qty'));
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors" :class="isAdvanceSelected({{ $grnId }}) ? 'bg-amber-50/40' : ''">
-                                        <td class="p-3.5 pl-5 text-center align-top">
-                                            <input type="checkbox"
-                                                   :checked="isAdvanceSelected({{ $grnId }})"
-                                                   @change="toggleAdvanceSelection({{ $grnId }})"
-                                                   class="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
-                                        </td>
-                                        <td class="p-3.5 align-top font-bold text-slate-600 text-xs whitespace-nowrap">
-                                            {{ $recDate }}
-                                        </td>
-                                        <td class="p-3.5 align-top">
-                                            <div class="font-mono font-black text-sm text-purple-950">
-                                                {{ $grnNum }}
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 align-top">
-                                            <div class="space-y-1.5">
-                                                @foreach($items as $it)
-                                                    <div class="flex items-center justify-between gap-4 p-1.5 rounded-xl bg-slate-50 border border-slate-100">
-                                                        <div>
-                                                            <span class="font-black text-slate-900">{{ $it['name'] }}</span>
-                                                            @if(!empty($it['sku']))
-                                                                <span class="font-mono text-[10px] text-slate-400 ml-1">({{ $it['sku'] }})</span>
-                                                            @endif
-                                                        </div>
-                                                        <div class="text-right whitespace-nowrap text-[11px]">
-                                                            <span class="font-bold text-slate-500">Rec: {{ number_format((float)$it['received_qty'], 2) }}</span>
-                                                            <span class="text-slate-300 mx-1">|</span>
-                                                            <span class="font-black text-purple-700">Pending: {{ number_format((float)$it['missing_qty'], 2) }} {{ $it['unit'] }}</span>
-                                                        </div>
-                                                    </div>
-                                                @endforeach
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-bold text-slate-700 align-top whitespace-nowrap">
-                                            {{ number_format($totalReceivedQty, 2) }} <span class="text-[10px] text-slate-400">KG</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-sm text-purple-700 align-top whitespace-nowrap">
-                                            {{ number_format($missingTotal, 2) }} <span class="text-[10px] text-purple-400">KG</span>
-                                        </td>
-                                        <td class="p-3.5 text-center font-bold align-top whitespace-nowrap {{ $age > 3 ? 'text-rose-600' : 'text-slate-600' }}">
-                                            {{ $age }} {{ Str::plural('day', $age) }}
-                                        </td>
-                                        <td class="p-3.5 text-right pr-5 align-top whitespace-nowrap">
-                                            <button type="button"
-                                                    @click="openClearSingleAdvance({{ $grnId }})"
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition shadow-2xs cursor-pointer">
-                                                <i data-lucide="check" class="w-3 h-3"></i>
-                                                <span>Manual Clear</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $stockWithoutBill->links() }}
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 2: BILLS & MATCH (RECEIVE BILLS + AUTO MATCH + UNIT ISSUES)    -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif(in_array($tab, ['bills_match', 'receive_bills', 'pending_bills', 'match_details'], true))
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="file-clock" class="w-4 h-4 text-amber-600"></i>
-                            <span>Bills &amp; Match Reconciliation</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Approve pending purchaser bills and reconcile with open advance stock
-                        </p>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold">
-                            <span>Bills Pending:</span>
-                            <strong class="font-black font-mono">{{ $summary['bills_pending_count'] }}</strong>
-                        </span>
-                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold">
-                            <span>Ready to Match:</span>
-                            <strong class="font-black font-mono">{{ $summary['ready_to_match_count'] }}</strong>
-                        </span>
-                        <button type="button"
-                                @click="openPendingBillsModal()"
-                                @if(($summary['awaiting_approval_count'] ?? 0) === 0) disabled @endif
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-black transition-all shadow-xs {{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer' : 'bg-slate-300 cursor-not-allowed' }}">
-                            <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
-                            <span>Approve All{{ ($summary['awaiting_approval_count'] ?? 0) > 0 ? ' (' . $summary['awaiting_approval_count'] . ')' : '' }}</span>
-                        </button>
-                        <button type="button"
-                                @click="openAutoClear()"
-                                @if(($summary['ready_to_match_count'] ?? 0) === 0) disabled @endif
-                                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-black transition-all shadow-xs {{ ($summary['ready_to_match_count'] ?? 0) > 0 ? 'bg-emerald-700 hover:bg-emerald-800 cursor-pointer' : 'bg-slate-300 cursor-not-allowed' }}">
-                            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                            <span>Match All{{ ($summary['ready_to_match_count'] ?? 0) > 0 ? ' (' . $summary['ready_to_match_count'] . ')' : '' }}</span>
-                        </button>
-                        @if(($dailyPendingAdvancesCount ?? 0) > 0 && !empty($whatsappSharePendingUrl))
-                            <a href="{{ $whatsappSharePendingUrl }}"
-                               target="_blank"
-                               rel="noopener"
-                               title="Share {{ $dailyPendingAdvancesCount }} pending advance bill(s) to WhatsApp"
-                               class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all shadow-xs cursor-pointer">
-                                <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
-                                <span>WhatsApp — Pending Bills</span>
-                            </a>
-                        @else
-                            <button type="button"
-                                    disabled
-                                    title="No pending Advance bills for this day."
-                                    class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-200 text-slate-400 text-xs font-black transition-all shadow-xs cursor-not-allowed">
-                                <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
-                                <span>WhatsApp — Pending Bills</span>
-                            </button>
-                        @endif
-                    </div>
-                </div>
-
-                <!-- Small Unit Issues Warning Section Inside Bills & Match -->
-                @if(($summary['unit_differences_count'] ?? 0) > 0)
-                    <div class="mx-4 sm:mx-5 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex flex-wrap items-center justify-between gap-3">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-600 shrink-0"></i>
-                            <span class="text-xs font-bold text-rose-900">
-                                <strong>{{ $summary['unit_differences_count'] }} product(s)</strong> have unit mismatch issues between bill and stock units.
-                            </span>
-                        </div>
-                        <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'unit_differences', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId])) }}"
-                           class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-black shadow-2xs transition">
-                            <i data-lucide="wrench" class="w-3 h-3 text-rose-200"></i>
-                            <span>Review Unit Issues</span>
-                        </a>
-                    </div>
-                @endif
-
-                <!-- Ready to Match Section -->
-                @if($matchDetailsPlan && count($matchDetailsPlan['ready_bills'] ?? []) > 0)
-                    <div class="mx-4 sm:mx-5 p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 space-y-2">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                            <div class="flex items-center gap-2">
-                                <i data-lucide="sparkles" class="w-4 h-4 text-emerald-600"></i>
-                                <span class="text-xs font-black text-emerald-950 uppercase tracking-wider">
-                                    Ready to Match ({{ count($matchDetailsPlan['ready_bills']) }} Bills • {{ number_format((float)($matchDetailsPlan['summary']['matched_base_qty'] ?? 0), 1) }} KG)
-                                </span>
-                            </div>
-                            <button type="button"
-                                    @click="openAutoClear()"
-                                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs transition cursor-pointer">
-                                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                                <span>Match All</span>
-                            </button>
-                        </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                            @foreach(array_slice($matchDetailsPlan['ready_bills'], 0, 6) as $rb)
-                                <div class="p-2.5 rounded-xl bg-white border border-emerald-200/60 flex items-center justify-between text-xs">
-                                    <span class="font-mono font-black text-slate-900">{{ $rb['reference'] ?? ('PO #' . ($rb['purchase_order_id'] ?? '')) }}</span>
-                                    <span class="font-mono font-bold text-emerald-700">{{ number_format((float)($rb['matched_base_qty'] ?? 0), 1) }} KG</span>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                @endif
-
-                @if(!$pendingBills || $pendingBills->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">All Bills Reconciled</h3>
-                        <p class="text-xs text-slate-500 mt-1">There are no pending approved purchase bills requiring match or warehouse receiving.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5">Bill</th>
-                                    <th class="p-3.5">Product</th>
-                                    <th class="p-3.5 text-right">Qty</th>
-                                    <th class="p-3.5 text-center">Status</th>
-                                    <th class="p-3.5 text-center pr-5">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($pendingBills as $row)
-                                    @php
-                                        $poId = $row['id'];
-                                        $grnId = $row['grn_id'] ?? $row['goods_received_id'] ?? null;
-                                        $billBase = (float) ($row['total_bill_base_qty'] ?? $row['required_base_qty'] ?? $row['quantity'] ?? 0);
-                                        $alreadyMatched = (float) ($row['total_matched_base_qty'] ?? $row['already_matched_base_qty'] ?? 0);
-                                        $remainingBase = max(0.0, round($billBase - $alreadyMatched, 2));
-                                        $isReceived = ($row['receipt_status'] ?? '') === 'received' || (isset($row['warehouse_receive_pending']) && ! $row['warehouse_receive_pending']);
-                                        $rawStatus = $row['match_status'] ?? $row['reconciliation_status'] ?? '';
-                                        $matchStatus = match($rawStatus) {
-                                            'FULLY_MATCHED' => 'Advance Matched',
-                                            'PARTIALLY_MATCHED' => 'Partial Match',
-                                            'UNIT_DIFFERENCE' => 'Unit Issue',
-                                            default => '',
-                                        };
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors">
-                                        <td class="p-3.5 pl-5 font-mono font-black text-slate-900">
-                                            <span>{{ $row['po_number'] }}</span>
-                                            @if(!empty($row['grn_number']))
-                                                <span class="block text-[10px] text-slate-500 font-semibold">{{ $row['grn_number'] }}</span>
-                                            @endif
-                                            <span class="block text-[10px] text-slate-400 font-sans font-medium">{{ \Carbon\Carbon::parse($row['order_date'])->format('d M Y') }} • {{ $row['supplier_name'] }}</span>
-                                        </td>
-                                        <td class="p-3.5">
-                                            <div class="flex flex-wrap gap-1 max-w-xs">
-                                                @if(!empty($row['match_summary_items']))
-                                                    @foreach(array_slice($row['match_summary_items'], 0, 3) as $it)
-                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-800">
-                                                            {{ $it['product_name'] }} ({{ (float) ($it['quantity'] ?? $it['ordered_qty'] ?? $it['qty'] ?? 0) }} {{ $it['unit'] }})
-                                                        </span>
-                                                    @endforeach
-                                                    @if(count($row['match_summary_items']) > 3)
-                                                        <span class="text-[10px] font-bold text-slate-400 self-center">
-                                                            +{{ count($row['match_summary_items']) - 3 }} more
-                                                        </span>
-                                                    @endif
-                                                @else
-                                                    <span class="text-slate-400 italic text-[11px]">—</span>
-                                                @endif
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-slate-900">
-                                            <div>{{ number_format($billBase, 2) }} <span class="text-[10px] text-slate-400">KG</span></div>
-                                            @if($alreadyMatched > 0)
-                                                <span class="text-[10px] text-emerald-700 font-bold block">{{ number_format($alreadyMatched, 2) }} matched</span>
-                                            @endif
-                                        </td>
-                                        <td class="p-3.5 text-center">
-                                            <div class="flex flex-col items-center gap-1">
-                                                @if($isReceived)
-                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                        <i data-lucide="check" class="w-3 h-3"></i>
-                                                        <span>Received</span>
-                                                    </span>
-                                                @else
-                                                    <span class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
-                                                        <i data-lucide="clock" class="w-3 h-3"></i>
-                                                        <span>Pending Approval</span>
-                                                    </span>
-                                                @endif
-
-                                                @if(!empty($matchStatus))
-                                                    <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[9px] font-black uppercase border {{ $matchStatus === 'Advance Matched' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200' }}">
-                                                        {{ $matchStatus }}
-                                                    </span>
-                                                @endif
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1.5">
-                                            @if(! $isReceived)
-                                                <button type="button"
-                                                        @click="approveAndReceiveSingle({{ $grnId ? (int)$grnId : 'null' }}, {{ $poId }})"
-                                                        :disabled="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}"
-                                                        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition shadow-2xs cursor-pointer disabled:opacity-50">
-                                                    <template x-if="processingPoId !== {{ $poId }} && processingPoId !== {{ $grnId ? (int)$grnId : -1 }}">
-                                                        <span class="flex items-center gap-1">
-                                                            <i data-lucide="check" class="w-3 h-3 text-white"></i>
-                                                            <span>Approve</span>
-                                                        </span>
-                                                    </template>
-                                                    <template x-if="processingPoId === {{ $poId }} || processingPoId === {{ $grnId ? (int)$grnId : -1 }}">
-                                                        <span class="flex items-center gap-1">
-                                                            <span class="inline-block animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
-                                                            <span>Approving...</span>
-                                                        </span>
-                                                    </template>
-                                                </button>
-                                            @else
-                                                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-500 text-[10px] font-black">
-                                                    <i data-lucide="check-check" class="w-3 h-3 text-emerald-600"></i>
-                                                    <span>Received</span>
-                                                </span>
-                                            @endif
-
-                                            <button type="button"
-                                                    @click="openManualMatch({{ $poId }}, '{{ $row['po_number'] }}', '{{ addslashes($row['supplier_name']) }}')"
-                                                    class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-black hover:bg-slate-800 transition shadow-2xs cursor-pointer">
-                                                <i data-lucide="link" class="w-3 h-3 text-emerald-400"></i>
-                                                <span>Match Bill</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $pendingBills->links() }}
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 3: LOADOUT WITHOUT BILL (DISPATCHED EXCEPTIONS)                -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 3: LOADOUT WITHOUT BILL (SHOP-WISE CARDS)                      -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif(in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true))
-            <div class="space-y-6">
-                {{-- Header Card --}}
-                <div class="rounded-3xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="truck" class="w-4 h-4 text-rose-600"></i>
-                            <span>Loadout Without Bill — Dispatched Exceptions</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Shop loadouts on <strong class="text-slate-800">{{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</strong> where no vendor bill and no open advance exists
-                        </p>
-                    </div>
-
-                    @if($unbilledLoadouts && $unbilledLoadouts->total() > 0)
-                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
-                            Showing {{ $unbilledLoadouts->firstItem() ?? 0 }}–{{ $unbilledLoadouts->lastItem() ?? 0 }} of {{ $unbilledLoadouts->total() }} exceptions
-                        </span>
-                    @endif
-                </div>
-
-                @if(empty($unbilledLoadoutsGrouped) || ($unbilledLoadouts && $unbilledLoadouts->isEmpty()))
-                    <div class="rounded-3xl border border-slate-200/90 bg-white p-12 text-center shadow-xs">
-                        <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Dispatched Exceptions</h3>
-                        <p class="text-xs text-slate-500 mt-1">All dispatched loadout items on this date are covered by bills or advances.</p>
-                    </div>
-                @else
-                    @foreach($unbilledLoadoutsGrouped as $dateKey => $dateGroup)
-                        <div class="space-y-4">
-                            {{-- Date Grouping Header --}}
-                            <div class="flex items-center justify-between gap-3 px-1">
-                                <div class="flex items-center gap-2.5">
-                                    <div class="w-2.5 h-2.5 rounded-full bg-rose-500"></div>
-                                    <h3 class="text-sm font-black text-slate-900 tracking-tight">
-                                        {{ $dateGroup['formatted_date'] }}
-                                    </h3>
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                                        {{ count($dateGroup['shops']) }} {{ Str::plural('Shop', count($dateGroup['shops'])) }}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {{-- Shop-wise Cards Responsive Grid (Desktop: 2-3 per row, Mobile: 1 per row) --}}
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
-                                @foreach($dateGroup['shops'] as $shopCard)
-                                    <div class="rounded-2xl border border-slate-200/90 bg-white shadow-xs overflow-hidden flex flex-col justify-between hover:border-slate-300 transition-all">
-                                        {{-- Shop Header --}}
-                                        <div class="p-4 bg-slate-50/80 border-b border-slate-100 flex items-start justify-between gap-2">
-                                            <div class="min-w-0 flex-1">
-                                                <div class="flex items-center gap-2 flex-wrap">
-                                                    <h4 class="text-sm font-black text-slate-900 truncate">
-                                                        {{ $shopCard['shop_name'] }}
-                                                    </h4>
-                                                    @if(!empty($shopCard['shop_code']))
-                                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200/70 text-slate-700">
-                                                            {{ $shopCard['shop_code'] }}
-                                                        </span>
-                                                    @endif
-                                                </div>
-                                                @if(!empty($shopCard['order_numbers']))
-                                                    <p class="text-[10px] font-mono text-slate-400 mt-0.5 truncate">
-                                                        {{ implode(', ', $shopCard['order_numbers']) }}
-                                                    </p>
-                                                @endif
-                                            </div>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/80 whitespace-nowrap shrink-0">
-                                                {{ $shopCard['product_count'] }} {{ Str::plural('Product', $shopCard['product_count']) }} Without Bill
-                                            </span>
-                                        </div>
-
-                                        {{-- Shop Products Table --}}
-                                        <div class="p-0 flex-1 divide-y divide-slate-100 overflow-x-auto">
-                                            <table class="w-full text-left border-collapse">
-                                                <thead>
-                                                    <tr class="bg-slate-50/40 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                                                        <th class="py-2 px-3.5">Product</th>
-                                                        <th class="py-2 px-3 text-right">Loaded Qty</th>
-                                                        <th class="py-2 px-3 text-center">Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-slate-100 text-xs">
-                                                    @foreach($shopCard['items'] as $item)
-                                                        <tr class="hover:bg-slate-50/60 transition-colors">
-                                                            <td class="py-2.5 px-3.5">
-                                                                <span class="font-bold text-slate-800 block text-xs leading-snug">{{ $item['product_name'] }}</span>
-                                                                @if(!empty($item['product_sku']))
-                                                                    <span class="font-mono text-[10px] text-slate-400 block">{{ $item['product_sku'] }}</span>
-                                                                @endif
-                                                            </td>
-                                                            <td class="py-2.5 px-3 text-right whitespace-nowrap">
-                                                                <div class="font-mono font-black text-rose-900 text-xs sm:text-sm">
-                                                                    {{ number_format((float) $item['loaded_qty'], 2) }}
-                                                                    <span class="text-[10px] text-rose-500 font-bold uppercase">{{ $item['unit'] }}</span>
-                                                                </div>
-                                                                @if($item['converted_base_qty'] !== null)
-                                                                    <span class="block text-[10px] font-mono text-slate-400">
-                                                                        ≈ {{ number_format((float) $item['converted_base_qty'], 2) }} {{ $item['base_unit'] }}
-                                                                    </span>
-                                                                @endif
-                                                                @if(!empty($item['unit_warning']))
-                                                                    <span class="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded mt-0.5">
-                                                                        <i data-lucide="alert-triangle" class="w-2.5 h-2.5 shrink-0"></i>
-                                                                        <span>{{ $item['unit_warning'] }}</span>
-                                                                    </span>
-                                                                @endif
-                                                            </td>
-                                                            <td class="py-2.5 px-3 text-center whitespace-nowrap">
-                                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200">
-                                                                    {{ $item['status'] }}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    @endforeach
-                                                </tbody>
-                                            </table>
-                                        </div>
-
-                                        {{-- Card Footer (Separated Unit Totals) --}}
-                                        <div class="p-3 bg-slate-50/90 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
-                                            <div class="flex items-center gap-1.5 flex-wrap">
-                                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total:</span>
-                                                @foreach($shopCard['unit_totals'] as $u => $tot)
-                                                    <span class="inline-flex items-center gap-1 font-mono font-black text-slate-800 bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px]">
-                                                        {{ number_format((float) $tot, 2) }} <span class="text-[9px] font-bold text-slate-400 uppercase">{{ $u }}</span>
-                                                    </span>
-                                                @endforeach
-                                            </div>
-                                            <span class="text-[10px] font-bold text-slate-400 text-right">
-                                                {{ $shopCard['product_count'] }} {{ Str::plural('Product', $shopCard['product_count']) }} Without Bill
-                                            </span>
-                                        </div>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endforeach
-
-                    @if($unbilledLoadouts && $unbilledLoadouts->hasPages())
-                        <div class="p-4 rounded-3xl border border-slate-200/90 bg-white shadow-xs">
-                            {{ $unbilledLoadouts->links() }}
-                        </div>
-                    @endif
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 4: INVENTORY (RENAME CURRENT INVENTORY -> INVENTORY)            -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif(in_array($tab, ['inventory', 'current_inventory'], true))
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="boxes" class="w-4 h-4 text-emerald-600"></i>
-                            <span>Inventory</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Authoritative warehouse sellable stock split into <strong>With Bill</strong> and <strong>Without Bill (Unbilled Advance)</strong>
-                        </p>
-                    </div>
-
-                    @if($currentInventory)
-                        <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
-                            Showing {{ $currentInventory->firstItem() ?? 0 }}–{{ $currentInventory->lastItem() ?? 0 }} of {{ $currentInventory->total() }} products
-                        </span>
-                    @endif
-                </div>
-
-                <!-- Multi-select Action Bar -->
-                <div x-show="selectedCurrentProducts.length > 0"
-                     x-cloak
-                     class="mx-4 sm:mx-5 p-3 rounded-2xl bg-rose-50 border border-rose-200 flex flex-wrap items-center justify-between gap-3 transition-all">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white text-xs font-black" x-text="selectedCurrentProducts.length"></span>
-                        <span class="text-xs font-black text-rose-950">
-                            <span x-text="selectedCurrentProducts.length"></span> product(s) selected
-                        </span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button type="button"
-                                @click="selectedCurrentProducts = []"
-                                class="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-rose-100/60 transition cursor-pointer">
-                            Clear Selection
-                        </button>
-                        <button type="button"
-                                @click="openDamageModalForSelection('current')"
-                                class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-black shadow-xs transition cursor-pointer">
-                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                            <span>Move Selected to Damage</span>
-                        </button>
-                    </div>
-                </div>
-
-                @if(!$currentInventory || $currentInventory->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="inbox" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Inventory Found</h3>
-                        <p class="text-xs text-slate-500 mt-1">No active products match your search or warehouse filter.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        @php
-                            $buildSortUrl = function (string $col) use ($tab, $selectedDate, $selectedWarehouseId, $search, $sort, $direction): string {
-                                $nextDir = ($sort === $col && $direction === 'asc') ? 'desc' : 'asc';
-                                return route('admin.cashbook.inventory', array_filter([
-                                    'tab' => $tab,
-                                    'date' => $selectedDate,
-                                    'warehouse_id' => $selectedWarehouseId,
-                                    'search' => $search,
-                                    'sort' => $col,
-                                    'direction' => $nextDir,
-                                ], fn ($v) => $v !== null && $v !== ''));
-                            };
-                        @endphp
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5 w-10 text-center">
-                                        <input type="checkbox"
-                                               @change="toggleSelectAllCurrent($event)"
-                                               :checked="isAllCurrentSelected()"
-                                               class="w-4 h-4 rounded text-rose-600 border-slate-300 focus:ring-rose-500 cursor-pointer">
-                                    </th>
-                                    <th class="p-3.5">
-                                        <a href="{{ $buildSortUrl('product') }}" class="group inline-flex items-center gap-1 font-black {{ $sort === 'product' ? 'text-slate-900' : 'text-slate-600' }} hover:text-slate-900 transition">
-                                            <span>Product</span>
-                                            @if($sort === 'product')
-                                                <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-slate-900 stroke-[2.5]"></i>
-                                            @else
-                                                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500"></i>
-                                            @endif
-                                        </a>
-                                    </th>
-                                    <th class="p-3.5 text-right">
-                                        <a href="{{ $buildSortUrl('current_sellable') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'current_sellable' ? 'text-slate-900' : 'text-slate-700' }} hover:text-slate-900 transition w-full">
-                                            <span>Current Qty</span>
-                                            @if($sort === 'current_sellable')
-                                                <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-slate-900 stroke-[2.5]"></i>
-                                            @else
-                                                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500"></i>
-                                            @endif
-                                        </a>
-                                    </th>
-                                    <th class="p-3.5 text-right">
-                                        <a href="{{ $buildSortUrl('with_bill') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'with_bill' ? 'text-emerald-950 font-black' : 'text-emerald-800' }} hover:text-emerald-950 transition w-full">
-                                            <span>With Bill</span>
-                                            @if($sort === 'with_bill')
-                                                <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-emerald-800 stroke-[2.5]"></i>
-                                            @else
-                                                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-emerald-300 group-hover:text-emerald-600"></i>
-                                            @endif
-                                        </a>
-                                    </th>
-                                    <th class="p-3.5 text-right">
-                                        <a href="{{ $buildSortUrl('without_bill') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'without_bill' ? 'text-purple-950 font-black' : 'text-purple-800' }} hover:text-purple-950 transition w-full">
-                                            <span>Without Bill</span>
-                                            @if($sort === 'without_bill')
-                                                <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-purple-800 stroke-[2.5]"></i>
-                                            @else
-                                                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-purple-300 group-hover:text-purple-600"></i>
-                                            @endif
-                                        </a>
-                                    </th>
-                                    <th class="p-3.5 text-right">
-                                        <a href="{{ $buildSortUrl('stock_deficit') }}" class="group inline-flex items-center justify-end gap-1 font-black {{ $sort === 'stock_deficit' ? 'text-rose-950 font-black' : 'text-rose-800' }} hover:text-rose-950 transition w-full">
-                                            <span>Stock Deficit</span>
-                                            @if($sort === 'stock_deficit')
-                                                <i data-lucide="{{ $direction === 'asc' ? 'arrow-up' : 'arrow-down' }}" class="w-3.5 h-3.5 text-rose-800 stroke-[2.5]"></i>
-                                            @else
-                                                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-rose-300 group-hover:text-rose-600"></i>
-                                            @endif
-                                        </a>
-                                    </th>
-                                    <th class="p-3.5 text-center pr-5">Quick Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($currentInventory as $row)
-                                    @php
-                                        $currSellable = (float) $row['current_sellable'];
-                                        $withoutBillOnHand = (float) $row['without_bill'];
-                                        $withBillOnHand = (float) $row['with_bill'];
-                                        $pendingVendorBill = (float) $row['pending_vendor_bill'];
-                                        $stockDeficit = (float) $row['stock_deficit'];
-                                        $unit = $row['unit'] ?? 'KG';
-                                        $hasException = $stockDeficit > 0.001 || $pendingVendorBill > 0.001;
-                                        $rowPayload = [
-                                            'product_id' => $row['product_id'],
-                                            'name' => $row['name'],
-                                            'sku' => $row['sku'],
-                                            'unit' => $unit,
-                                            'available_qty' => $currSellable,
-                                            'quantity' => $currSellable > 0 ? $currSellable : 0.0,
-                                            'reason' => 'transit_damage',
-                                            'grade' => 'U',
-                                        ];
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors {{ $currSellable > 0 || $hasException ? 'bg-white' : 'bg-slate-50/20 opacity-75' }}">
-                                        <td class="p-3.5 pl-5 text-center">
-                                            <input type="checkbox"
-                                                   @change="toggleCurrentProduct({{ json_encode($rowPayload) }}, $event)"
-                                                   :checked="isCurrentSelected({{ $row['product_id'] }})"
-                                                   {{ $currSellable <= 0 ? 'disabled' : '' }}
-                                                   class="w-4 h-4 rounded text-rose-600 border-slate-300 focus:ring-rose-500 cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed">
-                                        </td>
-                                        <td class="p-3.5 font-black text-slate-900">
-                                            <span>{{ $row['name'] }}</span>
-                                            <span class="block text-[10px] font-mono text-slate-400">{{ $row['sku'] }} • {{ $row['category'] }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-sm {{ $currSellable > 0 ? 'text-slate-900' : 'text-slate-400' }}">
-                                            {{ number_format($currSellable, 2) }} <span class="text-[10px] text-slate-400 font-sans">{{ $unit }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-bold text-emerald-700">
-                                            {{ number_format($withBillOnHand, 2) }} <span class="text-[10px] text-emerald-400 font-sans">{{ $unit }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black {{ $withoutBillOnHand > 0 ? 'text-purple-700' : 'text-slate-400' }}">
-                                            {{ number_format($withoutBillOnHand, 2) }} <span class="text-[10px] text-purple-400 font-sans">{{ $unit }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-bold">
-                                            @if($stockDeficit > 0.001)
-                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 font-black text-xs">
-                                                    <i data-lucide="alert-triangle" class="w-3 h-3 text-rose-600"></i>
-                                                    <span>{{ number_format($stockDeficit, 2) }} {{ $unit }}</span>
-                                                </span>
-                                            @else
-                                                <span class="text-slate-400">0.00 <span class="text-[10px] font-sans">{{ $unit }}</span></span>
-                                            @endif
-                                        </td>
-                                        <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1">
-                                            <a href="{{ route('admin.cashbook.inventory', array_filter(['tab' => 'physical_check', 'date' => $selectedDate, 'warehouse_id' => $selectedWarehouseId, 'search' => $row['sku']])) }}"
-                                               class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px] font-bold border border-blue-200 transition">
-                                                <i data-lucide="clipboard-check" class="w-3 h-3 text-blue-600"></i>
-                                                <span>Physical Check</span>
-                                            </a>
-                                            @if($currSellable > 0)
-                                                <button type="button"
-                                                        @click="openDamageModalSingle({{ $row['product_id'] }}, '{{ addslashes($row['name']) }}', '{{ $unit }}', {{ $currSellable }}, '{{ addslashes($row['sku']) }}')"
-                                                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 text-[11px] font-bold border border-rose-200 transition cursor-pointer">
-                                                    <i data-lucide="trash-2" class="w-3 h-3 text-rose-600"></i>
-                                                    <span>Damage</span>
-                                                </button>
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $currentInventory->links() }}
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 5: PHYSICAL CHECK                                              -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif($tab === 'physical_check')
-            <div class="space-y-6">
-                <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                    <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                            <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                                <i data-lucide="clipboard-check" class="w-4 h-4 text-blue-600"></i>
-                                <span>Physical Check</span>
-                            </h2>
-                            <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                                Reconcile system inventory with physical count via StockAdjustmentService or write off to damage
-                            </p>
-                        </div>
-
-                        @if($physicalCheckProducts)
-                            <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
-                                Showing {{ $physicalCheckProducts->firstItem() ?? 0 }}–{{ $physicalCheckProducts->lastItem() ?? 0 }} of {{ $physicalCheckProducts->total() }} products
-                            </span>
-                        @endif
-                    </div>
-
-                    @if(!$physicalCheckProducts || $physicalCheckProducts->isEmpty())
-                        <div class="p-12 text-center">
-                            <div class="w-12 h-12 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center mx-auto mb-3">
-                                <i data-lucide="inbox" class="w-6 h-6"></i>
-                            </div>
-                            <h3 class="text-base font-black text-slate-900">No Products Found</h3>
-                            <p class="text-xs text-slate-500 mt-1">No active products match your search.</p>
-                        </div>
-                    @else
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse">
-                                <thead>
-                                    <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                        <th class="p-3.5 pl-5">Product</th>
-                                        <th class="p-3.5 text-right font-black text-slate-900">System Qty</th>
-                                        <th class="p-3.5 text-center w-40">Physical Qty</th>
-                                        <th class="p-3.5 text-right font-black">Difference</th>
-                                        <th class="p-3.5 text-center pr-5">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100 text-xs">
-                                    @foreach($physicalCheckProducts as $row)
-                                        @php
-                                            $prodId = $row['product_id'];
-                                            $erpBal = (float) $row['erp_balance'];
-                                            $unit = $row['unit'] ?? 'KG';
-                                        @endphp
-                                        <tr class="hover:bg-slate-50/60 transition-colors"
-                                            x-data="{
-                                                erpBal: {{ $erpBal }},
-                                                counted: '{{ $erpBal }}',
-                                                get diff() {
-                                                    const c = parseFloat(this.counted);
-                                                    if (isNaN(c)) return 0;
-                                                    return Math.round((c - this.erpBal) * 1000) / 1000;
-                                                }
-                                            }">
-                                            <td class="p-3.5 pl-5 font-black text-slate-900">
-                                                <span>{{ $row['name'] }}</span>
-                                                <span class="block text-[10px] font-mono text-slate-400">{{ $row['sku'] }} • {{ $row['category'] }}</span>
-                                            </td>
-                                            <td class="p-3.5 text-right font-mono font-black text-slate-900">
-                                                {{ number_format($erpBal, 2) }} <span class="text-[10px] text-slate-400 font-sans">{{ $unit }}</span>
-                                            </td>
-                                            <td class="p-3.5 text-center">
-                                                <div class="relative inline-block w-32">
-                                                    <input type="number"
-                                                           step="0.01"
-                                                           min="0"
-                                                           x-model="counted"
-                                                           class="w-full text-center px-2 py-1 text-xs font-mono font-black rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-                                                </div>
-                                            </td>
-                                            <td class="p-3.5 text-right font-mono font-black"
-                                                :class="diff === 0 ? 'text-slate-400' : (diff > 0 ? 'text-emerald-700' : 'text-rose-700')">
-                                                <span x-text="(diff > 0 ? '+' : '') + diff.toFixed(2)"></span>
-                                                <span class="text-[10px] font-sans text-slate-400">{{ $unit }}</span>
-                                            </td>
-                                            <td class="p-3.5 text-center pr-5 whitespace-nowrap space-x-1.5">
-                                                <form method="POST" action="{{ route('inventory.stock.adjustments.store', $row['product'] ?? $prodId) }}" class="inline-block" onsubmit="return confirm('Confirm physical stock adjustment?');">
-                                                    @csrf
-                                                    <input type="hidden" name="system_qty" value="{{ $erpBal }}">
-                                                    <input type="hidden" name="counted_qty" :value="counted">
-                                                    <input type="hidden" name="business_date" value="{{ $selectedDate }}">
-                                                    @if($selectedWarehouseId)
-                                                        <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}">
-                                                    @endif
-                                                    <input type="hidden" name="notes" value="Admin Inventory Action Center count check">
-
-                                                    <button type="submit"
-                                                            :disabled="diff === 0"
-                                                            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-black transition disabled:opacity-30 cursor-pointer"
-                                                            :class="diff === 0 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : (diff > 0 ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs' : 'bg-rose-700 hover:bg-rose-800 text-white shadow-2xs')">
-                                                        <i data-lucide="check" class="w-3 h-3"></i>
-                                                        <span>Update Inventory</span>
-                                                    </button>
-                                                </form>
-
-                                                @if($erpBal > 0)
-                                                    <button type="button"
-                                                            @click="openDamageModalSingle({{ $prodId }}, '{{ addslashes($row['name']) }}', '{{ $unit }}', {{ $erpBal }}, '{{ addslashes($row['sku']) }}')"
-                                                            class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold border border-rose-200 transition cursor-pointer">
-                                                        <i data-lucide="trash-2" class="w-3 h-3 text-rose-600"></i>
-                                                        <span>Move to Damage</span>
-                                                    </button>
-                                                @endif
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="p-4 border-t border-slate-100">
-                            {{ $physicalCheckProducts->links() }}
-                        </div>
-                    @endif
-                </div>
-
-                <!-- Recent Adjustments on Date -->
-                @if($recentAdjustments && $recentAdjustments->isNotEmpty())
-                    <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-3">
-                        <div class="p-4 sm:p-5 border-b border-slate-100">
-                            <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                                <i data-lucide="history" class="w-4 h-4 text-blue-600"></i>
-                                <span>Adjustments Recorded on {{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</span>
-                            </h3>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left border-collapse text-xs">
-                                <thead>
-                                    <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                        <th class="p-3 pl-5">Product</th>
-                                        <th class="p-3 text-right">System Qty</th>
-                                        <th class="p-3 text-right">Counted Qty</th>
-                                        <th class="p-3 text-right">Variance</th>
-                                        <th class="p-3">Category / Reason</th>
-                                        <th class="p-3 text-center pr-5">Recorded By</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">
-                                    @foreach($recentAdjustments as $adj)
-                                        <tr>
-                                            <td class="p-3 pl-5 font-bold text-slate-900">{{ $adj->product?->name }}</td>
-                                            <td class="p-3 text-right font-mono">{{ number_format((float) $adj->system_qty, 2) }}</td>
-                                            <td class="p-3 text-right font-mono">{{ number_format((float) $adj->counted_qty, 2) }}</td>
-                                            <td class="p-3 text-right font-mono font-black {{ (float) $adj->variance_qty >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
-                                                {{ (float) $adj->variance_qty > 0 ? '+' : '' }}{{ number_format((float) $adj->variance_qty, 2) }}
-                                            </td>
-                                            <td class="p-3 font-semibold text-slate-600">{{ $adj->notes ?: $adj->category }}</td>
-                                            <td class="p-3 text-center pr-5 text-slate-500">{{ $adj->createdBy?->name ?? 'Admin' }}</td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                @endif
-            </div>
-
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        <!-- TAB 7: UNIT DIFFERENCES (EXCEPTION TAB)                            -->
-        <!-- ────────────────────────────────────────────────────────────────── -->
-        @elseif($tab === 'unit_differences')
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div>
-                        <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                            <i data-lucide="scale" class="w-4 h-4 text-sky-600"></i>
-                            <span>Unit Mismatch &amp; Conversion Review</span>
-                        </h2>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Products with mismatched purchase and stock units requiring conversion setup
-                        </p>
-                    </div>
-                </div>
-
-                @if(!$unitDifferences || $unitDifferences->isEmpty())
-                    <div class="p-12 text-center">
-                        <div class="w-12 h-12 rounded-full bg-sky-50 text-sky-600 flex items-center justify-center mx-auto mb-3">
-                            <i data-lucide="check" class="w-6 h-6"></i>
-                        </div>
-                        <h3 class="text-base font-black text-slate-900">No Unit Differences Found</h3>
-                        <p class="text-xs text-slate-500 mt-1">All purchase and advance product units match standard conversions.</p>
-                    </div>
-                @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5">Product</th>
-                                    <th class="p-3.5">Category</th>
-                                    <th class="p-3.5">Stock Unit</th>
-                                    <th class="p-3.5">Purchase Unit</th>
-                                    <th class="p-3.5 text-center">Details</th>
-                                    <th class="p-3.5 text-center pr-5">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($unitDifferences as $row)
-                                    <tr class="hover:bg-slate-50/60 transition-colors">
-                                        <td class="p-3.5 pl-5 font-black text-slate-900">
-                                            {{ $row['product_name'] }}
-                                            <div class="flex items-center gap-1.5 text-[10px] font-mono text-slate-400">
-                                                <span>{{ $row['product_sku'] }}</span>
-                                                @if(!empty($row['po_number']))
-                                                    <span>•</span>
-                                                    <span class="text-slate-500 font-bold">{{ $row['po_number'] }}</span>
-                                                @endif
-                                            </div>
-                                        </td>
-                                        <td class="p-3.5 font-bold text-slate-700">
-                                            {{ $row['category_name'] ?? 'General' }}
-                                        </td>
-                                        <td class="p-3.5 font-mono font-bold text-emerald-800">
-                                            {{ $row['product_unit'] ?? $row['product_base_unit'] ?? $row['base_unit'] ?? $row['unit'] ?? 'KG' }}
-                                        </td>
-                                        <td class="p-3.5 font-mono font-bold text-purple-800">
-                                            {{ $row['received_unit'] ?? $row['bill_unit'] ?? $row['order_unit'] ?? $row['unit'] ?? '' }}
-                                        </td>
-                                        <td class="p-3.5 text-center">
-                                            <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                                {{ $row['reason'] ?? 'Unit conversion missing' }}
-                                            </span>
-                                        </td>
-                                        <td class="p-3.5 text-center pr-5">
-                                            <button type="button"
-                                                    @click="openResolveUnitModal({{ $row['product_id'] }}, '{{ addslashes($row['product_name']) }}', '{{ $row['product_unit'] ?? $row['product_base_unit'] ?? $row['base_unit'] ?? $row['unit'] ?? 'KG' }}', '{{ $row['received_unit'] ?? $row['bill_unit'] ?? $row['order_unit'] ?? $row['unit'] ?? '' }}')"
-                                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-700 text-white text-[11px] font-black hover:bg-sky-800 transition shadow-2xs cursor-pointer">
-                                                <i data-lucide="wrench" class="w-3 h-3 text-sky-200"></i>
-                                                <span>Resolve Unit</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $unitDifferences->links() }}
-                    </div>
-                @endif
-            </div>
-        @endif
-
-        <!-- ══════════════════════════════════════════════════════════════════ -->
-        <!-- MODALS & ALPINES                                                   -->
-        <!-- ══════════════════════════════════════════════════════════════════ -->
-
-        <!-- 1. SHARE MISSING BILLS MODAL (SECTION 2) -->
-        <div x-show="shareMissingBillsModalOpen"
-             x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
-            <div @click.away="closeShareMissingBillsModal()"
-                 class="relative w-full max-w-xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-                <!-- Header -->
-                <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-indigo-50/50">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
-                            <i data-lucide="share-2" class="w-5 h-5 text-indigo-600"></i>
-                            <span>Share Missing Bills Report</span>
-                        </h3>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">Quick WhatsApp or text summary of unbilled advance items</p>
-                    </div>
-                    <button type="button" @click="closeShareMissingBillsModal()" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
-                </div>
-
-                <!-- Body -->
-                <div class="p-6 flex-1 overflow-y-auto space-y-3">
-                    <label class="text-xs font-black text-slate-700 uppercase tracking-wider block">Generated Message Preview:</label>
-                    <textarea x-model="shareReportText"
-                              rows="10"
-                              readonly
-                              class="w-full p-3 font-mono text-xs rounded-2xl bg-slate-50 border border-slate-200 text-slate-800 select-all focus:bg-white focus:outline-none"></textarea>
-                </div>
-
-                <!-- Footer -->
-                <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
-                    <button type="button"
-                            @click="copyShareReport()"
-                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black bg-slate-900 text-white hover:bg-slate-800 transition shadow-xs cursor-pointer">
-                        <i data-lucide="copy" class="w-4 h-4"></i>
-                        <span x-text="copiedShareReport ? 'Copied to Clipboard!' : 'Copy Text'"></span>
-                    </button>
-
-                    <div class="flex items-center gap-2">
-                        <button type="button" @click="closeShareMissingBillsModal()" class="px-4 py-2 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-200 transition">
-                            Close
-                        </button>
-                        <a :href="'https://api.whatsapp.com/send?text=' + encodeURIComponent(shareReportText)"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm cursor-pointer">
-                            <i data-lucide="send" class="w-4 h-4"></i>
-                            <span>Open WhatsApp</span>
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 1B. CLEAR ADVANCES MODAL (PHASE 3 ADMIN MANUAL ADVANCE CLEAR) -->
-        <div x-show="clearAdvancesModalOpen"
-             x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
-            <div @click.away="closeClearAdvancesModal()"
-                 class="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-                
-                <!-- Header -->
-                <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-amber-50/60">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
-                            <i data-lucide="check-check" class="w-5 h-5 text-amber-600"></i>
-                            <span>Admin Manual Advance Clear</span>
-                        </h3>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">
-                            Administratively close selected Advance GRN(s) from the Missing Bill queue
-                        </p>
-                    </div>
-                    <button type="button" @click="closeClearAdvancesModal()" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
-                </div>
-
-                <form method="POST" action="{{ route('admin.cashbook.inventory.clear-advances') }}" @submit="isSubmittingClearAdvances = true" class="flex flex-col flex-1 overflow-hidden">
-                    @csrf
-                    <input type="hidden" name="warehouse_id" :value="currentWarehouseId">
-                    <input type="hidden" name="date" :value="currentDate">
-                    <input type="hidden" name="tab" value="stock_without_bill">
-                    
-                    <template x-for="advId in selectedClearAdvanceIds" :key="advId">
-                        <input type="hidden" name="advance_ids[]" :value="advId">
-                    </template>
-
-                    <input type="hidden" name="reason" :value="getEffectiveClearReason()">
-
-                    <!-- Body -->
-                    <div class="p-6 flex-1 overflow-y-auto space-y-4">
-                        <!-- Warning Notice -->
-                        <div class="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
-                            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5"></i>
-                            <div class="space-y-1">
-                                <span class="font-black block">Administrative Paperwork Clear Only</span>
-                                <p class="text-amber-800 leading-relaxed">
-                                    This closes the selected Advances from the Missing Bill queue. 
-                                    <strong>It does NOT change warehouse stock, does NOT create a vendor bill, and does NOT generate an accounting journal.</strong>
-                                </p>
-                            </div>
-                        </div>
-
-                        <!-- Selected Advances Summary List -->
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <label class="text-xs font-black text-slate-700 uppercase tracking-wider">
-                                    Selected Advances (<span x-text="selectedClearAdvanceIds.length"></span>)
-                                </label>
-                                <span class="text-xs font-mono font-bold text-slate-500">
-                                    Total Missing: <span x-text="getSelectedAdvancesTotalQty().toFixed(2)"></span> KG
-                                </span>
-                            </div>
-
-                            <div class="max-h-48 overflow-y-auto space-y-2 rounded-2xl border border-slate-200 p-3 bg-slate-50/50 divide-y divide-slate-100">
-                                <template x-for="adv in getSelectedAdvancesList()" :key="adv.id">
-                                    <div class="pt-2 first:pt-0 flex items-start justify-between gap-3 text-xs">
-                                        <div>
-                                            <div class="flex items-center gap-2">
-                                                <span class="font-mono font-black text-indigo-900" x-text="adv.grn_number"></span>
-                                                <span class="text-[10px] text-slate-400" x-text="adv.received_at"></span>
-                                            </div>
-                                            <p class="text-[11px] text-slate-600 mt-0.5" x-text="adv.items_summary"></p>
-                                        </div>
-                                        <div class="text-right shrink-0">
-                                            <span class="font-mono font-black text-indigo-700" x-text="adv.total_missing_qty.toFixed(2) + ' KG'"></span>
-                                            <span class="block text-[10px] text-slate-400">missing</span>
-                                        </div>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-
-                        <!-- Reason Selection -->
-                        <div class="space-y-3">
-                            <label class="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                                <span>Reason for Manual Clear</span>
-                                <span class="text-rose-500">*</span>
-                            </label>
-
-                            <select x-model="clearAdvancesReasonChoice"
-                                    class="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer">
-                                <option value="Bill not required">Bill not required</option>
-                                <option value="Vendor settlement handled separately">Vendor settlement handled separately</option>
-                                <option value="Old / legacy Advance">Old / legacy Advance</option>
-                                <option value="Data correction">Data correction</option>
-                                <option value="Other">Other (specify note below)</option>
-                            </select>
-
-                            <div x-show="clearAdvancesReasonChoice === 'Other'" class="space-y-1">
-                                <textarea x-model="clearAdvancesCustomReason"
-                                          placeholder="Enter specific mandatory reason for clearing these advances..."
-                                          rows="2"
-                                          class="w-full p-3 text-xs rounded-2xl border border-slate-200 bg-white text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none placeholder:text-slate-400"></textarea>
-                            </div>
-
-                            <div class="space-y-1">
-                                <label class="text-[11px] font-bold text-slate-500">Additional Notes (Optional):</label>
-                                <input type="text"
-                                       x-model="clearAdvancesNotes"
-                                       placeholder="e.g., cleared per vendor reconciliation agreement"
-                                       class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none placeholder:text-slate-400">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Footer -->
-                    <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
-                        <button type="button" @click="closeClearAdvancesModal()" class="px-4 py-2 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-200 transition cursor-pointer">
-                            Cancel
-                        </button>
-
-                        <button type="submit"
-                                :disabled="isSubmittingClearAdvances || selectedClearAdvanceIds.length === 0 || getEffectiveClearReason().trim() === ''"
-                                class="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-black bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm cursor-pointer">
-                            <i data-lucide="check-check" class="w-4 h-4"></i>
-                            <span x-show="!isSubmittingClearAdvances">Clear <span x-text="selectedClearAdvanceIds.length"></span> Advance(s)</span>
-                            <span x-show="isSubmittingClearAdvances">Clearing...</span>
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 2. MOVE TO DAMAGE MODAL (MULTI-PRODUCT SUPPORT) -->
-        <div x-show="damageModalOpen"
-             x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
-            <div @click.away="closeDamageModal()"
-                 class="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-                <form method="POST" action="{{ route('admin.cashbook.inventory.move-to-damage') }}" class="flex flex-col h-full">
-                    @csrf
-                    <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}">
-                    <input type="hidden" name="tab" value="{{ $tab }}">
-
-                    <!-- Header -->
-                    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-rose-50/50">
-                        <div>
-                            <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
-                                <i data-lucide="trash-2" class="w-5 h-5 text-rose-600"></i>
-                                <span>Move Selected to Damage</span>
-                            </h3>
-                            <p class="text-xs text-slate-500 font-semibold mt-0.5">Reduces sellable warehouse stock and writes off damage entries in one safe transaction</p>
-                        </div>
-                        <button type="button" @click="closeDamageModal()" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
-                            <i data-lucide="x" class="w-5 h-5"></i>
-                        </button>
-                    </div>
-
-                    <!-- Body -->
-                    <div class="p-6 flex-1 overflow-y-auto space-y-4 text-xs">
-                        <!-- Common Controls -->
-                        <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                    <label class="font-black text-slate-700 block mb-1">Common Reason *</label>
-                                    <select name="common_reason"
-                                            x-model="damageCommonReason"
-                                            @change="updateCommonReason($event.target.value)"
-                                            required
-                                            class="w-full px-3 py-2 text-xs font-bold rounded-xl bg-white border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500">
-                                        <option value="transit_damage">Transit Damage</option>
-                                        <option value="rotten">Rotten / Spoiled</option>
-                                        <option value="sorting_damage">Sorting / Grading Damage</option>
-                                        <option value="expired">Expired</option>
-                                        <option value="unsold">Unsold / Aged Out</option>
-                                        <option value="shrinkage">Weight Shrinkage</option>
-                                    </select>
-                                    <span class="text-[10px] text-slate-400 font-semibold">Applies to all selected items unless overridden below</span>
-                                </div>
-                                <div>
-                                    <label class="font-black text-slate-700 block mb-1">Wastage Date *</label>
-                                    <input type="date"
-                                           name="wastage_date"
-                                           x-model="damageDate"
-                                           max="{{ today()->toDateString() }}"
-                                           required
-                                           class="w-full px-3 py-2 text-xs font-bold rounded-xl bg-white border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Selected Products List -->
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <label class="font-black text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                                    <i data-lucide="package" class="w-3.5 h-3.5 text-rose-600"></i>
-                                    <span>Selected Products (<span x-text="damageModalItems.length"></span>)</span>
-                                </label>
-                            </div>
-
-                            <template x-if="damageModalItems.length === 0">
-                                <div class="p-6 rounded-2xl border border-dashed border-slate-300 text-center text-slate-400 bg-slate-50/50">
-                                    <p class="font-bold">No products selected for damage write-off.</p>
-                                    <p class="text-[11px] mt-1">Select products from the table or add below.</p>
-                                </div>
-                            </template>
-
-                            <template x-if="damageModalItems.length > 0">
-                                <div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-                                    <table class="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                                <th class="p-2.5 pl-3.5">Product</th>
-                                                <th class="p-2.5 text-right w-24">Avail / Source</th>
-                                                <th class="p-2.5 text-right w-28">Qty to Move *</th>
-                                                <th class="p-2.5 w-36">Reason (Override)</th>
-                                                <th class="p-2.5 text-center w-10 pr-3.5"></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="divide-y divide-slate-100 text-xs">
-                                            <template x-for="(item, idx) in damageModalItems" :key="item.product_id + '_' + idx">
-                                                <tr class="hover:bg-slate-50/60">
-                                                    <td class="p-2.5 pl-3.5">
-                                                        <span class="font-black text-slate-900 block" x-text="item.name"></span>
-                                                        <span class="text-[10px] font-mono text-slate-400" x-text="item.sku"></span>
-                                                        <input type="hidden" :name="'items[' + idx + '][product_id]'" :value="item.product_id">
-                                                        <input type="hidden" :name="'items[' + idx + '][grade]'" :value="item.grade || 'U'">
-                                                    </td>
-                                                    <td class="p-2.5 text-right font-mono font-bold text-slate-600 text-[11px]">
-                                                        <span x-text="Number(item.available_qty || 0).toFixed(2)"></span>
-                                                        <span class="text-[10px] text-slate-400 font-sans" x-text="item.unit || 'KG'"></span>
-                                                    </td>
-                                                    <td class="p-2.5 text-right">
-                                                        <div class="flex items-center justify-end gap-1">
-                                                            <input type="number"
-                                                                   step="0.01"
-                                                                   min="0.01"
-                                                                   required
-                                                                   :name="'items[' + idx + '][quantity]'"
-                                                                   x-model.number="item.quantity"
-                                                                   class="w-20 px-2 py-1 text-xs font-mono font-bold text-right rounded-lg bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-rose-500">
-                                                            <span class="text-[10px] text-slate-400 font-bold" x-text="item.unit || 'KG'"></span>
-                                                        </div>
-                                                    </td>
-                                                    <td class="p-2.5">
-                                                        <select :name="'items[' + idx + '][reason]'"
-                                                                x-model="item.reason"
-                                                                class="w-full px-2 py-1 text-[11px] font-semibold rounded-lg bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-rose-500">
-                                                            <option value="transit_damage">Transit Damage</option>
-                                                            <option value="rotten">Rotten / Spoiled</option>
-                                                            <option value="sorting_damage">Sorting / Grading</option>
-                                                            <option value="expired">Expired</option>
-                                                            <option value="unsold">Unsold / Aged</option>
-                                                            <option value="shrinkage">Shrinkage</option>
-                                                        </select>
-                                                    </td>
-                                                    <td class="p-2.5 text-center pr-3.5">
-                                                        <button type="button"
-                                                                @click="removeDamageItem(idx)"
-                                                                class="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer">
-                                                            <i data-lucide="x" class="w-4 h-4"></i>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            </template>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </template>
-                        </div>
-
-                        <!-- Add More Products -->
-                        <div class="p-3 rounded-2xl bg-slate-50/80 border border-slate-200 flex flex-col sm:flex-row items-center gap-2">
-                            <select x-model="selectedAddProductId"
-                                    class="w-full sm:flex-1 px-3 py-1.5 text-xs font-bold rounded-xl bg-white border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500">
-                                <option value="">-- Add another product to write-off --</option>
-                                @foreach($damageProducts ?? [] as $p)
-                                    @php
-                                        $pId = is_array($p) ? $p['id'] : $p->id;
-                                        $pName = is_array($p) ? $p['name'] : $p->name;
-                                        $pSku = is_array($p) ? $p['sku'] : $p->sku;
-                                    @endphp
-                                    <option value="{{ $pId }}">{{ $pName }} ({{ $pSku }})</option>
-                                @endforeach
-                            </select>
-                            <button type="button"
-                                    @click="addDamageProduct(selectedAddProductId); selectedAddProductId = ''"
-                                    :disabled="!selectedAddProductId"
-                                    class="w-full sm:w-auto px-3.5 py-1.5 rounded-xl text-xs font-black bg-slate-800 hover:bg-slate-900 text-white disabled:opacity-40 transition shadow-xs cursor-pointer flex items-center justify-center gap-1">
-                                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-                                <span>Add Product</span>
-                            </button>
-                        </div>
-
-                        <div>
-                            <label class="font-black text-slate-700 block mb-1">Notes / Discard Details (Optional)</label>
-                            <textarea name="notes"
-                                      x-model="damageNotes"
-                                      rows="2"
-                                      placeholder="Optional reason details or batch reference..."
-                                      class="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Footer -->
-                    <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-2 bg-slate-50/50">
-                        <div class="text-xs text-slate-500 font-bold">
-                            <span x-text="damageModalItems.length"></span> product(s) | Total: <span class="font-mono font-black text-rose-900" x-text="totalDamageModalQty().toFixed(2)"></span> KG
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button type="button" @click="closeDamageModal()" class="px-4 py-2 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-200 transition cursor-pointer">
-                                Cancel
-                            </button>
-                            <button type="submit"
-                                    :disabled="damageModalItems.length === 0 || totalDamageModalQty() <= 0"
-                                    class="px-5 py-2 rounded-xl text-xs font-black bg-rose-700 hover:bg-rose-800 text-white disabled:opacity-50 transition shadow-sm cursor-pointer">
-                                Confirm Damage Write-off
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- 3. AUTO MATCH PREVIEW & EXECUTE MODAL -->
-        <div x-show="autoClearModalOpen"
-             x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
-            <div @click.away="closeAutoClear()"
-                 class="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-                <!-- Header -->
-                <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
-                            <i data-lucide="sparkles" class="w-5 h-5 text-emerald-600"></i>
-                            <span>Auto Match &amp; Clear Preview</span>
-                        </h3>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">FIFO matching between approved pending bills and open advances</p>
-                    </div>
-                    <button type="button" @click="closeAutoClear()" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
-                </div>
-
-                <!-- Body -->
-                <div class="p-6 flex-1 overflow-y-auto space-y-4">
-                    <template x-if="isLoadingAutoClear">
-                        <div class="py-12 text-center space-y-3">
-                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-600 border-t-transparent"></div>
-                            <p class="text-xs font-bold text-slate-600">Generating deterministic auto-clear preview...</p>
-                        </div>
-                    </template>
-
-                    <template x-if="!isLoadingAutoClear && autoClearPlan">
-                        <div class="space-y-4">
-                            <!-- Plan Summary Cards -->
-                            <div class="grid grid-cols-3 gap-3">
-                                <div class="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
-                                    <span class="text-[10px] font-black uppercase text-emerald-800">Ready Bills</span>
-                                    <h4 class="text-xl font-black text-emerald-950 mt-0.5" x-text="autoClearPlan.summary.ready_bills"></h4>
-                                </div>
-                                <div class="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-center">
-                                    <span class="text-[10px] font-black uppercase text-indigo-800">Matched Base Qty</span>
-                                    <h4 class="text-xl font-black text-indigo-950 mt-0.5" x-text="Number(autoClearPlan.summary.matched_base_qty || 0).toFixed(2) + ' KG'"></h4>
-                                </div>
-                                <div class="p-3.5 rounded-2xl bg-purple-50 border border-purple-200 text-center">
-                                    <span class="text-[10px] font-black uppercase text-purple-800">Advances Cleared</span>
-                                    <h4 class="text-xl font-black text-purple-950 mt-0.5" x-text="(autoClearPlan.summary.advances_fully_cleared || 0) + ' Full, ' + (autoClearPlan.summary.advances_partially_cleared || 0) + ' Part'"></h4>
-                                </div>
-                            </div>
-
-                            <!-- Ready Bills List -->
-                            <div class="space-y-2">
-                                <h4 class="text-xs font-black uppercase tracking-wider text-slate-800">Ready Bills to Reconcile</h4>
-                                <template x-if="autoClearPlan.ready_bills.length === 0">
-                                    <div class="p-6 rounded-2xl bg-slate-50 text-center text-xs font-bold text-slate-500">
-                                        No bills are currently matchable with open advance stock.
-                                    </div>
-                                </template>
-                                <template x-for="rb in autoClearPlan.ready_bills" :key="rb.purchase_order_id">
-                                    <div class="p-3 rounded-2xl border border-emerald-200 bg-emerald-50/30 flex items-center justify-between text-xs">
-                                        <div>
-                                            <span class="font-mono font-black text-slate-900" x-text="rb.reference"></span>
-                                            <span class="font-bold text-slate-700 ml-2" x-text="rb.supplier_name"></span>
-                                        </div>
-                                        <span class="font-mono font-black text-emerald-800" x-text="Number(rb.matched_base_qty).toFixed(2) + ' KG'"></span>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-
-                <!-- Footer -->
-                <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
-                    <button type="button" @click="closeAutoClear()" class="px-4 py-2 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-200 transition">
-                        Cancel
-                    </button>
-                    <button type="button"
-                            @click="executeAutoClear()"
-                            :disabled="isLoadingAutoClear || isExecutingAutoClear || !autoClearPlan || autoClearPlan.ready_bills.length === 0"
-                            class="px-5 py-2 rounded-xl text-xs font-black bg-emerald-700 text-white hover:bg-emerald-800 disabled:opacity-50 transition shadow-sm cursor-pointer">
-                        <span x-show="!isExecutingAutoClear">Confirm &amp; Execute Auto Match</span>
-                        <span x-show="isExecutingAutoClear">Executing Match...</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 4. APPROVE & RECEIVE ALL PENDING BILLS MODAL (DAY GROUPED) -->
-        <div x-show="pendingBillsModalOpen"
-             x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
-            <div @click.away="closePendingBillsModal()"
-                 class="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-                <!-- Header -->
-                <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-amber-50/50">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
-                            <i data-lucide="check-check" class="w-5 h-5 text-amber-600"></i>
-                            <span>Approve &amp; Receive Pending Bills</span>
-                        </h3>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5">Select days of pending bills to approve and receive into warehouse</p>
-                    </div>
-                    <button type="button" @click="closePendingBillsModal()" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
-                </div>
-
-                <!-- Body -->
-                <div class="p-6 flex-1 overflow-y-auto space-y-3">
-                    <template x-if="isLoadingPendingDays">
-                        <div class="py-12 text-center space-y-3">
-                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-600 border-t-transparent"></div>
-                            <p class="text-xs font-bold text-slate-600">Loading pending bills by day...</p>
-                        </div>
-                    </template>
-
-                    <template x-if="!isLoadingPendingDays && pendingDays.length > 0">
-                        <div class="space-y-3">
-                            <template x-for="day in pendingDays" :key="day.date">
-                                <div class="rounded-2xl border border-slate-200 bg-white p-3.5 flex items-center justify-between">
-                                    <div class="flex items-center gap-3">
-                                        <input type="checkbox"
-                                               :value="day.date"
-                                               x-model="selectedDays"
-                                               class="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer">
-                                        <div>
-                                            <span class="font-black text-slate-900 block" x-text="day.formatted_date"></span>
-                                            <span class="text-xs text-slate-500 font-bold" x-text="day.bill_count + ' Pending Bills • ' + day.total_qty + ' KG'"></span>
-                                        </div>
-                                    </div>
-                                    <span class="px-2.5 py-1 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-black" x-text="day.bill_count + ' Bills'"></span>
-                                </div>
-                            </template>
-                        </div>
-                    </template>
-                </div>
-
-                <!-- Footer -->
-                <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
-                    <span class="text-xs font-bold text-slate-600" x-text="'Selected: ' + selectedDays.length + ' Days'"></span>
-                    <div class="flex items-center gap-2">
-                        <button type="button" @click="closePendingBillsModal()" class="px-4 py-2 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-200 transition">
-                            Cancel
-                        </button>
-                        <button type="button"
-                                @click="submitAcceptBills()"
-                                :disabled="isAcceptingBills || selectedDays.length === 0"
-                                class="px-5 py-2 rounded-xl text-xs font-black bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 transition shadow-sm cursor-pointer">
-                            <span x-show="!isAcceptingBills">Approve &amp; Receive Selected Bills</span>
-                            <span x-show="isAcceptingBills">Approving &amp; Receiving...</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 5. MANUAL MATCH MODAL -->
-        <div x-show="manualMatchModalOpen"
-             x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
-            <div @click.away="closeManualMatch()"
-                 class="relative w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-                <!-- Header -->
-                <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
-                            <i data-lucide="link" class="w-5 h-5 text-emerald-600"></i>
-                            <span x-text="'Match Bill: ' + (manualPoNumber || '')"></span>
-                        </h3>
-                        <p class="text-xs text-slate-500 font-semibold mt-0.5" x-text="manualSupplierName || ''"></p>
-                    </div>
-                    <button type="button" @click="closeManualMatch()" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
-                </div>
-
-                <!-- Body -->
-                <div class="p-6 flex-1 overflow-y-auto space-y-4">
-                    <template x-if="isLoadingManualMatch">
-                        <div class="py-12 text-center space-y-3">
-                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-600 border-t-transparent"></div>
-                            <p class="text-xs font-bold text-slate-600">Loading advance match candidates...</p>
-                        </div>
-                    </template>
-
-                    <template x-if="!isLoadingManualMatch && manualSuggestions">
-                        <div class="space-y-4">
-                            <template x-for="item in (manualSuggestions.items || [])" :key="item.product_id">
-                                <div class="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
-                                    <div class="flex items-center justify-between">
-                                        <span class="font-black text-slate-900" x-text="item.product_name"></span>
-                                        <span class="text-xs font-mono font-bold text-slate-600" x-text="'Bill Qty: ' + item.ordered_qty + ' ' + item.unit"></span>
-                                    </div>
-                                    <div class="grid grid-cols-3 gap-2 text-xs">
-                                        <div class="p-2.5 rounded-xl bg-white border border-slate-200">
-                                            <span class="text-[10px] text-slate-400 font-bold block">Advance Available</span>
-                                            <span class="font-mono font-black text-purple-800" x-text="item.total_advance_available_qty + ' ' + item.unit"></span>
-                                        </div>
-                                        <div class="p-2.5 rounded-xl bg-white border border-slate-200">
-                                            <span class="text-[10px] text-slate-400 font-bold block">Proposed Match</span>
-                                            <span class="font-mono font-black text-emerald-800" x-text="item.total_proposed_match_qty + ' ' + item.unit"></span>
-                                        </div>
-                                        <div class="p-2.5 rounded-xl bg-white border border-slate-200">
-                                            <span class="text-[10px] text-slate-400 font-bold block">New Physical Receive</span>
-                                            <span class="font-mono font-black text-slate-800" x-text="item.new_receive_qty + ' ' + item.unit"></span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </template>
-                </div>
-
-                <!-- Footer -->
-                <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
-                    <button type="button" @click="closeManualMatch()" class="px-4 py-2 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-200 transition">
-                        Cancel
-                    </button>
-                    <button type="button"
-                            @click="executeManualMatch()"
-                            :disabled="isExecutingManualMatch || !manualSuggestions"
-                            class="px-5 py-2 rounded-xl text-xs font-black bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 transition shadow-sm cursor-pointer">
-                        <span x-show="!isExecutingManualMatch">Confirm Match</span>
-                        <span x-show="isExecutingManualMatch">Matching...</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Alpine.js Component Logic -->
-    <script>
-        function inventoryActionCenter(config) {
-            return {
-                csrfToken: config.csrfToken,
-                currentTab: config.currentTab,
-                currentDate: config.currentDate,
-                currentWarehouseId: config.currentWarehouseId,
-                currentWarehouseName: config.currentWarehouseName,
-                currentSearch: config.currentSearch,
-
-                // Auto Match Modal State
-                autoClearModalOpen: false,
-                isLoadingAutoClear: false,
-                isExecutingAutoClear: false,
-                autoClearPlan: null,
-
-                // Accept Pending Bills Modal State
-                pendingBillsModalOpen: false,
-                isLoadingPendingDays: false,
-                isAcceptingBills: false,
-                processingPoId: null,
-                pendingDays: [],
-                selectedDays: [],
-
-                // Manual Match Modal State
-                manualMatchModalOpen: false,
-                isLoadingManualMatch: false,
-                isExecutingManualMatch: false,
-                manualPoId: null,
-                manualPoNumber: '',
-                manualSupplierName: '',
-                manualSuggestions: null,
-
-                // Multi-select for Current Inventory
-                selectedCurrentProducts: [],
-                currentPageProducts: config.currentPageProducts || [],
-                toggleSelectAllCurrent(event) {
-                    if (event.target.checked) {
-                        this.selectedCurrentProducts = JSON.parse(JSON.stringify(this.currentPageProducts.filter(p => parseFloat(p.available_qty || 0) > 0)));
-                    } else {
-                        this.selectedCurrentProducts = [];
-                    }
-                },
-                isAllCurrentSelected() {
-                    const selectable = this.currentPageProducts.filter(p => parseFloat(p.available_qty || 0) > 0);
-                    return selectable.length > 0 && this.selectedCurrentProducts.length === selectable.length;
-                },
-                isCurrentSelected(productId) {
-                    return this.selectedCurrentProducts.some(p => p.product_id == productId);
-                },
-                toggleCurrentProduct(product, event) {
-                    if (event.target.checked) {
-                        if (parseFloat(product.available_qty || 0) <= 0) {
-                            event.target.checked = false;
-                            return;
-                        }
-                        if (!this.isCurrentSelected(product.product_id)) {
-                            const avail = parseFloat(product.available_qty || 0);
-                            this.selectedCurrentProducts.push({
-                                product_id: product.product_id,
-                                name: product.name,
-                                sku: product.sku,
-                                unit: product.unit,
-                                available_qty: avail,
-                                quantity: avail > 0 ? avail : 0.01,
-                                reason: this.damageCommonReason,
-                                grade: 'U'
-                            });
-                        }
-                    } else {
-                        this.selectedCurrentProducts = this.selectedCurrentProducts.filter(p => p.product_id != product.product_id);
-                    }
-                },
-
-                // Multi-select for Shop Returns
-                selectedReturnProducts: [],
-                currentPageReturns: config.currentPageReturns || [],
-                toggleSelectAllReturns(event) {
-                    if (event.target.checked) {
-                        this.selectedReturnProducts = JSON.parse(JSON.stringify(this.currentPageReturns.filter(p => parseFloat(p.available_qty || 0) > 0)));
-                    } else {
-                        this.selectedReturnProducts = [];
-                    }
-                },
-                isAllReturnsSelected() {
-                    const selectable = this.currentPageReturns.filter(p => parseFloat(p.available_qty || 0) > 0);
-                    return selectable.length > 0 && this.selectedReturnProducts.length === selectable.length;
-                },
-                isReturnSelected(productId) {
-                    return this.selectedReturnProducts.some(p => p.product_id == productId);
-                },
-                toggleReturnProduct(ret, event) {
-                    if (event.target.checked) {
-                        if (parseFloat(ret.available_qty || 0) <= 0) {
-                            event.target.checked = false;
-                            return;
-                        }
-                        if (!this.isReturnSelected(ret.product_id)) {
-                            const avail = parseFloat(ret.available_qty || 0);
-                            this.selectedReturnProducts.push({
-                                product_id: ret.product_id,
-                                name: ret.name,
-                                sku: ret.sku,
-                                unit: ret.unit,
-                                available_qty: avail,
-                                quantity: avail > 0 ? avail : 0.01,
-                                reason: this.damageCommonReason,
-                                grade: 'U'
-                            });
-                        }
-                    } else {
-                        this.selectedReturnProducts = this.selectedReturnProducts.filter(p => p.product_id != ret.product_id);
-                    }
-                },
-
-                // Multi-select & State for Advance GRN Manual Clear (Phase 3)
-                selectedClearAdvanceIds: [],
-                currentPageAdvances: config.currentPageAdvances || [],
-                unbilledAdvGrns: config.unbilledAdvGrns || [],
-                clearAdvancesModalOpen: false,
-                clearAdvancesReasonChoice: 'Bill not required',
-                clearAdvancesCustomReason: '',
-                clearAdvancesNotes: '',
-                isSubmittingClearAdvances: false,
-
-                toggleAdvanceSelection(grnId) {
-                    const id = parseInt(grnId, 10);
-                    if (this.selectedClearAdvanceIds.includes(id)) {
-                        this.selectedClearAdvanceIds = this.selectedClearAdvanceIds.filter(i => i !== id);
-                    } else {
-                        this.selectedClearAdvanceIds.push(id);
-                    }
-                },
-
-                isAdvanceSelected(grnId) {
-                    return this.selectedClearAdvanceIds.includes(parseInt(grnId, 10));
-                },
-
-                toggleSelectAllAdvances(event) {
-                    if (event.target.checked) {
-                        const pageIds = (this.currentPageAdvances || []).map(g => parseInt(g.id, 10));
-                        this.selectedClearAdvanceIds = Array.from(new Set([...this.selectedClearAdvanceIds, ...pageIds]));
-                    } else {
-                        const pageIds = (this.currentPageAdvances || []).map(g => parseInt(g.id, 10));
-                        this.selectedClearAdvanceIds = this.selectedClearAdvanceIds.filter(id => !pageIds.includes(id));
-                    }
-                },
-
-                isAllAdvancesSelected() {
-                    const pageIds = (this.currentPageAdvances || []).map(g => parseInt(g.id, 10));
-                    return pageIds.length > 0 && pageIds.every(id => this.selectedClearAdvanceIds.includes(id));
-                },
-
-                getSelectedAdvancesList() {
-                    const allGrns = this.unbilledAdvGrns || [];
-                    return allGrns.filter(g => this.selectedClearAdvanceIds.includes(parseInt(g.id, 10)));
-                },
-
-                getSelectedAdvancesTotalQty() {
-                    const list = this.getSelectedAdvancesList();
-                    return list.reduce((acc, g) => acc + (parseFloat(g.total_missing_qty) || 0), 0);
-                },
-
-                getEffectiveClearReason() {
-                    if (this.clearAdvancesReasonChoice === 'Other') {
-                        const custom = (this.clearAdvancesCustomReason || '').trim();
-                        const notes = (this.clearAdvancesNotes || '').trim();
-                        if (!custom) return '';
-                        return notes ? `${custom} (${notes})` : custom;
-                    }
-                    const base = this.clearAdvancesReasonChoice;
-                    const notes = (this.clearAdvancesNotes || '').trim();
-                    return notes ? `${base} (${notes})` : base;
-                },
-
-                openClearAdvancesModal() {
-                    if (this.selectedClearAdvanceIds.length === 0) return;
-                    this.clearAdvancesModalOpen = true;
-                },
-
-                openClearSingleAdvance(grnId) {
-                    const id = parseInt(grnId, 10);
-                    this.selectedClearAdvanceIds = [id];
-                    this.clearAdvancesModalOpen = true;
-                },
-
-                closeClearAdvancesModal() {
-                    this.clearAdvancesModalOpen = false;
-                },
-
-                // Move to Damage Modal State
-                damageModalOpen: false,
-                damageModalItems: [],
-                damageCommonReason: 'transit_damage',
-                damageDate: config?.currentDate || '{{ $selectedDate }}',
-                damageNotes: '',
-                selectedAddProductId: '',
-                allAvailableProducts: config?.damageProducts || [],
-
-                // Share Missing Bills Modal State
-                shareMissingBillsModalOpen: false,
-                shareReportText: '',
-                copiedShareReport: false,
-                unbilledRows: config?.unbilledRows || [],
-
-                openDamageModalForSelection(source = 'current') {
-                    if (source === 'current') {
-                        this.damageModalItems = JSON.parse(JSON.stringify(this.selectedCurrentProducts));
-                    } else if (source === 'returns') {
-                        this.damageModalItems = JSON.parse(JSON.stringify(this.selectedReturnProducts));
-                    }
-                    this.damageModalOpen = true;
-                },
-
-                openDamageModalSingle(productId, productName, unit, availableQty, sku = '') {
-                    const avail = parseFloat(availableQty || 0);
-                    if (avail <= 0) return;
-                    this.damageModalItems = [{
-                        product_id: productId,
-                        name: productName,
-                        sku: sku,
-                        unit: unit || 'KG',
-                        available_qty: avail,
-                        quantity: avail > 0 ? avail : 0.01,
-                        reason: this.damageCommonReason,
-                        grade: 'U'
-                    }];
-                    this.damageModalOpen = true;
-                },
-
-                openDamageModal() {
-                    if (this.selectedCurrentProducts.length > 0) {
-                        this.openDamageModalForSelection('current');
-                    } else if (this.selectedReturnProducts.length > 0) {
-                        this.openDamageModalForSelection('returns');
-                    } else {
-                        this.damageModalItems = [];
-                        this.damageModalOpen = true;
-                    }
-                },
-
-                closeDamageModal() {
-                    this.damageModalOpen = false;
-                },
-
-                addDamageProduct(productId) {
-                    if (!productId) return;
-                    const prod = this.allAvailableProducts.find(p => p.id == productId);
-                    if (!prod) return;
-                    const exists = this.damageModalItems.find(i => i.product_id == productId);
-                    if (!exists) {
-                        this.damageModalItems.push({
-                            product_id: prod.id,
-                            name: prod.name,
-                            sku: prod.sku,
-                            unit: prod.unit || 'KG',
-                            available_qty: 0,
-                            quantity: 1,
-                            reason: this.damageCommonReason,
-                            grade: 'U'
-                        });
-                    }
-                },
-
-                removeDamageItem(index) {
-                    this.damageModalItems.splice(index, 1);
-                },
-
-                updateCommonReason(newReason) {
-                    this.damageCommonReason = newReason;
-                    this.damageModalItems.forEach(item => {
-                        item.reason = newReason;
-                    });
-                },
-
-                totalDamageModalQty() {
-                    return this.damageModalItems.reduce((acc, item) => acc + (parseFloat(item.quantity) || 0), 0);
-                },
-
-                openShareMissingBillsModal() {
-                    const lines = [];
-                    lines.push(`📋 *Green Leaf ERP — Missing Bills Report*`);
-                    lines.push(`🏢 Warehouse: ${this.currentWarehouseName}`);
-                    lines.push(`📅 Date: ${this.currentDate}`);
-                    lines.push(`----------------------------------------`);
-
-                    let totalQty = 0;
-                    if (this.unbilledRows && this.unbilledRows.length > 0) {
-                        this.unbilledRows.forEach((r, idx) => {
-                            const pName = r.product?.name || `Product #${r.item?.product_id}`;
-                            const sku = r.product?.sku || '';
-                            const unit = r.product?.unit || 'KG';
-                            const missing = parseFloat(r.missing_qty || 0);
-                            totalQty += missing;
-                            lines.push(`${idx + 1}. *${pName}* (${sku})`);
-                            lines.push(`   Missing: ${missing.toFixed(2)} ${unit} | GRN: ${r.grn_number} | Age: ${r.age_days}d`);
-                        });
-                    } else {
-                        lines.push(`No unbilled advance stock found.`);
-                    }
-
-                    lines.push(`----------------------------------------`);
-                    lines.push(`Total Missing Items: ${this.unbilledRows ? this.unbilledRows.length : 0} | Total Qty: ${totalQty.toFixed(2)} KG`);
-                    lines.push(`_Please send vendor bills for the items listed above._`);
-
-                    this.shareReportText = lines.join('\n');
-                    this.copiedShareReport = false;
-                    this.shareMissingBillsModalOpen = true;
-                },
-
-                closeShareMissingBillsModal() {
-                    this.shareMissingBillsModalOpen = false;
-                    this.copiedShareReport = false;
-                },
-
-                copyShareReport() {
-                    if (!navigator.clipboard) {
-                        alert('Clipboard API not supported on your browser');
-                        return;
-                    }
-                    navigator.clipboard.writeText(this.shareReportText)
-                        .then(() => {
-                            this.copiedShareReport = true;
-                            setTimeout(() => { this.copiedShareReport = false; }, 3000);
-                        })
-                        .catch(err => {
-                            alert('Failed to copy text: ' + err);
-                        });
-                },
-
-                openAutoClear() {
-                    if (!this.currentWarehouseId) {
-                        alert('Select a warehouse before previewing Auto Match.');
-                        return;
-                    }
-                    this.autoClearModalOpen = true;
-                    this.isLoadingAutoClear = true;
-                    const whId = this.currentWarehouseId;
-                    fetch(`${config.autoPlanUrl}?warehouse_id=${whId}`, {
-                        headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrfToken }
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        this.autoClearPlan = data.data || data;
-                        this.isLoadingAutoClear = false;
-                    })
-                    .catch(err => {
-                        alert('Failed to load auto-match preview');
-                        this.isLoadingAutoClear = false;
-                        this.autoClearModalOpen = false;
-                    });
-                },
-
-                closeAutoClear() {
-                    this.autoClearModalOpen = false;
-                    this.autoClearPlan = null;
-                },
-
-                executeAutoClear() {
-                    if (!this.autoClearPlan || !this.autoClearPlan.plan_hash) return;
-                    if (!this.currentWarehouseId) {
-                        alert('Select a warehouse before executing Auto Match.');
-                        return;
-                    }
-                    this.isExecutingAutoClear = true;
-                    const whId = this.currentWarehouseId;
-                    const clientSubId = crypto.randomUUID();
-                    fetch(config.autoExecuteUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': this.csrfToken
-                        },
-                        body: JSON.stringify({
-                            warehouse_id: whId,
-                            plan_hash: this.autoClearPlan.plan_hash,
-                            client_submission_id: clientSubId
-                        })
-                    })
-                    .then(async response => {
-                        const result = await response.json();
-                        if (!response.ok || result.status !== 'success') {
-                            throw new Error(result.message || 'Auto Match execution failed.');
-                        }
-
-                        return result;
-                    })
-                    .then(() => {
-                        this.isExecutingAutoClear = false;
-                        this.closeAutoClear();
-                        window.location.reload();
-                    })
-                    .catch(err => {
-                        alert('Execution failed: ' + (err.message || 'Unknown error'));
-                        this.isExecutingAutoClear = false;
-                    });
-                },
-
-                openPendingBillsModal() {
-                    this.pendingBillsModalOpen = true;
-                    this.isLoadingPendingDays = true;
-                    const url = config.pendingBillsDaysUrl + (this.currentWarehouseId ? `?warehouse_id=${this.currentWarehouseId}` : '');
-                    fetch(url, {
-                        headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrfToken }
-                    })
-                    .then(res => res.json())
-                    .then(res => {
-                        this.pendingDays = res.data?.days || [];
-                        this.selectedDays = this.pendingDays.map(d => d.date);
-                        this.isLoadingPendingDays = false;
-                    })
-                    .catch(err => {
-                        alert('Failed to load pending bill dates');
-                        this.isLoadingPendingDays = false;
-                        this.pendingBillsModalOpen = false;
-                    });
-                },
-
-                closePendingBillsModal() {
-                    this.pendingBillsModalOpen = false;
-                    this.pendingDays = [];
-                    this.selectedDays = [];
-                },
-
-                submitAcceptBills() {
-                    if (this.selectedDays.length === 0) return;
-                    this.isAcceptingBills = true;
-
-                    const selectedPoIds = [];
-                    (this.pendingDays || []).forEach(day => {
-                        if (this.selectedDays.includes(day.date) && Array.isArray(day.po_ids)) {
-                            selectedPoIds.push(...day.po_ids);
-                        }
-                    });
-
-                    fetch(config.acceptPendingBillsUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': this.csrfToken
-                        },
-                        body: JSON.stringify({
-                            warehouse_id: this.currentWarehouseId || null,
-                            purchase_order_ids: selectedPoIds
-                        })
-                    })
-                    .then(async res => {
-                        const data = await res.json().catch(() => ({}));
-                        this.isAcceptingBills = false;
-                        if (res.ok && (data.status === 'success' || (data.data && (data.data.approved > 0 || data.data.already_approved > 0)))) {
-                            this.closePendingBillsModal();
-                            window.location.reload();
-                        } else {
-                            alert(data.message || 'Failed to accept bills');
-                        }
-                    })
-                    .catch(err => {
-                        this.isAcceptingBills = false;
-                        alert('Failed to accept bills: ' + (err.message || 'Network error'));
-                    });
-                },
-
-                approveAndReceiveSingle(grnId, poId) {
-                    if ((!grnId && !poId) || this.processingPoId) return;
-                    this.processingPoId = poId || grnId;
-                    fetch(config.acceptPendingBillsUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': this.csrfToken
-                        },
-                        body: JSON.stringify({
-                            warehouse_id: this.currentWarehouseId || null,
-                            grn_id: grnId || null,
-                            grn_ids: grnId ? [grnId] : [],
-                            purchase_order_id: poId || null,
-                            purchase_order_ids: poId ? [poId] : []
-                        })
-                    })
-                    .then(async res => {
-                        const data = await res.json().catch(() => ({}));
-                        this.processingPoId = null;
-                        if (res.ok && (data.status === 'success' || (data.data && (data.data.approved > 0 || data.data.already_approved > 0)))) {
-                            window.location.reload();
-                        } else {
-                            alert(data.message || 'Failed to approve & receive bill');
-                        }
-                    })
-                    .catch(err => {
-                        this.processingPoId = null;
-                        alert('Failed to approve & receive bill: ' + (err.message || 'Network error'));
-                    });
-                },
-
-                openManualMatch(poId, poNumber, supplierName) {
-                    this.manualPoId = poId;
-                    this.manualPoNumber = poNumber;
-                    this.manualSupplierName = supplierName;
-                    this.manualMatchModalOpen = true;
-                    this.isLoadingManualMatch = true;
-                    const whParam = this.currentWarehouseId ? `?warehouse_id=${this.currentWarehouseId}` : '';
-                    fetch(config.manualMatchUrlPrefix + poId + whParam, {
-                        headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrfToken }
-                    })
-                    .then(res => res.json())
-                    .then(res => {
-                        this.manualSuggestions = res.data || res;
-                        this.isLoadingManualMatch = false;
-                    })
-                    .catch(err => {
-                        alert('Failed to fetch match suggestions');
-                        this.isLoadingManualMatch = false;
-                        this.manualMatchModalOpen = false;
-                    });
-                },
-
-                closeManualMatch() {
-                    this.manualMatchModalOpen = false;
-                    this.manualPoId = null;
-                    this.manualSuggestions = null;
-                },
-
-                executeManualMatch() {
-                    if (!this.manualPoId || !this.manualSuggestions) return;
-                    this.isExecutingManualMatch = true;
-                    const matches = [];
-                    (this.manualSuggestions.items || []).forEach(item => {
-                        (item.suggested_matches || []).forEach(m => {
-                            matches.push({
-                                advance_goods_received_id: m.advance_goods_received_id,
-                                advance_goods_received_item_id: m.advance_goods_received_item_id,
-                                purchase_order_item_id: item.purchase_order_item_id,
-                                product_id: item.product_id,
-                                matched_qty: m.proposed_match_qty,
-                                unit: m.unit
-                            });
-                        });
-                    });
-
-                    fetch(config.manualExecuteUrlPrefix + this.manualPoId, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': this.csrfToken
-                        },
-                        body: JSON.stringify({
-                            warehouse_id: this.currentWarehouseId || null,
-                            matches: matches
-                        })
-                    })
-                    .then(res => res.json())
-                    .then(res => {
-                        this.isExecutingManualMatch = false;
-                        this.closeManualMatch();
-                        window.location.reload();
-                    })
-                    .catch(err => {
-                        alert('Manual match execution failed');
-                        this.isExecutingManualMatch = false;
+    <div class="mx-auto max-w-6xl space-y-4"
+         x-data="{
+            modalOpen: false,
+            currentRow: null,
+            saving: false,
+            matching: false,
+            matchingAll: false,
+            pendingDetailsOpen: false,
+            otherDatesModalOpen: false,
+            otherDatesLoading: false,
+            otherDatesList: [],
+            receivingSingleId: null,
+            receivingPending: false,
+            receivingDate: null,
+            search: '',
+            perPage: 50,
+            currentPage: 1,
+            sortColumn: 'product_name',
+            sortDirection: 'asc',
+            date: '{{ $date }}',
+            formattedDate: '{{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}',
+            selectedWarehouseId: '{{ $selectedWarehouseId }}' || null,
+            selectedWarehouseName: '{{ $selectedWarehouse?->name ?? 'All Warehouses' }}',
+            pendingBillsCount: {{ (int) $pendingBillsCount }},
+            pendingBillsList: @js($pendingBillsList),
+            rows: @js($rows),
+            summary: @js($summary),
+            sortBy(column) {
+                if (this.sortColumn === column) {
+                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.sortColumn = column;
+                    this.sortDirection = 'asc';
+                }
+                this.currentPage = 1;
+                this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+            },
+            get filteredRows() {
+                let list = this.rows || [];
+                const q = (this.search || '').trim().toLowerCase();
+                if (q) {
+                    list = list.filter(r => {
+                        const name = (r.product_name || '').toLowerCase();
+                        const code = (r.product_code || r.sku || '').toLowerCase();
+                        return name.includes(q) || code.includes(q);
                     });
                 }
-            };
-        }
-    </script>
+                if (this.sortColumn) {
+                    list = [...list].sort((a, b) => {
+                        let res = 0;
+                        if (this.sortColumn === 'product_name') {
+                            const nameA = ((a.product_code || a.sku || '') + ' ' + (a.product_name || '')).toLowerCase();
+                            const nameB = ((b.product_code || b.sku || '') + ' ' + (b.product_name || '')).toLowerCase();
+                            res = nameA.localeCompare(nameB);
+                        } else if (this.sortColumn === 'advance_qty') {
+                            res = (Number(a.advance_qty) || 0) - (Number(b.advance_qty) || 0);
+                        } else if (this.sortColumn === 'bill_qty') {
+                            res = (Number(a.bill_qty) || 0) - (Number(b.bill_qty) || 0);
+                        } else if (this.sortColumn === 'diff') {
+                            const valA = a.diff === null || a.diff === undefined ? (this.sortDirection === 'asc' ? 999999999 : -999999999) : Number(a.diff);
+                            const valB = b.diff === null || b.diff === undefined ? (this.sortDirection === 'asc' ? 999999999 : -999999999) : Number(b.diff);
+                            res = valA - valB;
+                        } else if (this.sortColumn === 'match_pct') {
+                            const valA = a.match_pct === null || a.match_pct === undefined ? -1 : Number(a.match_pct);
+                            const valB = b.match_pct === null || b.match_pct === undefined ? -1 : Number(b.match_pct);
+                            res = valA - valB;
+                        }
+                        return this.sortDirection === 'asc' ? res : -res;
+                    });
+                }
+                return list;
+            },
+            get paginatedRows() {
+                if (this.perPage === 'all' || Number(this.perPage) <= 0) {
+                    return this.filteredRows;
+                }
+                const pSize = Number(this.perPage);
+                const start = (this.currentPage - 1) * pSize;
+                return this.filteredRows.slice(start, start + pSize);
+            },
+            get totalPages() {
+                if (this.perPage === 'all' || Number(this.perPage) <= 0) {
+                    return 1;
+                }
+                return Math.ceil(this.filteredRows.length / Number(this.perPage)) || 1;
+            },
+            formatNumber(val) {
+                if (val === null || val === undefined) return '0';
+                const num = parseFloat(val);
+                if (isNaN(num)) return '0';
+                return Number.isInteger(num) ? num.toString() : parseFloat(num.toFixed(3)).toString();
+            },
+            openModal(row) {
+                this.currentRow = row;
+                this.modalOpen = true;
+                this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+            },
+            async fetchOtherDates() {
+                this.otherDatesLoading = true;
+                this.otherDatesModalOpen = true;
+                try {
+                    const url = '{{ route('admin.cashbook.inventory.pending-bills-days') }}' + (this.selectedWarehouseId ? '?warehouse_id=' + this.selectedWarehouseId : '');
+                    const res = await fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        this.otherDatesList = data.data.days || [];
+                    } else {
+                        this.otherDatesList = [];
+                    }
+                } catch (e) {
+                    this.otherDatesList = [];
+                } finally {
+                    this.otherDatesLoading = false;
+                    this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+                }
+            },
+            async receiveSingle(bill) {
+                const key = bill.type + '_' + bill.id;
+                if (this.receivingSingleId === key) return;
+                this.receivingSingleId = key;
+                try {
+                    const res = await fetch('{{ route('admin.cashbook.inventory.receive-single-bill') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            type: bill.type,
+                            id: bill.id,
+                            warehouse_id: this.selectedWarehouseId,
+                            date: this.date
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        // Remove from pending list
+                        this.pendingBillsList = this.pendingBillsList.filter(b => !(b.type === bill.type && b.id === bill.id));
+                        this.pendingBillsCount = this.pendingBillsList.length;
+                        if (this.pendingBillsList.length === 0) {
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Bill received successfully');
+                            window.location.reload();
+                        }
+                    } else {
+                        alert(data.message || 'Failed to receive bill');
+                        this.receivingSingleId = null;
+                    }
+                } catch (e) {
+                    alert('Error receiving bill: ' + e.message);
+                    this.receivingSingleId = null;
+                }
+            },
+            async receiveAllPending() {
+                if (this.pendingBillsCount <= 0 || this.receivingPending) return;
+                const count = this.pendingBillsCount;
+                const confirmMsg = 'Receive all ' + count + ' pending purchase bills for ' + this.formattedDate + ' / ' + this.selectedWarehouseName + '?';
+                if (!confirm(confirmMsg)) {
+                    return;
+                }
+                this.receivingPending = true;
+                try {
+                    const res = await fetch('{{ route('admin.cashbook.inventory.receive-all-pending-bills') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            date: this.date,
+                            warehouse_id: this.selectedWarehouseId
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        alert(data.message || 'Bills received successfully');
+                        window.location.reload();
+                    } else {
+                        alert(data.message || 'Failed to receive pending bills');
+                        this.receivingPending = false;
+                    }
+                } catch (e) {
+                    alert('Error receiving pending bills: ' + e.message);
+                    this.receivingPending = false;
+                }
+            },
+            async receiveDateInModal(dateStr, count) {
+                if (this.receivingDate) return;
+                const targetWarehouseName = this.selectedWarehouseName || 'All Warehouses';
+                const confirmMsg = 'Receive all ' + count + ' pending purchase bills for ' + dateStr + ' (' + targetWarehouseName + ')?';
+                if (!confirm(confirmMsg)) {
+                    return;
+                }
+                this.receivingDate = dateStr;
+                try {
+                    const res = await fetch('{{ route('admin.cashbook.inventory.receive-all-pending-bills') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            date: dateStr,
+                            warehouse_id: this.selectedWarehouseId
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        alert(data.message || 'Bills received successfully');
+                        if (dateStr === this.date) {
+                            window.location.reload();
+                        } else {
+                            await this.fetchOtherDates();
+                        }
+                    } else {
+                        alert(data.message || 'Failed to receive pending bills for ' + dateStr);
+                    }
+                } catch (e) {
+                    alert('Error receiving pending bills: ' + e.message);
+                } finally {
+                    this.receivingDate = null;
+                    this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+                }
+            },
+            async matchRow(row) {
+                if (!row || !row.product_id) return;
+                this.matching = true;
+                try {
+                    const res = await fetch('{{ route('admin.cashbook.inventory.match-day') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            date: this.date,
+                            warehouse_id: this.selectedWarehouseId,
+                            product_id: row.product_id,
+                            unit: row.unit
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        window.location.reload();
+                    } else {
+                        alert(data.message || 'Failed to match inventory');
+                        this.matching = false;
+                    }
+                } catch (e) {
+                    alert('Error matching inventory: ' + e.message);
+                    this.matching = false;
+                }
+            },
+            async matchAll() {
+                this.matchingAll = true;
+                try {
+                    const res = await fetch('{{ route('admin.cashbook.inventory.match-all-day') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            date: this.date,
+                            warehouse_id: this.selectedWarehouseId
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        alert(data.message || 'Match All completed successfully');
+                        window.location.reload();
+                    } else {
+                        alert(data.message || 'Failed to execute Match All');
+                        this.matchingAll = false;
+                    }
+                } catch (e) {
+                    alert('Error executing Match All: ' + e.message);
+                    this.matchingAll = false;
+                }
+            },
+            sharePendingWhatsApp() {
+                const lines = [
+                    'Green Leaf - Bill Match Pending',
+                    'Date: ' + this.formattedDate,
+                    'Warehouse: ' + this.selectedWarehouseName,
+                    ''
+                ];
+
+                let pendingCount = 0;
+
+                for (const row of this.rows) {
+                    if (row.unit_mismatch) {
+                        lines.push(row.product_code ? `${row.product_code} · ${row.product_name}` : row.product_name);
+                        lines.push('Advance: ' + row.formatted_advance);
+                        lines.push('Bill: ' + row.formatted_bill);
+                        lines.push('Status: UNIT FIX REQUIRED');
+                        lines.push('');
+                        pendingCount++;
+                    } else if (row.bill_qty > 0 && row.unmatched_bill_qty > 0.0001) {
+                        lines.push(row.product_code ? `${row.product_code} · ${row.product_name}` : row.product_name);
+                        lines.push('Bill: ' + row.formatted_bill);
+                        lines.push('Matched: ' + this.formatNumber(row.matched_bill_qty) + ' ' + row.unit);
+                        lines.push('Pending: ' + this.formatNumber(row.unmatched_bill_qty) + ' ' + row.unit);
+                        lines.push('');
+                        pendingCount++;
+                    }
+                }
+
+                if (pendingCount === 0) {
+                    alert('All bills are fully matched for this date and warehouse!');
+                    return;
+                }
+
+                lines.push('Total Pending Products: ' + pendingCount);
+
+                const message = lines.join('\n');
+                window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent(message), '_blank', 'noopener');
+            },
+            async saveUnit(itemId, newUnit) {
+                this.saving = true;
+                try {
+                    const res = await fetch('{{ route('admin.cashbook.inventory.update-item-unit') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            goods_received_item_id: itemId,
+                            new_unit: newUnit
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === 'success') {
+                        window.location.reload();
+                    } else {
+                        alert(data.message || 'Failed to update unit');
+                        this.saving = false;
+                    }
+                } catch (e) {
+                    alert('Error updating unit: ' + e.message);
+                    this.saving = false;
+                }
+            }
+         }">
+
+        <!-- 1. Date + Warehouse Navigation -->
+        <div class="flex flex-wrap items-center justify-between gap-3 py-1">
+            <form method="GET" action="{{ route('admin.cashbook.inventory') }}" class="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                <a href="{{ route('admin.cashbook.inventory', array_filter(['date' => $prevDate, 'warehouse_id' => $selectedWarehouseId])) }}"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-xs">
+                    <i data-lucide="chevron-left" class="w-4 h-4 text-slate-500"></i>
+                    <span class="hidden sm:inline">Prev</span>
+                </a>
+
+                <input type="date"
+                       name="date"
+                       value="{{ $date }}"
+                       onchange="this.form.submit()"
+                       class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-black text-slate-900 shadow-xs focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 cursor-pointer">
+
+                <a href="{{ route('admin.cashbook.inventory', array_filter(['date' => $nextDate, 'warehouse_id' => $selectedWarehouseId])) }}"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-xs">
+                    <span class="hidden sm:inline">Next</span>
+                    <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i>
+                </a>
+
+                <!-- Warehouse Dropdown -->
+                <div class="relative flex items-center">
+                    <select name="warehouse_id"
+                            onchange="this.form.submit()"
+                            class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 cursor-pointer">
+                        <option value="">All Warehouses</option>
+                        @foreach ($warehouses as $wh)
+                            <option value="{{ $wh->id }}" @selected((string)$selectedWarehouseId === (string)$wh->id)>
+                                {{ $wh->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+            </form>
+        </div>
+
+        <!-- 2. Pending Receive Details Banner -->
+        <div class="rounded-2xl p-4 transition shadow-xs border"
+             :class="pendingBillsCount > 0 ? 'bg-amber-50/70 border-amber-200/80' : 'bg-emerald-50/70 border-emerald-200/80'">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3 flex-wrap">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                         :class="pendingBillsCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'">
+                        <i :data-lucide="pendingBillsCount > 0 ? 'inbox' : 'check-circle-2'" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-xs font-extrabold text-slate-900">
+                                Pending Purchase Bills:
+                                <span :class="pendingBillsCount > 0 ? 'text-amber-800 font-black text-sm' : 'text-emerald-700 font-bold'"
+                                      x-text="pendingBillsCount"></span>
+                            </span>
+                            <span class="text-[11px] font-semibold text-slate-500 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200/60 font-mono">
+                                Selected Date: {{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}
+                            </span>
+                        </div>
+                        <template x-if="pendingBillsCount === 0">
+                            <p class="text-[11px] font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
+                                All purchase bills received ✓
+                            </p>
+                        </template>
+                        <template x-if="pendingBillsCount > 0">
+                            <p class="text-[11px] font-medium text-amber-700 mt-0.5">
+                                Pending warehouse receive confirmation for selected date and warehouse.
+                            </p>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 flex-wrap">
+                    <template x-if="pendingBillsCount > 0">
+                        <button type="button"
+                                @click="pendingDetailsOpen = true; $nextTick(() => { if (window.lucide) lucide.createIcons(); });"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                            <i data-lucide="eye" class="w-3.5 h-3.5 text-slate-600"></i>
+                            <span>View Pending Details</span>
+                        </button>
+                    </template>
+
+                    <template x-if="pendingBillsCount > 0">
+                        <button type="button"
+                                @click="receiveAllPending()"
+                                :disabled="receivingPending"
+                                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                            <i data-lucide="package-check" class="w-3.5 h-3.5" :class="receivingPending ? 'animate-spin' : ''"></i>
+                            <span x-text="receivingPending ? 'Receiving...' : ('Receive All ' + pendingBillsCount)"></span>
+                        </button>
+                    </template>
+
+                    <button type="button"
+                            @click="fetchOtherDates()"
+                            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold transition shadow-xs cursor-pointer">
+                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>
+                        <span>Other Pending Dates</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Full-day Summary Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            <!-- Advance -->
+            <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Advance Qty</div>
+                <div class="mt-1 text-base font-black font-mono text-slate-900" x-text="formatNumber(summary.total_advance_qty)"></div>
+                <div class="text-[10px] text-slate-400">Total advance items</div>
+            </div>
+
+            <!-- Bill -->
+            <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Bill Qty</div>
+                <div class="mt-1 text-base font-black font-mono text-slate-900" x-text="formatNumber(summary.total_bill_qty)"></div>
+                <div class="text-[10px] text-slate-400">Received bills</div>
+            </div>
+
+            <!-- Matched -->
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 shadow-xs">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Matched Qty</div>
+                <div class="mt-1 text-base font-black font-mono text-emerald-900" x-text="formatNumber(summary.total_matched_qty)"></div>
+                <div class="text-[10px] text-emerald-700">Stock reconciled</div>
+            </div>
+
+            <!-- Bill Pending -->
+            <div class="rounded-xl border border-amber-200 bg-amber-50/50 p-3 shadow-xs">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-amber-800">Bill Pending</div>
+                <div class="mt-1 text-base font-black font-mono text-amber-900" x-text="formatNumber(summary.total_unmatched_bill_qty)"></div>
+                <div class="text-[10px] text-amber-700">Unmatched bill qty</div>
+            </div>
+
+            <!-- Match % -->
+            <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Match %</div>
+                <div class="mt-1 text-base font-black font-mono"
+                     :class="summary.overall_match_pct >= 100 ? 'text-emerald-700' : (summary.overall_match_pct > 0 ? 'text-amber-700' : 'text-slate-700')"
+                     x-text="summary.overall_match_pct + '%'"></div>
+                <div class="text-[10px] text-slate-400">Day coverage</div>
+            </div>
+
+            <!-- Unit Fix Required -->
+            <div class="rounded-xl border p-3 shadow-xs"
+                 :class="summary.unit_fix_count > 0 ? 'border-rose-200 bg-rose-50/50' : 'border-slate-200 bg-white'">
+                <div class="text-[10px] font-bold uppercase tracking-wider"
+                     :class="summary.unit_fix_count > 0 ? 'text-rose-800' : 'text-slate-500'">Unit Fix Required</div>
+                <div class="mt-1 text-base font-black font-mono"
+                     :class="summary.unit_fix_count > 0 ? 'text-rose-700' : 'text-slate-900'"
+                     x-text="summary.unit_fix_count"></div>
+                <div class="text-[10px]" :class="summary.unit_fix_count > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'">
+                    <span x-text="summary.unit_fix_count > 0 ? 'Mismatch detected' : 'Units consistent'"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4 & 5. Actions Bar + Search & Per Page -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                <!-- Search Box -->
+                <div class="relative flex-1 sm:w-64 min-w-[200px]">
+                    <input type="text"
+                           x-model="search"
+                           @input="currentPage = 1"
+                           placeholder="Search product or code..."
+                           class="w-full pl-8 pr-7 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium text-slate-900 shadow-xs focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                    <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    <button type="button"
+                            x-show="search"
+                            @click="search = ''; currentPage = 1"
+                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
+                </div>
+
+                <!-- Per Page Selector -->
+                <div class="flex items-center gap-1.5 text-xs text-slate-600">
+                    <span class="text-[11px] font-bold text-slate-500">Per page:</span>
+                    <select x-model="perPage"
+                            @change="currentPage = 1"
+                            class="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-emerald-500 cursor-pointer">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="all">All</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Top Actions: Match All & Share Pending WhatsApp -->
+            <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button type="button"
+                        @click="matchAll()"
+                        :disabled="matchingAll"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                    <i data-lucide="refresh-cw" class="w-4 h-4" :class="matchingAll ? 'animate-spin' : ''"></i>
+                    <span x-text="matchingAll ? 'Matching...' : 'Match All'"></span>
+                </button>
+
+                <button type="button"
+                        @click="sharePendingWhatsApp()"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                    <i data-lucide="message-circle" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Share Pending WhatsApp</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 6. Single Compact Comparison Table with Sl No, Product Code, Sorting -->
+        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-200 bg-slate-50/80 select-none">
+                            <th scope="col" class="py-3 px-3 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-center w-14">
+                                Sl No
+                            </th>
+                            <th scope="col" @click="sortBy('product_name')" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-left cursor-pointer hover:bg-slate-100/80 transition">
+                                <div class="flex items-center gap-1.5">
+                                    <span>Product</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none">
+                                        <span :class="sortColumn === 'product_name' && sortDirection === 'asc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'product_name' && sortDirection === 'desc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('advance_qty')" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-right cursor-pointer hover:bg-slate-100/80 transition">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <span>Advance</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none">
+                                        <span :class="sortColumn === 'advance_qty' && sortDirection === 'asc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'advance_qty' && sortDirection === 'desc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('bill_qty')" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-right cursor-pointer hover:bg-slate-100/80 transition">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <span>Bill</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none">
+                                        <span :class="sortColumn === 'bill_qty' && sortDirection === 'asc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'bill_qty' && sortDirection === 'desc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('diff')" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-right cursor-pointer hover:bg-slate-100/80 transition">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <span>Diff</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none">
+                                        <span :class="sortColumn === 'diff' && sortDirection === 'asc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'diff' && sortDirection === 'desc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('match_pct')" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-right cursor-pointer hover:bg-slate-100/80 transition">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <span>Match %</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none">
+                                        <span :class="sortColumn === 'match_pct' && sortDirection === 'asc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'match_pct' && sortDirection === 'desc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-center w-36">
+                                Action
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
+                        <template x-for="(row, index) in paginatedRows" :key="row.product_id + '-' + row.unit">
+                            <tr class="hover:bg-slate-50/60 transition-colors" :class="row.unit_mismatch ? 'bg-amber-50/30' : ''">
+                                <!-- Sl No -->
+                                <td class="py-2.5 px-3 text-center font-mono text-slate-400 font-bold"
+                                    x-text="(perPage === 'all' ? 0 : (currentPage - 1) * Number(perPage)) + index + 1"></td>
+
+                                <!-- Product Code + Name -->
+                                <td class="py-2.5 px-4 font-semibold text-slate-900">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <template x-if="row.product_code || row.sku">
+                                            <span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-black border border-slate-200"
+                                                  x-text="row.product_code || row.sku"></span>
+                                        </template>
+                                        <span x-text="row.product_name"></span>
+                                    </div>
+                                </td>
+
+                                <!-- Advance -->
+                                <td class="py-2.5 px-4 text-right font-mono text-slate-700" x-text="row.formatted_advance"></td>
+
+                                <!-- Bill -->
+                                <td class="py-2.5 px-4 text-right font-mono text-slate-700" x-text="row.formatted_bill"></td>
+
+                                <!-- Diff -->
+                                <td class="py-2.5 px-4 text-right font-mono font-bold">
+                                    <template x-if="row.unit_mismatch">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                            Unit Mismatch
+                                        </span>
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && row.diff > 0.0001">
+                                        <span class="text-emerald-700" x-text="row.formatted_diff"></span>
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && row.diff < -0.0001">
+                                        <span class="text-rose-700" x-text="row.formatted_diff"></span>
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && Math.abs(row.diff || 0) <= 0.0001">
+                                        <span class="text-slate-500">0</span>
+                                    </template>
+                                </td>
+
+                                <!-- Match % -->
+                                <td class="py-2.5 px-4 text-right font-mono font-bold">
+                                    <template x-if="row.unit_mismatch">
+                                        <span class="text-slate-400">--</span>
+                                    </template>
+                                    <template x-if="!row.unit_mismatch">
+                                        <span :class="row.match_pct >= 100 ? 'text-emerald-700' : (row.match_pct > 0 ? 'text-amber-700' : 'text-slate-500')"
+                                              x-text="row.formatted_match_pct"></span>
+                                    </template>
+                                </td>
+
+                                <!-- Action -->
+                                <td class="py-2.5 px-4 text-center">
+                                    <template x-if="row.action_type === 'fix_unit'">
+                                        <button type="button"
+                                                 @click="openModal(row)"
+                                                 class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition shadow-2xs cursor-pointer">
+                                             <i data-lucide="wrench" class="w-3.5 h-3.5"></i>
+                                             <span>Fix Unit</span>
+                                         </button>
+                                    </template>
+                                    <template x-if="row.action_type === 'matched'">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                             <i data-lucide="check" class="w-3 h-3 text-emerald-600"></i>
+                                             <span>Matched</span>
+                                         </span>
+                                    </template>
+                                    <template x-if="row.action_type === 'match'">
+                                        <button type="button"
+                                                @click="matchRow(row)"
+                                                :disabled="matching"
+                                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50">
+                                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                                            <span>Match</span>
+                                        </button>
+                                    </template>
+                                    <template x-if="row.action_type === 'match_remaining'">
+                                        <button type="button"
+                                                @click="matchRow(row)"
+                                                :disabled="matching"
+                                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50">
+                                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                                            <span>Match Remaining</span>
+                                        </button>
+                                    </template>
+                                    <template x-if="row.action_type === 'none'">
+                                        <span class="text-slate-300 font-bold">-</span>
+                                    </template>
+                                </td>
+                            </tr>
+                        </template>
+
+                        <tr x-show="filteredRows.length === 0">
+                            <td colspan="7" class="py-8 text-center text-slate-400 font-semibold">
+                                <span x-show="search">No products matching "<span x-text="search"></span>".</span>
+                                <span x-show="!search">No receipts or advance entries recorded for {{ \Carbon\Carbon::parse($date)->format('d M Y') }}.</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 7. Pagination Footer -->
+            <div x-show="filteredRows.length > 0" class="border-t border-slate-200 bg-slate-50/50 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div class="text-slate-500">
+                    Showing
+                    <span class="font-bold text-slate-800" x-text="perPage === 'all' ? 1 : Math.min((currentPage - 1) * Number(perPage) + 1, filteredRows.length)"></span>
+                    to
+                    <span class="font-bold text-slate-800" x-text="perPage === 'all' ? filteredRows.length : Math.min(currentPage * Number(perPage), filteredRows.length)"></span>
+                    of
+                    <span class="font-bold text-slate-800" x-text="filteredRows.length"></span>
+                    products
+                </div>
+
+                <div x-show="totalPages > 1" class="flex items-center gap-1">
+                    <button type="button"
+                            @click="currentPage = Math.max(1, currentPage - 1)"
+                            :disabled="currentPage === 1"
+                            class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                        Prev
+                    </button>
+                    <span class="px-2 text-slate-500 font-medium">
+                        Page <span class="font-bold text-slate-800" x-text="currentPage"></span> of <span class="font-bold text-slate-800" x-text="totalPages"></span>
+                    </span>
+                    <button type="button"
+                            @click="currentPage = Math.min(totalPages, currentPage + 1)"
+                            :disabled="currentPage === totalPages"
+                            class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                        Next
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL 1: Pending Details Popup -->
+        <div x-show="pendingDetailsOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div @click.outside="pendingDetailsOpen = false" class="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-hidden">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
+                            <i data-lucide="package-check" class="w-4 h-4 text-indigo-600"></i>
+                            <span>Pending Purchase Bills</span>
+                        </h3>
+                        <div class="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-500">
+                            <span class="font-bold text-slate-700">Date:</span>
+                            <span class="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-800">{{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}</span>
+                            <span class="text-slate-300">·</span>
+                            <span class="font-bold text-slate-700">Warehouse:</span>
+                            <span class="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-800">{{ $selectedWarehouse?->name ?? 'All Warehouses' }}</span>
+                            <span class="text-slate-300">·</span>
+                            <span class="font-bold text-slate-700">Total Pending:</span>
+                            <span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-black text-[11px]" x-text="pendingBillsList.length"></span>
+                        </div>
+                    </div>
+                    <button type="button" @click="pendingDetailsOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
+                </div>
+
+                <!-- Table Content -->
+                <div class="p-4 overflow-y-auto flex-1">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="border-b border-slate-200 bg-slate-50/90 select-none">
+                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-center w-12">Sl</th>
+                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] w-28">PO / Bill</th>
+                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] w-36">Supplier</th>
+                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px]">Items</th>
+                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-center w-28">Status</th>
+                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-center w-24">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
+                            <template x-for="(bill, bIndex) in pendingBillsList" :key="bill.type + '-' + bill.id">
+                                <tr class="hover:bg-slate-50/70 transition">
+                                    <td class="py-2.5 px-3 text-center font-mono text-slate-400 font-bold" x-text="bIndex + 1"></td>
+                                    <td class="py-2.5 px-3 font-mono font-bold text-slate-900" x-text="bill.bill_number"></td>
+                                    <td class="py-2.5 px-3 font-medium text-slate-700" x-text="bill.supplier_name"></td>
+                                    <td class="py-2.5 px-3 text-slate-600 text-[11px]">
+                                        <span class="font-bold text-slate-800" x-text="bill.items_count + ' items · '"></span>
+                                        <span x-text="bill.items_summary"></span>
+                                    </td>
+                                    <td class="py-2.5 px-3 text-center">
+                                        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200">
+                                            Pending Receive
+                                        </span>
+                                    </td>
+                                    <td class="py-2.5 px-3 text-center">
+                                        <button type="button"
+                                                @click="receiveSingle(bill)"
+                                                :disabled="receivingSingleId === (bill.type + '_' + bill.id)"
+                                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                                            <i data-lucide="package-check" class="w-3 h-3" :class="receivingSingleId === (bill.type + '_' + bill.id) ? 'animate-spin' : ''"></i>
+                                            <span x-text="receivingSingleId === (bill.type + '_' + bill.id) ? 'Receiving...' : 'Receive'"></span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+
+                            <tr x-show="pendingBillsList.length === 0">
+                                <td colspan="6" class="py-8 text-center text-slate-400 font-semibold">
+                                    No pending bills found for this date and warehouse.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Footer -->
+                <div class="px-6 py-3.5 border-t border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3">
+                    <div class="text-xs font-bold text-slate-700">
+                        <span x-text="pendingBillsList.length"></span> Bills Pending
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                @click="pendingDetailsOpen = false"
+                                class="px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                            Close
+                        </button>
+
+                        <button type="button"
+                                x-show="pendingBillsList.length > 0"
+                                @click="receiveAllPending()"
+                                :disabled="receivingPending"
+                                class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                            <span x-text="receivingPending ? 'Receiving...' : ('Receive All ' + pendingBillsList.length)"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL 2: Other Pending Dates Popup -->
+        <div x-show="otherDatesModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div @click.outside="otherDatesModalOpen = false" class="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
+                            <i data-lucide="calendar" class="w-4 h-4 text-slate-600"></i>
+                            <span>Other Pending Dates</span>
+                        </h3>
+                        <p class="text-[11px] text-slate-500 mt-0.5">
+                            Dates with pending purchase bills for <span class="font-bold text-slate-700">{{ $selectedWarehouse?->name ?? 'All Warehouses' }}</span>
+                        </p>
+                    </div>
+                    <button type="button" @click="otherDatesModalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
+                </div>
+
+                <!-- Content -->
+                <div class="p-4 overflow-y-auto flex-1">
+                    <div x-show="otherDatesLoading" class="py-8 text-center text-slate-400 font-semibold flex items-center justify-center gap-2">
+                        <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-indigo-600"></i>
+                        <span>Loading pending dates...</span>
+                    </div>
+
+                    <div x-show="!otherDatesLoading">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-200 bg-slate-50 select-none">
+                                    <th class="py-2 px-3 font-bold text-slate-600 text-[11px]">Date</th>
+                                    <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-center">Pending Bills</th>
+                                    <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
+                                <template x-for="d in otherDatesList" :key="d.date">
+                                    <tr class="hover:bg-slate-50 transition" :class="d.date === date ? 'bg-indigo-50/40 font-bold' : ''">
+                                        <td class="py-2.5 px-3 font-mono">
+                                            <a :href="'{{ route('admin.cashbook.inventory') }}?date=' + d.date + (selectedWarehouseId ? '&warehouse_id=' + selectedWarehouseId : '')"
+                                               class="text-indigo-600 hover:text-indigo-900 hover:underline font-bold inline-flex items-center gap-1"
+                                               title="Open inventory for this date">
+                                                <span x-text="d.formatted_date"></span>
+                                                <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                                            </a>
+                                            <template x-if="d.date === date">
+                                                <span class="ml-1.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800">Current</span>
+                                            </template>
+                                        </td>
+                                        <td class="py-2.5 px-3 text-center font-mono font-bold text-amber-700" x-text="d.pending_count"></td>
+                                        <td class="py-2.5 px-3 text-right">
+                                            <button type="button"
+                                                    @click="receiveDateInModal(d.date, d.pending_count)"
+                                                    :disabled="receivingDate === d.date"
+                                                    class="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                                                <i data-lucide="package-check" class="w-3.5 h-3.5" :class="receivingDate === d.date ? 'animate-spin' : ''"></i>
+                                                <span x-text="receivingDate === d.date ? 'Receiving...' : 'Receive All'"></span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+
+                                <tr x-show="otherDatesList.length === 0">
+                                    <td colspan="3" class="py-8 text-center text-slate-400 font-semibold">
+                                        No pending dates found.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="px-6 py-3 border-t border-slate-200 bg-slate-50/70 flex justify-end">
+                    <button type="button" @click="otherDatesModalOpen = false" class="px-4 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fix Unit Modal -->
+        <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div @click.outside="modalOpen = false" class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
+                            <i data-lucide="wrench" class="w-4 h-4 text-indigo-600"></i>
+                            <span>Fix Received Unit</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5" x-text="currentRow?.product_code ? `${currentRow.product_code} · ${currentRow.product_name}` : currentRow?.product_name"></p>
+                    </div>
+                    <button type="button" @click="modalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base">✕</button>
+                </div>
+
+                <div class="space-y-3 max-h-96 overflow-y-auto pr-1">
+                    <template x-for="item in currentRow?.editable_items || []" :key="item.id">
+                        <div class="p-3 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3 text-xs">
+                            <div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider"
+                                          :class="item.type === 'Advance' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'"
+                                          x-text="item.type"></span>
+                                    <span class="font-bold text-slate-800" x-text="item.grn_number"></span>
+                                </div>
+                                <div class="text-slate-500 font-mono mt-1">
+                                    Qty: <span class="font-bold text-slate-800" x-text="item.qty"></span> <span x-text="item.unit"></span>
+                                </div>
+                            </div>
+
+                            <form @submit.prevent="saveUnit(item.id, $event.target.new_unit.value)" class="flex items-center gap-1.5">
+                                <select name="new_unit" class="h-8 px-2 py-1 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                                    <option value="kg" :selected="item.unit.toLowerCase() === 'kg'">kg</option>
+                                    <option value="piece" :selected="item.unit.toLowerCase() === 'piece'">piece</option>
+                                    <option value="box" :selected="item.unit.toLowerCase() === 'box'">box</option>
+                                    <option value="bunch" :selected="item.unit.toLowerCase() === 'bunch'">bunch</option>
+                                    <option value="bag" :selected="item.unit.toLowerCase() === 'bag'">bag</option>
+                                    <option value="packet" :selected="item.unit.toLowerCase() === 'packet'">packet</option>
+                                    <option value="crate" :selected="item.unit.toLowerCase() === 'crate'">crate</option>
+                                </select>
+                                <button type="submit"
+                                        :disabled="saving"
+                                        class="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                                    Save
+                                </button>
+                            </form>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex justify-end pt-2">
+                    <button type="button" @click="modalOpen = false" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 @endsection
