@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Purchasing;
 
+use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\Purchasing\StoreGoodsReceivedRequest;
@@ -31,6 +32,7 @@ class GoodsReceivedController extends Controller
 {
     public function __construct(
         private readonly GoodsReceivedService $service,
+        private readonly ApproveGoodsReceiptAction $approveGoodsReceiptAction,
     ) {}
 
     public function advanceInventory(Request $request): JsonResponse
@@ -85,10 +87,41 @@ class GoodsReceivedController extends Controller
 
     public function store(StoreGoodsReceivedRequest $request): JsonResponse
     {
-        $grn = $this->service->create(
-            GoodsReceivedData::fromRequest($request),
-            (int) $request->user()->id
-        );
+        $data = GoodsReceivedData::fromRequest($request);
+        $userId = (int) $request->user()->id;
+
+        if (! empty($data->advanceMatches) || $data->receiptType === 'warehouse_advance') {
+            $grn = $this->service->create($data, $userId);
+        } else {
+            $existingPendingGrn = null;
+            if ($data->purchaseOrderId) {
+                $existingPendingGrn = GoodsReceived::query()
+                    ->where('purchase_order_id', $data->purchaseOrderId)
+                    ->where(function ($query) {
+                        $query->where('status', '!=', 'approved')
+                            ->orWhereHas('stockBatches', fn ($q) => $q->where('warehouse_receive_pending', true));
+                    })
+                    ->first();
+            }
+
+            if ($existingPendingGrn !== null) {
+                if ($data->clientSubmissionId && ! $existingPendingGrn->client_submission_id) {
+                    $existingPendingGrn->update(['client_submission_id' => $data->clientSubmissionId]);
+                }
+                $grn = $this->approveGoodsReceiptAction->executeAndConfirmReceive(
+                    $existingPendingGrn,
+                    $userId,
+                    $data->warehouseId
+                );
+            } else {
+                $grn = $this->service->create($data, $userId);
+                $grn = $this->approveGoodsReceiptAction->executeAndConfirmReceive(
+                    $grn,
+                    $userId,
+                    $data->warehouseId
+                );
+            }
+        }
 
         $msg = $grn->bill_status === 'bill_pending'
             ? 'Goods received note recorded (BILL PENDING)'
