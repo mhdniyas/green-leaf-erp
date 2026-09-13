@@ -10,6 +10,9 @@ use App\Http\Requests\Api\Purchasing\StoreGoodsReceivedRequest;
 use App\Http\Resources\Purchasing\GoodsReceivedResource;
 use App\Http\Resources\Purchasing\GoodsReceivedSummaryResource;
 use App\Models\GoodsReceived;
+use App\Models\GoodsReceivedItem;
+use App\Models\AdvanceReceiveMatch;
+use App\Http\Resources\Purchasing\GoodsReceivedItemResource;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
 use App\Services\Purchasing\AdvanceInventoryService;
@@ -378,4 +381,51 @@ class GoodsReceivedController extends Controller
             'Advance receipt deleted and inventory reversed successfully'
         );
     }
+
+    public function updateItemUnit(Request $request, GoodsReceivedItem $item): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'unit' => ['required', 'string', 'max:30'],
+        ]);
+
+        $newUnit = strtoupper(trim($validated['unit']));
+
+        // Check if target item itself already has confirmed matches and changing its unit would conflict
+        $hasMatches = AdvanceReceiveMatch::query()
+            ->where('advance_goods_received_item_id', $item->id)
+            ->orWhere('bill_goods_received_item_id', $item->id)
+            ->exists();
+
+        if ($hasMatches && strtoupper((string) $item->received_unit) !== $newUnit) {
+            return ApiResponse::error(
+                "Cannot update unit for {$item->product->name} because it already has confirmed matches.",
+                null,
+                422
+            );
+        }
+
+        // Validate unit against product allowed units if configured
+        $product = $item->product;
+        if ($product) {
+            $allowedUnits = $product->orderUnits->pluck('unit')->unique()->map(fn ($u) => strtoupper((string) $u))->values()->all();
+            if ($product->unit) {
+                $allowedUnits[] = strtoupper((string) $product->unit);
+            }
+            $allowedUnits = array_unique(array_merge($allowedUnits, ['KG', 'PIECE', 'BOX', 'BUNCH', 'G', 'PKT', 'BAG', 'CRATE', 'BUNDLE', 'DOZEN']));
+            if (! in_array($newUnit, $allowedUnits, true)) {
+                return ApiResponse::error("Unit '{$newUnit}' is not a valid unit for {$product->name}.", null, 422);
+            }
+        }
+
+        $item->received_unit = $newUnit;
+        $item->save();
+
+        return ApiResponse::success(
+            new GoodsReceivedItemResource($item->load('product')),
+            'Goods received item unit updated successfully'
+        );
+    }
+
 }

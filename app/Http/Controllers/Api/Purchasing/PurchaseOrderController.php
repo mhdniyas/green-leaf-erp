@@ -10,6 +10,9 @@ use App\Http\Requests\Api\Purchasing\StorePurchaseOrderRequest;
 use App\Http\Resources\Purchasing\PurchaseOrderResource;
 use App\Http\Resources\Purchasing\PurchaseOrderSummaryResource;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
+use App\Models\AdvanceReceiveMatch;
+use App\Http\Resources\Purchasing\PurchaseOrderItemResource;
 use App\Models\Warehouse;
 use App\Services\Purchasing\PurchaseOrderService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
@@ -101,4 +104,58 @@ class PurchaseOrderController extends Controller
 
         return ApiResponse::success(null, 'Purchase order deleted successfully');
     }
+
+    public function updateItemUnit(Request $request, PurchaseOrderItem $item): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user) {
+            abort(401, 'Unauthenticated.');
+        }
+
+        if (! $user->hasRole(['admin', 'purchase', 'purchaser', 'warehouse_receiver'])
+            && ! $user->canAny(['purchasing.order.update', 'purchasing.order.create', 'purchasing.grn.create', 'warehouse.receive.view'])) {
+            abort(403, 'Unauthorized.');
+        }
+
+        $validated = $request->validate([
+            'unit' => ['required', 'string', 'max:30'],
+        ]);
+
+        $newUnit = strtoupper(trim($validated['unit']));
+
+        // Check if target item itself already has confirmed matches
+        $hasMatches = AdvanceReceiveMatch::query()
+            ->where('purchase_order_item_id', $item->id)
+            ->exists();
+
+        if ($hasMatches && strtoupper((string) $item->purchase_unit) !== $newUnit) {
+            return ApiResponse::error(
+                "Cannot update unit for {$item->product->name} because it already has confirmed matches.",
+                null,
+                422
+            );
+        }
+
+        // Validate unit against product allowed units if configured
+        $product = $item->product;
+        if ($product) {
+            $allowedUnits = $product->orderUnits->pluck('unit')->unique()->map(fn ($u) => strtoupper((string) $u))->values()->all();
+            if ($product->unit) {
+                $allowedUnits[] = strtoupper((string) $product->unit);
+            }
+            $allowedUnits = array_unique(array_merge($allowedUnits, ['KG', 'PIECE', 'BOX', 'BUNCH', 'G', 'PKT', 'BAG', 'CRATE', 'BUNDLE', 'DOZEN']));
+            if (! in_array($newUnit, $allowedUnits, true)) {
+                return ApiResponse::error("Unit '{$newUnit}' is not a valid unit for {$product->name}.", null, 422);
+            }
+        }
+
+        $item->purchase_unit = $newUnit;
+        $item->save();
+
+        return ApiResponse::success(
+            new PurchaseOrderItemResource($item->load('product')),
+            'Purchase order item unit updated successfully'
+        );
+    }
+
 }

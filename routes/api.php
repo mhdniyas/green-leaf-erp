@@ -114,6 +114,8 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::post('grns/{grn}/link-bill', [GoodsReceivedController::class, 'linkBill'])->name('grns.link-bill');
             Route::post('grns/{grn}/match-bill', [GoodsReceivedController::class, 'matchBill'])->name('grns.match-bill');
             Route::put('grns/{grn}/items', [GoodsReceivedController::class, 'updateItems'])->name('grns.items.update');
+            Route::patch('grn-items/{item}/unit', [GoodsReceivedController::class, 'updateItemUnit'])->name('grn-items.unit');
+            Route::patch('order-items/{item}/unit', [PurchaseOrderController::class, 'updateItemUnit'])->name('order-items.unit');
             Route::apiResource('invoices', PurchaseInvoiceController::class)->only(['index', 'store', 'show']);
             Route::patch('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
             Route::apiResource('vendor-advances', VendorAdvanceController::class)->only(['index', 'store', 'show']);

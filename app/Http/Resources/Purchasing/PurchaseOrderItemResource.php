@@ -16,6 +16,8 @@ class PurchaseOrderItemResource extends JsonResource
             'purchase_order_id' => $this->purchase_order_id,
             'product_id' => $this->product_id,
             'quantity' => (float) $this->quantity,
+            'unit' => $this->purchase_unit,
+            'purchase_unit' => $this->purchase_unit,
             'unit_price' => (float) $this->unit_price,
             'price_basis' => $this->price_basis,
             'subtotal' => $this->subtotal,
