@@ -468,4 +468,17 @@ class AdvanceInventoryDailyReconciliationTest extends TestCase
         $this->assertEquals(10, $res->count());
         $this->assertLessThanOrEqual(5, $queryCount);
     }
+
+    public function test_exact_date_mode_excludes_advance_stock_from_other_business_dates(): void
+    {
+        $this->createAdvanceReceipt($this->tomato, 10.0, 'kg', '2026-09-12');
+        $this->createAdvanceReceipt($this->onion, 20.0, 'kg', '2026-09-13');
+
+        $response = $this->getJson('/api/v1/purchasing/advance-inventory?warehouse_id='.$this->warehouseA->id.'&date=2026-09-13&exact_date=1')
+            ->assertOk();
+
+        $products = collect($response->json('data'));
+        $this->assertFalse($products->contains('product_id', $this->tomato->id));
+        $this->assertTrue($products->contains('product_id', $this->onion->id));
+    }
 }

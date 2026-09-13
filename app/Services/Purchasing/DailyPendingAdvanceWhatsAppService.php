@@ -174,6 +174,8 @@ class DailyPendingAdvanceWhatsAppService
                 } else {
                     $standardItems[] = [
                         'product_name' => $product?->name ?? "Product #{$item->product_id}",
+                        'advance_qty' => $receivedQty,
+                        'matched_qty' => $alreadyMatchedQty,
                         'remaining_qty' => $remQty,
                         'unit' => $advUnit,
                         'grn_number' => $adv->grn_number,
@@ -242,8 +244,11 @@ class DailyPendingAdvanceWhatsAppService
         // 1. Standard Pending Advances (No bill & Partial remaining)
         $idx = 1;
         foreach ($data['standard_items'] as $item) {
+            $advanceQty = $this->formatQuantity((float) ($item['advance_qty'] ?? $item['remaining_qty']));
+            $matchedQty = $this->formatQuantity((float) ($item['matched_qty'] ?? 0));
             $formattedQty = $this->formatQuantity($item['remaining_qty']);
             $lines[] = "{$idx}. {$item['product_name']} — {$formattedQty} {$item['unit']}";
+            $lines[] = "   Advance: {$advanceQty} {$item['unit']} | Matched: {$matchedQty} {$item['unit']} | Remaining: {$formattedQty} {$item['unit']}";
             $lines[] = "   GRN: {$item['grn_number']}";
             if (! empty($item['supplier_name'])) {
                 $lines[] = "   Supplier: {$item['supplier_name']}";

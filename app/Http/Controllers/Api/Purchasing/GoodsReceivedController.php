@@ -8,18 +8,19 @@ use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\Purchasing\StoreGoodsReceivedRequest;
+use App\Http\Resources\Purchasing\GoodsReceivedItemResource;
 use App\Http\Resources\Purchasing\GoodsReceivedResource;
 use App\Http\Resources\Purchasing\GoodsReceivedSummaryResource;
+use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
-use App\Models\AdvanceReceiveMatch;
-use App\Http\Resources\Purchasing\GoodsReceivedItemResource;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
 use App\Services\Purchasing\AdvanceInventoryService;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\AutoAdvanceClearExecutionService;
 use App\Services\Purchasing\AutoAdvanceClearPlanningService;
+use App\Services\Purchasing\DailyPendingAdvanceWhatsAppService;
 use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Services\Purchasing\WarehouseReceiptStateResolver;
@@ -42,6 +43,7 @@ class GoodsReceivedController extends Controller
         $validated = $request->validate([
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'date' => ['nullable', 'date'],
+            'exact_date' => ['nullable', 'boolean'],
             'search' => ['nullable', 'string', 'max:120'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
@@ -221,6 +223,129 @@ class GoodsReceivedController extends Controller
         return ApiResponse::paginated($candidates);
     }
 
+    public function receivedAdvanceMatchCandidates(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'date' => ['required', 'date'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $validated['authorized_warehouse_ids'] = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null
+        );
+
+        $perPage = (int) ($validated['per_page'] ?? 25);
+        $candidates = app(AdvanceReceiveReconciliationService::class)->paginateReceivedMatchCandidates($validated, $perPage);
+
+        return ApiResponse::paginated($candidates);
+    }
+
+    public function matchReceivedBillWithAdvance(Request $request, GoodsReceived $grn): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'client_submission_id' => ['required', 'string', 'uuid'],
+            'advance_matches' => ['required', 'array', 'min:1'],
+            'advance_matches.*.advance_goods_received_id' => ['required', 'integer', 'exists:goods_received,id'],
+            'advance_matches.*.advance_goods_received_item_id' => ['nullable', 'integer', 'exists:goods_received_items,id'],
+            'advance_matches.*.goods_received_item_id' => ['required', 'integer', 'exists:goods_received_items,id'],
+            'advance_matches.*.purchase_order_item_id' => ['nullable', 'integer', 'exists:purchase_order_items,id'],
+            'advance_matches.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'advance_matches.*.matched_qty' => ['required', 'numeric', 'gt:0'],
+            'advance_matches.*.unit' => ['required', 'string', 'max:20'],
+        ]);
+
+        $warehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null
+        );
+
+        abort_unless(
+            app(WarehouseReceiptReadScope::class)->receipts(GoodsReceived::query()->whereKey($grn->id), $warehouseIds)->exists(),
+            403,
+            'Unauthorized warehouse access.'
+        );
+
+        $receiptFacts = app(WarehouseReceiptStateResolver::class)->forReceipt($grn);
+        abort_unless(
+            $grn->purchase_order_id !== null
+                && $grn->receipt_type !== 'warehouse_advance'
+                && ($receiptFacts['receipt_status'] ?? null) === 'received',
+            422,
+            'Only received purchase bills can be matched with Advance stock.'
+        );
+
+        $items = $grn->items()
+            ->get(['id', 'received_qty', 'discrepancy_type', 'discrepancy_note'])
+            ->mapWithKeys(fn (GoodsReceivedItem $item): array => [(int) $item->id => [
+                'received_qty' => (float) $item->received_qty,
+                'discrepancy_type' => $item->discrepancy_type,
+                'discrepancy_note' => $item->discrepancy_note,
+            ]])
+            ->all();
+
+        $updated = app(AdvanceReceiveReconciliationService::class)->reconcileExistingGrn(
+            $grn,
+            $items,
+            $validated['advance_matches'],
+            (int) ($validated['warehouse_id'] ?? $grn->warehouse_id ?? $grn->destination_shop_id),
+            (int) $request->user()->id,
+            false,
+            (string) $validated['client_submission_id'],
+        );
+
+        return ApiResponse::success(
+            new GoodsReceivedResource($updated),
+            'Received bill matched against Advance stock successfully.'
+        );
+    }
+
+    public function unmatchedAdvanceReport(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'date' => ['required', 'date'],
+        ]);
+
+        $warehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null
+        );
+
+        $report = app(DailyPendingAdvanceWhatsAppService::class)->getDailyPendingAdvances(
+            (string) $validated['date'],
+            isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null,
+            $warehouseIds,
+        );
+        $items = collect($report['standard_items'])
+            ->concat(collect($report['unit_issues'])->map(fn (array $issue): array => [
+                'product_name' => $issue['product_name'],
+                'advance_qty' => $issue['advance_qty'],
+                'matched_qty' => 0.0,
+                'remaining_qty' => $issue['advance_qty'],
+                'unit' => $issue['advance_unit'],
+                'grn_number' => $issue['grn_number'],
+                'unit_issue' => true,
+            ]))
+            ->values()
+            ->all();
+
+        return ApiResponse::success([
+            ...$report,
+            'items' => $items,
+            'share_text' => app(DailyPendingAdvanceWhatsAppService::class)->buildWhatsAppMessage($report),
+        ]);
+    }
+
     public function autoClearPreview(Request $request): JsonResponse
     {
         $this->authorizeAdminOrPurchaser($request);
@@ -323,23 +448,18 @@ class GoodsReceivedController extends Controller
         app(WarehouseReceiptReadScope::class)->orders($pendingPoQuery, $authWarehouseIds);
 
         $pendingToday = (clone $pendingPoQuery)->whereDate('order_date', $today)->count();
-        $pendingOlder = (clone $pendingPoQuery)->whereDate('order_date', '<', $today)->count();
-        $pendingTotal = (clone $pendingPoQuery)->count();
+        $pendingOlder = 0;
+        $pendingTotal = $pendingToday;
 
-        // Active Match Candidates
-        $matchCandidateQuery = PurchaseOrder::query()
-            ->whereNotIn('status', ['draft', 'cancelled', 'rejected'])
-            ->where(function ($pending): void {
-                $pending->whereHas('goodsReceiveds', fn ($receipts) => app(WarehouseReceiptStateResolver::class)->filter($receipts, 'pending'))
-                    ->orWhere(function ($withoutReceipt): void {
-                        $withoutReceipt->whereDoesntHave('goodsReceiveds')->whereIn('status', ['approved', 'sent_to_supplier', 'partially_received']);
-                    });
-            });
-        app(WarehouseReceiptReadScope::class)->orders($matchCandidateQuery, $authWarehouseIds);
-
-        $matchToday = (clone $matchCandidateQuery)->whereDate('order_date', $today)->count();
-        $matchOlder = (clone $matchCandidateQuery)->whereDate('order_date', '<', $today)->count();
-        $matchTotal = (clone $matchCandidateQuery)->count();
+        $matchCandidateQuery = GoodsReceived::query()
+            ->whereNotNull('purchase_order_id')
+            ->where('receipt_type', 'normal_purchase')
+            ->whereDate('received_at', $today);
+        app(WarehouseReceiptStateResolver::class)->filter($matchCandidateQuery, 'received');
+        app(WarehouseReceiptReadScope::class)->receipts($matchCandidateQuery, $authWarehouseIds);
+        $matchToday = $matchCandidateQuery->count();
+        $matchOlder = 0;
+        $matchTotal = $matchToday;
 
         // Received Today
         $receivedQuery = GoodsReceived::query()->whereDate('received_at', $today);
@@ -348,7 +468,7 @@ class GoodsReceivedController extends Controller
         $receivedToday = $receivedQuery->count();
 
         // Open Advance
-        $advanceQuery = GoodsReceived::query()->openWarehouseAdvance();
+        $advanceQuery = GoodsReceived::query()->openWarehouseAdvance()->whereDate('received_at', $today);
         app(WarehouseReceiptReadScope::class)->receipts($advanceQuery, $authWarehouseIds);
         $openAdvance = $advanceQuery->count();
 
@@ -460,5 +580,4 @@ class GoodsReceivedController extends Controller
             'Goods received item unit updated successfully'
         );
     }
-
 }

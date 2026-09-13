@@ -410,7 +410,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $this->assertEquals(1, GoodsReceived::openWarehouseAdvance($this->warehouseA->id)->count());
     }
 
-    public function test_approved_bill_available_is_reconciled_without_changing_inventory(): void
+    public function test_approved_bill_available_match_removes_duplicate_bill_inventory(): void
     {
         Sanctum::actingAs($this->warehouseUser);
 
@@ -454,9 +454,9 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $this->assertEquals(1, $response->json('data.summary.processed'));
         $this->assertEquals(60.0, (float) AdvanceReceiveMatch::where('bill_goods_received_id', $billGrn->id)->sum('base_qty'));
         $this->assertEquals('bill_available', $billGrn->fresh()->bill_status);
-        $this->assertEquals(60.0, (float) $billBatch->fresh()->total_kg);
+        $this->assertEquals(0.0, (float) $billBatch->fresh()->total_kg);
         $this->assertFalse((bool) $billBatch->fresh()->warehouse_receive_pending);
-        $this->assertEquals($inventoryBefore, (float) StockBatch::where('warehouse_id', $this->warehouseA->id)->sum('total_kg'));
+        $this->assertEquals($inventoryBefore - 60.0, (float) StockBatch::where('warehouse_id', $this->warehouseA->id)->sum('total_kg'));
         $this->assertEquals($stockMovementCountBefore, StockMovement::count());
 
         $nextPreview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');

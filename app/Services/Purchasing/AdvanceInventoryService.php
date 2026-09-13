@@ -25,6 +25,7 @@ class AdvanceInventoryService
             : now()->toDateString();
 
         $search = trim((string) ($filters['search'] ?? ''));
+        $exactDate = filter_var($filters['exact_date'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $warehouseIds = null;
         if (isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null && $filters['warehouse_id'] !== '') {
             $warehouseIds = [(int) $filters['warehouse_id']];
@@ -49,18 +50,19 @@ class AdvanceInventoryService
                     ->orWhere('products.sku', 'like', "%{$search}%");
             });
         } else {
-            $productQuery->where(function (Builder $q) use ($warehouseIds, $asOfDate): void {
+            $productQuery->where(function (Builder $q) use ($warehouseIds, $asOfDate, $exactDate): void {
                 // Products that have physical stock/advance receipts OR confirmed bill reconciliations up to asOfDate
-                $q->whereExists(function ($sub) use ($warehouseIds, $asOfDate): void {
+                $q->whereExists(function ($sub) use ($warehouseIds, $asOfDate, $exactDate): void {
                     $sub->selectRaw('1')
                         ->from('stock_batches as sb')
                         ->whereColumn('sb.product_id', 'products.id')
                         ->whereNull('sb.deleted_at')
                         ->where('sb.warehouse_receive_pending', false)
                         ->whereIn('sb.warehouse_id', $warehouseIds)
-                        ->whereRaw('DATE(COALESCE(sb.received_at, sb.created_at)) <= ?', [$asOfDate]);
+                        ->whereRaw('DATE(COALESCE(sb.received_at, sb.created_at)) <= ?', [$asOfDate])
+                        ->when($exactDate, fn ($query) => $query->whereRaw('DATE(COALESCE(sb.received_at, sb.created_at)) = ?', [$asOfDate]));
                 })
-                    ->orWhereExists(function ($sub) use ($warehouseIds, $asOfDate): void {
+                    ->orWhereExists(function ($sub) use ($warehouseIds, $asOfDate, $exactDate): void {
                         $sub->selectRaw('1')
                             ->from('bill_reconciliation_lines as brl')
                             ->join('bill_reconciliations as br', 'br.id', '=', 'brl.bill_reconciliation_id')
@@ -70,7 +72,8 @@ class AdvanceInventoryService
                                 $whQ->whereIn('br.warehouse_id', $warehouseIds)
                                     ->orWhereNull('br.warehouse_id');
                             })
-                            ->whereRaw('DATE(COALESCE(br.confirmed_at, br.created_at)) <= ?', [$asOfDate]);
+                            ->whereRaw('DATE(COALESCE(br.confirmed_at, br.created_at)) <= ?', [$asOfDate])
+                            ->when($exactDate, fn ($query) => $query->whereRaw('DATE(COALESCE(br.confirmed_at, br.created_at)) = ?', [$asOfDate]));
                     });
             });
         }
@@ -93,6 +96,7 @@ class AdvanceInventoryService
             ->where('sb.warehouse_receive_pending', false)
             ->whereIn('sb.warehouse_id', $warehouseIds)
             ->whereRaw('DATE(COALESCE(sb.received_at, sb.created_at)) <= ?', [$asOfDate])
+            ->when($exactDate, fn ($query) => $query->whereRaw('DATE(COALESCE(sb.received_at, sb.created_at)) = ?', [$asOfDate]))
             ->select([
                 'sb.product_id',
                 DB::raw('SUM(sb.total_kg) as total_physical_base'),
@@ -110,6 +114,7 @@ class AdvanceInventoryService
                     ->orWhereNull('br.warehouse_id');
             })
             ->whereRaw('DATE(COALESCE(br.confirmed_at, br.created_at)) <= ?', [$asOfDate])
+            ->when($exactDate, fn ($query) => $query->whereRaw('DATE(COALESCE(br.confirmed_at, br.created_at)) = ?', [$asOfDate]))
             ->select([
                 'brl.product_id',
                 DB::raw('SUM(brl.bill_base_qty) as total_billed_base'),
@@ -141,6 +146,7 @@ class AdvanceInventoryService
                     ->orWhereIn('gr.destination_shop_id', $warehouseIds);
             })
             ->whereRaw('DATE(COALESCE(gr.approved_at, gr.created_at)) <= ?', [$asOfDate])
+            ->when($exactDate, fn ($query) => $query->whereRaw('DATE(COALESCE(gr.approved_at, gr.created_at)) = ?', [$asOfDate]))
             ->select([
                 'gri.product_id',
                 DB::raw('SUM(gri.received_qty * (

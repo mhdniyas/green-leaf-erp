@@ -260,10 +260,6 @@ class AdvanceReceiveReconciliationService
     {
         $grn->loadMissing(['items.product.orderUnits', 'purchaseOrder.supplier', 'purchaseOrder.items']);
 
-        if ($grn->purchaseOrder instanceof PurchaseOrder) {
-            return $this->getSuggestionsForOrder($grn->purchaseOrder, $warehouseId ?? $grn->warehouse_id);
-        }
-
         $targetWarehouseId = $warehouseId ?? $grn->warehouse_id;
         $orderDate = $grn->received_at instanceof Carbon ? $grn->received_at->format('Y-m-d') : (string) ($grn->received_at ?? now()->toDateString());
 
@@ -356,10 +352,12 @@ class AdvanceReceiveReconciliationService
 
             $productItems[] = [
                 'goods_received_item_id' => $item->id,
+                'purchase_order_item_id' => $item->purchase_order_item_id,
                 'product_id' => $product->id,
                 'product_name' => $product->name,
                 'product_sku' => $product->sku,
                 'bill_qty' => (float) $item->received_qty,
+                'ordered_qty' => (float) $item->received_qty,
                 'unit' => $itemUnit,
                 'base_qty' => $billBaseQty,
                 'total_advance_available_qty' => round(array_sum(array_column($candidates, 'available_qty')), 3),
@@ -389,10 +387,13 @@ class AdvanceReceiveReconciliationService
 
         return [
             'goods_received_id' => $grn->id,
+            'purchase_order_id' => $grn->purchase_order_id,
             'grn_number' => $grn->grn_number,
+            'po_number' => $grn->purchaseOrder?->po_number ?? $grn->grn_number,
             'supplier_id' => $grn->purchaseOrder?->supplier_id,
             'supplier_name' => $grn->purchaseOrder?->supplier?->name ?? 'Supplier',
             'received_at' => $orderDate,
+            'order_date' => $orderDate,
             'total_bill_base_qty' => round($totalBillBaseQty, 3),
             'total_matched_base_qty' => round($totalMatchedBaseQty, 3),
             'overall_coverage_percentage' => $overallCoveragePct,
@@ -543,6 +544,20 @@ class AdvanceReceiveReconciliationService
                     ]);
                 }
 
+                if ($advanceGrn->receipt_type !== 'warehouse_advance') {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Receipt {$advanceGrn->grn_number} is not a warehouse Advance Receive.",
+                    ]);
+                }
+
+                $billWarehouseId = (int) ($lockedGrn->warehouse_id ?? $fallbackWarehouseId);
+                $advanceWarehouseId = (int) ($advanceGrn->warehouse_id ?? $advanceGrn->destination_shop_id ?? 0);
+                if ($advanceWarehouseId !== $billWarehouseId) {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Advance Receive {$advanceGrn->grn_number} belongs to a different warehouse.",
+                    ]);
+                }
+
                 // Check that the advance has confirmed physical inventory
                 $confirmedBatches = $advanceGrn->stockBatches->where('warehouse_receive_pending', false);
                 if ($confirmedBatches->isEmpty()) {
@@ -563,6 +578,14 @@ class AdvanceReceiveReconciliationService
                 }
 
                 $productId = (int) ($match['product_id'] ?? 0);
+                $billItemId = (int) ($match['goods_received_item_id'] ?? 0);
+                $billItem = $lockedGrn->items->firstWhere('id', $billItemId);
+                if (! $billItem || (int) $billItem->product_id !== $productId) {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => 'The selected bill item does not belong to this received bill or product.',
+                    ]);
+                }
+
                 $advItemId = isset($match['advance_goods_received_item_id']) && $match['advance_goods_received_item_id']
                     ? (int) $match['advance_goods_received_item_id']
                     : null;
@@ -945,15 +968,27 @@ class AdvanceReceiveReconciliationService
         array $advanceMatches,
         int $fallbackWarehouseId,
         int $userId,
-        bool $autoAdvanceClear = false
+        bool $autoAdvanceClear = false,
+        ?string $clientSubmissionId = null,
     ): GoodsReceived {
-        return DB::transaction(function () use ($grn, $items, $advanceMatches, $fallbackWarehouseId, $userId, $autoAdvanceClear): GoodsReceived {
+        return DB::transaction(function () use ($grn, $items, $advanceMatches, $fallbackWarehouseId, $userId, $autoAdvanceClear, $clientSubmissionId): GoodsReceived {
             /** @var GoodsReceived $lockedGrn */
             $lockedGrn = GoodsReceived::query()
                 ->whereKey($grn->id)
                 ->with(['items.purchaseOrderItem', 'items.product', 'stockBatches', 'purchaseOrder'])
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            if ($clientSubmissionId !== null && AdvanceReceiveMatch::query()
+                ->where('bill_goods_received_id', $lockedGrn->id)
+                ->where('client_submission_id', $clientSubmissionId)
+                ->exists()) {
+                return $lockedGrn->fresh([
+                    'items.product',
+                    'advanceMatchesAsBill.advanceGoodsReceived',
+                    'advanceMatchesAsBill.advanceStockBatch',
+                ]);
+            }
 
             // 1. Lock and validate all referenced Advance receipts
             $advanceGrnIds = collect($advanceMatches)->pluck('advance_goods_received_id')->filter()->unique()->all();
@@ -1249,6 +1284,7 @@ class AdvanceReceiveReconciliationService
                     'conversion_to_base' => $matchRecord['conversion_to_base'] ?? 1.0,
                     'confirmed_by' => $userId,
                     'confirmed_at' => now(),
+                    'client_submission_id' => $clientSubmissionId,
                 ]);
             }
 
@@ -1285,27 +1321,60 @@ class AdvanceReceiveReconciliationService
                     ?? $lockedGrn->stockBatches->firstWhere('product_id', $grnItem->product_id);
 
                 if ($unmatchedItemQty <= 0.0001) {
-                    // Fully covered by Advance: zero physical new stock for pending intake batch
-                    if ($existingBatch && $existingBatch->warehouse_receive_pending) {
+                    if ($existingBatch) {
+                        $wasConfirmed = ! $existingBatch->warehouse_receive_pending;
                         $existingBatch->update([
                             'warehouse_id' => $itemWarehouseId,
                             'total_kg' => 0.0,
                             'warehouse_receive_pending' => false,
                             'warehouse_confirmed_at' => now(),
                             'warehouse_confirmed_by' => $userId,
-                            'notes' => 'Reconciled 100% from Advance (Stock effect: 0 kg)',
+                            'notes' => 'Reconciled 100% from Advance (Bill-side stock removed)',
                         ]);
+
+                        if ($wasConfirmed && $existingBatch->grading_mode === 'fixed_purchase_grade') {
+                            StockMovement::create([
+                                'batch_id' => $existingBatch->id,
+                                'product_id' => $existingBatch->product_id,
+                                'warehouse_id' => $itemWarehouseId,
+                                'created_by' => $userId,
+                                'grade' => $existingBatch->purchase_grade,
+                                'type' => StockMovementType::Out->value,
+                                'quantity' => $newMatchedBaseQty,
+                                'cost_per_unit' => $existingBatch->cost_per_kg,
+                                'notes' => "Advance match duplicate bill stock removed from {$lockedGrn->grn_number}",
+                            ]);
+                        }
                     }
                 } else {
                     // Partial match: only unmatched remainder creates/confirms stock
                     if ($existingBatch) {
+                        $wasConfirmed = ! $existingBatch->warehouse_receive_pending;
                         $existingBatch->update([
                             'warehouse_id' => $itemWarehouseId,
                             'total_kg' => $unmatchedItemQty,
-                            'warehouse_receive_pending' => $autoAdvanceClear,
-                            'warehouse_confirmed_at' => $autoAdvanceClear ? null : now(),
-                            'warehouse_confirmed_by' => $autoAdvanceClear ? null : $userId,
+                            'warehouse_receive_pending' => $wasConfirmed ? false : $autoAdvanceClear,
+                            'warehouse_confirmed_at' => $wasConfirmed
+                                ? ($existingBatch->warehouse_confirmed_at ?? now())
+                                : ($autoAdvanceClear ? null : now()),
+                            'warehouse_confirmed_by' => $wasConfirmed
+                                ? ($existingBatch->warehouse_confirmed_by ?? $userId)
+                                : ($autoAdvanceClear ? null : $userId),
                         ]);
+
+                        if ($wasConfirmed && $existingBatch->grading_mode === 'fixed_purchase_grade') {
+                            StockMovement::create([
+                                'batch_id' => $existingBatch->id,
+                                'product_id' => $existingBatch->product_id,
+                                'warehouse_id' => $itemWarehouseId,
+                                'created_by' => $userId,
+                                'grade' => $existingBatch->purchase_grade,
+                                'type' => StockMovementType::Out->value,
+                                'quantity' => $newMatchedBaseQty,
+                                'cost_per_unit' => $existingBatch->cost_per_kg,
+                                'notes' => "Advance match duplicate bill stock removed from {$lockedGrn->grn_number}",
+                            ]);
+                        }
 
                         if ($existingBatch->grading_mode === 'fixed_purchase_grade' && ! $autoAdvanceClear) {
                             StockMovement::query()->firstOrCreate(
@@ -1562,6 +1631,73 @@ class AdvanceReceiveReconciliationService
         app(WarehouseReceiptReadScope::class)->orders($query, $warehouseId !== null ? [$warehouseId] : ($filters['authorized_warehouse_ids'] ?? null));
 
         return $query->count();
+    }
+
+    /**
+     * Return only physically received purchase bills that belong to one business date.
+     */
+    public function paginateReceivedMatchCandidates(array $filters = [], int $perPage = 25): LengthAwarePaginator
+    {
+        $date = Carbon::parse((string) $filters['date'])->toDateString();
+        $warehouseId = isset($filters['warehouse_id']) && $filters['warehouse_id'] !== null
+            ? (int) $filters['warehouse_id']
+            : null;
+        $search = trim((string) ($filters['search'] ?? ''));
+
+        $query = GoodsReceived::query()
+            ->whereNotNull('purchase_order_id')
+            ->where(function (Builder $receiptType): void {
+                $receiptType->where('receipt_type', 'normal_purchase')
+                    ->orWhere(function (Builder $legacy): void {
+                        $legacy->whereNull('receipt_type')
+                            ->whereNotNull('purchase_order_id');
+                    });
+            })
+            ->whereDate('received_at', $date)
+            ->with([
+                'purchaseOrder.supplier:id,name',
+                'purchaseOrder.destinationShop:id,name',
+                'items.product.orderUnits',
+                'stockBatches',
+            ])
+            ->when($search !== '', function (Builder $matchQuery) use ($search): void {
+                $matchQuery->where(function (Builder $searchQuery) use ($search): void {
+                    $searchQuery->where('grn_number', 'like', "%{$search}%")
+                        ->orWhereHas('purchaseOrder', function (Builder $orderQuery) use ($search): void {
+                            $orderQuery->where('po_number', 'like', "%{$search}%")
+                                ->orWhereHas('supplier', fn (Builder $supplierQuery) => $supplierQuery->where('name', 'like', "%{$search}%"));
+                        });
+                });
+            })
+            ->orderByDesc('received_at')
+            ->orderByDesc('id');
+
+        app(WarehouseReceiptStateResolver::class)->filter($query, 'received');
+        app(WarehouseReceiptReadScope::class)->receipts(
+            $query,
+            $warehouseId !== null ? [$warehouseId] : ($filters['authorized_warehouse_ids'] ?? null)
+        );
+
+        $paginator = $query->paginate($perPage);
+        $paginator->getCollection()->transform(function (GoodsReceived $grn) use ($warehouseId): array {
+            $suggestions = $this->getSuggestionsForGrn($grn, $warehouseId ?? $grn->warehouse_id);
+
+            return [
+                ...$suggestions,
+                'id' => $grn->id,
+                'goods_received_id' => $grn->id,
+                'purchase_order_id' => $grn->purchase_order_id,
+                'po_number' => $grn->purchaseOrder?->po_number ?? $grn->grn_number,
+                'order_date' => $grn->received_at?->toDateString(),
+                'status' => 'received',
+                'receipt_status' => 'received',
+                'destination_shop_name' => $grn->purchaseOrder?->destinationShop?->name ?? 'Central Warehouse',
+                'item_count' => $grn->items->count(),
+                'match_summary_items' => $suggestions['items'],
+            ];
+        });
+
+        return $paginator;
     }
 
     public function paginateMatchCandidates(array $filters = [], int $perPage = 25): LengthAwarePaginator

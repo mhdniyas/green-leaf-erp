@@ -186,9 +186,9 @@ class DailyPendingAdvanceWhatsAppTest extends TestCase
         $this->assertSame(1, $data['total_pending_count']);
         $this->assertEquals(6.0, $data['standard_items'][0]['remaining_qty']);
 
-        // Must show remaining qty (6 kg), NOT 10 kg
+        // The report shows original, matched, and remaining quantities.
         $this->assertStringContainsString('1. Tomato — 6 kg', $message);
-        $this->assertStringNotContainsString('10 kg', $message);
+        $this->assertStringContainsString('Advance: 10 kg | Matched: 4 kg | Remaining: 6 kg', $message);
     }
 
     public function test_unit_issue_is_classified_correctly(): void
