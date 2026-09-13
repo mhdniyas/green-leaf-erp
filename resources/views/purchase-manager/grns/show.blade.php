@@ -112,8 +112,12 @@
             <div class="purchase-manager-panel p-5">
                 <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Purchase Order</p>
                 <div class="mt-4 space-y-3 text-sm">
-                    <div class="flex items-center justify-between"><span class="text-slate-500">PO Number</span><a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="font-mono font-bold text-cyan-700">{{ $grn->purchaseOrder->po_number }}</a></div>
-                    <div class="flex items-center justify-between"><span class="text-slate-500">Supplier</span><span class="font-semibold text-slate-950">{{ $grn->purchaseOrder->supplier?->name ?? '—' }}</span></div>
+                    @if ($grn->purchaseOrder)
+                        <div class="flex items-center justify-between"><span class="text-slate-500">PO Number</span><a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="font-mono font-bold text-cyan-700">{{ $grn->purchaseOrder->po_number }}</a></div>
+                        <div class="flex items-center justify-between"><span class="text-slate-500">Supplier</span><span class="font-semibold text-slate-950">{{ $grn->purchaseOrder->supplier?->name ?? '—' }}</span></div>
+                    @else
+                        <div class="flex items-center justify-between"><span class="text-slate-500">Source</span><span class="font-semibold text-slate-950">Warehouse Advance (No PO)</span></div>
+                    @endif
                 </div>
             </div>
         </aside>

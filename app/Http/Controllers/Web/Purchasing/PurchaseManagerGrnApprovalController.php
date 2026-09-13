@@ -87,8 +87,8 @@ class PurchaseManagerGrnApprovalController extends Controller
                 $productGroups[$key]['total_qty'] += $qty;
                 $productGroups[$key]['weighted_price_sum'] += $qty * $price;
                 $productGroups[$key]['entries'][] = [
-                    'supplier' => $grn->purchaseOrder->supplier->name ?? 'Unknown',
-                    'purchaser' => $grn->receivedBy->name ?? 'Unknown',
+                    'supplier' => $grn->purchaseOrder?->supplier?->name ?? 'Unknown',
+                    'purchaser' => $grn->receivedBy?->name ?? 'Unknown',
                     'qty' => $qty,
                     'unit_price' => $price,
                     'grn_number' => $grn->grn_number,

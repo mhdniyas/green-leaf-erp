@@ -146,6 +146,13 @@ class AdvanceReceiveReconciliationTest extends TestCase
         return [$grn, $item, $batch];
     }
 
+    private function createPurchaseOrder(array $attributes = []): PurchaseOrder
+    {
+        return PurchaseOrder::factory()->create(array_merge([
+            'order_date' => now()->toDateString(),
+        ], $attributes));
+    }
+
     public function test_exact_match_advance_100_bill_100_produces_zero_stock_delta_and_clears_advance(): void
     {
         [$advanceGrn, $advanceItem, $advanceBatch] = $this->createConfirmedAdvance($this->tomato, 100.0);
@@ -153,7 +160,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         // Initial available stock is 100kg from Advance
         $this->assertSame(100.0, $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id));
 
-        $order = PurchaseOrder::factory()->create(['supplier_id' => $this->supplier->id]);
+        $order = $this->createPurchaseOrder(['supplier_id' => $this->supplier->id]);
         $poItem = PurchaseOrderItem::factory()->create([
             'purchase_order_id' => $order->id,
             'product_id' => $this->tomato->id,
@@ -208,7 +215,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 93.0);
         $this->assertSame(93.0, $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id));
 
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poItem = PurchaseOrderItem::factory()->create([
             'purchase_order_id' => $order->id,
             'product_id' => $this->tomato->id,
@@ -267,7 +274,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 107.0);
         $this->assertSame(107.0, $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id));
 
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poItem = PurchaseOrderItem::factory()->create([
             'purchase_order_id' => $order->id,
             'product_id' => $this->tomato->id,
@@ -310,7 +317,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
 
     public function test_no_advance_match_creates_normal_stock(): void
     {
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poItem = PurchaseOrderItem::factory()->create([
             'purchase_order_id' => $order->id,
             'product_id' => $this->tomato->id,
@@ -345,7 +352,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         [$onionGrn, $onionItem] = $this->createConfirmedAdvance($this->onion, 40.0);
         // Potato: 0 Advance
 
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poTomato = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
         $poOnion = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->onion->id, 'quantity' => 50.0]);
         $poPotato = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->potato->id, 'quantity' => 20.0]);
@@ -384,9 +391,9 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_multiple_advances_60_plus_30_for_bill_100_fifo_order(): void
     {
         [$advanceA, $itemA] = $this->createConfirmedAdvance($this->tomato, 60.0, '2026-08-20');
-        [$advanceB, $itemB] = $this->createConfirmedAdvance($this->tomato, 30.0, '2026-08-22');
+        [$advanceB, $itemB] = $this->createConfirmedAdvance($this->tomato, 30.0, '2026-08-20');
 
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder(['order_date' => '2026-08-20']);
         $poItem = PurchaseOrderItem::factory()->create([
             'purchase_order_id' => $order->id,
             'product_id' => $this->tomato->id,
@@ -407,7 +414,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         $response = $this->postJson('/api/v1/purchasing/grns', [
             'purchase_order_id' => $order->id,
             'warehouse_id' => $this->warehouse->id,
-            'received_at' => now()->toDateString(),
+            'received_at' => '2026-08-20',
             'items' => [['purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'received_qty' => 100.0]],
             'advance_matches' => [
                 ['advance_goods_received_id' => $advanceA->id, 'advance_goods_received_item_id' => $itemA->id, 'purchase_order_item_id' => $poItem->id, 'product_id' => $this->tomato->id, 'matched_qty' => 60.0],
@@ -428,7 +435,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 100.0);
 
         // Bill 1: 40kg
-        $order1 = PurchaseOrder::factory()->create();
+        $order1 = $this->createPurchaseOrder();
         $poItem1 = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order1->id, 'product_id' => $this->tomato->id, 'quantity' => 40.0]);
 
         $this->postJson('/api/v1/purchasing/grns', [
@@ -446,7 +453,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         $this->assertEquals(60.0, $cand1[0]['available_qty']);
 
         // Bill 2: 60kg
-        $order2 = PurchaseOrder::factory()->create();
+        $order2 = $this->createPurchaseOrder();
         $poItem2 = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order2->id, 'product_id' => $this->tomato->id, 'quantity' => 60.0]);
 
         $this->postJson('/api/v1/purchasing/grns', [
@@ -468,7 +475,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_suggestion_endpoint_is_read_only_and_changes_nothing(): void
     {
         [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 100.0);
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
 
         $this->getJson("/api/v1/purchasing/grns/advance-match-suggestions?purchase_order_id={$order->id}")->assertOk();
@@ -481,7 +488,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_idempotent_double_submission_and_network_retry_consumes_advance_once(): void
     {
         [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 50.0);
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poItem = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 30.0]);
 
         $payload = [
@@ -518,7 +525,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
             'warehouse_receive_pending' => true,
         ]);
 
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poItem = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 50.0]);
 
         $this->postJson('/api/v1/purchasing/grns', [
@@ -535,7 +542,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_incompatible_product_cannot_match(): void
     {
         [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 50.0);
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poItem = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->onion->id, 'quantity' => 50.0]);
 
         $this->postJson('/api/v1/purchasing/grns', [
@@ -552,7 +559,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_attempt_to_over_consume_advance_is_rejected(): void
     {
         [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 50.0);
-        $order = PurchaseOrder::factory()->create();
+        $order = $this->createPurchaseOrder();
         $poItem = PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
 
         $this->postJson('/api/v1/purchasing/grns', [
@@ -568,7 +575,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
 
     public function test_pending_bill_with_zero_advance_appears_in_match_with_zero_coverage(): void
     {
-        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        $order = $this->createPurchaseOrder(['status' => 'approved']);
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
 
         $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
@@ -586,7 +593,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_partial_advance_match_bill_coverage_calculation(): void
     {
         [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 93.0);
-        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        $order = $this->createPurchaseOrder(['status' => 'approved']);
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
 
         $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
@@ -605,7 +612,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_full_advance_match_bill_coverage_calculation_and_remains_unconfirmed_in_match(): void
     {
         [$advance, $item] = $this->createConfirmedAdvance($this->tomato, 100.0);
-        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        $order = $this->createPurchaseOrder(['status' => 'approved']);
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]);
 
         $response = $this->getJson('/api/v1/purchasing/grns/advance-match-candidates');
@@ -626,7 +633,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         [$advTomato] = $this->createConfirmedAdvance($this->tomato, 100.0);
         [$advOnion] = $this->createConfirmedAdvance($this->onion, 40.0);
 
-        $order = PurchaseOrder::factory()->create(['status' => 'approved']);
+        $order = $this->createPurchaseOrder(['status' => 'approved']);
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->tomato->id, 'quantity' => 100.0]); // Exact
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->onion->id, 'quantity' => 80.0]);   // Partial (40/80 = 50%)
         PurchaseOrderItem::factory()->create(['purchase_order_id' => $order->id, 'product_id' => $this->potato->id, 'quantity' => 50.0]);  // Unmatched (0%)
@@ -675,7 +682,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
     public function test_candidates_and_suggestions_have_zero_stock_mutations(): void
     {
         [$advance] = $this->createConfirmedAdvance($this->tomato, 100.0);
-        $order = PurchaseOrder::factory()->create([
+        $order = $this->createPurchaseOrder([
             'status' => 'approved',
             'supplier_id' => $this->supplier->id,
         ]);
@@ -791,7 +798,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
 
     public function test_phase2_partial_confirmation_creates_mixed_reconciliation_and_stock_for_remainder_only(): void
     {
-        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 93.0);
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 93.0, '2026-08-28');
 
         $shop = Shop::factory()->create();
         $order = PurchaseOrder::factory()->create([
@@ -864,7 +871,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
 
     public function test_phase2_hundred_percent_confirmation_creates_advance_reconciliation_and_zero_new_stock(): void
     {
-        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 100.0);
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 100.0, '2026-08-28');
 
         $shop = Shop::factory()->create();
         $order = PurchaseOrder::factory()->create([
@@ -925,7 +932,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
 
     public function test_phase2_history_api_returns_detailed_reconciliation_and_source_details(): void
     {
-        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 60.0);
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 60.0, '2026-08-28');
 
         $shop = Shop::factory()->create();
         $order = PurchaseOrder::factory()->create([
@@ -1036,7 +1043,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         // 1. Box with 10 KG conversion
         $this->tomato->update(['unit' => 'KG']);
 
-        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 50.0);
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 50.0, '2026-08-28');
 
         $shop = Shop::factory()->create();
         $order = PurchaseOrder::factory()->create([
@@ -1128,7 +1135,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
 
     public function test_phase2b_scenario13_advance_history_tracks_consumption_across_multiple_bills(): void
     {
-        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 100.0);
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 100.0, '2026-08-28');
 
         $shop = Shop::factory()->create();
 
@@ -1147,7 +1154,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         ])->assertCreated();
 
         // Remaining 40 available
-        $cand1 = $this->reconcileService->getOpenAdvanceCandidatesForProduct($this->tomato->id, $this->warehouse->id);
+        $cand1 = $this->reconcileService->getOpenAdvanceCandidatesForProduct($this->tomato->id, $this->warehouse->id, '2026-08-28');
         $this->assertCount(1, $cand1);
         $this->assertEquals(40.0, $cand1[0]['available_qty']);
 
@@ -1166,7 +1173,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         ])->assertCreated();
 
         // Remaining = 0 (Cleared)
-        $cand2 = $this->reconcileService->getOpenAdvanceCandidatesForProduct($this->tomato->id, $this->warehouse->id);
+        $cand2 = $this->reconcileService->getOpenAdvanceCandidatesForProduct($this->tomato->id, $this->warehouse->id, '2026-08-28');
         $this->assertCount(0, $cand2);
 
         // Advance history links both bills
@@ -1178,8 +1185,8 @@ class AdvanceReceiveReconciliationTest extends TestCase
 
     public function test_phase2b_scenario14_legacy_matches_with_null_reconciliation_ids_handle_safely(): void
     {
-        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 50.0);
-        $billGrn = GoodsReceived::factory()->create(['status' => 'approved', 'warehouse_id' => $this->warehouse->id]);
+        [$advanceGrn, $advanceItem] = $this->createConfirmedAdvance($this->tomato, 50.0, '2026-08-28');
+        $billGrn = GoodsReceived::factory()->create(['status' => 'approved', 'warehouse_id' => $this->warehouse->id, 'received_at' => '2026-08-28']);
         $billItem = GoodsReceivedItem::factory()->create(['goods_received_id' => $billGrn->id, 'product_id' => $this->tomato->id, 'received_qty' => 50.0]);
 
         // Legacy match row without bill_reconciliation_id
@@ -1213,7 +1220,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         $this->assertSame(0.0, $initialStock);
 
         // 1. Advance Receive Tomato 93 KG
-        [$advGrn, $advItem] = $this->createConfirmedAdvance($this->tomato, 93.0);
+        [$advGrn, $advItem] = $this->createConfirmedAdvance($this->tomato, 93.0, '2026-08-28');
 
         // 2 & 3. Stock after Advance = +93 KG
         $stockAfterAdvance = $this->movementRepo->currentStockForProduct($this->tomato->id, $this->warehouse->id);

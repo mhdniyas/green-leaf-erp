@@ -15,6 +15,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -391,6 +392,14 @@ class DailyAdvanceMatchExecutionService
                     break 2;
                 }
 
+                // Strict same-business-day executor guard: Advance date == Bill date
+                $advDate = $advGrn->received_at instanceof Carbon ? $advGrn->received_at->toDateString() : (string) $advGrn->received_at;
+                $billDate = $billGrn->received_at instanceof Carbon ? $billGrn->received_at->toDateString() : (string) $billGrn->received_at;
+                if ($advDate !== $billDate) {
+                    $coverageOk = false;
+                    break 2;
+                }
+
                 $advItem = $lockedAdvanceItems->firstWhere('id', (int) $m['advance_goods_received_item_id']);
                 if (! $advItem || (int) $advItem->product_id !== $lineProductId) {
                     $coverageOk = false;
@@ -590,6 +599,124 @@ class DailyAdvanceMatchExecutionService
             'processed' => $processed,
             'skipped' => $skipped,
             'failed' => $failed,
+        ];
+    }
+
+    /**
+     * Execute auto match across a date range, processing each business day independently.
+     *
+     * @return array<string, mixed>
+     */
+    public function executeRange(
+        int $warehouseId,
+        string $fromDate,
+        string $toDate,
+        string $requestedPlanHash,
+        string $clientSubmissionId,
+        int $userId,
+        ?int $cursor = null,
+        int $batchSize = 100
+    ): array {
+        $from = Carbon::parse($fromDate)->toDateString();
+        $to = Carbon::parse($toDate)->toDateString();
+        if ($from > $to) {
+            $tmp = $from;
+            $from = $to;
+            $to = $tmp;
+        }
+
+        if ($from === $to) {
+            $dayPlan = $this->planningService->buildDailyPlan($warehouseId, $from, $cursor, $batchSize, $userId);
+            $dailyPlanHash = $dayPlan['plan_hash'];
+            $legacyRangeHash = hash('sha256', (string) json_encode([$from => $dailyPlanHash]));
+
+            // Accept direct daily plan hash or legacy single-day range wrapper hash
+            if ($requestedPlanHash !== $dailyPlanHash && $requestedPlanHash !== $legacyRangeHash) {
+                return [
+                    'status_code' => 409,
+                    'error' => [
+                        'success' => false,
+                        'code' => 'preview_changed',
+                        'message' => 'Advance or bill quantities changed. Refresh the preview.',
+                        'data' => [
+                            'requested_plan_hash' => $requestedPlanHash,
+                            'current_plan_hash' => $dailyPlanHash,
+                        ],
+                    ],
+                ];
+            }
+
+            return $this->execute($warehouseId, $from, $dailyPlanHash, $clientSubmissionId, $userId, $cursor, $batchSize);
+        }
+
+        $rangePlan = $this->planningService->buildRangePlan($warehouseId, $from, $to, $cursor, $batchSize, $userId);
+        if ($rangePlan['plan_hash'] !== $requestedPlanHash) {
+            return [
+                'status_code' => 409,
+                'error' => [
+                    'success' => false,
+                    'code' => 'preview_changed',
+                    'message' => 'Advance or bill quantities changed. Refresh the preview.',
+                    'data' => [
+                        'requested_plan_hash' => $requestedPlanHash,
+                        'current_plan_hash' => $rangePlan['plan_hash'],
+                    ],
+                ],
+            ];
+        }
+
+        $totalProcessed = 0;
+        $totalSkipped = 0;
+        $totalMatchedBaseQty = 0.0;
+        $totalAdvancesCleared = 0;
+        $allSkipped = [];
+        $dailyRunSummaries = [];
+
+        // Process each business day independently
+        foreach ($rangePlan['daily_plans'] as $dStr => $dayPlan) {
+            $dayMatchedBills = array_merge($dayPlan['ready_bills'] ?? [], $dayPlan['partial_bills'] ?? []);
+            if (empty($dayMatchedBills)) {
+                continue;
+            }
+
+            $daySubmissionId = (string) Str::uuid();
+            $dayResult = $this->execute(
+                $warehouseId,
+                $dStr,
+                $dayPlan['plan_hash'],
+                $daySubmissionId,
+                $userId,
+                $cursor,
+                $batchSize
+            );
+
+            if (isset($dayResult['status_code']) && $dayResult['status_code'] >= 400) {
+                continue;
+            }
+
+            $daySummary = $dayResult['summary'] ?? [];
+            $totalProcessed += $daySummary['processed'] ?? 0;
+            $totalSkipped += $daySummary['skipped'] ?? 0;
+            $totalMatchedBaseQty = round($totalMatchedBaseQty + ($daySummary['matched_base_qty'] ?? 0.0), 3);
+            $totalAdvancesCleared += $daySummary['advances_fully_cleared'] ?? 0;
+            if (! empty($dayResult['skipped'])) {
+                foreach ($dayResult['skipped'] as $sk) {
+                    $allSkipped[] = $sk;
+                }
+            }
+            $dailyRunSummaries[$dStr] = $dayResult;
+        }
+
+        return [
+            'status' => 'completed',
+            'summary' => [
+                'processed' => $totalProcessed,
+                'skipped' => $totalSkipped,
+                'matched_base_qty' => $totalMatchedBaseQty,
+                'advances_fully_cleared' => $totalAdvancesCleared,
+            ],
+            'skipped' => $allSkipped,
+            'daily_runs' => $dailyRunSummaries,
         ];
     }
 }

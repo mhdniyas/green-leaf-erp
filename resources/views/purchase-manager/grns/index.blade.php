@@ -289,7 +289,7 @@
                                 @endphp
                                 <tr>
                                     <td class="px-5 py-4 font-mono font-bold text-cyan-700">{{ $grn->grn_number }}</td>
-                                    <td class="px-5 py-4 font-semibold text-slate-900">{{ $grn->purchaseOrder->supplier?->name ?? '—' }}</td>
+                                    <td class="px-5 py-4 font-semibold text-slate-900">{{ $grn->purchaseOrder?->supplier?->name ?? '—' }}</td>
                                     <td class="px-5 py-4 text-slate-600">{{ $grn->receivedBy?->name ?? '—' }}</td>
                                     <td class="px-5 py-4 text-slate-600">{{ $grn->approvedBy?->name ?? '—' }}</td>
                                     <td class="px-5 py-4 text-center">

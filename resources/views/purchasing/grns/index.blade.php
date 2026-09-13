@@ -46,12 +46,16 @@
                             </a>
                         </td>
                         <td class="px-6 py-4 font-mono text-gray-600">
-                            <a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="hover:underline hover:text-brand-600">
-                                {{ $grn->purchaseOrder->po_number }}
-                            </a>
+                            @if($grn->purchaseOrder)
+                                <a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="hover:underline hover:text-brand-600">
+                                    {{ $grn->purchaseOrder->po_number }}
+                                </a>
+                            @else
+                                <span class="text-xs text-gray-400">Warehouse Advance</span>
+                            @endif
                         </td>
                         <td class="px-6 py-4 text-gray-900 font-medium">
-                            {{ $grn->purchaseOrder->supplier?->name ?? '—' }}
+                            {{ $grn->purchaseOrder?->supplier?->name ?? '—' }}
                         </td>
                         <td class="px-6 py-4 text-gray-600">
                             {{ $grn->received_at->format('Y-m-d') }}

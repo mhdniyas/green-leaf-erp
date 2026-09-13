@@ -16,7 +16,7 @@
         <form method="POST" action="{{ route('purchasing.invoices.store') }}" class="purchase-manager-panel overflow-hidden">
             @csrf
             <input type="hidden" name="goods_received_id" value="{{ $grn->id }}">
-            <input type="hidden" name="supplier_id" value="{{ $grn->purchaseOrder->supplier_id }}">
+            <input type="hidden" name="supplier_id" value="{{ $grn->purchaseOrder?->supplier_id }}">
 
             <div class="border-b border-slate-200 px-5 py-5">
                 <h2 class="text-lg font-black text-slate-950">Invoice Details</h2>
@@ -30,18 +30,23 @@
                         <p class="mt-2 text-xs font-semibold text-slate-500">Generated with timestamp. You can replace it with the supplier's final invoice reference if needed.</p>
                     </div>
                     <div>
-                        <label for="amount" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Invoice Amount</label>
-                        <input id="amount" type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount', number_format($expectedAmount, 2, '.', '')) }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
-                        <p class="mt-2 text-xs font-semibold text-slate-500">Expected material cost: INR {{ number_format($expectedAmount, 2) }}</p>
+                        <label for="amount" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Invoice Amount (INR)</label>
+                        <input id="amount" type="number" step="0.01" min="0" required name="amount" value="{{ old('amount', number_format($expectedAmount, 2, '.', '')) }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
                     </div>
                 </div>
-                <div>
-                    <label for="status" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Status</label>
-                    <select id="status" name="status" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
-                        <option value="pending" @selected(old('status') === 'pending')>Pending Approval</option>
-                        <option value="approved" @selected(old('status') === 'approved')>Approved for Payment</option>
-                        <option value="paid" @selected(old('status') === 'paid')>Paid</option>
-                    </select>
+                <div class="grid gap-4 md:grid-cols-2">
+                    <div>
+                        <label for="discount_amount" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Discount (INR)</label>
+                        <input id="discount_amount" type="number" step="0.01" min="0" name="discount_amount" value="{{ old('discount_amount', '0.00') }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label for="payment_method" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Payment Method</label>
+                        <select id="payment_method" name="payment_method" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                            @foreach (['Bank Transfer', 'Cash', 'Credit', 'UPI', 'Cheque'] as $method)
+                                <option value="{{ $method }}" @selected(old('payment_method', 'Bank Transfer') === $method)>{{ $method }}</option>
+                            @endforeach
+                        </select>
+                    </div>
                 </div>
                 <div>
                     <label for="notes" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Notes</label>
@@ -59,8 +64,12 @@
                 <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Matched GRN</p>
                 <div class="mt-4 space-y-3 text-sm">
                     <div class="flex items-center justify-between"><span class="text-slate-500">GRN Number</span><span class="font-mono font-bold text-slate-950">{{ $grn->grn_number }}</span></div>
-                    <div class="flex items-center justify-between"><span class="text-slate-500">PO Number</span><a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="font-mono font-bold text-cyan-700">{{ $grn->purchaseOrder->po_number }}</a></div>
-                    <div class="flex items-center justify-between"><span class="text-slate-500">Supplier</span><span class="font-semibold text-slate-950">{{ $grn->purchaseOrder->supplier->name }}</span></div>
+                    @if ($grn->purchaseOrder)
+                        <div class="flex items-center justify-between"><span class="text-slate-500">PO Number</span><a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="font-mono font-bold text-cyan-700">{{ $grn->purchaseOrder->po_number }}</a></div>
+                        <div class="flex items-center justify-between"><span class="text-slate-500">Supplier</span><span class="font-semibold text-slate-950">{{ $grn->purchaseOrder->supplier?->name ?? '—' }}</span></div>
+                    @else
+                        <div class="flex items-center justify-between"><span class="text-slate-500">Source</span><span class="font-semibold text-slate-950">Warehouse Advance (No PO)</span></div>
+                    @endif
                 </div>
             </div>
         </aside>

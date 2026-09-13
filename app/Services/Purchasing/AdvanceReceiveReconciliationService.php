@@ -122,8 +122,8 @@ class AdvanceReceiveReconciliationService
                 $allUnitsCompatible = false;
             }
 
-            // Find all confirmed open/partial Advance GRN items for this product
-            $candidates = $preloadedCandidatesByProduct !== null ? ($preloadedCandidatesByProduct[$product->id] ?? []) : $this->getOpenAdvanceCandidatesForProduct($product->id, $targetWarehouseId);
+            // Find all confirmed open/partial Advance GRN items for this product on the same business date
+            $candidates = $preloadedCandidatesByProduct !== null ? ($preloadedCandidatesByProduct[$product->id] ?? []) : $this->getOpenAdvanceCandidatesForProduct($product->id, $targetWarehouseId, $orderDate);
 
             $suggestedMatches = [];
             $remainingNeededBase = $billBaseQty;
@@ -291,7 +291,7 @@ class AdvanceReceiveReconciliationService
                 $allUnitsCompatible = false;
             }
 
-            $candidates = $this->getOpenAdvanceCandidatesForProduct($product->id, $targetWarehouseId);
+            $candidates = $this->getOpenAdvanceCandidatesForProduct($product->id, $targetWarehouseId, $orderDate);
 
             $suggestedMatches = [];
             $remainingNeededBase = $billBaseQty;
@@ -432,10 +432,11 @@ class AdvanceReceiveReconciliationService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function getOpenAdvanceCandidatesForProduct(int $productId, ?int $warehouseId = null): array
+    public function getOpenAdvanceCandidatesForProduct(int $productId, ?int $warehouseId = null, ?string $date = null): array
     {
         $advanceGrns = GoodsReceived::query()
             ->openWarehouseAdvance($warehouseId, $productId)
+            ->when($date !== null, fn ($q) => $q->whereDate('received_at', $date))
             ->with([
                 'items' => fn ($q) => $q->where('product_id', $productId)->with('product.orderUnits'),
                 'stockBatches' => fn ($q) => $q->where('product_id', $productId)->where('warehouse_receive_pending', false),
@@ -548,6 +549,17 @@ class AdvanceReceiveReconciliationService
                     throw ValidationException::withMessages([
                         'advance_matches' => "Advance Receive {$advanceGrn->grn_number} has not been physically confirmed by warehouse.",
                     ]);
+                }
+
+                if ($data->purchaseOrderId) {
+                    $targetPo = PurchaseOrder::find($data->purchaseOrderId);
+                    $billDate = $targetPo?->order_date ? ($targetPo->order_date instanceof Carbon ? $targetPo->order_date->toDateString() : Carbon::parse($targetPo->order_date)->toDateString()) : null;
+                    $advDate = $advanceGrn->received_at instanceof Carbon ? $advanceGrn->received_at->toDateString() : ($advanceGrn->received_at ? Carbon::parse($advanceGrn->received_at)->toDateString() : null);
+                    if ($billDate !== null && $advDate !== null && $advDate !== $billDate) {
+                        throw ValidationException::withMessages([
+                            'advance_matches' => "Advance Receive {$advanceGrn->grn_number} date ({$advDate}) does not match Purchase Order date ({$billDate}). Same-business-day matching is required.",
+                        ]);
+                    }
                 }
 
                 $productId = (int) ($match['product_id'] ?? 0);
@@ -979,6 +991,17 @@ class AdvanceReceiveReconciliationService
                     ]);
                 }
 
+                $billDate = $lockedGrn->purchaseOrder?->order_date
+                    ? ($lockedGrn->purchaseOrder->order_date instanceof Carbon ? $lockedGrn->purchaseOrder->order_date->toDateString() : Carbon::parse($lockedGrn->purchaseOrder->order_date)->toDateString())
+                    : ($lockedGrn->received_at instanceof Carbon ? $lockedGrn->received_at->toDateString() : ($lockedGrn->received_at ? Carbon::parse($lockedGrn->received_at)->toDateString() : null));
+                $advDate = $advanceGrn->received_at instanceof Carbon ? $advanceGrn->received_at->toDateString() : ($advanceGrn->received_at ? Carbon::parse($advanceGrn->received_at)->toDateString() : null);
+
+                if ($billDate !== null && $advDate !== null && $advDate !== $billDate) {
+                    throw ValidationException::withMessages([
+                        'advance_matches' => "Advance Receive {$advanceGrn->grn_number} date ({$advDate}) does not match Bill date ({$billDate}). Same-business-day matching is required.",
+                    ]);
+                }
+
                 $productId = (int) ($match['product_id'] ?? 0);
                 $advItemId = isset($match['advance_goods_received_item_id']) && $match['advance_goods_received_item_id']
                     ? (int) $match['advance_goods_received_item_id']
@@ -1212,7 +1235,7 @@ class AdvanceReceiveReconciliationService
                 AdvanceReceiveMatch::create([
                     'advance_goods_received_id' => $matchRecord['advance_goods_received_id'],
                     'advance_goods_received_item_id' => $matchRecord['advance_goods_received_item_id'],
-                    'advance_stock_batch_id' => $matchRecord['advance_stock_batch_id'],
+                    'advance_stock_batch_id' => $matchRecord['advance_stock_batch_id'] ?? null,
                     'bill_goods_received_id' => $lockedGrn->id,
                     'bill_goods_received_item_id' => $billItem?->id,
                     'bill_reconciliation_id' => $billReconciliation->id,
@@ -1223,48 +1246,9 @@ class AdvanceReceiveReconciliationService
                     'matched_qty' => $matchRecord['matched_qty'],
                     'matched_unit' => $matchRecord['matched_unit'],
                     'base_qty' => $matchRecord['base_qty'],
-                    'conversion_to_base' => $matchRecord['conversion_to_base'],
+                    'conversion_to_base' => $matchRecord['conversion_to_base'] ?? 1.0,
                     'confirmed_by' => $userId,
                     'confirmed_at' => now(),
-                ]);
-            }
-
-            // Auto-clear is accounting-only: approved bill inventory is already
-            // posted, so only persist allocations and close exhausted advances.
-            if ($autoAdvanceClear) {
-                foreach ($advanceGrns as $advanceGrn) {
-                    $totalAdvanceReceivedBase = (float) $advanceGrn->items->sum(function (GoodsReceivedItem $it): float {
-                        /** @var Product $p */
-                        $p = $it->product ?? Product::find($it->product_id);
-                        $conv = (float) ($p?->conversionToBaseForUnit($it->received_unit) ?? 1.0);
-
-                        return (float) $it->received_qty * $conv;
-                    });
-
-                    $totalConsumedBase = (float) AdvanceReceiveMatch::query()
-                        ->where('advance_goods_received_id', $advanceGrn->id)
-                        ->sum('base_qty');
-
-                    if ($totalConsumedBase >= $totalAdvanceReceivedBase - 0.001) {
-                        $advanceGrn->update(['bill_status' => 'bill_available']);
-                    }
-                }
-
-                activity()
-                    ->performedOn($lockedGrn)
-                    ->causedBy(User::query()->find($userId))
-                    ->withProperties([
-                        'source' => 'auto_advance_clear',
-                        'matches_count' => count($validatedMatches),
-                    ])
-                    ->log('goods_received.reconciled_with_advance');
-
-                return $lockedGrn->fresh([
-                    'items.product',
-                    'items.purchaseOrderItem',
-                    'purchaseOrder',
-                    'advanceMatchesAsBill.advanceGoodsReceived',
-                    'advanceMatchesAsBill.advanceStockBatch',
                 ]);
             }
 
@@ -1301,8 +1285,8 @@ class AdvanceReceiveReconciliationService
                     ?? $lockedGrn->stockBatches->firstWhere('product_id', $grnItem->product_id);
 
                 if ($unmatchedItemQty <= 0.0001) {
-                    // Fully covered by Advance: zero physical new stock, preserve row with 0 kg
-                    if ($existingBatch) {
+                    // Fully covered by Advance: zero physical new stock for pending intake batch
+                    if ($existingBatch && $existingBatch->warehouse_receive_pending) {
                         $existingBatch->update([
                             'warehouse_id' => $itemWarehouseId,
                             'total_kg' => 0.0,
@@ -1323,7 +1307,7 @@ class AdvanceReceiveReconciliationService
                             'warehouse_confirmed_by' => $autoAdvanceClear ? null : $userId,
                         ]);
 
-                        if ($existingBatch->grading_mode === 'fixed_purchase_grade') {
+                        if ($existingBatch->grading_mode === 'fixed_purchase_grade' && ! $autoAdvanceClear) {
                             StockMovement::query()->firstOrCreate(
                                 [
                                     'batch_id' => $existingBatch->id,
@@ -1390,43 +1374,53 @@ class AdvanceReceiveReconciliationService
             }
 
             // 7. Approve GRN and update PO
-            $grnBillStatus = ($autoAdvanceClear && $totalNewReceiveBaseQty > 0.0001) ? 'bill_pending' : 'bill_available';
+            if ($autoAdvanceClear) {
+                if ($totalNewReceiveBaseQty <= 0.0001) {
+                    $lockedGrn->update([
+                        'bill_status' => 'bill_available',
+                        'matched_by' => $userId,
+                        'matched_at' => now(),
+                    ]);
+                }
+            } else {
+                $grnBillStatus = $totalNewReceiveBaseQty > 0.0001 ? 'bill_pending' : 'bill_available';
 
-            $lockedGrn->update([
-                'status' => 'approved',
-                'bill_status' => $grnBillStatus,
-                'approved_by' => $userId,
-                'approved_at' => now(),
-                'updated_by' => $userId,
-                'matched_by' => $userId,
-                'matched_at' => now(),
-            ]);
+                $lockedGrn->update([
+                    'status' => 'approved',
+                    'bill_status' => $grnBillStatus,
+                    'approved_by' => $userId,
+                    'approved_at' => now(),
+                    'updated_by' => $userId,
+                    'matched_by' => $userId,
+                    'matched_at' => now(),
+                ]);
 
-            if ($lockedGrn->purchase_order_id) {
-                /** @var PurchaseOrder|null $po */
-                $po = PurchaseOrder::with('items.product')->find($lockedGrn->purchase_order_id);
-                if ($po) {
-                    $poOrderedBase = (float) $po->items->sum(function (PurchaseOrderItem $it): float {
-                        /** @var Product|null $p */
-                        $p = $it->product ?? Product::find($it->product_id);
-                        $unit = $it->purchase_unit ?: $it->unit ?: $p?->unit;
-                        $conv = (float) ($p?->conversionToBaseForUnit($unit) ?? 1.0);
+                if ($lockedGrn->purchase_order_id) {
+                    /** @var PurchaseOrder|null $po */
+                    $po = PurchaseOrder::with('items.product')->find($lockedGrn->purchase_order_id);
+                    if ($po) {
+                        $poOrderedBase = (float) $po->items->sum(function (PurchaseOrderItem $it): float {
+                            /** @var Product|null $p */
+                            $p = $it->product ?? Product::find($it->product_id);
+                            $unit = $it->purchase_unit ?: $it->unit ?: $p?->unit;
+                            $conv = (float) ($p?->conversionToBaseForUnit($unit) ?? 1.0);
 
-                        return (float) $it->quantity * $conv;
-                    });
+                            return (float) $it->quantity * $conv;
+                        });
 
-                    $poMatchedBase = (float) AdvanceReceiveMatch::query()
-                        ->where('purchase_order_id', $po->id)
-                        ->sum('base_qty');
+                        $poMatchedBase = (float) AdvanceReceiveMatch::query()
+                            ->where('purchase_order_id', $po->id)
+                            ->sum('base_qty');
 
-                    $confirmedNewReceiveBase = $autoAdvanceClear ? 0.0 : $totalNewReceiveBaseQty;
-                    $poFulfilledBase = round($poMatchedBase + $confirmedNewReceiveBase, 3);
-                    $poRemainingBase = max(0.0, round($poOrderedBase - $poFulfilledBase, 3));
+                        $confirmedNewReceiveBase = $totalNewReceiveBaseQty;
+                        $poFulfilledBase = round($poMatchedBase + $confirmedNewReceiveBase, 3);
+                        $poRemainingBase = max(0.0, round($poOrderedBase - $poFulfilledBase, 3));
 
-                    if ($poRemainingBase > 0.001) {
-                        $po->update(['status' => POStatus::PartiallyReceived]);
-                    } else {
-                        $po->update(['status' => POStatus::Received]);
+                        if ($poRemainingBase > 0.001) {
+                            $po->update(['status' => POStatus::PartiallyReceived]);
+                        } else {
+                            $po->update(['status' => POStatus::Received]);
+                        }
                     }
                 }
             }

@@ -160,8 +160,10 @@ class GoodsReceivedController extends Controller
             ->with('success', 'Goods Received Note recorded successfully.');
     }
 
-    public function show(GoodsReceived $grn): View
+    public function show(string $grn): View
     {
+        $grn = $this->resolveGrn($grn);
+
         Gate::authorize('view', $grn);
 
         $grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'approvedBy', 'updatedBy']);
@@ -217,8 +219,10 @@ class GoodsReceivedController extends Controller
             ->with('warning', 'Selling prices can only be updated from the purchaser daily price board.');
     }
 
-    public function markForRecheck(GoodsReceived $grn, Request $request): RedirectResponse
+    public function markForRecheck(string $grn, Request $request): RedirectResponse
     {
+        $grn = $this->resolveGrn($grn);
+
         Gate::authorize('recheck', $grn);
 
         $request->validate([
@@ -231,8 +235,10 @@ class GoodsReceivedController extends Controller
             ->with('warning', 'Goods Received Note sent back for recheck. Receiver can update and resubmit it.');
     }
 
-    public function edit(GoodsReceived $grn): View
+    public function edit(string $grn): View
     {
+        $grn = $this->resolveGrn($grn);
+
         Gate::authorize('update', $grn);
 
         $grn->load(['purchaseOrder.supplier', 'purchaseOrder.items.product', 'items']);
@@ -240,8 +246,10 @@ class GoodsReceivedController extends Controller
         return view('purchase-manager.grns.edit', compact('grn'));
     }
 
-    public function update(GoodsReceived $grn, StoreGoodsReceivedRequest $request): RedirectResponse
+    public function update(string $grn, StoreGoodsReceivedRequest $request): RedirectResponse
     {
+        $grn = $this->resolveGrn($grn);
+
         Gate::authorize('update', $grn);
 
         $this->service->update(
@@ -252,6 +260,25 @@ class GoodsReceivedController extends Controller
 
         return redirect()->route('purchasing.grns.show', $grn)
             ->with('success', 'Goods Received Note resubmitted and approved successfully.');
+    }
+
+    private function resolveGrn(string $identifier): GoodsReceived
+    {
+        if (is_numeric($identifier)) {
+            abort(404);
+        }
+
+        /** @var GoodsReceived|null $grn */
+        $grn = GoodsReceived::query()
+            ->where('public_uuid', $identifier)
+            ->orWhere('grn_number', $identifier)
+            ->first();
+
+        if (! $grn) {
+            abort(404);
+        }
+
+        return $grn;
     }
 
     /**
@@ -313,12 +340,12 @@ class GoodsReceivedController extends Controller
 
                 $groups[$key]['total_qty'] += $qty;
                 $groups[$key]['weighted_sum'] += $qty * $unitPrice;
-                $groups[$key]['suppliers'][$grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier'] = $grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier';
+                $groups[$key]['suppliers'][$grn->purchaseOrder?->supplier?->name ?? 'Unknown Supplier'] = $grn->purchaseOrder?->supplier?->name ?? 'Unknown Supplier';
                 $groups[$key]['purchasers'][$grn->receivedBy?->name ?? 'Unknown Purchaser'] = $grn->receivedBy?->name ?? 'Unknown Purchaser';
                 $groups[$key]['receipt_count']++;
                 $groups[$key]['lines'][] = [
                     'grn_number' => $grn->grn_number,
-                    'supplier' => $grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier',
+                    'supplier' => $grn->purchaseOrder?->supplier?->name ?? 'Unknown Supplier',
                     'purchaser' => $grn->receivedBy?->name ?? 'Unknown Purchaser',
                     'received_qty' => $qty,
                     'unit' => $product->unit,

@@ -19,6 +19,7 @@ use App\Models\DailyPricePublication;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseProductFilter;
 use App\Models\Shop;
@@ -38,6 +39,7 @@ use App\Services\Purchasing\AdvanceAvailableBalanceCalculator;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\AutoAdvanceClearExecutionService;
 use App\Services\Purchasing\AutoAdvanceClearPlanningService;
+use App\Services\Purchasing\DailyPendingAdvanceWhatsAppService;
 use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
 use App\Services\Purchasing\WarehouseReceiptStateResolver;
@@ -1832,6 +1834,7 @@ class AdminCashbookReportsController extends Controller
             })
             ->select([
                 'shop_order_items.id as item_id',
+                'shop_orders.shop_id',
                 'shop_orders.business_date',
                 'shop_orders.order_number',
                 'shops.name as shop_name',
@@ -1840,6 +1843,11 @@ class AdminCashbookReportsController extends Controller
                 'products.name as product_name',
                 'products.sku as product_sku',
                 'products.unit as product_unit',
+                'shop_order_items.unit as item_unit',
+                'shop_order_items.requested_unit',
+                'shop_order_items.actual_weight',
+                'shop_order_items.loaded_qty',
+                'shop_order_items.loaded_order_unit_qty',
                 DB::raw('COALESCE(shop_order_items.actual_weight, shop_order_items.loaded_qty, 0) as loaded_qty'),
             ])
             ->get();
@@ -1898,6 +1906,7 @@ class AdminCashbookReportsController extends Controller
         $matchDetailsPlan = null;
         $stockWithoutBill = null;
         $unbilledLoadouts = null;
+        $unbilledLoadoutsGrouped = [];
         $shopReturns = null;
         $damageEntries = null;
         $physicalCheckProducts = null;
@@ -2060,11 +2069,14 @@ class AdminCashbookReportsController extends Controller
                 $searchLower = strtolower($search);
                 $filteredLoadouts = $filteredLoadouts->filter(function ($r) use ($searchLower): bool {
                     return str_contains(strtolower($r->shop_name ?? ''), $searchLower)
+                        || str_contains(strtolower($r->shop_code ?? ''), $searchLower)
                         || str_contains(strtolower($r->product_name ?? ''), $searchLower)
                         || str_contains(strtolower($r->product_sku ?? ''), $searchLower)
                         || str_contains(strtolower($r->order_number ?? ''), $searchLower);
                 })->values();
             }
+
+            $unbilledLoadoutsGrouped = $this->formatGroupedUnbilledLoadouts($filteredLoadouts, $calc);
 
             $page = max(1, $request->integer('page', 1));
             $perPage = 20;
@@ -2197,6 +2209,17 @@ class AdminCashbookReportsController extends Controller
             ], 20)->withQueryString();
         }
 
+        $dailyPendingAdvanceService = app(DailyPendingAdvanceWhatsAppService::class);
+        $dailyPendingAdvancesData = $dailyPendingAdvanceService->getDailyPendingAdvances(
+            $date,
+            $selectedWarehouseId,
+            $authorizedWarehouseIds
+        );
+        $dailyPendingAdvancesCount = $dailyPendingAdvancesData['total_pending_count'];
+        $whatsappSharePendingUrl = $dailyPendingAdvancesCount > 0
+            ? $dailyPendingAdvanceService->generateShareUrl($date, $selectedWarehouseId, $authorizedWarehouseIds)
+            : null;
+
         return view('admin.cashbook.reports.inventory', [
             'tab' => $tab,
             'section' => $tab,
@@ -2222,14 +2245,47 @@ class AdminCashbookReportsController extends Controller
             'unbilledAdvRows' => $unbilledAdvRows,
             'unbilledAdvGrns' => $unbilledAdvGrns,
             'unbilledLoadouts' => $unbilledLoadouts,
+            'unbilledLoadoutsGrouped' => $unbilledLoadoutsGrouped,
             'shopReturns' => $shopReturns,
             'damageEntries' => $damageEntries,
             'damageProducts' => $damageProducts,
             'physicalCheckProducts' => $physicalCheckProducts,
             'recentAdjustments' => $recentAdjustments,
             'unitDifferences' => $unitDifferences,
+            'whatsappSharePendingUrl' => $whatsappSharePendingUrl,
+            'dailyPendingAdvancesCount' => $dailyPendingAdvancesCount,
+            'dailyPendingAdvancesData' => $dailyPendingAdvancesData,
             'activeTab' => 'inventory',
         ]);
+    }
+
+    /**
+     * Redirect to WhatsApp with pending advance bills message.
+     */
+    public function shareUnmatchedAdvancesWhatsApp(Request $request, DailyPendingAdvanceWhatsAppService $whatsAppService): RedirectResponse
+    {
+        $this->ensureAuthorized($request);
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()))->toDateString();
+        $requestedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        if ($requestedWarehouseId !== null && ! Warehouse::query()->where('id', $requestedWarehouseId)->exists()) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $requestedWarehouseId
+        );
+
+        if ($requestedWarehouseId !== null && $authorizedWarehouseIds !== null && ! in_array($requestedWarehouseId, $authorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $url = $whatsAppService->generateShareUrl($date, $requestedWarehouseId, $authorizedWarehouseIds);
+        if ($url === null) {
+            return redirect()->back()->with('warning', 'No pending Advance bills for this day.');
+        }
+
+        return redirect()->away($url);
     }
 
     /**
@@ -3487,5 +3543,119 @@ class AdminCashbookReportsController extends Controller
         });
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Format and group unbilled loadout items by Business Date -> Shop.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function formatGroupedUnbilledLoadouts(Collection $items, AdvanceAvailableBalanceCalculator $calc): array
+    {
+        $productIds = $items->pluck('product_id')->filter()->unique()->all();
+        $productsMap = $productIds !== []
+            ? Product::with('orderUnits')->whereIn('id', $productIds)->get()->keyBy('id')
+            : collect();
+
+        $groupedByDate = [];
+
+        foreach ($items as $r) {
+            $bDate = $r->business_date ? Carbon::parse($r->business_date)->toDateString() : today()->toDateString();
+            $shopId = (int) ($r->shop_id ?? 0);
+            $shopKey = $shopId > 0 ? (string) $shopId : ($r->shop_name ?? 'Unknown Shop');
+
+            if (! isset($groupedByDate[$bDate])) {
+                $groupedByDate[$bDate] = [
+                    'date' => $bDate,
+                    'formatted_date' => Carbon::parse($bDate)->format('d M Y'),
+                    'shops' => [],
+                ];
+            }
+
+            if (! isset($groupedByDate[$bDate]['shops'][$shopKey])) {
+                $groupedByDate[$bDate]['shops'][$shopKey] = [
+                    'shop_id' => $shopId,
+                    'shop_name' => $r->shop_name ?? '—',
+                    'shop_code' => $r->shop_code ?? '',
+                    'order_numbers' => [],
+                    'unit_totals' => [],
+                    'product_count' => 0,
+                    'items' => [],
+                ];
+            }
+
+            if (! empty($r->order_number) && ! in_array($r->order_number, $groupedByDate[$bDate]['shops'][$shopKey]['order_numbers'], true)) {
+                $groupedByDate[$bDate]['shops'][$shopKey]['order_numbers'][] = $r->order_number;
+            }
+
+            /** @var Product|null $product */
+            $product = $productsMap->get($r->product_id) ?? ($r->product_id ? Product::find($r->product_id) : null);
+            $baseUnit = $product?->unit ?? $r->product_unit ?? 'kg';
+            $normBase = ProductUnit::normalizeUnit($baseUnit);
+
+            // Determine source quantity & unit
+            $itemUnit = $r->item_unit ?: ($r->requested_unit ?: $baseUnit);
+            if ($r->actual_weight !== null && (float) $r->actual_weight > 0) {
+                $rawQty = (float) $r->actual_weight;
+                $sourceUnit = $r->item_unit ?: 'kg';
+            } elseif ($r->loaded_qty !== null && (float) $r->loaded_qty > 0) {
+                $rawQty = (float) $r->loaded_qty;
+                $sourceUnit = $itemUnit;
+            } elseif (isset($r->loaded_order_unit_qty) && (float) $r->loaded_order_unit_qty > 0) {
+                $rawQty = (float) $r->loaded_order_unit_qty;
+                $sourceUnit = $r->requested_unit ?: $itemUnit;
+            } else {
+                $rawQty = (float) ($r->loaded_qty ?? 0.0);
+                $sourceUnit = $itemUnit;
+            }
+
+            $normSource = ProductUnit::normalizeUnit($sourceUnit);
+
+            // Unit conversion & normalization rules
+            $convertedBaseQty = null;
+            $unitWarning = null;
+
+            if ($normSource === $normBase || $normSource === '') {
+                // Rule A & Rule 4: Same normalized unit -> 1:1 direct display, no conversion needed
+                $displayQty = $rawQty;
+                $displayUnit = $normSource ?: $normBase;
+            } else {
+                // Rule B & C: Different normalized units
+                $conv = $calc->resolveStrictUnitConversion($product, $normSource);
+                if ($conv !== null && $conv > 0.0) {
+                    // Configured conversion exists
+                    $displayQty = $rawQty;
+                    $displayUnit = $normSource;
+                    $convertedBaseQty = round($rawQty * $conv, 2);
+                } else {
+                    // No conversion configured
+                    $displayQty = $rawQty;
+                    $displayUnit = $normSource;
+                    $unitWarning = 'Unit conversion not configured';
+                }
+            }
+
+            $itemData = [
+                'item_id' => $r->item_id,
+                'product_id' => $r->product_id,
+                'product_name' => $r->product_name ?? "Product #{$r->product_id}",
+                'product_sku' => $r->product_sku ?? '',
+                'loaded_qty' => $displayQty,
+                'unit' => $displayUnit,
+                'base_unit' => $normBase,
+                'converted_base_qty' => $convertedBaseQty,
+                'unit_warning' => $unitWarning,
+                'status' => 'No Bill Created',
+            ];
+
+            $groupedByDate[$bDate]['shops'][$shopKey]['items'][] = $itemData;
+            $groupedByDate[$bDate]['shops'][$shopKey]['product_count']++;
+
+            // Separate totals per unit (NEVER add unlike units together)
+            $groupedByDate[$bDate]['shops'][$shopKey]['unit_totals'][$displayUnit] =
+                ($groupedByDate[$bDate]['shops'][$shopKey]['unit_totals'][$displayUnit] ?? 0.0) + $displayQty;
+        }
+
+        return $groupedByDate;
     }
 }

@@ -61,6 +61,7 @@ class WarehousePendingReceiveAdvanceReconciliationTest extends TestCase
     public function test_pending_bill_with_no_advance_receives_normally(): void
     {
         $po = PurchaseOrder::factory()->create([
+            'order_date' => now()->toDateString(),
             'supplier_id' => $this->supplier->id,
             'status' => 'approved',
         ]);
@@ -147,6 +148,7 @@ class WarehousePendingReceiveAdvanceReconciliationTest extends TestCase
 
         // 2. Create pending bill GRN of 75 kg
         $po = PurchaseOrder::factory()->create([
+            'order_date' => now()->toDateString(),
             'supplier_id' => $this->supplier->id,
             'status' => 'approved',
         ]);
@@ -219,6 +221,7 @@ class WarehousePendingReceiveAdvanceReconciliationTest extends TestCase
 
         // 2. Create pending bill GRN of 75 kg
         $po = PurchaseOrder::factory()->create([
+            'order_date' => now()->toDateString(),
             'supplier_id' => $this->supplier->id,
             'status' => 'approved',
         ]);
@@ -336,6 +339,7 @@ class WarehousePendingReceiveAdvanceReconciliationTest extends TestCase
 
         // 2. Bill of 100 kg
         $po = PurchaseOrder::factory()->create([
+            'order_date' => now()->toDateString(),
             'supplier_id' => $this->supplier->id,
             'status' => 'approved',
         ]);
@@ -442,6 +446,7 @@ class WarehousePendingReceiveAdvanceReconciliationTest extends TestCase
         ]);
 
         $po = PurchaseOrder::factory()->create([
+            'order_date' => now()->toDateString(),
             'supplier_id' => $this->supplier->id,
             'status' => 'approved',
         ]);
@@ -502,6 +507,7 @@ class WarehousePendingReceiveAdvanceReconciliationTest extends TestCase
 
         // 2. Bill of 30 kg
         $po = PurchaseOrder::factory()->create([
+            'order_date' => now()->toDateString(),
             'supplier_id' => $this->supplier->id,
             'status' => 'approved',
         ]);

@@ -7,8 +7,25 @@
 @endsection
 
 @section('header_subtitle')
-    Deterministic daily purchase bill to advance reconciliation scoped to one warehouse and one bill date.
+    Deterministic daily purchase bill to advance reconciliation scoped to warehouse and business date period.
 @endsection
+
+@php
+    $getSortUrl = function (string $column) use ($selectedWarehouseId, $selectedFromDate, $selectedToDate, $cursor, $sort, $direction) {
+        $nextDirection = ($sort === $column && $direction === 'asc') ? 'desc' : 'asc';
+        $params = [
+            'warehouse_id' => $selectedWarehouseId,
+            'from_date' => $selectedFromDate,
+            'to_date' => $selectedToDate,
+            'sort' => $column,
+            'direction' => $nextDirection,
+        ];
+        if ($cursor) {
+            $params['cursor'] = $cursor;
+        }
+        return route('admin.cashbook.auto-match', $params);
+    };
+@endphp
 
 @section('content')
 <div x-data="dailyAutoMatchComponent()" x-init="init()" class="space-y-6">
@@ -17,9 +34,11 @@
     <div class="rounded-3xl border border-slate-200/90 bg-white p-5 shadow-xs space-y-4">
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             
-            <!-- Left: Warehouse & Date Selection Form -->
+            <!-- Left: Warehouse & Date Period Selection Form -->
             <form method="GET" action="{{ route('admin.cashbook.auto-match') }}" class="flex flex-wrap items-center gap-3">
-                
+                <input type="hidden" name="sort" value="{{ $sort }}">
+                <input type="hidden" name="direction" value="{{ $direction }}">
+
                 <!-- Warehouse Select -->
                 <div class="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 p-1.5 border border-slate-200/80">
                     <label for="warehouse-select" class="pl-2 text-xs font-black text-slate-600 flex items-center gap-1 cursor-pointer">
@@ -28,7 +47,6 @@
                     </label>
                     <select id="warehouse-select"
                             name="warehouse_id"
-                            onchange="this.form.submit()"
                             class="rounded-xl bg-white px-3 py-1.5 text-xs font-black text-slate-800 shadow-xs border-0 focus:ring-2 focus:ring-emerald-500 cursor-pointer">
                         @foreach($availableWarehouses as $wh)
                             <option value="{{ $wh->id }}" @selected($wh->id == $selectedWarehouseId)>
@@ -38,23 +56,42 @@
                     </select>
                 </div>
 
-                <!-- Purchase Bill Date Picker -->
+                <!-- From Date Picker -->
                 <div class="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 p-1.5 border border-slate-200/80">
-                    <label for="date-input" class="pl-2 text-xs font-black text-slate-600 flex items-center gap-1 cursor-pointer">
+                    <label for="from-date-input" class="pl-2 text-xs font-black text-slate-600 flex items-center gap-1 cursor-pointer">
                         <i data-lucide="calendar" class="w-4 h-4 text-slate-500"></i>
-                        <span>Bill Date:</span>
+                        <span>From:</span>
                     </label>
                     <input type="date"
-                           id="date-input"
-                           name="date"
-                           value="{{ $selectedDate }}"
-                           onchange="this.form.submit()"
+                           id="from-date-input"
+                           name="from_date"
+                           value="{{ $selectedFromDate }}"
                            class="rounded-xl bg-white px-3 py-1.5 text-xs font-black text-slate-800 shadow-xs border-0 focus:ring-2 focus:ring-emerald-500 cursor-pointer">
                 </div>
 
+                <!-- To Date Picker -->
+                <div class="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 p-1.5 border border-slate-200/80">
+                    <label for="to-date-input" class="pl-2 text-xs font-black text-slate-600 flex items-center gap-1 cursor-pointer">
+                        <i data-lucide="calendar" class="w-4 h-4 text-slate-500"></i>
+                        <span>To:</span>
+                    </label>
+                    <input type="date"
+                           id="to-date-input"
+                           name="to_date"
+                           value="{{ $selectedToDate }}"
+                           class="rounded-xl bg-white px-3 py-1.5 text-xs font-black text-slate-800 shadow-xs border-0 focus:ring-2 focus:ring-emerald-500 cursor-pointer">
+                </div>
+
+                <!-- Apply Button -->
+                <button type="submit"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black transition shadow-xs cursor-pointer">
+                    <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+                    <span>Apply</span>
+                </button>
+
                 @if($cursor)
                     <input type="hidden" name="cursor" value="{{ $cursor }}">
-                    <a href="{{ route('admin.cashbook.auto-match', ['warehouse_id' => $selectedWarehouseId, 'date' => $selectedDate]) }}"
+                    <a href="{{ route('admin.cashbook.auto-match', ['warehouse_id' => $selectedWarehouseId, 'from_date' => $selectedFromDate, 'to_date' => $selectedToDate, 'sort' => $sort, 'direction' => $direction]) }}"
                        class="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-black transition">
                         Reset to First 100
                     </a>
@@ -63,7 +100,7 @@
 
             <!-- Right: Actions -->
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('admin.cashbook.inventory', ['warehouse_id' => $selectedWarehouseId, 'date' => $selectedDate]) }}"
+                <a href="{{ route('admin.cashbook.inventory', ['warehouse_id' => $selectedWarehouseId, 'date' => $selectedFromDate]) }}"
                    class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black transition">
                     <i data-lucide="arrow-left" class="w-4 h-4"></i>
                     <span>Inventory Center</span>
@@ -78,7 +115,7 @@
                 </button>
 
                 @if(!empty($plan['next_cursor']))
-                    <a href="{{ route('admin.cashbook.auto-match', ['warehouse_id' => $selectedWarehouseId, 'date' => $selectedDate, 'cursor' => $plan['next_cursor']]) }}"
+                    <a href="{{ route('admin.cashbook.auto-match', ['warehouse_id' => $selectedWarehouseId, 'from_date' => $selectedFromDate, 'to_date' => $selectedToDate, 'sort' => $sort, 'direction' => $direction, 'cursor' => $plan['next_cursor']]) }}"
                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-black transition shadow-xs cursor-pointer">
                         <span>Next 100 Bills</span>
                         <i data-lucide="arrow-right" class="w-4 h-4"></i>
@@ -90,7 +127,7 @@
                         :disabled="isLoading || isExecuting || !hasMatchableBills"
                         class="inline-flex items-center gap-2 px-5 py-2 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black transition shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                     <i data-lucide="play" class="w-4 h-4 text-emerald-200"></i>
-                    <span x-show="!isExecuting">Confirm Daily Match</span>
+                    <span x-show="!isExecuting">Confirm Auto Match</span>
                     <span x-show="isExecuting">Executing...</span>
                 </button>
             </div>
@@ -103,13 +140,21 @@
                     <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
                     Zero Inventory Impact
                 </span>
-                <span>Only approved bills received on <strong>{{ $selectedDate }}</strong> are matched with open advances received on or before this date.</span>
+                <span>
+                    @if($isDateRange)
+                        Period: <strong>{{ \Carbon\Carbon::parse($selectedFromDate)->format('d M Y') }}</strong> to <strong>{{ \Carbon\Carbon::parse($selectedToDate)->format('d M Y') }}</strong>. Each date is evaluated and matched <strong>strictly within its own business day</strong>.
+                    @else
+                        Business Date: <strong>{{ \Carbon\Carbon::parse($selectedFromDate)->format('d M Y') }}</strong>. Only approved bills and advances on this date are matched.
+                    @endif
+                </span>
             </div>
             <div class="flex items-center gap-3">
-                <span>Batch: <strong>100 Bills</strong></span>
+                <span>Batch: <strong>100 Bills / Day</strong></span>
                 @if($cursor)
                     <span class="text-indigo-600 font-black">Cursor: &gt; GRN #{{ $cursor }}</span>
                 @endif
+                <span class="text-slate-400">|</span>
+                <span>Sort: <strong class="text-slate-800">{{ ucwords(str_replace('_', ' ', $sort)) }} ({{ strtoupper($direction) }})</strong></span>
             </div>
         </div>
     </div>
@@ -118,7 +163,7 @@
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <!-- Total Bills on Date -->
         <div class="p-4 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
-            <span class="text-[11px] font-black uppercase tracking-wider text-slate-400">Total Bills (Day)</span>
+            <span class="text-[11px] font-black uppercase tracking-wider text-slate-400">Total Bills (Period)</span>
             <div class="mt-2 flex items-baseline gap-1">
                 <span class="text-2xl font-black text-slate-900" x-text="plan?.summary?.total_bills_on_date ?? '{{ $plan['summary']['total_bills_on_date'] ?? 0 }}'"></span>
                 <span class="text-xs font-bold text-slate-500">bills</span>
@@ -130,7 +175,7 @@
             <span class="text-[11px] font-black uppercase tracking-wider text-slate-400">Batch Evaluated</span>
             <div class="mt-2 flex items-baseline gap-1">
                 <span class="text-2xl font-black text-indigo-700" x-text="plan?.summary?.batch_bills_count ?? '{{ $plan['summary']['batch_bills_count'] ?? 0 }}'"></span>
-                <span class="text-xs font-bold text-slate-500">/ 100 max</span>
+                <span class="text-xs font-bold text-slate-500">evaluated</span>
             </div>
         </div>
 
@@ -209,7 +254,7 @@
                     :class="activeSection === 'open_advances' ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'"
                     class="whitespace-nowrap py-3 px-4 border-b-2 font-black text-xs rounded-t-2xl transition flex items-center gap-2 cursor-pointer">
                 <i data-lucide="clock" class="w-4 h-4 text-indigo-600"></i>
-                <span>Open Advances (Eligible &le; Date)</span>
+                <span>Open Advances</span>
                 <span class="px-2 py-0.5 rounded-full text-[10px] bg-indigo-100 text-indigo-800 font-black"
                       x-text="plan?.open_advances?.length ?? '{{ count($plan['open_advances'] ?? []) }}'"></span>
             </button>
@@ -251,38 +296,91 @@
                     <table class="w-full text-left text-xs text-slate-700 border-collapse">
                         <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
                             <tr>
-                                <th class="p-4">Bill GRN</th>
-                                <th class="p-4">PO Number</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('business_date') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'business_date' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Business Date</span>
+                                        @if($sort === 'business_date')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('bill_po') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_po' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Bill / PO</span>
+                                        @if($sort === 'bill_po')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                                 <th class="p-4">Supplier</th>
-                                <th class="p-4">Products</th>
-                                <th class="p-4 text-right">Required Base</th>
-                                <th class="p-4 text-right">Matched Base</th>
-                                <th class="p-4 text-center">Status</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('product') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'product' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Product</span>
+                                        @if($sort === 'product')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('bill_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Bill Qty</span>
+                                        @if($sort === 'bill_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('matched_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'matched_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Matched Qty</span>
+                                        @if($sort === 'matched_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-center">
+                                    <a href="{{ $getSortUrl('unit') }}" class="inline-flex items-center justify-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'unit' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Unit</span>
+                                        @if($sort === 'unit')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-center">
+                                    <a href="{{ $getSortUrl('status') }}" class="inline-flex items-center justify-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'status' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Status</span>
+                                        @if($sort === 'status')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="bill in plan.ready_bills" :key="bill.goods_received_id">
                                 <tr class="hover:bg-slate-50/80 transition">
-                                    <td class="p-4">
-                                        <a :href="'/purchasing/grns/' + bill.goods_received_id"
-                                           target="_blank"
-                                           class="font-black text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1">
-                                            <span x-text="bill.grn_number"></span>
-                                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
-                                        </a>
+                                    <td class="p-4 font-black text-slate-900">
+                                        <span class="inline-block px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 text-xs font-black" x-text="bill.business_date || bill.bill_date"></span>
                                     </td>
                                     <td class="p-4">
-                                        <template x-if="bill.purchase_order_id">
-                                            <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                        <div class="space-y-0.5">
+                                            <a :href="'/purchasing/grns/' + encodeURIComponent(bill.grn_number)"
                                                target="_blank"
-                                               class="font-bold text-slate-700 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
-                                                <span x-text="bill.po_number"></span>
+                                               class="font-black text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1">
+                                                <span x-text="bill.grn_number"></span>
                                                 <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
                                             </a>
-                                        </template>
-                                        <template x-if="!bill.purchase_order_id">
-                                            <span class="text-slate-500" x-text="bill.po_number || '—'"></span>
-                                        </template>
+                                            <div class="text-[11px] text-slate-500">
+                                                <template x-if="bill.purchase_order_id">
+                                                    <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                                       target="_blank"
+                                                       class="hover:underline text-indigo-600 font-bold"
+                                                       x-text="'PO: ' + (bill.po_number || '#' + bill.purchase_order_id)"></a>
+                                                </template>
+                                                <template x-if="!bill.purchase_order_id">
+                                                    <span x-text="'PO: ' + (bill.po_number || '—')"></span>
+                                                </template>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td class="p-4 text-slate-700" x-text="bill.supplier_name"></td>
                                     <td class="p-4">
@@ -291,13 +389,13 @@
                                                 <div class="text-[11px] flex items-center gap-2">
                                                     <span class="font-black text-slate-800" x-text="line.product_name"></span>
                                                     <span class="text-slate-500" x-text="line.quantity + ' ' + line.unit"></span>
-                                                    <span class="text-emerald-700 font-black">(&rarr; <span x-text="formatNumber(line.matched_base_qty)"></span> KG matched)</span>
                                                 </div>
                                             </template>
                                         </div>
                                     </td>
-                                    <td class="p-4 text-right text-slate-600" x-text="formatNumber(bill.required_base_qty) + ' KG'"></td>
-                                    <td class="p-4 text-right font-black text-emerald-700" x-text="formatNumber(bill.matched_base_qty) + ' KG'"></td>
+                                    <td class="p-4 text-right text-slate-600" x-text="formatNumber(bill.required_base_qty)"></td>
+                                    <td class="p-4 text-right font-black text-emerald-700" x-text="formatNumber(bill.matched_base_qty)"></td>
+                                    <td class="p-4 text-center text-slate-500" x-text="bill.unit || 'KG'"></td>
                                     <td class="p-4 text-center">
                                         <span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
                                             Full Match
@@ -328,39 +426,99 @@
                     <table class="w-full text-left text-xs text-slate-700 border-collapse">
                         <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
                             <tr>
-                                <th class="p-4">Bill GRN</th>
-                                <th class="p-4">PO Number</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('business_date') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'business_date' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Business Date</span>
+                                        @if($sort === 'business_date')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('bill_po') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_po' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Bill / PO</span>
+                                        @if($sort === 'bill_po')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                                 <th class="p-4">Supplier</th>
-                                <th class="p-4">Products &amp; Lines</th>
-                                <th class="p-4 text-right">Required Base</th>
-                                <th class="p-4 text-right">Matched Base</th>
-                                <th class="p-4 text-right">Remaining Base</th>
-                                <th class="p-4 text-center">Status</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('product') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'product' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Product</span>
+                                        @if($sort === 'product')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('bill_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Bill Qty</span>
+                                        @if($sort === 'bill_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('matched_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'matched_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Matched Qty</span>
+                                        @if($sort === 'matched_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('remaining_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'remaining_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Remaining Qty</span>
+                                        @if($sort === 'remaining_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-center">
+                                    <a href="{{ $getSortUrl('unit') }}" class="inline-flex items-center justify-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'unit' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Unit</span>
+                                        @if($sort === 'unit')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-center">
+                                    <a href="{{ $getSortUrl('status') }}" class="inline-flex items-center justify-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'status' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Status</span>
+                                        @if($sort === 'status')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="bill in plan.partial_bills" :key="bill.goods_received_id">
                                 <tr class="hover:bg-slate-50/80 transition">
-                                    <td class="p-4">
-                                        <a :href="'/purchasing/grns/' + bill.goods_received_id"
-                                           target="_blank"
-                                           class="font-black text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1">
-                                            <span x-text="bill.grn_number"></span>
-                                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
-                                        </a>
+                                    <td class="p-4 font-black text-slate-900">
+                                        <span class="inline-block px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 text-xs font-black" x-text="bill.business_date || bill.bill_date"></span>
                                     </td>
                                     <td class="p-4">
-                                        <template x-if="bill.purchase_order_id">
-                                            <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                        <div class="space-y-0.5">
+                                            <a :href="'/purchasing/grns/' + encodeURIComponent(bill.grn_number)"
                                                target="_blank"
-                                               class="font-bold text-slate-700 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
-                                                <span x-text="bill.po_number"></span>
+                                               class="font-black text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1">
+                                                <span x-text="bill.grn_number"></span>
                                                 <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
                                             </a>
-                                        </template>
-                                        <template x-if="!bill.purchase_order_id">
-                                            <span class="text-slate-500" x-text="bill.po_number || '—'"></span>
-                                        </template>
+                                            <div class="text-[11px] text-slate-500">
+                                                <template x-if="bill.purchase_order_id">
+                                                    <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                                       target="_blank"
+                                                       class="hover:underline text-indigo-600 font-bold"
+                                                       x-text="'PO: ' + (bill.po_number || '#' + bill.purchase_order_id)"></a>
+                                                </template>
+                                                <template x-if="!bill.purchase_order_id">
+                                                    <span x-text="'PO: ' + (bill.po_number || '—')"></span>
+                                                </template>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td class="p-4 text-slate-700" x-text="bill.supplier_name"></td>
                                     <td class="p-4">
@@ -369,15 +527,16 @@
                                                 <div class="text-[11px] flex items-center gap-2">
                                                     <span class="font-black text-slate-800" x-text="line.product_name"></span>
                                                     <span class="text-slate-500" x-text="line.quantity + ' ' + line.unit"></span>
-                                                    <span class="text-emerald-700 font-black">Matched: <span x-text="formatNumber(line.matched_base_qty)"></span> KG</span>
-                                                    <span class="text-amber-700 font-black">Rem: <span x-text="formatNumber(line.remaining_unmatched_base_qty)"></span> KG</span>
+                                                    <span class="text-emerald-700 font-black">Matched: <span x-text="formatNumber(line.matched_base_qty)"></span></span>
+                                                    <span class="text-amber-700 font-black">Rem: <span x-text="formatNumber(line.remaining_unmatched_base_qty)"></span></span>
                                                 </div>
                                             </template>
                                         </div>
                                     </td>
-                                    <td class="p-4 text-right text-slate-600" x-text="formatNumber(bill.required_base_qty) + ' KG'"></td>
-                                    <td class="p-4 text-right font-black text-emerald-700" x-text="formatNumber(bill.matched_base_qty) + ' KG'"></td>
-                                    <td class="p-4 text-right font-black text-amber-700" x-text="formatNumber(bill.remaining_base_qty) + ' KG'"></td>
+                                    <td class="p-4 text-right text-slate-600" x-text="formatNumber(bill.required_base_qty)"></td>
+                                    <td class="p-4 text-right font-black text-emerald-700" x-text="formatNumber(bill.matched_base_qty)"></td>
+                                    <td class="p-4 text-right font-black text-amber-700" x-text="formatNumber(bill.remaining_base_qty)"></td>
+                                    <td class="p-4 text-center text-slate-500" x-text="bill.unit || 'KG'"></td>
                                     <td class="p-4 text-center">
                                         <span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">
                                             Partial Match
@@ -408,37 +567,83 @@
                     <table class="w-full text-left text-xs text-slate-700 border-collapse">
                         <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
                             <tr>
-                                <th class="p-4">Bill GRN</th>
-                                <th class="p-4">PO Number</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('business_date') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'business_date' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Business Date</span>
+                                        @if($sort === 'business_date')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('bill_po') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_po' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Bill / PO</span>
+                                        @if($sort === 'bill_po')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                                 <th class="p-4">Supplier</th>
-                                <th class="p-4">Product Details</th>
-                                <th class="p-4 text-right">Required Base</th>
-                                <th class="p-4 text-center">Blocked Reason</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('product') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'product' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Product Details</span>
+                                        @if($sort === 'product')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('bill_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Bill Qty</span>
+                                        @if($sort === 'bill_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-center">
+                                    <a href="{{ $getSortUrl('unit') }}" class="inline-flex items-center justify-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'unit' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Unit</span>
+                                        @if($sort === 'unit')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-center">
+                                    <a href="{{ $getSortUrl('status') }}" class="inline-flex items-center justify-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'status' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Blocked Reason</span>
+                                        @if($sort === 'status')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="bill in actionableBlockedBills" :key="bill.goods_received_id">
                                 <tr class="hover:bg-slate-50/80 transition">
-                                    <td class="p-4">
-                                        <a :href="'/purchasing/grns/' + bill.goods_received_id"
-                                           target="_blank"
-                                           class="font-black text-rose-700 hover:text-rose-900 hover:underline inline-flex items-center gap-1">
-                                            <span x-text="bill.grn_number"></span>
-                                            <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
-                                        </a>
+                                    <td class="p-4 font-black text-slate-900">
+                                        <span class="inline-block px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 text-xs font-black" x-text="bill.business_date || bill.bill_date"></span>
                                     </td>
                                     <td class="p-4">
-                                        <template x-if="bill.purchase_order_id">
-                                            <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                        <div class="space-y-0.5">
+                                            <a :href="'/purchasing/grns/' + encodeURIComponent(bill.grn_number)"
                                                target="_blank"
-                                               class="font-bold text-slate-700 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
-                                                <span x-text="bill.po_number"></span>
+                                               class="font-black text-rose-700 hover:text-rose-900 hover:underline inline-flex items-center gap-1">
+                                                <span x-text="bill.grn_number"></span>
                                                 <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
                                             </a>
-                                        </template>
-                                        <template x-if="!bill.purchase_order_id">
-                                            <span class="text-slate-500" x-text="bill.po_number || '—'"></span>
-                                        </template>
+                                            <div class="text-[11px] text-slate-500">
+                                                <template x-if="bill.purchase_order_id">
+                                                    <a :href="'/purchasing/orders/' + bill.purchase_order_id"
+                                                       target="_blank"
+                                                       class="hover:underline text-indigo-600 font-bold"
+                                                       x-text="'PO: ' + (bill.po_number || '#' + bill.purchase_order_id)"></a>
+                                                </template>
+                                                <template x-if="!bill.purchase_order_id">
+                                                    <span x-text="'PO: ' + (bill.po_number || '—')"></span>
+                                                </template>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td class="p-4 text-slate-700" x-text="bill.supplier_name"></td>
                                     <td class="p-4">
@@ -452,7 +657,8 @@
                                             </template>
                                         </div>
                                     </td>
-                                    <td class="p-4 text-right text-slate-600" x-text="formatNumber(bill.required_base_qty) + ' KG'"></td>
+                                    <td class="p-4 text-right text-slate-600" x-text="formatNumber(bill.required_base_qty)"></td>
+                                    <td class="p-4 text-center text-slate-500" x-text="bill.unit || 'KG'"></td>
                                     <td class="p-4 text-center">
                                         <span class="px-2.5 py-1 rounded-full text-[10px] font-black"
                                               :class="{
@@ -477,8 +683,8 @@
         <template x-if="!plan || !plan.open_advances || plan.open_advances.length === 0">
             <div class="rounded-3xl border border-slate-200 bg-white p-12 text-center text-slate-500">
                 <i data-lucide="clock" class="w-12 h-12 text-slate-300 mx-auto mb-3"></i>
-                <h4 class="text-sm font-black text-slate-800">No Open Advances on or before {{ $selectedDate }}</h4>
-                <p class="text-xs font-bold text-slate-500 mt-1">All warehouse advances for this date have already been fully cleared.</p>
+                <h4 class="text-sm font-black text-slate-800">No Open Advances for this Period</h4>
+                <p class="text-xs font-bold text-slate-500 mt-1">All warehouse advances for this date period have already been cleared.</p>
             </div>
         </template>
 
@@ -488,25 +694,55 @@
                     <table class="w-full text-left text-xs text-slate-700 border-collapse">
                         <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
                             <tr>
-                                <th class="p-4">Advance GRN</th>
-                                <th class="p-4">Received Date</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('business_date') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'business_date' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Business Date</span>
+                                        @if($sort === 'business_date')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('bill_po') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_po' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Advance GRN</span>
+                                        @if($sort === 'bill_po')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                                 <th class="p-4">Age</th>
-                                <th class="p-4">Items &amp; Quantities</th>
-                                <th class="p-4 text-right">Unbilled Base</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('product') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'product' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Product &amp; Items</span>
+                                        @if($sort === 'product')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('advance_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'advance_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Unbilled Base</span>
+                                        @if($sort === 'advance_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="adv in plan.open_advances" :key="adv.id">
                                 <tr class="hover:bg-slate-50/80 transition">
+                                    <td class="p-4 font-black text-slate-900">
+                                        <span class="inline-block px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 text-xs font-black" x-text="adv.business_date || adv.received_at"></span>
+                                    </td>
                                     <td class="p-4">
-                                        <a :href="'/purchasing/grns/' + adv.id"
+                                        <a :href="'/purchasing/grns/' + encodeURIComponent(adv.grn_number)"
                                            target="_blank"
                                            class="font-black text-indigo-700 hover:text-indigo-900 hover:underline inline-flex items-center gap-1">
                                             <span x-text="adv.grn_number"></span>
                                             <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
                                         </a>
                                     </td>
-                                    <td class="p-4 text-slate-600" x-text="adv.received_at"></td>
                                     <td class="p-4">
                                         <span class="px-2 py-0.5 rounded-lg text-[10px] font-black"
                                               :class="adv.age_days > 7 ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'"
@@ -549,32 +785,78 @@
                     <table class="w-full text-left text-xs text-slate-700 border-collapse">
                         <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
                             <tr>
-                                <th class="p-4">Product</th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('business_date') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'business_date' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Business Date</span>
+                                        @if($sort === 'business_date')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4">
+                                    <a href="{{ $getSortUrl('product') }}" class="inline-flex items-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'product' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Product</span>
+                                        @if($sort === 'product')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                                 <th class="p-4">SKU</th>
                                 <th class="p-4">Latest Advance GRN</th>
-                                <th class="p-4 text-right">Received Qty</th>
-                                <th class="p-4 text-right">Matched Qty</th>
-                                <th class="p-4 text-right">Remaining Qty</th>
-                                <th class="p-4 text-center">Unit</th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('bill_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'bill_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Received Qty</span>
+                                        @if($sort === 'bill_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('matched_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'matched_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Matched Qty</span>
+                                        @if($sort === 'matched_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-right">
+                                    <a href="{{ $getSortUrl('remaining_qty') }}" class="inline-flex items-center justify-end gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'remaining_qty' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Remaining Qty</span>
+                                        @if($sort === 'remaining_qty')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
+                                <th class="p-4 text-center">
+                                    <a href="{{ $getSortUrl('unit') }}" class="inline-flex items-center justify-center gap-1 group cursor-pointer">
+                                        <span class="{{ $sort === 'unit' ? 'text-emerald-700 font-black' : 'text-slate-600 font-bold group-hover:text-slate-900' }}">Unit</span>
+                                        @if($sort === 'unit')
+                                            <i data-lucide="{{ $direction === 'asc' ? 'chevron-up' : 'chevron-down' }}" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                        @endif
+                                    </a>
+                                </th>
                                 <th class="p-4 text-center">Age (Days)</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-bold">
                             <template x-for="row in plan.inventory_without_bills" :key="row.product_id + '_' + row.unit">
                                 <tr class="hover:bg-slate-50/80 transition">
+                                    <td class="p-4 font-black text-slate-900">
+                                        <span class="inline-block px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 text-xs font-black" x-text="row.business_date || '—'"></span>
+                                    </td>
                                     <td class="p-4 font-black text-slate-900" x-text="row.product_name"></td>
                                     <td class="p-4 text-slate-500" x-text="row.product_sku"></td>
                                     <td class="p-4">
-                                        <template x-if="row.advance_goods_received_id">
-                                            <a :href="'/purchasing/grns/' + row.advance_goods_received_id"
+                                        <template x-if="row.advance_grn_number">
+                                            <a :href="'/purchasing/grns/' + encodeURIComponent(row.advance_grn_number)"
                                                target="_blank"
                                                class="font-black text-slate-800 hover:text-indigo-600 hover:underline inline-flex items-center gap-1">
                                                 <span x-text="row.advance_grn_number"></span>
                                                 <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
                                             </a>
                                         </template>
-                                        <template x-if="!row.advance_goods_received_id">
-                                            <span class="text-slate-700 font-black" x-text="row.advance_grn_number"></span>
+                                        <template x-if="!row.advance_grn_number">
+                                            <span class="text-slate-700 font-black" x-text="row.advance_grn_number || '—'"></span>
                                         </template>
                                     </td>
                                     <td class="p-4 text-right text-slate-600" x-text="formatNumber(row.received_qty)"></td>
@@ -656,7 +938,7 @@
                         <i data-lucide="sparkles" class="w-5 h-5 text-emerald-600"></i>
                         Confirm Daily Auto Match
                     </h3>
-                    <p class="text-xs font-bold text-slate-500 mt-0.5">Warehouse: {{ $availableWarehouses->firstWhere('id', $selectedWarehouseId)?->name }} | Date: {{ $selectedDate }}</p>
+                    <p class="text-xs font-bold text-slate-500 mt-0.5">Warehouse: {{ $availableWarehouses->firstWhere('id', $selectedWarehouseId)?->name }} | Period: {{ $selectedFromDate }} to {{ $selectedToDate }}</p>
                 </div>
                 <button type="button" @click="closeConfirmModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-xl">
                     <i data-lucide="x" class="w-5 h-5"></i>
@@ -681,7 +963,7 @@
                 </div>
 
                 <p class="text-[11px] text-slate-500">
-                    Executing this batch will create non-destructive <code>AdvanceReceiveMatch</code> audit records. Stock movements and batch inventories will remain completely unchanged.
+                    Executing will create non-destructive <code>AdvanceReceiveMatch</code> audit records across the selected period. Each date is processed independently with zero stock mutations.
                 </p>
             </div>
 
@@ -696,7 +978,7 @@
                         @click="executeMatch()"
                         :disabled="isExecuting"
                         class="px-5 py-2 rounded-xl text-xs font-black bg-emerald-700 hover:bg-emerald-800 text-white transition shadow-sm cursor-pointer disabled:opacity-50">
-                    <span x-show="!isExecuting">Execute Daily Match</span>
+                    <span x-show="!isExecuting">Execute Auto Match</span>
                     <span x-show="isExecuting">Executing Match...</span>
                 </button>
             </div>
@@ -777,7 +1059,10 @@ function dailyAutoMatchComponent() {
     return {
         csrfToken: '{{ csrf_token() }}',
         warehouseId: {{ $selectedWarehouseId }},
-        billDate: '{{ $selectedDate }}',
+        fromDate: '{{ $selectedFromDate }}',
+        toDate: '{{ $selectedToDate }}',
+        sort: '{{ $sort }}',
+        direction: '{{ $direction }}',
         cursor: {{ $cursor ? $cursor : 'null' }},
         batchSize: {{ $batchSize }},
         previewUrl: '{{ route('admin.cashbook.auto-match.preview') }}',
@@ -791,7 +1076,6 @@ function dailyAutoMatchComponent() {
         executionResult: null,
 
         init() {
-            // Initial lucide icons re-scan
             if (window.lucide) {
                 this.$nextTick(() => window.lucide.createIcons());
             }
@@ -833,7 +1117,10 @@ function dailyAutoMatchComponent() {
             try {
                 const params = new URLSearchParams({
                     warehouse_id: this.warehouseId,
-                    date: this.billDate,
+                    from_date: this.fromDate,
+                    to_date: this.toDate,
+                    sort: this.sort,
+                    direction: this.direction,
                     batch_size: this.batchSize,
                 });
                 if (this.cursor) {
@@ -899,7 +1186,8 @@ function dailyAutoMatchComponent() {
             try {
                 const payload = {
                     warehouse_id: this.warehouseId,
-                    date: this.billDate,
+                    from_date: this.fromDate,
+                    to_date: this.toDate,
                     plan_hash: this.plan.plan_hash,
                     client_submission_id: this.generateClientUuid(),
                     batch_size: this.batchSize,
@@ -936,7 +1224,7 @@ function dailyAutoMatchComponent() {
                 }
             } catch (err) {
                 console.error(err);
-                alert('Network error while executing daily match.');
+                alert('Network error while executing auto match.');
             } finally {
                 this.isExecuting = false;
                 if (window.lucide) {

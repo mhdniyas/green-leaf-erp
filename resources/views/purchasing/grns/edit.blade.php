@@ -133,6 +133,7 @@
 
         {{-- Right column - PO Summary --}}
         <div class="space-y-6">
+            @if($grn->purchaseOrder)
             <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Linked Purchase Order</h3>
                 <div class="grid grid-cols-2 gap-y-3 text-sm">
@@ -142,7 +143,7 @@
                     </a>
 
                     <span class="text-gray-500">Order Date</span>
-                    <span class="text-gray-900 font-medium text-right">{{ $grn->purchaseOrder->order_date->format('Y-m-d') }}</span>
+                    <span class="text-gray-900 font-medium text-right">{{ $grn->purchaseOrder->order_date?->format('Y-m-d') }}</span>
 
                     <span class="text-gray-500">PO Status</span>
                     <span class="inline-flex items-center self-end px-2.5 py-0.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full">
@@ -151,6 +152,7 @@
                 </div>
             </div>
 
+            @if($grn->purchaseOrder->supplier)
             <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Supplier</h3>
                 <div class="flex items-center gap-3">
@@ -167,6 +169,13 @@
                     <span class="text-gray-800 font-medium text-right">{{ $grn->purchaseOrder->supplier->payment_terms }}</span>
                 </div>
             </div>
+            @endif
+            @else
+            <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Source</h3>
+                <p class="text-sm font-semibold text-gray-700">Warehouse Advance (No Purchase Order)</p>
+            </div>
+            @endif
 
             {{-- Landed Cost Allocation Explanation --}}
             <div class="bg-brand-50 border border-brand-100 rounded-2xl p-5 space-y-3">

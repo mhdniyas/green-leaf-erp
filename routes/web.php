@@ -686,6 +686,7 @@ Route::middleware('auth')->group(function () {
             Route::get('auto-match/preview', [AdminDailyAutoMatchController::class, 'preview'])->name('auto-match.preview');
             Route::post('auto-match/execute', [AdminDailyAutoMatchController::class, 'execute'])->name('auto-match.execute');
             Route::get('inventory', [AdminCashbookReportsController::class, 'inventory'])->name('inventory');
+            Route::get('inventory/share/unmatched-advances/whatsapp', [AdminCashbookReportsController::class, 'shareUnmatchedAdvancesWhatsApp'])->name('inventory.share.unmatched-advances.whatsapp');
             Route::get('inventory/pending-bills-days', [AdminCashbookReportsController::class, 'pendingBillsDaysSummary'])->name('inventory.pending-bills-days');
             Route::get('inventory/pending-bills-day-details', [AdminCashbookReportsController::class, 'pendingBillsDayDetails'])->name('inventory.pending-bills-day-details');
             Route::post('inventory/accept-pending-bills', [AdminCashbookReportsController::class, 'acceptPendingBills'])->name('inventory.accept-pending-bills');

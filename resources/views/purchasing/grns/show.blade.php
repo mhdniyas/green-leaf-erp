@@ -257,9 +257,13 @@
                     <span class="text-gray-950 text-right">{{ $grn->receivedBy?->name ?? '—' }}</span>
 
                     <span class="text-gray-500">Purchase Order</span>
-                    <a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="text-brand-600 font-mono font-bold text-right hover:underline">
-                        {{ $grn->purchaseOrder->po_number }}
-                    </a>
+                    @if($grn->purchaseOrder)
+                        <a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="text-brand-600 font-mono font-bold text-right hover:underline">
+                            {{ $grn->purchaseOrder->po_number }}
+                        </a>
+                    @else
+                        <span class="text-gray-500 font-medium text-right">Warehouse Advance (No PO)</span>
+                    @endif
                 </div>
             </div>
 
@@ -281,6 +285,7 @@
             </div>
 
             {{-- Supplier Summary --}}
+            @if($grn->purchaseOrder && $grn->purchaseOrder->supplier)
             <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Supplier</h3>
                 <div class="flex items-center gap-3">
@@ -293,6 +298,7 @@
                     </div>
                 </div>
             </div>
+            @endif
         </div>
 
     </div>

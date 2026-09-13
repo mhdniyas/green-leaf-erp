@@ -287,7 +287,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
                 'product_id' => $this->apple->id,
                 'quantity' => 1.0,
                 'unit' => 'kg',
-            ]], sprintf('2026-08-%02d', ($index % 28) + 1), 'PO-BATCH');
+            ]], '2026-09-10', 'PO-BATCH');
         }
 
         $preview = app(AutoAdvanceClearPlanningService::class)->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
@@ -361,7 +361,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $staleHash = str_repeat('f', 64);
         $submissionId = (string) Str::uuid();
@@ -383,7 +383,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -415,7 +415,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
         $billGrn = $po->goodsReceiveds->firstOrFail();
         $billGrn->update(['bill_status' => 'bill_available']);
 
@@ -428,7 +428,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'grading_mode' => 'sort_required',
             'created_by' => $this->warehouseUser->id,
             'reference' => 'BATCH-BILL-'.uniqid(),
-            'received_at' => '2026-08-25',
+            'received_at' => '2026-08-20',
             'total_kg' => 60.0,
             'cost_per_kg' => 50.0,
             'status' => BatchStatus::Pending,
@@ -468,8 +468,8 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv1 = $this->createAdvance($this->warehouseA, $this->apple, 60.0, '2026-08-20');
-        $adv2 = $this->createAdvance($this->warehouseA, $this->apple, 40.0, '2026-08-21');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25');
+        $adv2 = $this->createAdvance($this->warehouseA, $this->apple, 40.0, '2026-08-20');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -499,7 +499,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 40.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -533,7 +533,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         $po = $this->createPendingBill($this->warehouseA, [
             ['product_id' => $this->apple->id, 'quantity' => 50.0],
             ['product_id' => $this->banana->id, 'quantity' => 30.0],
-        ], '2026-08-25');
+        ], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -555,7 +555,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25', createPendingGrn: false);
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20', createPendingGrn: false);
 
         $pendingGrn = GoodsReceived::create([
             'public_uuid' => (string) Str::uuid(),
@@ -566,7 +566,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'bill_status' => 'bill_pending',
             'receipt_type' => 'normal_purchase',
             'received_by' => $this->warehouseUser->id,
-            'received_at' => '2026-08-26',
+            'received_at' => '2026-08-20',
         ]);
         $gItem = GoodsReceivedItem::create([
             'goods_received_id' => $pendingGrn->id,
@@ -585,7 +585,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'grading_mode' => 'sort_required',
             'created_by' => $this->warehouseUser->id,
             'reference' => 'BATCH-EXISTING',
-            'received_at' => '2026-08-26',
+            'received_at' => '2026-08-20',
             'total_kg' => 60.0,
             'cost_per_kg' => 50.0,
             'status' => BatchStatus::Pending,
@@ -603,7 +603,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
 
         $res->assertOk();
         $this->assertEquals($pendingGrn->id, $res->json('data.processed.0.result_goods_received_id'));
-        $this->assertEquals('bill_pending', $pendingGrn->fresh()->bill_status);
+        $this->assertEquals('bill_available', $pendingGrn->fresh()->bill_status);
     }
 
     public function test_create_bill_grn_mode_execution(): void
@@ -611,7 +611,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 60.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $this->assertEquals('reconcile_existing_grn', $preview['ready_bills'][0]['execution_mode']);
@@ -631,7 +631,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 50.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-25', createPendingGrn: false);
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 100.0]], '2026-08-20', createPendingGrn: false);
 
         // Previous completed receipt of 50kg on this 100kg PO
         $completedGrn = GoodsReceived::create([
@@ -643,7 +643,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'bill_status' => 'bill_available',
             'receipt_type' => 'normal_purchase',
             'received_by' => $this->warehouseUser->id,
-            'received_at' => '2026-08-26',
+            'received_at' => '2026-08-20',
         ]);
         $cItem = GoodsReceivedItem::create([
             'goods_received_id' => $completedGrn->id,
@@ -662,7 +662,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'grading_mode' => 'sort_required',
             'created_by' => $this->warehouseUser->id,
             'reference' => 'BATCH-PAST',
-            'received_at' => '2026-08-26',
+            'received_at' => '2026-08-20',
             'total_kg' => 50.0,
             'cost_per_kg' => 50.0,
             'status' => BatchStatus::Pending,
@@ -679,7 +679,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'bill_status' => 'bill_pending',
             'receipt_type' => 'purchaser_bill',
             'received_by' => $this->warehouseUser->id,
-            'received_at' => '2026-08-27',
+            'received_at' => '2026-08-20',
         ]);
         GoodsReceivedItem::create([
             'goods_received_id' => $pendingGrn->id,
@@ -712,7 +712,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         // Advance: 5 boxes = 50 kg
         $this->createAdvance($this->warehouseA, $this->apple, 5.0, '2026-08-20', 'box');
         // PO: 50 kg
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0, 'unit' => 'kg']], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0, 'unit' => 'kg']], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $this->assertEquals(50.0, $preview['ready_bills'][0]['matched_base_qty']);
@@ -732,7 +732,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 50.0, '2026-08-20', 'kg', 'closed');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $batch = $adv->stockBatches->first();
         $this->assertEquals(0.0, (float) $batch->total_kg);
@@ -758,7 +758,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         // Advance in Warehouse B
         $this->createAdvance($this->warehouseB, $this->apple, 100.0, '2026-08-20');
         // Bill in Warehouse A
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $this->assertEquals(0, $preview['summary']['ready_bills']);
@@ -769,7 +769,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 50.0, '2026-08-20');
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -798,7 +798,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 50.0, '2026-08-20');
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -825,8 +825,8 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po1 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-22', 'PO-FAIL');
-        $po2 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 40.0]], '2026-08-23', 'PO-OK');
+        $po1 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20', 'PO-FAIL');
+        $po2 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 40.0]], '2026-08-20', 'PO-OK');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -895,7 +895,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -943,7 +943,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -991,8 +991,8 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po1 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 30.0]], '2026-08-22', 'PO-DONE');
-        $po2 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 40.0]], '2026-08-23', 'PO-RETRY');
+        $po1 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 30.0]], '2026-08-20', 'PO-DONE');
+        $po2 = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 40.0]], '2026-08-20', 'PO-RETRY');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1025,7 +1025,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1067,7 +1067,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 60.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1137,7 +1137,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25', createPendingGrn: false);
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20', createPendingGrn: false);
 
         $pendingGrn = GoodsReceived::create([
             'public_uuid' => (string) Str::uuid(),
@@ -1225,7 +1225,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1270,7 +1270,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1314,7 +1314,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 50.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1341,7 +1341,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 60.0, '2026-08-20');
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $batchesBefore = StockBatch::count();
         $movementsBefore = StockMovement::count();
@@ -1632,7 +1632,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 45.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 45.0]], '2026-08-20');
 
         $planner = app(AutoAdvanceClearPlanningService::class);
         $plan = $planner->buildAutoClearPlan($this->warehouseA->id, $this->warehouseUser->id);
@@ -1649,7 +1649,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1681,7 +1681,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1714,7 +1714,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1777,7 +1777,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1812,7 +1812,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
             'supplier_id' => $this->supplier->id,
             'po_number' => 'PO-TEST-RCV-ONLY',
             'status' => POStatus::Approved,
-            'order_date' => '2026-08-25',
+            'order_date' => '2026-08-20',
             'destination_shop_id' => $this->warehouseA->id,
             'created_by' => $this->warehouseUser->id,
         ]);
@@ -1837,7 +1837,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $adv = $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $po = $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $preview = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $planHash = $preview['plan_hash'];
@@ -1867,7 +1867,7 @@ class AutoAdvanceClearExecutionTest extends TestCase
         Sanctum::actingAs($this->warehouseUser);
 
         $this->createAdvance($this->warehouseA, $this->apple, 100.0, '2026-08-20');
-        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-25');
+        $this->createPendingBill($this->warehouseA, [['product_id' => $this->apple->id, 'quantity' => 60.0]], '2026-08-20');
 
         $p1 = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');
         $p2 = $this->getJson("/api/v1/purchasing/grns/auto-clear-preview?warehouse_id={$this->warehouseA->id}")->json('data');

@@ -15,6 +15,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -383,6 +384,14 @@ class AutoAdvanceClearExecutionService
             foreach ($line['matches'] as $m) {
                 $advGrn = $lockedAdvanceGrns->get((int) $m['advance_goods_received_id']);
                 if (! $advGrn || $advGrn->status !== 'approved' || $advGrn->bill_status !== 'bill_pending' || ! $this->readScope->receiptMatchesWarehouse($advGrn, $warehouseId)) {
+                    $coverageOk = false;
+                    break 2;
+                }
+
+                // Executor safety guard: Advance business date must strictly match Bill business date
+                $advDate = $advGrn->received_at instanceof Carbon ? $advGrn->received_at->toDateString() : (string) ($advGrn->received_at ? Carbon::parse($advGrn->received_at)->toDateString() : '');
+                $billDate = $po?->order_date instanceof Carbon ? $po->order_date->toDateString() : (string) ($po?->order_date ? Carbon::parse($po->order_date)->toDateString() : ($grn->received_at instanceof Carbon ? $grn->received_at->toDateString() : (string) ($grn->received_at ? Carbon::parse($grn->received_at)->toDateString() : '')));
+                if ($advDate === '' || $billDate === '' || $advDate !== $billDate) {
                     $coverageOk = false;
                     break 2;
                 }

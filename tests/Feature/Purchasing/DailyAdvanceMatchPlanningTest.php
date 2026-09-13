@@ -110,32 +110,124 @@ class DailyAdvanceMatchPlanningTest extends TestCase
         $this->assertSame($billGrn1->id, $plan['ready_bills'][0]['goods_received_id']);
     }
 
-    public function test_advances_received_before_or_on_selected_date_allowed_future_advances_blocked(): void
+    public function test_same_business_day_matching_strictly_enforced(): void
     {
         $selectedDate = '2026-09-11';
         $pastDate = '2026-09-08';
         $futureDate = '2026-09-12';
 
-        // Advance 1: past date -> eligible
-        $pastAdvance = $this->createAdvanceGrn($this->warehouseA, $this->apple, 50.0, $pastDate);
+        // Advance 1: past date -> strictly NOT eligible for today's bill
+        $this->createAdvanceGrn($this->warehouseA, $this->apple, 50.0, $pastDate);
 
-        // Advance 2: future date -> NOT eligible for selectedDate matching
-        $futureAdvance = $this->createAdvanceGrn($this->warehouseA, $this->apple, 100.0, $futureDate);
+        // Advance 2: future date -> strictly NOT eligible for today's bill
+        $this->createAdvanceGrn($this->warehouseA, $this->apple, 100.0, $futureDate);
 
         // Bill on selected date for 70 kg
         $billGrn = $this->createBillGrn($this->warehouseA, $this->apple, 70.0, $selectedDate);
 
         $plan = $this->planningService->buildDailyPlan($this->warehouseA->id, $selectedDate, null, 100, $this->adminUser->id);
 
-        // Should match only 50kg from pastAdvance, leaving 20kg partial remainder
-        $this->assertSame(1, $plan['summary']['partial_bills']);
-        $this->assertSame(50.0, (float) $plan['summary']['matched_base_qty']);
-        $this->assertCount(1, $plan['partial_bills']);
-        $this->assertSame(20.0, (float) $plan['partial_bills'][0]['remaining_base_qty']);
+        // No advance exists on 2026-09-11 -> bill is blocked as NO_ADVANCE
+        $this->assertSame(0, $plan['summary']['ready_bills']);
+        $this->assertSame(0, $plan['summary']['partial_bills']);
+        $this->assertSame(1, $plan['summary']['blocked_bills']);
+        $this->assertSame(0.0, (float) $plan['summary']['matched_base_qty']);
+        $this->assertCount(0, $plan['open_advances']);
+    }
 
-        // Open advances in plan should ONLY include pastAdvance
-        $this->assertCount(1, $plan['open_advances']);
-        $this->assertSame($pastAdvance->id, $plan['open_advances'][0]['id']);
+    public function test_range_plan_evaluates_each_business_day_independently(): void
+    {
+        $day1 = '2026-09-10';
+        $day2 = '2026-09-11';
+
+        // Day 1: Advance 40kg, Bill 40kg -> Full match on day 1
+        $this->createAdvanceGrn($this->warehouseA, $this->apple, 40.0, $day1);
+        $this->createBillGrn($this->warehouseA, $this->apple, 40.0, $day1);
+
+        // Day 2: Advance 30kg, Bill 50kg -> Partial match (30kg matched, 20kg remaining) on day 2
+        $this->createAdvanceGrn($this->warehouseA, $this->apple, 30.0, $day2);
+        $this->createBillGrn($this->warehouseA, $this->apple, 50.0, $day2);
+
+        $rangePlan = $this->planningService->buildRangePlan($this->warehouseA->id, $day1, $day2, null, 100, $this->adminUser->id);
+
+        $this->assertTrue($rangePlan['is_range']);
+        $this->assertSame(2, $rangePlan['summary']['total_bills_on_date']);
+        $this->assertSame(1, $rangePlan['summary']['ready_bills']);
+        $this->assertSame(1, $rangePlan['summary']['partial_bills']);
+        $this->assertSame(70.0, (float) $rangePlan['summary']['matched_base_qty']);
+    }
+
+    public function test_range_plan_sorting_options(): void
+    {
+        $day1 = '2026-09-10';
+        $day2 = '2026-09-11';
+
+        // Create records with distinct products and dates
+        $this->createAdvanceGrn($this->warehouseA, $this->apple, 10.0, $day1);
+        $this->createBillGrn($this->warehouseA, $this->apple, 10.0, $day1);
+
+        $this->createAdvanceGrn($this->warehouseA, $this->banana, 50.0, $day2);
+        $this->createBillGrn($this->warehouseA, $this->banana, 50.0, $day2);
+
+        // Sort by product ASC
+        $planProdAsc = $this->planningService->buildRangePlan(
+            $this->warehouseA->id,
+            $day1,
+            $day2,
+            null,
+            100,
+            $this->adminUser->id,
+            'product',
+            'asc'
+        );
+        $this->assertSame('Fresh Apple', $planProdAsc['ready_bills'][0]['product_name']);
+        $this->assertSame('Fresh Banana', $planProdAsc['ready_bills'][1]['product_name']);
+
+        // Sort by bill_qty DESC (numerical sort)
+        $planQtyDesc = $this->planningService->buildRangePlan(
+            $this->warehouseA->id,
+            $day1,
+            $day2,
+            null,
+            100,
+            $this->adminUser->id,
+            'bill_qty',
+            'desc'
+        );
+        $this->assertSame(50.0, (float) $planQtyDesc['ready_bills'][0]['bill_qty']);
+        $this->assertSame(10.0, (float) $planQtyDesc['ready_bills'][1]['bill_qty']);
+
+        // Invalid sort fallback
+        $planInvalid = $this->planningService->buildRangePlan(
+            $this->warehouseA->id,
+            $day1,
+            $day2,
+            null,
+            100,
+            $this->adminUser->id,
+            'invalid_column_name',
+            'invalid_dir'
+        );
+        // Defaults to business_date DESC (day2 then day1)
+        $this->assertSame($day2, $planInvalid['ready_bills'][0]['business_date']);
+        $this->assertSame($day1, $planInvalid['ready_bills'][1]['business_date']);
+    }
+
+    public function test_inventory_without_bills_grouping_and_age_calculation(): void
+    {
+        $selectedDate = '2026-09-11';
+
+        $adv = $this->createAdvanceGrn($this->warehouseA, $this->apple, 150.0, $selectedDate);
+
+        $plan = $this->planningService->buildDailyPlan($this->warehouseA->id, $selectedDate, null, 100, $this->adminUser->id);
+
+        $this->assertCount(1, $plan['inventory_without_bills']);
+        $unbilled = $plan['inventory_without_bills'][0];
+        $this->assertSame($this->apple->id, $unbilled['product_id']);
+        $this->assertSame(150.0, (float) $unbilled['received_qty']);
+        $this->assertSame(0.0, (float) $unbilled['matched_qty']);
+        $this->assertSame(150.0, (float) $unbilled['remaining_qty']);
+        $this->assertSame(0, $unbilled['age_days']);
     }
 
     public function test_same_product_required_no_cross_product_matching(): void
@@ -222,24 +314,6 @@ class DailyAdvanceMatchPlanningTest extends TestCase
         $this->assertSame(1, $planPage2['summary']['ready_bills']);
         $this->assertSame($bill3->id, $planPage2['ready_bills'][0]['goods_received_id']);
         $this->assertNull($planPage2['next_cursor']);
-    }
-
-    public function test_inventory_without_bills_grouping_and_age_calculation(): void
-    {
-        $selectedDate = '2026-09-11';
-        $pastDate = '2026-09-06'; // 5 days old
-
-        $adv = $this->createAdvanceGrn($this->warehouseA, $this->apple, 150.0, $pastDate);
-
-        $plan = $this->planningService->buildDailyPlan($this->warehouseA->id, $selectedDate, null, 100, $this->adminUser->id);
-
-        $this->assertCount(1, $plan['inventory_without_bills']);
-        $unbilled = $plan['inventory_without_bills'][0];
-        $this->assertSame($this->apple->id, $unbilled['product_id']);
-        $this->assertSame(150.0, (float) $unbilled['received_qty']);
-        $this->assertSame(0.0, (float) $unbilled['matched_qty']);
-        $this->assertSame(150.0, (float) $unbilled['remaining_qty']);
-        $this->assertSame(5, $unbilled['age_days']);
     }
 
     private function createAdvanceGrn(Warehouse $warehouse, Product $product, float $qty, string $date): GoodsReceived

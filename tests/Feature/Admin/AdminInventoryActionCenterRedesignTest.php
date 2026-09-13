@@ -7,6 +7,7 @@ namespace Tests\Feature\Admin;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Shop;
@@ -196,6 +197,287 @@ class AdminInventoryActionCenterRedesignTest extends TestCase
             ->assertSee('Tomato Local')
             ->assertSee('45.00')
             ->assertSee('No Bill Created');
+    }
+
+    public function test_shop_wise_grouping_groups_products_under_shop_cards_and_separates_shops(): void
+    {
+        $shop1 = Shop::factory()->create(['name' => 'Sana Outlet', 'code' => 'AV_SANA']);
+        $shop2 = Shop::factory()->create(['name' => 'GM Midland', 'code' => 'AV_GM_MIDLAND']);
+
+        $order1 = ShopOrder::factory()->create([
+            'shop_id' => $shop1->id,
+            'business_date' => now()->toDateString(),
+            'order_number' => 'ORD-SANA-01',
+        ]);
+
+        $order2 = ShopOrder::factory()->create([
+            'shop_id' => $shop2->id,
+            'business_date' => now()->toDateString(),
+            'order_number' => 'ORD-GMM-01',
+        ]);
+
+        // Shop 1 has 2 items
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order1->id,
+            'product_id' => $this->productA->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'unit' => 'KG',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 10.0,
+            'actual_weight' => 10.0,
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order1->id,
+            'product_id' => $this->productB->id,
+            'requested_qty' => 5.0,
+            'approved_qty' => 5.0,
+            'unit' => 'KG',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 5.0,
+            'actual_weight' => 5.0,
+        ]);
+
+        // Shop 2 has 1 item
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order2->id,
+            'product_id' => $this->productA->id,
+            'requested_qty' => 20.0,
+            'approved_qty' => 20.0,
+            'unit' => 'KG',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 20.0,
+            'actual_weight' => 20.0,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=loadout_without_bill');
+
+        $response->assertOk();
+        $response->assertSee('Sana Outlet');
+        $response->assertSee('AV_SANA');
+        $response->assertSee('2 Products Without Bill');
+        $response->assertSee('GM Midland');
+        $response->assertSee('AV_GM_MIDLAND');
+        $response->assertSee('1 Product Without Bill');
+
+        $response->assertViewHas('unbilledLoadoutsGrouped', function (array $grouped): bool {
+            $today = now()->toDateString();
+            $dateGroup = $grouped[$today] ?? null;
+            if (! $dateGroup) {
+                return false;
+            }
+
+            return count($dateGroup['shops']) === 2;
+        });
+    }
+
+    public function test_same_normalized_unit_stays_one_to_one_for_kg_piece_and_box(): void
+    {
+        $productPiece = Product::factory()->create([
+            'name' => 'Coconut',
+            'sku' => 'COC-01',
+            'unit' => 'piece',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+
+        $productBox = Product::factory()->create([
+            'name' => 'Apple Washington',
+            'sku' => 'APP-BOX',
+            'unit' => 'box',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+
+        $shop = Shop::factory()->create(['name' => 'Highland Store', 'code' => 'HL-01']);
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $shop->id,
+            'business_date' => now()->toDateString(),
+            'order_number' => 'ORD-HL-01',
+        ]);
+
+        // kg item
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->productA->id,
+            'requested_qty' => 3.0,
+            'approved_qty' => 3.0,
+            'unit' => 'kg',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 3.0,
+            'actual_weight' => 3.0,
+        ]);
+
+        // piece item (piece -> piece 1:1)
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $productPiece->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'unit' => 'piece',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 10.0,
+        ]);
+
+        // box item (box -> box 1:1)
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $productBox->id,
+            'requested_qty' => 4.0,
+            'approved_qty' => 4.0,
+            'unit' => 'box',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 4.0,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=loadout_without_bill');
+
+        $response->assertOk();
+        $response->assertSee('3.00');
+        $response->assertSee('10.00');
+        $response->assertSee('4.00');
+        // Ensure no false warning is rendered for same-unit items
+        $response->assertDontSee('Unit conversion not configured');
+    }
+
+    public function test_different_unit_with_configured_conversion_converts_correctly(): void
+    {
+        $product = Product::factory()->create([
+            'name' => 'Orange Sweet',
+            'sku' => 'ORG-SWT',
+            'unit' => 'kg',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+
+        // Configure unit conversion: 1 box = 15.0 kg
+        ProductUnit::create([
+            'product_id' => $product->id,
+            'unit' => 'box',
+            'label' => 'Box',
+            'conversion_to_base' => 15.0,
+            'is_base' => false,
+            'is_orderable' => true,
+            'sort_order' => 1,
+        ]);
+
+        $shop = Shop::factory()->create(['name' => 'Fresh Mart', 'code' => 'FM-01']);
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $shop->id,
+            'business_date' => now()->toDateString(),
+            'order_number' => 'ORD-FM-01',
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 2.0,
+            'approved_qty' => 2.0,
+            'unit' => 'box',
+            'requested_unit' => 'box',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 2.0,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=loadout_without_bill');
+
+        $response->assertOk();
+        $response->assertSee('2.00');
+        $response->assertSee('box');
+        $response->assertSee('≈ 30.00 kg');
+        $response->assertDontSee('Unit conversion not configured');
+    }
+
+    public function test_different_unit_without_conversion_preserves_original_unit_and_shows_warning(): void
+    {
+        $product = Product::factory()->create([
+            'name' => 'Dragon Fruit',
+            'sku' => 'DF-01',
+            'unit' => 'kg',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+
+        $shop = Shop::factory()->create(['name' => 'Exotic Mart', 'code' => 'EX-01']);
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $shop->id,
+            'business_date' => now()->toDateString(),
+            'order_number' => 'ORD-EX-01',
+        ]);
+
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 5.0,
+            'approved_qty' => 5.0,
+            'unit' => 'crate',
+            'requested_unit' => 'crate',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 5.0,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=loadout_without_bill');
+
+        $response->assertOk();
+        $response->assertSee('5.00');
+        $response->assertSee('crate');
+        $response->assertSee('Unit conversion not configured');
+    }
+
+    public function test_unlike_units_are_never_summed_together_in_card_totals(): void
+    {
+        $productPiece = Product::factory()->create([
+            'name' => 'Pineapple',
+            'sku' => 'PIN-01',
+            'unit' => 'piece',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+
+        $shop = Shop::factory()->create(['name' => 'Mega Shop', 'code' => 'MS-01']);
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $shop->id,
+            'business_date' => now()->toDateString(),
+            'order_number' => 'ORD-MS-01',
+        ]);
+
+        // 10 kg
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->productA->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'unit' => 'kg',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 10.0,
+            'actual_weight' => 10.0,
+        ]);
+
+        // 5 piece
+        ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $productPiece->id,
+            'requested_qty' => 5.0,
+            'approved_qty' => 5.0,
+            'unit' => 'piece',
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 5.0,
+        ]);
+
+        $response = $this->actingAs($this->admin)->get('/admin/cashbook/inventory?tab=loadout_without_bill');
+
+        $response->assertOk();
+        $response->assertViewHas('unbilledLoadoutsGrouped', function (array $grouped): bool {
+            $today = now()->toDateString();
+            $shop = $grouped[$today]['shops'][array_key_first($grouped[$today]['shops'])];
+            $unitTotals = $shop['unit_totals'];
+
+            // kg = 10, piece = 5
+            return ($unitTotals['kg'] ?? 0.0) === 10.0
+                && ($unitTotals['piece'] ?? 0.0) === 5.0
+                && count($unitTotals) === 2;
+        });
+
+        // 10 kg + 5 piece should NOT produce a merged 15.00 total
+        $response->assertSee('10.00');
+        $response->assertSee('5.00');
+        $response->assertSee('2 Products Without Bill');
     }
 
     public function test_inventory_tab_renders_and_preserves_sorting_and_search(): void

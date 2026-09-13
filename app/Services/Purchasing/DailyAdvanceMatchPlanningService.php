@@ -119,8 +119,8 @@ class DailyAdvanceMatchPlanningService
             }
         }
 
-        // 3. Pre-load all confirmed open advances for this warehouse where received_at <= selected date
-        // Advances received after selected date are strictly excluded from matching.
+        // 3. Pre-load all confirmed open advances for this warehouse strictly on the same business date
+        // Cross-date matching is strictly forbidden.
         $openAdvancesQuery = GoodsReceived::query()
             ->where(function (Builder $typeQuery): void {
                 $typeQuery->where('goods_received.receipt_type', 'warehouse_advance')
@@ -131,7 +131,7 @@ class DailyAdvanceMatchPlanningService
             })
             ->where('goods_received.status', 'approved')
             ->where('goods_received.bill_status', 'bill_pending')
-            ->whereDate('goods_received.received_at', '<=', $carbonDate)
+            ->whereDate('goods_received.received_at', $carbonDate)
             ->whereDoesntHave('purchaseInvoices')
             ->whereHas('stockBatches', function (Builder $batchQuery): void {
                 $batchQuery->where('warehouse_receive_pending', false);
@@ -507,13 +507,18 @@ class DailyAdvanceMatchPlanningService
             }
 
             // Categorize the Bill
+            $firstLine = $evaluatedLines[0] ?? [];
             $billData = [
                 'goods_received_id' => $billGrn->id,
                 'purchase_order_id' => $billGrn->purchase_order_id,
                 'grn_number' => $billGrn->grn_number ?? "GRN-{$billGrn->id}",
                 'po_number' => $poNumber,
                 'bill_date' => $billDateStr,
+                'business_date' => $billDateStr,
                 'supplier_name' => $supplierName,
+                'product_name' => $firstLine['product_name'] ?? '—',
+                'unit' => $firstLine['unit'] ?? '—',
+                'bill_qty' => (float) ($firstLine['quantity'] ?? 0.0),
                 'required_base_qty' => $billTotalRequiredBase,
                 'matched_base_qty' => $billTotalMatchedBase,
                 'remaining_base_qty' => $billTotalRemainingBase,
@@ -556,6 +561,7 @@ class DailyAdvanceMatchPlanningService
                     'advance_goods_received_item_id' => $s['advance_goods_received_item_id'],
                     'grn_number' => $s['grn_number'],
                     'received_at' => $s['received_at'],
+                    'business_date' => $carbonDate,
                     'product_id' => $s['product_id'],
                     'unit' => $s['unit'],
                     'conversion_to_base' => $s['conversion_to_base'],
@@ -631,6 +637,7 @@ class DailyAdvanceMatchPlanningService
         return [
             'warehouse_id' => $warehouseId,
             'bill_date' => $carbonDate,
+            'business_date' => $carbonDate,
             'cursor' => $cursor,
             'next_cursor' => $nextCursor,
             'batch_size' => $batchSize,
@@ -645,5 +652,224 @@ class DailyAdvanceMatchPlanningService
             'advance_allocations' => $advanceAllocations,
             'warnings' => $warnings,
         ];
+    }
+
+    /**
+     * Build deterministic daily auto-match plan for a date range, evaluating each date independently.
+     *
+     * @return array<string, mixed>
+     */
+    public function buildRangePlan(
+        int $warehouseId,
+        string $fromDate,
+        string $toDate,
+        ?int $cursor = null,
+        int $batchSize = 100,
+        ?int $userId = null,
+        ?string $sort = null,
+        ?string $direction = null
+    ): array {
+        $from = Carbon::parse($fromDate)->toDateString();
+        $to = Carbon::parse($toDate)->toDateString();
+        if ($from > $to) {
+            $tmp = $from;
+            $from = $to;
+            $to = $tmp;
+        }
+
+        // Generate list of dates in descending order (newest first)
+        $periodDates = [];
+        $curr = Carbon::parse($to);
+        $start = Carbon::parse($from);
+        while ($curr->gte($start)) {
+            $periodDates[] = $curr->toDateString();
+            $curr->subDay();
+        }
+
+        $allReadyBills = [];
+        $allPartialBills = [];
+        $allBlockedBills = [];
+        $allOpenAdvances = [];
+        $allInventoryWithoutBills = [];
+        $allAdvanceAllocations = [];
+        $allWarnings = [];
+        $dailyPlans = [];
+
+        $totalBillsCount = 0;
+        $batchBillsCount = 0;
+        $totalReadyBills = 0;
+        $totalPartialBills = 0;
+        $totalBlockedBills = 0;
+        $totalAdvancesFullyCleared = 0;
+        $totalAdvancesPartiallyCleared = 0;
+        $totalMatchedBaseQty = 0.0;
+
+        foreach ($periodDates as $d) {
+            $dayPlan = $this->buildDailyPlan($warehouseId, $d, $cursor, $batchSize, $userId);
+            $dailyPlans[$d] = $dayPlan;
+
+            $totalBillsCount += $dayPlan['summary']['total_bills_on_date'] ?? 0;
+            $batchBillsCount += $dayPlan['summary']['batch_bills_count'] ?? 0;
+            $totalReadyBills += $dayPlan['summary']['ready_bills'] ?? 0;
+            $totalPartialBills += $dayPlan['summary']['partial_bills'] ?? 0;
+            $totalBlockedBills += $dayPlan['summary']['blocked_bills'] ?? 0;
+            $totalAdvancesFullyCleared += $dayPlan['summary']['advances_fully_cleared'] ?? 0;
+            $totalAdvancesPartiallyCleared += $dayPlan['summary']['advances_partially_cleared'] ?? 0;
+            $totalMatchedBaseQty = round($totalMatchedBaseQty + ($dayPlan['summary']['matched_base_qty'] ?? 0.0), 3);
+
+            foreach ($dayPlan['ready_bills'] as $bill) {
+                $allReadyBills[] = $bill;
+            }
+            foreach ($dayPlan['partial_bills'] as $bill) {
+                $allPartialBills[] = $bill;
+            }
+            foreach ($dayPlan['blocked_bills'] as $bill) {
+                $allBlockedBills[] = $bill;
+            }
+            foreach ($dayPlan['open_advances'] as $adv) {
+                $adv['business_date'] = $d;
+                $allOpenAdvances[] = $adv;
+            }
+            foreach ($dayPlan['inventory_without_bills'] as $inv) {
+                $inv['business_date'] = $d;
+                $allInventoryWithoutBills[] = $inv;
+            }
+            foreach ($dayPlan['advance_allocations'] as $alloc) {
+                $allAdvanceAllocations[] = $alloc;
+            }
+            foreach ($dayPlan['warnings'] as $w) {
+                $allWarnings[] = $w;
+            }
+        }
+
+        // Apply sorting
+        $this->applySorting($allReadyBills, $sort, $direction);
+        $this->applySorting($allPartialBills, $sort, $direction);
+        $this->applySorting($allBlockedBills, $sort, $direction);
+        $this->applySorting($allOpenAdvances, $sort, $direction);
+        $planHash = count($dailyPlans) === 1
+            ? (string) reset($dailyPlans)['plan_hash']
+            : hash('sha256', (string) json_encode(array_map(fn ($p) => $p['plan_hash'], $dailyPlans)));
+
+        return [
+            'warehouse_id' => $warehouseId,
+            'from_date' => $from,
+            'to_date' => $to,
+            'bill_date' => $from === $to ? $from : "{$from} to {$to}",
+            'is_range' => $from !== $to,
+            'cursor' => $cursor,
+            'batch_size' => $batchSize,
+            'generated_at' => now()->toIso8601String(),
+            'plan_hash' => $planHash,
+            'daily_plans' => $dailyPlans,
+            'sort' => $sort,
+            'direction' => $direction,
+            'summary' => [
+                'total_bills_on_date' => $totalBillsCount,
+                'batch_bills_count' => $batchBillsCount,
+                'ready_bills' => count($allReadyBills),
+                'partial_bills' => count($allPartialBills),
+                'blocked_bills' => count($allBlockedBills),
+                'advances_fully_cleared' => $totalAdvancesFullyCleared,
+                'advances_partially_cleared' => $totalAdvancesPartiallyCleared,
+                'matched_base_qty' => $totalMatchedBaseQty,
+            ],
+            'ready_bills' => $allReadyBills,
+            'partial_bills' => $allPartialBills,
+            'blocked_bills' => $allBlockedBills,
+            'open_advances' => $allOpenAdvances,
+            'inventory_without_bills' => $allInventoryWithoutBills,
+            'advance_allocations' => $allAdvanceAllocations,
+            'warnings' => $allWarnings,
+        ];
+    }
+
+    /**
+     * Sort an array of plan records according to whitelisted sort fields and direction.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     */
+    public function applySorting(array &$items, ?string $sort = null, ?string $direction = null): void
+    {
+        $sort = strtolower(trim((string) $sort));
+        $direction = strtolower(trim((string) $direction)) === 'asc' ? 'asc' : 'desc';
+
+        // Whitelist mapping
+        $columnMap = [
+            'business_date' => 'business_date',
+            'date' => 'business_date',
+            'bill_date' => 'business_date',
+            'product' => 'product',
+            'product_name' => 'product',
+            'bill_po' => 'bill_po',
+            'po' => 'bill_po',
+            'po_number' => 'bill_po',
+            'grn_number' => 'bill_po',
+            'bill' => 'bill_po',
+            'bill_qty' => 'bill_qty',
+            'required_base_qty' => 'bill_qty',
+            'quantity' => 'bill_qty',
+            'advance_qty' => 'advance_qty',
+            'unbilled_base_qty' => 'advance_qty',
+            'matched_qty' => 'matched_qty',
+            'matched_base_qty' => 'matched_qty',
+            'remaining_qty' => 'remaining_qty',
+            'remaining_base_qty' => 'remaining_qty',
+            'unit' => 'unit',
+            'match_type' => 'status',
+            'status' => 'status',
+            'blocked_reason' => 'status',
+        ];
+
+        $effectiveSort = $columnMap[$sort] ?? 'business_date';
+
+        usort($items, function (array $a, array $b) use ($effectiveSort, $direction): int {
+            $valA = $this->extractSortValue($a, $effectiveSort);
+            $valB = $this->extractSortValue($b, $effectiveSort);
+
+            if ($valA === $valB) {
+                // Secondary tie-breaker: if sorting by business_date, secondary is product ASC; else business_date DESC
+                if ($effectiveSort === 'business_date') {
+                    $prodA = $this->extractSortValue($a, 'product');
+                    $prodB = $this->extractSortValue($b, 'product');
+
+                    return strcmp((string) $prodA, (string) $prodB);
+                }
+
+                $dateA = $this->extractSortValue($a, 'business_date');
+                $dateB = $this->extractSortValue($b, 'business_date');
+
+                return strcmp((string) $dateB, (string) $dateA);
+            }
+
+            if (is_numeric($valA) && is_numeric($valB)) {
+                $comp = ((float) $valA <=> (float) $valB);
+            } else {
+                $comp = strcmp((string) $valA, (string) $valB);
+            }
+
+            return $direction === 'asc' ? $comp : -$comp;
+        });
+    }
+
+    /**
+     * Helper to extract a sortable value from a plan item.
+     *
+     * @param  array<string, mixed>  $item
+     */
+    private function extractSortValue(array $item, string $field): mixed
+    {
+        return match ($field) {
+            'business_date' => $item['business_date'] ?? $item['bill_date'] ?? $item['received_at'] ?? '',
+            'product' => $item['product_name'] ?? $item['lines'][0]['product_name'] ?? $item['items'][0]['product_name'] ?? '',
+            'bill_po' => $item['po_number'] ?? $item['grn_number'] ?? $item['advance_grn_number'] ?? '',
+            'bill_qty' => (float) ($item['required_base_qty'] ?? $item['received_qty'] ?? $item['lines'][0]['quantity'] ?? 0.0),
+            'advance_qty' => (float) ($item['unbilled_base_qty'] ?? $item['received_qty'] ?? $item['initial_available_base_qty'] ?? 0.0),
+            'matched_qty' => (float) ($item['matched_base_qty'] ?? $item['matched_qty'] ?? 0.0),
+            'remaining_qty' => (float) ($item['remaining_base_qty'] ?? $item['remaining_qty'] ?? $item['remaining_unmatched_base_qty'] ?? 0.0),
+            'unit' => $item['unit'] ?? $item['lines'][0]['unit'] ?? $item['items'][0]['unit'] ?? '',
+            'status' => $item['match_type'] ?? $item['blocked_reason'] ?? $item['status'] ?? '',
+            default => '',
+        };
     }
 }

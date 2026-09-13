@@ -21,7 +21,7 @@
                 <form method="POST" action="{{ route('purchasing.invoices.store') }}" class="p-6 space-y-6">
                     @csrf
                     <input type="hidden" name="goods_received_id" value="{{ $grn->id }}">
-                    <input type="hidden" name="supplier_id" value="{{ $grn->purchaseOrder->supplier_id }}">
+                    <input type="hidden" name="supplier_id" value="{{ $grn->purchaseOrder?->supplier_id }}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
                         <div class="space-y-1.5">
@@ -57,6 +57,19 @@
                                 <option value="paid" {{ old('status') === 'paid' ? 'selected' : '' }}>Paid</option>
                             </select>
                             @error('status') <p class="text-red-600 text-xs mt-1">{{ $message }}</p> @enderror
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="payment_method" class="block text-sm font-medium text-gray-700">Payment Method <span class="text-red-500">*</span></label>
+                            <select id="payment_method" name="payment_method" required
+                                    class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 @error('payment_method') border-red-300 @enderror">
+                                <option value="Bank Transfer" {{ old('payment_method') === 'Bank Transfer' ? 'selected' : '' }}>Bank Transfer</option>
+                                <option value="Cash" {{ old('payment_method') === 'Cash' ? 'selected' : '' }}>Cash</option>
+                                <option value="Credit" {{ old('payment_method') === 'Credit' ? 'selected' : '' }}>Credit</option>
+                                <option value="UPI" {{ old('payment_method') === 'UPI' ? 'selected' : '' }}>UPI</option>
+                                <option value="Cheque" {{ old('payment_method') === 'Cheque' ? 'selected' : '' }}>Cheque</option>
+                            </select>
+                            @error('payment_method') <p class="text-red-600 text-xs mt-1">{{ $message }}</p> @enderror
                         </div>
                     </div>
 
@@ -95,16 +108,21 @@
                     <span class="text-gray-900 font-medium text-right">{{ $grn->received_at->format('Y-m-d') }}</span>
 
                     <span class="text-gray-500">PO Number</span>
-                    <a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="text-brand-600 font-mono font-bold text-right hover:underline">
-                        {{ $grn->purchaseOrder->po_number }}
-                    </a>
+                    @if($grn->purchaseOrder)
+                        <a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="text-brand-600 font-mono font-bold text-right hover:underline">
+                            {{ $grn->purchaseOrder->po_number }}
+                        </a>
 
-                    <span class="text-gray-500">PO Total Amount</span>
-                    <span class="text-gray-900 font-semibold text-right">INR {{ number_format($grn->purchaseOrder->total_amount, 2) }}</span>
+                        <span class="text-gray-500">PO Total Amount</span>
+                        <span class="text-gray-900 font-semibold text-right">INR {{ number_format($grn->purchaseOrder->total_amount, 2) }}</span>
+                    @else
+                        <span class="text-gray-500 font-medium text-right">Warehouse Advance (No PO)</span>
+                    @endif
                 </div>
             </div>
 
             {{-- Supplier summary Card --}}
+            @if($grn->purchaseOrder && $grn->purchaseOrder->supplier)
             <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Supplier</h3>
                 <div class="flex items-center gap-3">
@@ -121,6 +139,7 @@
                     <span class="text-gray-800 font-medium text-right">{{ $grn->purchaseOrder->supplier->payment_terms }}</span>
                 </div>
             </div>
+            @endif
 
             {{-- Items Breakdown --}}
             <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">

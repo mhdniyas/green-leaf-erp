@@ -27,6 +27,9 @@ class AdminDailyAutoMatchController extends Controller
     /**
      * Render the Daily Auto Match dashboard page.
      */
+    /**
+     * Render the Daily Auto Match dashboard page.
+     */
     public function index(Request $request): View
     {
         $this->ensureAuthorized($request);
@@ -50,38 +53,49 @@ class AdminDailyAutoMatchController extends Controller
             $selectedWarehouseId = (int) ($availableWarehouses->first()?->id ?? 0);
         }
 
-        $selectedDate = $request->filled('date')
-            ? Carbon::parse((string) $request->input('date'))->toDateString()
-            : today()->toDateString();
+        [$selectedFromDate, $selectedToDate] = $this->resolveDateRange($request);
+        $selectedDate = $selectedFromDate;
+
+        $sort = (string) $request->input('sort', 'business_date');
+        $direction = strtolower((string) $request->input('direction', 'desc')) === 'asc' ? 'asc' : 'desc';
 
         $cursor = $request->filled('cursor') ? (int) $request->input('cursor') : null;
         $batchSize = 100;
 
-        // 2. Build Daily Plan
+        // 2. Build Range Plan (evaluates each business day independently)
         $plan = null;
         if ($selectedWarehouseId > 0) {
-            $plan = $this->planningService->buildDailyPlan(
+            $plan = $this->planningService->buildRangePlan(
                 $selectedWarehouseId,
-                $selectedDate,
+                $selectedFromDate,
+                $selectedToDate,
                 $cursor,
                 $batchSize,
-                $user->id
+                $user->id,
+                $sort,
+                $direction
             );
         }
 
-        // 3. Query Recent Run History
+        // 3. Query Recent Run History across selected date period
         $recentRuns = DailyAdvanceMatchRun::query()
             ->when($selectedWarehouseId > 0, fn ($q) => $q->where('warehouse_id', $selectedWarehouseId))
-            ->whereDate('bill_date', $selectedDate)
+            ->whereDate('bill_date', '>=', $selectedFromDate)
+            ->whereDate('bill_date', '<=', $selectedToDate)
             ->with(['requestedBy:id,name'])
             ->latest()
-            ->limit(10)
+            ->limit(20)
             ->get();
 
         return view('admin.cashbook.reports.daily-auto-match', [
             'availableWarehouses' => $availableWarehouses,
             'selectedWarehouseId' => $selectedWarehouseId,
             'selectedDate' => $selectedDate,
+            'selectedFromDate' => $selectedFromDate,
+            'selectedToDate' => $selectedToDate,
+            'isDateRange' => $selectedFromDate !== $selectedToDate,
+            'sort' => $sort,
+            'direction' => $direction,
             'cursor' => $cursor,
             'batchSize' => $batchSize,
             'plan' => $plan,
@@ -99,7 +113,11 @@ class AdminDailyAutoMatchController extends Controller
 
         $validated = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'date' => ['required', 'date'],
+            'date' => ['nullable', 'date'],
+            'from_date' => ['nullable', 'date'],
+            'to_date' => ['nullable', 'date'],
+            'sort' => ['nullable', 'string'],
+            'direction' => ['nullable', 'string', 'in:asc,desc,ASC,DESC'],
             'cursor' => ['nullable', 'integer', 'min:0'],
             'batch_size' => ['nullable', 'integer', 'min:1', 'max:200'],
         ]);
@@ -110,16 +128,21 @@ class AdminDailyAutoMatchController extends Controller
             abort(403, 'Unauthorized warehouse access.');
         }
 
-        $billDate = Carbon::parse((string) $validated['date'])->toDateString();
+        [$fromDate, $toDate] = $this->resolveDateRange($request);
+        $sort = $validated['sort'] ?? 'business_date';
+        $direction = isset($validated['direction']) && strtolower($validated['direction']) === 'asc' ? 'asc' : 'desc';
         $cursor = isset($validated['cursor']) ? (int) $validated['cursor'] : null;
         $batchSize = isset($validated['batch_size']) ? (int) $validated['batch_size'] : 100;
 
-        $plan = $this->planningService->buildDailyPlan(
+        $plan = $this->planningService->buildRangePlan(
             $warehouseId,
-            $billDate,
+            $fromDate,
+            $toDate,
             $cursor,
             $batchSize,
-            (int) $request->user()->id
+            (int) $request->user()->id,
+            $sort,
+            $direction
         );
 
         return response()->json([
@@ -137,7 +160,9 @@ class AdminDailyAutoMatchController extends Controller
 
         $validated = $request->validate([
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'date' => ['required', 'date'],
+            'date' => ['nullable', 'date'],
+            'from_date' => ['nullable', 'date'],
+            'to_date' => ['nullable', 'date'],
             'plan_hash' => ['required', 'string', 'size:64', 'regex:/^[a-f0-9]{64}$/i'],
             'client_submission_id' => ['required', 'string', 'uuid'],
             'cursor' => ['nullable', 'integer', 'min:0'],
@@ -150,13 +175,14 @@ class AdminDailyAutoMatchController extends Controller
             abort(403, 'Unauthorized warehouse access.');
         }
 
-        $billDate = Carbon::parse((string) $validated['date'])->toDateString();
+        [$fromDate, $toDate] = $this->resolveDateRange($request);
         $cursor = isset($validated['cursor']) ? (int) $validated['cursor'] : null;
         $batchSize = isset($validated['batch_size']) ? (int) $validated['batch_size'] : 100;
 
-        $result = $this->executionService->execute(
+        $result = $this->executionService->executeRange(
             $warehouseId,
-            $billDate,
+            $fromDate,
+            $toDate,
             (string) $validated['plan_hash'],
             (string) $validated['client_submission_id'],
             (int) $request->user()->id,
@@ -185,6 +211,38 @@ class AdminDailyAutoMatchController extends Controller
             'message' => 'Daily auto match completed successfully.',
             'data' => $result,
         ]);
+    }
+
+    /**
+     * Resolve from_date and to_date from request supporting backwards compatibility with date=.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function resolveDateRange(Request $request): array
+    {
+        if ($request->filled('from_date')) {
+            $fromDate = Carbon::parse((string) $request->input('from_date'))->toDateString();
+            $toDate = $request->filled('to_date')
+                ? Carbon::parse((string) $request->input('to_date'))->toDateString()
+                : $fromDate;
+        } elseif ($request->filled('date')) {
+            $fromDate = Carbon::parse((string) $request->input('date'))->toDateString();
+            $toDate = $fromDate;
+        } elseif ($request->filled('to_date')) {
+            $toDate = Carbon::parse((string) $request->input('to_date'))->toDateString();
+            $fromDate = $toDate;
+        } else {
+            $fromDate = today()->toDateString();
+            $toDate = $fromDate;
+        }
+
+        if ($fromDate > $toDate) {
+            $tmp = $fromDate;
+            $fromDate = $toDate;
+            $toDate = $tmp;
+        }
+
+        return [$fromDate, $toDate];
     }
 
     /**

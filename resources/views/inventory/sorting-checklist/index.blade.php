@@ -162,7 +162,7 @@
                                     <div class="min-w-0">
                                         <p class="text-xs font-black text-slate-800">{{ $grn->grn_number }}</p>
                                         <p class="mt-0.5 text-[10px] font-semibold text-slate-500">
-                                            {{ $grn->purchaseOrder->po_number }} · {{ $grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier' }}
+                                            {{ $grn->purchaseOrder?->po_number ?? 'Warehouse Advance' }} · {{ $grn->purchaseOrder?->supplier?->name ?? 'No Supplier' }}
                                         </p>
                                     </div>
                                     <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $statusClasses }}">

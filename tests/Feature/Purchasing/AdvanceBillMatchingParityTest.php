@@ -128,7 +128,7 @@ class AdvanceBillMatchingParityTest extends TestCase
         return $advGrn->fresh(['items', 'stockBatches']);
     }
 
-    private function createPendingBillGrn(Product $product, float $qty, string $unit = 'kg', string $date = '2026-09-09'): GoodsReceived
+    private function createPendingBillGrn(Product $product, float $qty, string $unit = 'kg', string $date = '2026-09-08'): GoodsReceived
     {
         $po = PurchaseOrder::create([
             'warehouse_id' => $this->warehouse->id,
@@ -353,9 +353,9 @@ class AdvanceBillMatchingParityTest extends TestCase
 
     public function test_parity_partial_match_multiple_advances(): void
     {
-        $adv1 = $this->createAdvanceGrn($this->tomato, 5.0, 'kg', '2026-09-07');
+        $adv1 = $this->createAdvanceGrn($this->tomato, 5.0, 'kg', '2026-09-08');
         $adv2 = $this->createAdvanceGrn($this->tomato, 6.0, 'kg', '2026-09-08');
-        $bill = $this->createPendingBillGrn($this->tomato, 15.0, 'kg', '2026-09-09');
+        $bill = $this->createPendingBillGrn($this->tomato, 15.0, 'kg', '2026-09-08');
 
         // Manual candidate suggestions
         $manualSuggestions = $this->reconService->getSuggestionsForGrn($bill->fresh());
@@ -386,9 +386,9 @@ class AdvanceBillMatchingParityTest extends TestCase
 
     public function test_parity_multiple_bill_grns_consuming_one_advance(): void
     {
-        $adv = $this->createAdvanceGrn($this->tomato, 10.0, 'kg', '2026-09-07');
+        $adv = $this->createAdvanceGrn($this->tomato, 10.0, 'kg', '2026-09-08');
         $bill1 = $this->createPendingBillGrn($this->tomato, 6.0, 'kg', '2026-09-08');
-        $bill2 = $this->createPendingBillGrn($this->tomato, 8.0, 'kg', '2026-09-09');
+        $bill2 = $this->createPendingBillGrn($this->tomato, 8.0, 'kg', '2026-09-08');
 
         $plan = $this->plannerService->buildAutoClearPlan($this->warehouse->id, $this->adminUser->id);
         $this->assertEquals(2, $plan['summary']['ready_bills']);
@@ -418,7 +418,7 @@ class AdvanceBillMatchingParityTest extends TestCase
     {
         // Tomato in 'box' when product default unit is 'kg' and no ProductUnit configured
         $adv = $this->createAdvanceGrn($this->tomato, 5.0, 'box', '2026-09-08');
-        $bill = $this->createPendingBillGrn($this->tomato, 5.0, 'kg', '2026-09-09');
+        $bill = $this->createPendingBillGrn($this->tomato, 5.0, 'kg', '2026-09-08');
 
         // Auto Match Preview must NOT use loose conversion box -> kg = 1
         $plan = $this->plannerService->buildAutoClearPlan($this->warehouse->id, $this->adminUser->id);
@@ -444,7 +444,7 @@ class AdvanceBillMatchingParityTest extends TestCase
         // Advance: 1 box (= 10 kg)
         $adv = $this->createAdvanceGrn($this->tomato, 1.0, 'box', '2026-09-08');
         // Bill: 10 kg
-        $bill = $this->createPendingBillGrn($this->tomato, 10.0, 'kg', '2026-09-09');
+        $bill = $this->createPendingBillGrn($this->tomato, 10.0, 'kg', '2026-09-08');
 
         $plan = $this->plannerService->buildAutoClearPlan($this->warehouse->id, $this->adminUser->id);
         $this->assertEquals(1, $plan['summary']['ready_bills']);
@@ -459,8 +459,8 @@ class AdvanceBillMatchingParityTest extends TestCase
 
     public function test_parity_already_partially_matched_bill(): void
     {
-        $adv1 = $this->createAdvanceGrn($this->tomato, 5.0, 'kg', '2026-09-07');
-        $bill = $this->createPendingBillGrn($this->tomato, 12.0, 'kg', '2026-09-09');
+        $adv1 = $this->createAdvanceGrn($this->tomato, 5.0, 'kg', '2026-09-08');
+        $bill = $this->createPendingBillGrn($this->tomato, 12.0, 'kg', '2026-09-08');
 
         // Reconcile 5 kg first manually
         $billItem = $bill->items->first();
@@ -492,7 +492,7 @@ class AdvanceBillMatchingParityTest extends TestCase
         $billRemaining = $this->balanceCalculator->calculateBillItemRemainingBase($billItem->fresh());
         $this->assertEquals(7.0, $billRemaining);
 
-        // Now create another advance of 10 kg
+        // Now create another advance of 10 kg on same date
         $adv2 = $this->createAdvanceGrn($this->tomato, 10.0, 'kg', '2026-09-08');
 
         // Auto Match Preview should match remaining 7.0 kg of the bill with adv2
@@ -509,5 +509,72 @@ class AdvanceBillMatchingParityTest extends TestCase
         // Adv2 has 3.0 kg remaining
         $adv2Balances = $this->balanceCalculator->calculateItemAvailableBase($adv2);
         $this->assertEquals(3.0, (float) $adv2Balances[$adv2->items->first()->id]);
+    }
+
+    public function test_cross_business_day_advance_and_bill_never_match(): void
+    {
+        // Advance on Sep 11
+        $adv = $this->createAdvanceGrn($this->tomato, 10.0, 'kg', '2026-09-11');
+        // Bill on Sep 12
+        $bill = $this->createPendingBillGrn($this->tomato, 10.0, 'kg', '2026-09-12');
+
+        // Planner should NEVER match across different business days
+        $plan = $this->plannerService->buildAutoClearPlan($this->warehouse->id, $this->adminUser->id);
+        $this->assertEquals(0, $plan['summary']['ready_bills']);
+        $this->assertEquals(0.0, $plan['summary']['matched_base_qty']);
+
+        // Bill should remain in skipped/unmatched
+        $this->assertNotEmpty($plan['skipped_bills']);
+        $this->assertEquals('NO_ADVANCE', $plan['skipped_bills'][0]['lines'][0]['unmatched_reason']);
+    }
+
+    public function test_yesterdays_advance_is_never_consumed_by_todays_bill(): void
+    {
+        // Yesterday's advance (Sep 11)
+        $yesterdayAdv = $this->createAdvanceGrn($this->tomato, 10.0, 'kg', '2026-09-11');
+        // Today's advance (Sep 12)
+        $todayAdv = $this->createAdvanceGrn($this->tomato, 3.0, 'kg', '2026-09-12');
+        // Today's bill (Sep 12) for 8 kg
+        $todayBill = $this->createPendingBillGrn($this->tomato, 8.0, 'kg', '2026-09-12');
+
+        $plan = $this->plannerService->buildAutoClearPlan($this->warehouse->id, $this->adminUser->id);
+        $this->assertEquals(1, $plan['summary']['ready_bills']);
+        // Only today's 3.0 kg advance is matched, yesterday's 10 kg is NOT touched
+        $this->assertEquals(3.0, $plan['summary']['matched_base_qty']);
+
+        $exec = $this->execService->execute($this->warehouse->id, $plan['plan_hash'], (string) Str::uuid(), $this->adminUser->id);
+        $this->assertEquals(3.0, $exec['summary']['matched_base_qty']);
+
+        // Yesterday's advance balance is completely intact (10.0 kg)
+        $yesterdayBalances = $this->balanceCalculator->calculateItemAvailableBase($yesterdayAdv);
+        $this->assertEquals(10.0, (float) $yesterdayBalances[$yesterdayAdv->items->first()->id]);
+
+        // Today's advance is fully consumed (0.0 kg remaining)
+        $todayBalances = $this->balanceCalculator->calculateItemAvailableBase($todayAdv);
+        $this->assertEquals(0.0, (float) $todayBalances[$todayAdv->items->first()->id]);
+    }
+
+    public function test_multiple_same_day_advances_use_fifo(): void
+    {
+        // Same-day Advance A: 2 kg
+        $advA = $this->createAdvanceGrn($this->tomato, 2.0, 'kg', '2026-09-12');
+        // Same-day Advance B: 3 kg
+        $advB = $this->createAdvanceGrn($this->tomato, 3.0, 'kg', '2026-09-12');
+        // Same-day Bill: 4 kg
+        $bill = $this->createPendingBillGrn($this->tomato, 4.0, 'kg', '2026-09-12');
+
+        $plan = $this->plannerService->buildAutoClearPlan($this->warehouse->id, $this->adminUser->id);
+        $this->assertEquals(1, $plan['summary']['ready_bills']);
+        $this->assertEquals(4.0, $plan['summary']['matched_base_qty']);
+
+        $exec = $this->execService->execute($this->warehouse->id, $plan['plan_hash'], (string) Str::uuid(), $this->adminUser->id);
+        $this->assertEquals(4.0, $exec['summary']['matched_base_qty']);
+
+        // FIFO: AdvA is consumed first (2 kg -> 0 remaining), AdvB supplies remainder (2 of 3 kg -> 1 remaining)
+        $advABalances = $this->balanceCalculator->calculateItemAvailableBase($advA);
+        $this->assertEquals(0.0, (float) $advABalances[$advA->items->first()->id]);
+
+        $advBBalances = $this->balanceCalculator->calculateItemAvailableBase($advB);
+        $this->assertEquals(1.0, (float) $advBBalances[$advB->items->first()->id]);
     }
 }

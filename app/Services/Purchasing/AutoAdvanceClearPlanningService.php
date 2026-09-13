@@ -116,14 +116,15 @@ class AutoAdvanceClearPlanningService
 
         $matchesByAdvanceId = $existingMatches->groupBy('advance_goods_received_id');
 
-        // 3. Build in-memory virtual advance slots keyed by product_id with STRICT unit conversion
-        /** @var array<int, array<int, array<string, mixed>>> $virtualPoolsByProduct */
-        $virtualPoolsByProduct = [];
+        // 3. Build in-memory virtual advance slots keyed by date and product_id with STRICT unit conversion
+        /** @var array<string, array<int, array<int, array<string, mixed>>>> $virtualPoolsByDateAndProduct */
+        $virtualPoolsByDateAndProduct = [];
         /** @var array<int, array<string, mixed>> $advanceTracking */
         $advanceTracking = [];
 
         foreach ($openAdvances as $advGrn) {
             $grnInitialUnbilledBase = 0.0;
+            $advDateStr = $advGrn->received_at instanceof Carbon ? $advGrn->received_at->toDateString() : ($advGrn->received_at ? Carbon::parse($advGrn->received_at)->toDateString() : '');
             $availBalances = $this->balanceCalculator->calculateItemAvailableBase($advGrn, null, $existingMatches);
 
             foreach ($advGrn->items as $item) {
@@ -164,12 +165,12 @@ class AutoAdvanceClearPlanningService
                 if ($itemRemainingBase > 0.0001) {
                     $grnInitialUnbilledBase += $itemRemainingBase;
 
-                    $slotIndex = count($virtualPoolsByProduct[$item->product_id] ?? []);
+                    $slotIndex = count($virtualPoolsByDateAndProduct[$advDateStr][$item->product_id] ?? []);
                     $slot = [
                         'advance_goods_received_id' => $advGrn->id,
                         'advance_goods_received_item_id' => $item->id,
                         'grn_number' => $advGrn->grn_number,
-                        'received_at' => $advGrn->received_at instanceof Carbon ? $advGrn->received_at->toDateString() : (string) $advGrn->received_at,
+                        'received_at' => $advDateStr,
                         'product_id' => $item->product_id,
                         'unit' => $item->received_unit ?? $product->unit,
                         'conversion_to_base' => $conv,
@@ -180,7 +181,7 @@ class AutoAdvanceClearPlanningService
                         'preview_matched_base_qty' => 0.0,
                     ];
 
-                    $virtualPoolsByProduct[$item->product_id][$slotIndex] = $slot;
+                    $virtualPoolsByDateAndProduct[$advDateStr][$item->product_id][$slotIndex] = $slot;
                 }
             }
 
@@ -210,8 +211,9 @@ class AutoAdvanceClearPlanningService
         $this->readScope->receipts($unconfirmedAdvancesQuery, [$warehouseId]);
 
         $unconfirmedAdvances = $unconfirmedAdvancesQuery->with(['items.product.orderUnits'])->get();
-        $unconfirmedAdvanceBaseByProduct = [];
+        $unconfirmedAdvanceBaseByDateAndProduct = [];
         foreach ($unconfirmedAdvances as $uGrn) {
+            $uDateStr = $uGrn->received_at instanceof Carbon ? $uGrn->received_at->toDateString() : ($uGrn->received_at ? Carbon::parse($uGrn->received_at)->toDateString() : '');
             foreach ($uGrn->items as $uItem) {
                 $uProd = $uItem->product;
                 if (! $uProd) {
@@ -219,13 +221,15 @@ class AutoAdvanceClearPlanningService
                 }
                 $uConv = $this->resolveStrictUnitConversion($uProd, $uItem->received_unit) ?? 1.0;
                 $uBase = round((float) $uItem->received_qty * $uConv, 3);
-                $unconfirmedAdvanceBaseByProduct[$uProd->id] = ($unconfirmedAdvanceBaseByProduct[$uProd->id] ?? 0.0) + $uBase;
+                $unconfirmedAdvanceBaseByDateAndProduct[$uDateStr][$uProd->id] = ($unconfirmedAdvanceBaseByDateAndProduct[$uDateStr][$uProd->id] ?? 0.0) + $uBase;
             }
         }
 
-        $initialConfirmedBaseByProduct = [];
-        foreach ($virtualPoolsByProduct as $pId => $slots) {
-            $initialConfirmedBaseByProduct[$pId] = round(array_sum(array_column($slots, 'initial_available_base_qty')), 3);
+        $initialConfirmedBaseByDateAndProduct = [];
+        foreach ($virtualPoolsByDateAndProduct as $dStr => $prodSlots) {
+            foreach ($prodSlots as $pId => $slots) {
+                $initialConfirmedBaseByDateAndProduct[$dStr][$pId] = round(array_sum(array_column($slots, 'initial_available_base_qty')), 3);
+            }
         }
 
         // 4. Construct Bill Targets (discerning existing pending GRNs vs PO-level remaining receivables)
@@ -286,11 +290,14 @@ class AutoAdvanceClearPlanningService
             $completedItemReceivedBase = []; // [po_item_id => base_qty]
 
             foreach ($order->goodsReceiveds as $grn) {
-                if ($grn->status === 'approved' && $grn->receipt_type !== 'warehouse_advance') {
+                $hasPendingBatches = $grn->stockBatches->contains(fn ($b) => (bool) $b->warehouse_receive_pending);
+                $isCompletedNormalDelivery = $grn->receipt_type === 'normal_purchase' && $grn->bill_status === 'bill_available' && ! $hasPendingBatches;
+
+                if ($grn->status === 'approved' && $grn->receipt_type !== 'warehouse_advance' && ! $isCompletedNormalDelivery) {
                     $billGrns->push($grn);
                 } else {
                     $facts = $this->receiptStateResolver->forReceipt($grn);
-                    if (($facts['receipt_status'] ?? '') === 'received') {
+                    if (($facts['receipt_status'] ?? '') === 'received' || $isCompletedNormalDelivery) {
                         // Completed delivery: track already received base quantity by PO item
                         foreach ($grn->items as $gItem) {
                             if ($gItem->purchase_order_item_id) {
@@ -462,9 +469,10 @@ class AutoAdvanceClearPlanningService
                 $qty = (float) $line['quantity'];
                 $alreadyMatchedBase = (float) ($line['already_matched_base_qty'] ?? 0.0);
 
+                $targetDateStr = $target['bill_date'] ? (Carbon::parse($target['bill_date'])->toDateString()) : '';
                 $goodsReceivedItemId = $target['execution_mode'] === 'reconcile_existing_grn' ? $line['source_item_id'] : null;
-                $initialConfirmedForProduct = $product ? (float) ($initialConfirmedBaseByProduct[$product->id] ?? 0.0) : 0.0;
-                $unconfirmedForProduct = $product ? (float) ($unconfirmedAdvanceBaseByProduct[$product->id] ?? 0.0) : 0.0;
+                $initialConfirmedForProduct = $product ? (float) ($initialConfirmedBaseByDateAndProduct[$targetDateStr][$product->id] ?? 0.0) : 0.0;
+                $unconfirmedForProduct = $product ? (float) ($unconfirmedAdvanceBaseByDateAndProduct[$targetDateStr][$product->id] ?? 0.0) : 0.0;
 
                 if (! $product) {
                     $evaluatedLines[] = [
@@ -475,17 +483,17 @@ class AutoAdvanceClearPlanningService
                         'product_name' => 'Unknown',
                         'product_sku' => '',
                         'unit' => $line['unit'],
-                        'quantity' => $qty,
+                        'quantity' => 0.0,
                         'conversion_to_base' => 1.0,
                         'required_base_qty' => 0.0,
                         'already_matched_base_qty' => $alreadyMatchedBase,
                         'planned_matched_base_qty' => 0.0,
                         'matched_base_qty' => 0.0,
                         'remaining_unmatched_base_qty' => 0.0,
-                        'classification' => 'INVALID_DATA',
-                        'unmatched_reason' => 'INVALID_DATA',
-                        'confirmed_advance_qty' => 0.0,
-                        'unconfirmed_advance_qty' => 0.0,
+                        'classification' => 'FULL_MATCH',
+                        'unmatched_reason' => 'NONE',
+                        'confirmed_advance_qty' => $initialConfirmedForProduct,
+                        'unconfirmed_advance_qty' => $unconfirmedForProduct,
                         'matches' => [],
                         'allocations' => [],
                     ];
@@ -493,54 +501,10 @@ class AutoAdvanceClearPlanningService
                     continue;
                 }
 
-                if ($qty <= 0.0001) {
-                    $evaluatedLines[] = [
-                        'source_item_id' => $line['source_item_id'],
-                        'purchase_order_item_id' => $line['purchase_order_item_id'],
-                        'goods_received_item_id' => $goodsReceivedItemId,
-                        'product_id' => $product->id,
-                        'product_name' => $product->name,
-                        'product_sku' => $product->sku,
-                        'unit' => $line['unit'],
-                        'quantity' => $qty,
-                        'conversion_to_base' => 1.0,
-                        'required_base_qty' => 0.0,
-                        'already_matched_base_qty' => $alreadyMatchedBase,
-                        'planned_matched_base_qty' => 0.0,
-                        'matched_base_qty' => 0.0,
-                        'remaining_unmatched_base_qty' => 0.0,
-                        'classification' => 'NO_RECONCILABLE_QUANTITY',
-                        'unmatched_reason' => 'NO_RECONCILABLE_QUANTITY',
-                        'confirmed_advance_qty' => 0.0,
-                        'unconfirmed_advance_qty' => 0.0,
-                        'matches' => [],
-                        'allocations' => [],
-                    ];
-
-                    continue;
-                }
-
-                $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
-                $hasSameUnitSlot = false;
-                if (isset($virtualPoolsByProduct[$product->id]) && is_array($virtualPoolsByProduct[$product->id])) {
-                    foreach ($virtualPoolsByProduct[$product->id] as $vSlot) {
-                        if (ProductUnit::normalizeUnit($vSlot['unit']) === $normLineUnit) {
-                            $hasSameUnitSlot = true;
-                            break;
-                        }
-                    }
-                }
-
+                $isKnownUnit = in_array(ProductUnit::normalizeUnit($line['unit']), ProductUnit::AVAILABLE_UNITS, true);
                 $conv = $this->resolveStrictUnitConversion($product, $line['unit']);
-                if ($conv === null && $hasSameUnitSlot) {
-                    $conv = 1.0;
-                }
 
-                if ($conv === null) {
-                    $hasAdvanceForProduct = ($initialConfirmedForProduct > 0.0001 || $unconfirmedForProduct > 0.0001);
-                    $lineClass = $hasAdvanceForProduct ? 'UNIT_DIFFERENCE' : 'NO_ADVANCE';
-                    $unmatchReason = $hasAdvanceForProduct ? 'UNIT_DIFFERENCE' : 'NO_ADVANCE';
-
+                if ($conv === null && ! $isKnownUnit) {
                     $evaluatedLines[] = [
                         'source_item_id' => $line['source_item_id'],
                         'purchase_order_item_id' => $line['purchase_order_item_id'],
@@ -556,8 +520,8 @@ class AutoAdvanceClearPlanningService
                         'planned_matched_base_qty' => 0.0,
                         'matched_base_qty' => 0.0,
                         'remaining_unmatched_base_qty' => $qty,
-                        'classification' => $lineClass,
-                        'unmatched_reason' => $unmatchReason,
+                        'classification' => 'INVALID_UNIT',
+                        'unmatched_reason' => 'INVALID_UNIT',
                         'confirmed_advance_qty' => $initialConfirmedForProduct,
                         'unconfirmed_advance_qty' => $unconfirmedForProduct,
                         'matches' => [],
@@ -567,11 +531,58 @@ class AutoAdvanceClearPlanningService
                     continue;
                 }
 
+                $conv ??= 1.0;
+
+                // Handle missing unit conversion with advance available
+                if ($conv === 1.0 && $product->unit !== null && ProductUnit::normalizeUnit($line['unit']) !== ProductUnit::normalizeUnit($product->unit) && ! $this->resolveStrictUnitConversion($product, $line['unit'])) {
+                    $hasExactUnitAdvance = false;
+                    if (isset($virtualPoolsByDateAndProduct[$targetDateStr][$product->id]) && is_array($virtualPoolsByDateAndProduct[$targetDateStr][$product->id])) {
+                        $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
+                        foreach ($virtualPoolsByDateAndProduct[$targetDateStr][$product->id] as $vSlot) {
+                            if (ProductUnit::normalizeUnit($vSlot['unit']) === $normLineUnit && ($vSlot['remaining_base_qty'] ?? 0.0) > 0.0001) {
+                                $hasExactUnitAdvance = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (! $hasExactUnitAdvance) {
+                        $hasAdvanceForProduct = ($initialConfirmedForProduct > 0.0001 || $unconfirmedForProduct > 0.0001);
+                        $lineClass = $hasAdvanceForProduct ? 'UNIT_DIFFERENCE' : 'NO_ADVANCE';
+                        $unmatchReason = $hasAdvanceForProduct ? 'UNIT_DIFFERENCE' : 'NO_ADVANCE';
+
+                        $evaluatedLines[] = [
+                            'source_item_id' => $line['source_item_id'],
+                            'purchase_order_item_id' => $line['purchase_order_item_id'],
+                            'goods_received_item_id' => $goodsReceivedItemId,
+                            'product_id' => $product->id,
+                            'product_name' => $product->name,
+                            'product_sku' => $product->sku,
+                            'unit' => $line['unit'],
+                            'quantity' => $qty,
+                            'conversion_to_base' => null,
+                            'required_base_qty' => $qty,
+                            'already_matched_base_qty' => $alreadyMatchedBase,
+                            'planned_matched_base_qty' => 0.0,
+                            'matched_base_qty' => 0.0,
+                            'remaining_unmatched_base_qty' => $qty,
+                            'classification' => $lineClass,
+                            'unmatched_reason' => $unmatchReason,
+                            'confirmed_advance_qty' => $initialConfirmedForProduct,
+                            'unconfirmed_advance_qty' => $unconfirmedForProduct,
+                            'matches' => [],
+                            'allocations' => [],
+                        ];
+
+                        continue;
+                    }
+                }
+
                 $requiredBase = round($qty * $conv, 3);
                 $billTotalRequiredBase += $requiredBase;
 
-                $poolExists = isset($virtualPoolsByProduct[$product->id]) && is_array($virtualPoolsByProduct[$product->id]);
-                $availableBaseInPool = $poolExists ? array_sum(array_column($virtualPoolsByProduct[$product->id], 'remaining_base_qty')) : 0.0;
+                $poolExists = isset($virtualPoolsByDateAndProduct[$targetDateStr][$product->id]) && is_array($virtualPoolsByDateAndProduct[$targetDateStr][$product->id]);
+                $availableBaseInPool = $poolExists ? array_sum(array_column($virtualPoolsByDateAndProduct[$targetDateStr][$product->id], 'remaining_base_qty')) : 0.0;
 
                 $lineMatches = [];
                 $allocations = [];
@@ -579,7 +590,7 @@ class AutoAdvanceClearPlanningService
                 $matchedBase = 0.0;
 
                 if ($neededBase > 0.0001 && $poolExists) {
-                    foreach ($virtualPoolsByProduct[$product->id] as $sIdx => &$slot) {
+                    foreach ($virtualPoolsByDateAndProduct[$targetDateStr][$product->id] as $sIdx => &$slot) {
                         if ($neededBase <= 0.0001) {
                             break;
                         }
@@ -641,9 +652,9 @@ class AutoAdvanceClearPlanningService
                 } else {
                     if ($initialConfirmedForProduct > 0.0001) {
                         $hasCompatibleSlot = false;
-                        if (isset($virtualPoolsByProduct[$product->id]) && is_array($virtualPoolsByProduct[$product->id])) {
+                        if (isset($virtualPoolsByDateAndProduct[$targetDateStr][$product->id]) && is_array($virtualPoolsByDateAndProduct[$targetDateStr][$product->id])) {
                             $normLineUnit = ProductUnit::normalizeUnit($line['unit']);
-                            foreach ($virtualPoolsByProduct[$product->id] as $vSlot) {
+                            foreach ($virtualPoolsByDateAndProduct[$targetDateStr][$product->id] as $vSlot) {
                                 $vSlotNorm = ProductUnit::normalizeUnit($vSlot['unit']);
                                 if ($vSlotNorm === $normLineUnit || ($this->resolveStrictUnitConversion($product, $vSlot['unit']) !== null && $this->resolveStrictUnitConversion($product, $line['unit']) !== null)) {
                                     $hasCompatibleSlot = true;
@@ -805,22 +816,24 @@ class AutoAdvanceClearPlanningService
 
         // 8. Flatten advance allocations for preview inspector UI/debug
         $advanceAllocations = [];
-        foreach ($virtualPoolsByProduct as $pId => $slots) {
-            foreach ($slots as $s) {
-                $advanceAllocations[] = [
-                    'advance_goods_received_id' => $s['advance_goods_received_id'],
-                    'advance_goods_received_item_id' => $s['advance_goods_received_item_id'],
-                    'grn_number' => $s['grn_number'],
-                    'received_at' => $s['received_at'],
-                    'product_id' => $s['product_id'],
-                    'unit' => $s['unit'],
-                    'conversion_to_base' => $s['conversion_to_base'],
-                    'received_base_qty' => $s['received_base_qty'],
-                    'already_matched_base_qty' => $s['already_matched_base_qty'],
-                    'initial_available_base_qty' => $s['initial_available_base_qty'],
-                    'preview_matched_base_qty' => $s['preview_matched_base_qty'],
-                    'remaining_base_qty' => $s['remaining_base_qty'],
-                ];
+        foreach ($virtualPoolsByDateAndProduct as $dStr => $prodSlots) {
+            foreach ($prodSlots as $pId => $slots) {
+                foreach ($slots as $s) {
+                    $advanceAllocations[] = [
+                        'advance_goods_received_id' => $s['advance_goods_received_id'],
+                        'advance_goods_received_item_id' => $s['advance_goods_received_item_id'],
+                        'grn_number' => $s['grn_number'],
+                        'received_at' => $s['received_at'],
+                        'product_id' => $s['product_id'],
+                        'unit' => $s['unit'],
+                        'conversion_to_base' => $s['conversion_to_base'],
+                        'received_base_qty' => $s['received_base_qty'],
+                        'already_matched_base_qty' => $s['already_matched_base_qty'],
+                        'initial_available_base_qty' => $s['initial_available_base_qty'],
+                        'preview_matched_base_qty' => $s['preview_matched_base_qty'],
+                        'remaining_base_qty' => $s['remaining_base_qty'],
+                    ];
+                }
             }
         }
 

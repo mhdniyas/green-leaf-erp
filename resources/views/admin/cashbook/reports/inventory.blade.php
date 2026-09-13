@@ -538,6 +538,24 @@
                             <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
                             <span>Match All{{ ($summary['ready_to_match_count'] ?? 0) > 0 ? ' (' . $summary['ready_to_match_count'] . ')' : '' }}</span>
                         </button>
+                        @if(($dailyPendingAdvancesCount ?? 0) > 0 && !empty($whatsappSharePendingUrl))
+                            <a href="{{ $whatsappSharePendingUrl }}"
+                               target="_blank"
+                               rel="noopener"
+                               title="Share {{ $dailyPendingAdvancesCount }} pending advance bill(s) to WhatsApp"
+                               class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all shadow-xs cursor-pointer">
+                                <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+                                <span>WhatsApp — Pending Bills</span>
+                            </a>
+                        @else
+                            <button type="button"
+                                    disabled
+                                    title="No pending Advance bills for this day."
+                                    class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-200 text-slate-400 text-xs font-black transition-all shadow-xs cursor-not-allowed">
+                                <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+                                <span>WhatsApp — Pending Bills</span>
+                            </button>
+                        @endif
                     </div>
                 </div>
 
@@ -724,9 +742,13 @@
         <!-- ────────────────────────────────────────────────────────────────── -->
         <!-- TAB 3: LOADOUT WITHOUT BILL (DISPATCHED EXCEPTIONS)                -->
         <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
+        <!-- TAB 3: LOADOUT WITHOUT BILL (SHOP-WISE CARDS)                      -->
+        <!-- ────────────────────────────────────────────────────────────────── -->
         @elseif(in_array($tab, ['loadout_without_bill', 'unbilled_loadout'], true))
-            <div class="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden space-y-4">
-                <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="space-y-6">
+                {{-- Header Card --}}
+                <div class="rounded-3xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                         <h2 class="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                             <i data-lucide="truck" class="w-4 h-4 text-rose-600"></i>
@@ -737,15 +759,15 @@
                         </p>
                     </div>
 
-                    @if($unbilledLoadouts)
+                    @if($unbilledLoadouts && $unbilledLoadouts->total() > 0)
                         <span class="text-xs font-bold text-slate-400 self-start sm:self-auto">
                             Showing {{ $unbilledLoadouts->firstItem() ?? 0 }}–{{ $unbilledLoadouts->lastItem() ?? 0 }} of {{ $unbilledLoadouts->total() }} exceptions
                         </span>
                     @endif
                 </div>
 
-                @if(!$unbilledLoadouts || $unbilledLoadouts->isEmpty())
-                    <div class="p-12 text-center">
+                @if(empty($unbilledLoadoutsGrouped) || ($unbilledLoadouts && $unbilledLoadouts->isEmpty()))
+                    <div class="rounded-3xl border border-slate-200/90 bg-white p-12 text-center shadow-xs">
                         <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
                             <i data-lucide="check-circle-2" class="w-6 h-6"></i>
                         </div>
@@ -753,55 +775,121 @@
                         <p class="text-xs text-slate-500 mt-1">All dispatched loadout items on this date are covered by bills or advances.</p>
                     </div>
                 @else
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="border-b border-slate-100 bg-slate-50/75 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    <th class="p-3.5 pl-5">Date</th>
-                                    <th class="p-3.5">Shop</th>
-                                    <th class="p-3.5">Product</th>
-                                    <th class="p-3.5 text-right font-black text-rose-900">Loaded Qty</th>
-                                    <th class="p-3.5 text-center pr-5">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-xs">
-                                @foreach($unbilledLoadouts as $row)
-                                    @php
-                                        $bDate = \Carbon\Carbon::parse($row->business_date)->format('d M Y');
-                                    @endphp
-                                    <tr class="hover:bg-slate-50/60 transition-colors">
-                                        <td class="p-3.5 pl-5 font-bold text-slate-600 text-xs whitespace-nowrap">
-                                            {{ $bDate }}
-                                        </td>
-                                        <td class="p-3.5 font-black text-slate-900">
-                                            <span>{{ $row->shop_name }}</span>
-                                            @if(!empty($row->shop_code))
-                                                <span class="block text-[10px] font-mono text-slate-400">{{ $row->shop_code }}</span>
-                                            @endif
-                                        </td>
-                                        <td class="p-3.5 font-black text-slate-900">
-                                            <span>{{ $row->product_name }}</span>
-                                            @if(!empty($row->product_sku))
-                                                <span class="block text-[10px] font-mono text-slate-400">{{ $row->product_sku }}</span>
-                                            @endif
-                                        </td>
-                                        <td class="p-3.5 text-right font-mono font-black text-rose-900 text-sm">
-                                            {{ number_format((float) $row->loaded_qty, 2) }} <span class="text-[10px] text-rose-400">{{ $row->product_unit ?? 'KG' }}</span>
-                                        </td>
-                                        <td class="p-3.5 text-center pr-5">
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-rose-50 text-rose-800 border border-rose-200">
-                                                No Bill Created
-                                            </span>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
+                    @foreach($unbilledLoadoutsGrouped as $dateKey => $dateGroup)
+                        <div class="space-y-4">
+                            {{-- Date Grouping Header --}}
+                            <div class="flex items-center justify-between gap-3 px-1">
+                                <div class="flex items-center gap-2.5">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-rose-500"></div>
+                                    <h3 class="text-sm font-black text-slate-900 tracking-tight">
+                                        {{ $dateGroup['formatted_date'] }}
+                                    </h3>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                        {{ count($dateGroup['shops']) }} {{ Str::plural('Shop', count($dateGroup['shops'])) }}
+                                    </span>
+                                </div>
+                            </div>
 
-                    <div class="p-4 border-t border-slate-100">
-                        {{ $unbilledLoadouts->links() }}
-                    </div>
+                            {{-- Shop-wise Cards Responsive Grid (Desktop: 2-3 per row, Mobile: 1 per row) --}}
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
+                                @foreach($dateGroup['shops'] as $shopCard)
+                                    <div class="rounded-2xl border border-slate-200/90 bg-white shadow-xs overflow-hidden flex flex-col justify-between hover:border-slate-300 transition-all">
+                                        {{-- Shop Header --}}
+                                        <div class="p-4 bg-slate-50/80 border-b border-slate-100 flex items-start justify-between gap-2">
+                                            <div class="min-w-0 flex-1">
+                                                <div class="flex items-center gap-2 flex-wrap">
+                                                    <h4 class="text-sm font-black text-slate-900 truncate">
+                                                        {{ $shopCard['shop_name'] }}
+                                                    </h4>
+                                                    @if(!empty($shopCard['shop_code']))
+                                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200/70 text-slate-700">
+                                                            {{ $shopCard['shop_code'] }}
+                                                        </span>
+                                                    @endif
+                                                </div>
+                                                @if(!empty($shopCard['order_numbers']))
+                                                    <p class="text-[10px] font-mono text-slate-400 mt-0.5 truncate">
+                                                        {{ implode(', ', $shopCard['order_numbers']) }}
+                                                    </p>
+                                                @endif
+                                            </div>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/80 whitespace-nowrap shrink-0">
+                                                {{ $shopCard['product_count'] }} {{ Str::plural('Product', $shopCard['product_count']) }} Without Bill
+                                            </span>
+                                        </div>
+
+                                        {{-- Shop Products Table --}}
+                                        <div class="p-0 flex-1 divide-y divide-slate-100 overflow-x-auto">
+                                            <table class="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr class="bg-slate-50/40 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                                                        <th class="py-2 px-3.5">Product</th>
+                                                        <th class="py-2 px-3 text-right">Loaded Qty</th>
+                                                        <th class="py-2 px-3 text-center">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-slate-100 text-xs">
+                                                    @foreach($shopCard['items'] as $item)
+                                                        <tr class="hover:bg-slate-50/60 transition-colors">
+                                                            <td class="py-2.5 px-3.5">
+                                                                <span class="font-bold text-slate-800 block text-xs leading-snug">{{ $item['product_name'] }}</span>
+                                                                @if(!empty($item['product_sku']))
+                                                                    <span class="font-mono text-[10px] text-slate-400 block">{{ $item['product_sku'] }}</span>
+                                                                @endif
+                                                            </td>
+                                                            <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                                                                <div class="font-mono font-black text-rose-900 text-xs sm:text-sm">
+                                                                    {{ number_format((float) $item['loaded_qty'], 2) }}
+                                                                    <span class="text-[10px] text-rose-500 font-bold uppercase">{{ $item['unit'] }}</span>
+                                                                </div>
+                                                                @if($item['converted_base_qty'] !== null)
+                                                                    <span class="block text-[10px] font-mono text-slate-400">
+                                                                        ≈ {{ number_format((float) $item['converted_base_qty'], 2) }} {{ $item['base_unit'] }}
+                                                                    </span>
+                                                                @endif
+                                                                @if(!empty($item['unit_warning']))
+                                                                    <span class="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded mt-0.5">
+                                                                        <i data-lucide="alert-triangle" class="w-2.5 h-2.5 shrink-0"></i>
+                                                                        <span>{{ $item['unit_warning'] }}</span>
+                                                                    </span>
+                                                                @endif
+                                                            </td>
+                                                            <td class="py-2.5 px-3 text-center whitespace-nowrap">
+                                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200">
+                                                                    {{ $item['status'] }}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        {{-- Card Footer (Separated Unit Totals) --}}
+                                        <div class="p-3 bg-slate-50/90 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total:</span>
+                                                @foreach($shopCard['unit_totals'] as $u => $tot)
+                                                    <span class="inline-flex items-center gap-1 font-mono font-black text-slate-800 bg-white border border-slate-200 px-2 py-0.5 rounded text-[11px]">
+                                                        {{ number_format((float) $tot, 2) }} <span class="text-[9px] font-bold text-slate-400 uppercase">{{ $u }}</span>
+                                                    </span>
+                                                @endforeach
+                                            </div>
+                                            <span class="text-[10px] font-bold text-slate-400 text-right">
+                                                {{ $shopCard['product_count'] }} {{ Str::plural('Product', $shopCard['product_count']) }} Without Bill
+                                            </span>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endforeach
+
+                    @if($unbilledLoadouts && $unbilledLoadouts->hasPages())
+                        <div class="p-4 rounded-3xl border border-slate-200/90 bg-white shadow-xs">
+                            {{ $unbilledLoadouts->links() }}
+                        </div>
+                    @endif
                 @endif
             </div>
 
