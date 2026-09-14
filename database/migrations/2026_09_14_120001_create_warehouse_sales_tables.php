@@ -73,8 +73,8 @@ return new class extends Migration
                 $table->timestamp('received_at')->nullable();
                 $table->timestamps();
 
-                $table->index(['warehouse_sale_id', 'payment_method']);
-                $table->index(['money_holder_type', 'money_holder_user_id']);
+                $table->index(['warehouse_sale_id', 'payment_method'], 'wsp_sale_pay_method_idx');
+                $table->index(['money_holder_type', 'money_holder_user_id'], 'wsp_holder_user_idx');
             });
         }
     }
