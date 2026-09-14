@@ -1939,8 +1939,97 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $cart = $item->cart()->where('user_id', $request->user()->id)->where('status', 'draft')->firstOrFail();
-        $item->delete();
+        $result = DB::transaction(function () use ($request, $item): array {
+            $cartItem = PurchaserCartItem::query()
+                ->whereKey($item->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $cart = PurchaserCart::query()
+                ->whereKey($cartItem->purchaser_cart_id)
+                ->where('user_id', $request->user()->id)
+                ->whereIn('status', ['draft', 'submitted'])
+                ->with('goodsReceived')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $cartItems = $cart->items()->lockForUpdate()->get();
+
+            if ($cart->status === 'submitted') {
+                if ($cartItems->count() <= 1) {
+                    throw ValidationException::withMessages([
+                        'item' => 'A processed bill must keep at least one item. Cancel the bill if the whole bill is incorrect.',
+                    ]);
+                }
+
+                if ($cart->goodsReceived?->status === 'approved') {
+                    throw ValidationException::withMessages([
+                        'item' => 'Items cannot be removed after the warehouse receipt is approved. Use the audited correction flow.',
+                    ]);
+                }
+
+                $invoice = PurchaseInvoice::query()
+                    ->whereKey($cart->purchase_invoice_id)
+                    ->where('purchaser_cart_id', $cart->id)
+                    ->with(['payments', 'vendorSettlementAllocations'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $remainingGross = round((float) $cartItems
+                    ->reject(fn (PurchaserCartItem $cartLine): bool => $cartLine->is($cartItem))
+                    ->sum(fn (PurchaserCartItem $cartLine): float => (float) $cartLine->quantity * (float) $cartLine->unit_price), 2);
+                $remainingNet = round(max(0, $remainingGross - min($remainingGross, (float) $invoice->discount_amount)), 2);
+                $recordedPaid = max(
+                    (float) $invoice->paid_amount,
+                    (float) $invoice->payments->sum('amount'),
+                    (float) $invoice->vendorSettlementAllocations->sum('total_settled'),
+                );
+
+                if ($recordedPaid > $remainingNet + 0.01) {
+                    throw ValidationException::withMessages([
+                        'item' => 'This item cannot be removed because the remaining bill would be lower than recorded payments or settlements.',
+                    ]);
+                }
+
+                $before = [
+                    'item_id' => $cartItem->getKey(),
+                    'product_id' => $cartItem->product_id,
+                    'quantity' => (float) $cartItem->quantity,
+                    'unit_price' => (float) $cartItem->unit_price,
+                    'line_total' => (float) $cartItem->line_total,
+                ];
+
+                $cartItem->delete();
+                $correction = app(PurchaseInvoiceService::class)->fixCalculationError($invoice);
+
+                activity()
+                    ->performedOn($invoice)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'action' => 'processed_bill_item_removed',
+                        'before' => $before,
+                        'after' => $correction['after'],
+                    ])
+                    ->log('invoice.item_removed');
+
+                return ['cart' => $cart, 'message' => 'Processed bill item removed and totals recalculated.'];
+            }
+
+            $cartItem->delete();
+
+            return ['cart' => $cart, 'message' => 'Vendor cart item removed.'];
+        });
+
+        $cart = $result['cart'];
+
+        if ($cart->status === 'submitted') {
+            return $this->redirectAfterMutation(
+                $request->string('return_to')->toString(),
+                $cart->business_date,
+                $cart,
+                $result['message'],
+            );
+        }
 
         if ($cart->items()->count() === 0) {
             $cart->delete();
@@ -1963,7 +2052,7 @@ class PurchaserDashboardController extends Controller
             $request->string('return_to')->toString(),
             $cart->business_date,
             $cart,
-            'Vendor cart item removed.'
+            $result['message']
         );
     }
 
