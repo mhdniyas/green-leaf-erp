@@ -461,13 +461,13 @@ class WarehouseSalesTest extends TestCase
         $this->assertEquals($this->productA->id, $movement->product_id);
     }
 
-    public function test_sale_cannot_exceed_available_inventory_and_blocks_negative_stock(): void
+    public function test_sale_is_allowed_even_when_quantity_exceeds_available_stock(): void
     {
         $this->seedStock($this->productA, 20.0, $this->warehouse);
 
         $this->actingAs($this->salesUser);
 
-        // Attempt to sell 25 kg when only 20 kg available
+        // Sell 25 kg when only 20 kg available - allowed, stock goes negative
         $response = $this->post(route('warehouse.sales.store'), [
             'warehouse_id' => $this->warehouse->id,
             'customer_name' => 'Over Buyer',
@@ -485,11 +485,10 @@ class WarehouseSalesTest extends TestCase
             ],
         ]);
 
-        $response->assertSessionHasErrors();
+        $response->assertSessionHasNoErrors();
 
-        // Ensure no sale or movement was created
-        $this->assertDatabaseCount('warehouse_sales', 0);
-        $this->assertDatabaseMissing('stock_movements', [
+        $this->assertDatabaseCount('warehouse_sales', 1);
+        $this->assertDatabaseHas('stock_movements', [
             'type' => StockMovementType::Sale->value,
         ]);
     }

@@ -201,15 +201,7 @@ class WarehouseSaleService
                     ]);
                 }
 
-                // Authoritative Stock Check inside Transaction with Locking
-                $availableStock = $this->stockLedgerService->availableStockForProduct($productId, $warehouse->id, $grade);
-
-                if ($availableStock < ($qty - 0.0001)) {
-                    $availableFormatted = number_format($availableStock, 2);
-                    throw ValidationException::withMessages([
-                        "items.{$idx}.qty" => "Insufficient stock for {$product->name}. Requested {$qty} {$unit}, but only {$availableFormatted} {$unit} available.",
-                    ]);
-                }
+                // Stock check skipped — sales are allowed even when stock is 0 (stock can go negative).
 
                 $lineTotal = round($qty * $unitPrice, 2);
                 $subtotal += $lineTotal;
@@ -278,12 +270,7 @@ class WarehouseSaleService
                     $item['grade']
                 );
 
-                // If for any concurrency reason consumed quantity was less than requested, roll back
-                if ($consumed < ($item['qty'] - 0.0001)) {
-                    throw ValidationException::withMessages([
-                        'items' => "Insufficient stock to complete sale for {$item['product']->name}.",
-                    ]);
-                }
+                // Note: consumed may be 0 if no stock batches exist; negative stock is allowed.
 
                 // Associate the newly created stock movements with this warehouse sale item
                 StockMovement::query()

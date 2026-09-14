@@ -1012,13 +1012,13 @@ function submitSale() {
             }
             showEl('pay-error', msg);
             btn.disabled = false;
-            btn.textContent = 'CONFIRM SALE & PAYMENT';
+            btn.textContent = 'CONFIRM & RECORD RECEIPT';
         }
     })
     .catch(function(e){
         showEl('pay-error', 'Network error: ' + e.message);
         btn.disabled = false;
-        btn.textContent = 'CONFIRM SALE & PAYMENT';
+        btn.textContent = 'CONFIRM & RECORD RECEIPT';
     });
 }
 
