@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaserReportService
 {
-    private const INCLUDED_STATUSES = ['generated', 'delivery_review', 'finalized', 'payment_pending', 'paid'];
+    private const INCLUDED_STATUSES = ['open', 'generated', 'delivery_review', 'finalized', 'payment_pending', 'paid'];
 
     /**
      * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids?:?array<int, int>}  $filters
