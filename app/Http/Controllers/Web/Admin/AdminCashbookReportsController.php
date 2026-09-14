@@ -1953,12 +1953,11 @@ class AdminCashbookReportsController extends Controller
             }
         }
 
-        return collect($rows)
-            ->sortBy([
-                ['product_name', 'asc'],
-                ['unit', 'asc'],
-            ])
-            ->values();
+        return collect($rows)->sortBy(function (array $row): string {
+            $sku = (string) ($row['product_code'] ?: ($row['sku'] ?? ''));
+
+            return Product::sortableSku($sku);
+        })->values();
     }
 
     /**

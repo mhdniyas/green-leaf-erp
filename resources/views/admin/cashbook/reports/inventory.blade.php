@@ -31,7 +31,7 @@
             matchFilter: 'all',
             perPage: 50,
             currentPage: 1,
-            sortColumn: 'product_name',
+            sortColumn: 'product_code',
             sortDirection: 'asc',
             date: '{{ $date }}',
             formattedDate: '{{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}',
@@ -75,10 +75,32 @@
                 if (this.sortColumn) {
                     list = [...list].sort((a, b) => {
                         let res = 0;
-                        if (this.sortColumn === 'product_name') {
-                            const nameA = ((a.product_code || a.sku || '') + ' ' + (a.product_name || '')).toLowerCase();
-                            const nameB = ((b.product_code || b.sku || '') + ' ' + (b.product_name || '')).toLowerCase();
+                        if (this.sortColumn === 'product_code' || this.sortColumn === 'code' || this.sortColumn === 'sku') {
+                            const codeA = String(a.product_code || a.sku || '').trim();
+                            const codeB = String(b.product_code || b.sku || '').trim();
+                            const isNumA = /^\d+$/.test(codeA);
+                            const isNumB = /^\d+$/.test(codeB);
+                            if (isNumA && isNumB) {
+                                res = parseInt(codeA, 10) - parseInt(codeB, 10);
+                            } else if (isNumA && !isNumB) {
+                                res = -1;
+                            } else if (!isNumA && isNumB) {
+                                res = 1;
+                            } else {
+                                res = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+                            }
+                            if (res === 0) {
+                                res = (a.product_name || '').localeCompare(b.product_name || '');
+                            }
+                        } else if (this.sortColumn === 'product_name') {
+                            const nameA = (a.product_name || '').toLowerCase();
+                            const nameB = (b.product_name || '').toLowerCase();
                             res = nameA.localeCompare(nameB);
+                            if (res === 0) {
+                                const codeA = String(a.product_code || a.sku || '').trim();
+                                const codeB = String(b.product_code || b.sku || '').trim();
+                                res = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+                            }
                         } else if (this.sortColumn === 'advance_qty') {
                             res = (Number(a.advance_qty) || 0) - (Number(b.advance_qty) || 0);
                         } else if (this.sortColumn === 'bill_qty') {
@@ -675,8 +697,17 @@
                 <table class="w-full text-left border-collapse text-xs">
                     <thead>
                         <tr class="border-b border-slate-200 bg-slate-50/80 select-none">
-                            <th scope="col" class="py-3 px-3 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-center w-14">
-                                Sl No
+                            <th scope="col" class="py-3 px-3 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-center w-12">
+                                #
+                            </th>
+                            <th scope="col" @click="sortBy('product_code')" class="py-3 px-3 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-left cursor-pointer hover:bg-slate-100/80 transition w-24">
+                                <div class="flex items-center gap-1.5">
+                                    <span>Code</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none">
+                                        <span :class="sortColumn === 'product_code' && sortDirection === 'asc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'product_code' && sortDirection === 'desc' ? 'text-emerald-600 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
                             </th>
                             <th scope="col" @click="sortBy('product_name')" class="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-[11px] text-left cursor-pointer hover:bg-slate-100/80 transition">
                                 <div class="flex items-center gap-1.5">
@@ -744,15 +775,20 @@
                                 <td class="py-2.5 px-3 text-center font-mono text-slate-400 font-bold"
                                     x-text="(perPage === 'all' ? 0 : (currentPage - 1) * Number(perPage)) + index + 1"></td>
 
-                                <!-- Product Code + Name -->
+                                <!-- Code -->
+                                <td class="py-2.5 px-3 font-mono text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                                    <template x-if="row.product_code || row.sku">
+                                        <span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200"
+                                              x-text="row.product_code || row.sku"></span>
+                                    </template>
+                                    <template x-if="!row.product_code && !row.sku">
+                                        <span class="text-slate-300">—</span>
+                                    </template>
+                                </td>
+
+                                <!-- Product Name -->
                                 <td class="py-2.5 px-4 font-semibold text-slate-900">
-                                    <div class="flex items-center gap-1.5 flex-wrap">
-                                        <template x-if="row.product_code || row.sku">
-                                            <span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-black border border-slate-200"
-                                                  x-text="row.product_code || row.sku"></span>
-                                        </template>
-                                        <span x-text="row.product_name"></span>
-                                    </div>
+                                    <span x-text="row.product_name"></span>
                                 </td>
 
                                 <!-- Advance -->
@@ -838,7 +874,7 @@
                         </template>
 
                         <tr x-show="filteredRows.length === 0">
-                            <td colspan="8" class="py-8 text-center text-slate-400 font-semibold">
+                            <td colspan="9" class="py-8 text-center text-slate-400 font-semibold">
                                 <span x-show="search">No products matching "<span x-text="search"></span>".</span>
                                 <span x-show="!search">No receipts or advance entries recorded for {{ \Carbon\Carbon::parse($date)->format('d M Y') }}.</span>
                             </td>
