@@ -252,6 +252,17 @@
                                         Update Qty, Price & Total
                                     </button>
                                 </form>
+                                @if ((float) $cart->purchaseInvoice->paid_amount <= 0 && $cart->goodsReceived?->status !== 'approved')
+                                    <form action="{{ route('purchaser.invoices.destroy', $cart->purchaseInvoice) }}" method="POST" class="mt-2" onsubmit="return confirm('Cancel this bill? This action is audited and cannot be undone.');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <input type="hidden" name="tab" value="pending">
+                                        <input type="hidden" name="cancellation_note" value="Cancelled by purchaser from vendor bill view.">
+                                        <button type="submit" class="inline-flex h-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-[10px] font-black text-rose-700 hover:bg-rose-100">
+                                            Cancel Bill
+                                        </button>
+                                    </form>
+                                @endif
                             @else
                                 <div class="space-y-1">
                                     @foreach ($cart->items as $item)
@@ -441,6 +452,17 @@
                                         Update Qty, Price & Total
                                     </button>
                                 </form>
+                                @if ((float) $cart->purchaseInvoice->paid_amount <= 0 && $cart->goodsReceived?->status !== 'approved')
+                                    <form action="{{ route('purchaser.invoices.destroy', $cart->purchaseInvoice) }}" method="POST" class="mt-2" onsubmit="return confirm('Cancel this bill? This action is audited and cannot be undone.');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <input type="hidden" name="tab" value="completed">
+                                        <input type="hidden" name="cancellation_note" value="Cancelled by purchaser from vendor bill view.">
+                                        <button type="submit" class="inline-flex h-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-[10px] font-black text-rose-700 hover:bg-rose-100">
+                                            Cancel Bill
+                                        </button>
+                                    </form>
+                                @endif
                             @else
                                 <div class="space-y-1">
                                     @foreach ($cart->items as $item)
