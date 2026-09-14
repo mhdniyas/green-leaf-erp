@@ -21,6 +21,7 @@ class StockMovement extends Model
         'product_id',
         'warehouse_id',
         'shop_order_item_id',
+        'warehouse_sale_item_id',
         'created_by',
         'grade',
         'type',
@@ -32,6 +33,7 @@ class StockMovement extends Model
     protected $casts = [
         'warehouse_id' => 'integer',
         'shop_order_item_id' => 'integer',
+        'warehouse_sale_item_id' => 'integer',
         'grade' => ProductGrade::class,
         'type' => StockMovementType::class,
         'quantity' => 'decimal:3',
@@ -59,6 +61,11 @@ class StockMovement extends Model
     public function shopOrderItem(): BelongsTo
     {
         return $this->belongsTo(ShopOrderItem::class);
+    }
+
+    public function warehouseSaleItem(): BelongsTo
+    {
+        return $this->belongsTo(WarehouseSaleItem::class);
     }
 
     public function createdBy(): BelongsTo

@@ -277,6 +277,117 @@ class AdminCashbookInventoryPrintUnmatchedTest extends TestCase
             'date' => $date,
             'warehouse_id' => $this->warehouse1->id,
         ]));
+        $response->assertSee(':href="printUrl"', false);
         $response->assertSee('Print (< 100% Match)', false);
+    }
+
+    public function test_print_unmatched_follows_sort_order(): void
+    {
+        $date = '2026-09-14';
+
+        // 1. Advance Only Garlic (qty: 30 kg, SKU: GAR-004)
+        $advGrn1 = GoodsReceived::factory()->create([
+            'receipt_type' => 'warehouse_advance',
+            'warehouse_id' => $this->warehouse1->id,
+            'status' => 'received',
+            'received_at' => $date,
+        ]);
+        GoodsReceivedItem::factory()->create([
+            'goods_received_id' => $advGrn1->id,
+            'product_id' => $this->productAdvanceOnly->id,
+            'received_qty' => 30,
+            'received_unit' => 'kg',
+        ]);
+
+        // 2. Partial Potato (adv: 100 kg, bill: 100 kg, match: 60 kg, SKU: POT-002)
+        $advGrn2 = GoodsReceived::factory()->create([
+            'receipt_type' => 'warehouse_advance',
+            'warehouse_id' => $this->warehouse1->id,
+            'status' => 'received',
+            'received_at' => $date,
+        ]);
+        $advItem2 = GoodsReceivedItem::factory()->create([
+            'goods_received_id' => $advGrn2->id,
+            'product_id' => $this->productPartialMatched->id,
+            'received_qty' => 100,
+            'received_unit' => 'kg',
+        ]);
+        $billGrn2 = GoodsReceived::factory()->create([
+            'receipt_type' => 'purchase_order',
+            'warehouse_id' => $this->warehouse1->id,
+            'status' => 'received',
+            'received_at' => $date,
+        ]);
+        $billItem2 = GoodsReceivedItem::factory()->create([
+            'goods_received_id' => $billGrn2->id,
+            'product_id' => $this->productPartialMatched->id,
+            'received_qty' => 100,
+            'received_unit' => 'kg',
+        ]);
+        AdvanceReceiveMatch::create([
+            'advance_goods_received_id' => $advGrn2->id,
+            'bill_goods_received_id' => $billGrn2->id,
+            'advance_goods_received_item_id' => $advItem2->id,
+            'bill_goods_received_item_id' => $billItem2->id,
+            'product_id' => $this->productPartialMatched->id,
+            'matched_qty' => 60,
+            'matched_unit' => 'kg',
+            'base_qty' => 60,
+            'conversion_to_base' => 1.0,
+            'confirmed_at' => now(),
+        ]);
+
+        // 3. Mismatch Onion (adv: 10 box, bill: 50 kg, SKU: ONI-003)
+        $advGrn3 = GoodsReceived::factory()->create([
+            'receipt_type' => 'warehouse_advance',
+            'warehouse_id' => $this->warehouse1->id,
+            'status' => 'received',
+            'received_at' => $date,
+        ]);
+        GoodsReceivedItem::factory()->create([
+            'goods_received_id' => $advGrn3->id,
+            'product_id' => $this->productUnitMismatch->id,
+            'received_qty' => 10,
+            'received_unit' => 'box',
+        ]);
+
+        // Sort by product_name ASC: Advance Only Garlic, Mismatch Onion, Partial Potato
+        $responseAsc = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.inventory.print-unmatched', [
+                'date' => $date,
+                'warehouse_id' => $this->warehouse1->id,
+                'sort_by' => 'product_name',
+                'sort_dir' => 'asc',
+            ]));
+
+        $responseAsc->assertOk();
+        $namesAsc = collect($responseAsc->viewData('rows'))->pluck('product_name')->all();
+        $this->assertSame(['Advance Only Garlic', 'Mismatch Onion', 'Partial Potato'], $namesAsc);
+
+        // Sort by product_name DESC: Partial Potato, Mismatch Onion, Advance Only Garlic
+        $responseDesc = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.inventory.print-unmatched', [
+                'date' => $date,
+                'warehouse_id' => $this->warehouse1->id,
+                'sort_by' => 'product_name',
+                'sort_dir' => 'desc',
+            ]));
+
+        $responseDesc->assertOk();
+        $namesDesc = collect($responseDesc->viewData('rows'))->pluck('product_name')->all();
+        $this->assertSame(['Partial Potato', 'Mismatch Onion', 'Advance Only Garlic'], $namesDesc);
+
+        // Sort by advance_qty DESC: Partial Potato (100), Advance Only Garlic (30), Mismatch Onion (10)
+        $responseAdvDesc = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.inventory.print-unmatched', [
+                'date' => $date,
+                'warehouse_id' => $this->warehouse1->id,
+                'sort_by' => 'advance_qty',
+                'sort_dir' => 'desc',
+            ]));
+
+        $responseAdvDesc->assertOk();
+        $namesAdvDesc = collect($responseAdvDesc->viewData('rows'))->pluck('product_name')->all();
+        $this->assertSame(['Partial Potato', 'Advance Only Garlic', 'Mismatch Onion'], $namesAdvDesc);
     }
 }

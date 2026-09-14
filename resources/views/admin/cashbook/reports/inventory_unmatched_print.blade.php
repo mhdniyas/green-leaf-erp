@@ -53,7 +53,73 @@
     </style>
 </head>
 <body class="bg-slate-100 p-4 sm:p-6 text-slate-900 font-sans antialiased">
-    <div class="max-w-7xl mx-auto bg-white rounded-2xl border border-slate-200 p-6 shadow-sm print-card space-y-5">
+    <div class="max-w-7xl mx-auto bg-white rounded-2xl border border-slate-200 p-6 shadow-sm print-card space-y-5"
+         x-data="{
+            sortColumn: '{{ $sortBy ?? 'product_code' }}',
+            sortDirection: '{{ $sortDir ?? 'asc' }}',
+            rows: @js($rows),
+            sortBy(column) {
+                if (this.sortColumn === column) {
+                    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this.sortColumn = column;
+                    this.sortDirection = 'asc';
+                }
+            },
+            get sortedRows() {
+                let list = [...(this.rows || [])];
+                if (!this.sortColumn) return list;
+                return list.sort((a, b) => {
+                    let res = 0;
+                    if (this.sortColumn === 'product_code' || this.sortColumn === 'code' || this.sortColumn === 'sku') {
+                        const codeA = String(a.product_code || a.sku || '').trim();
+                        const codeB = String(b.product_code || b.sku || '').trim();
+                        const isNumA = /^\d+$/.test(codeA);
+                        const isNumB = /^\d+$/.test(codeB);
+                        if (isNumA && isNumB) {
+                            res = parseInt(codeA, 10) - parseInt(codeB, 10);
+                        } else if (isNumA && !isNumB) {
+                            res = -1;
+                        } else if (!isNumA && isNumB) {
+                            res = 1;
+                        } else {
+                            res = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+                        }
+                        if (res === 0) {
+                            res = (a.product_name || '').localeCompare(b.product_name || '');
+                        }
+                    } else if (this.sortColumn === 'product_name' || this.sortColumn === 'name') {
+                        const nameA = (a.product_name || '').toLowerCase();
+                        const nameB = (b.product_name || '').toLowerCase();
+                        res = nameA.localeCompare(nameB);
+                        if (res === 0) {
+                            const codeA = String(a.product_code || a.sku || '').trim();
+                            const codeB = String(b.product_code || b.sku || '').trim();
+                            res = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+                        }
+                    } else if (this.sortColumn === 'advance_qty' || this.sortColumn === 'advance') {
+                        res = (Number(a.advance_qty) || 0) - (Number(b.advance_qty) || 0);
+                    } else if (this.sortColumn === 'bill_qty' || this.sortColumn === 'bill') {
+                        res = (Number(a.bill_qty) || 0) - (Number(b.bill_qty) || 0);
+                    } else if (this.sortColumn === 'diff') {
+                        const valA = a.diff === null || a.diff === undefined ? (this.sortDirection === 'asc' ? 999999999 : -999999999) : Number(a.diff);
+                        const valB = b.diff === null || b.diff === undefined ? (this.sortDirection === 'asc' ? 999999999 : -999999999) : Number(b.diff);
+                        res = valA - valB;
+                    } else if (this.sortColumn === 'matched_bill_qty' || this.sortColumn === 'matched_qty' || this.sortColumn === 'matched') {
+                        res = (Number(a.matched_bill_qty) || 0) - (Number(b.matched_bill_qty) || 0);
+                    } else if (this.sortColumn === 'unmatched_bill_qty' || this.sortColumn === 'pending_qty' || this.sortColumn === 'pending') {
+                        res = (Number(a.unmatched_bill_qty) || 0) - (Number(b.unmatched_bill_qty) || 0);
+                    } else if (this.sortColumn === 'match_pct' || this.sortColumn === 'match') {
+                        const valA = a.match_pct === null || a.match_pct === undefined ? -1 : Number(a.match_pct);
+                        const valB = b.match_pct === null || b.match_pct === undefined ? -1 : Number(b.match_pct);
+                        res = valA - valB;
+                    } else if (this.sortColumn === 'stock_balance' || this.sortColumn === 'inv_stock' || this.sortColumn === 'stock') {
+                        res = (Number(a.stock_balance) || 0) - (Number(b.stock_balance) || 0);
+                    }
+                    return this.sortDirection === 'asc' ? res : -res;
+                });
+            }
+         }">
 
         <!-- Top Control Bar (Screen only) -->
         <div class="no-print flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
@@ -144,94 +210,175 @@
             @else
                 <table class="w-full text-left border-collapse text-xs border border-slate-200">
                     <thead>
-                        <tr class="bg-slate-100 text-slate-800 border-b border-slate-300 font-bold uppercase text-[10px]">
-                            <th class="py-2 px-2 text-center border-r border-slate-200 w-10">#</th>
-                            <th class="py-2 px-2.5 border-r border-slate-200 w-20">Code</th>
-                            <th class="py-2 px-3 border-r border-slate-200">Product Name</th>
-                            <th class="py-2 px-2.5 text-right border-r border-slate-200">Advance</th>
-                            <th class="py-2 px-2.5 text-right border-r border-slate-200">Bill</th>
-                            <th class="py-2 px-2.5 text-right border-r border-slate-200">Diff</th>
-                            <th class="py-2 px-2.5 text-right border-r border-slate-200">Matched</th>
-                            <th class="py-2 px-2.5 text-right border-r border-slate-200">Pending</th>
-                            <th class="py-2 px-2 text-right border-r border-slate-200 w-16">Match %</th>
-                            <th class="py-2 px-2.5 text-right border-r border-slate-200">Inv Stock</th>
-                            <th class="py-2 px-3 text-left">Issue / Status</th>
+                        <tr class="bg-slate-100 text-slate-800 border-b border-slate-300 font-bold uppercase text-[10px] select-none">
+                            <th scope="col" class="py-2 px-2 text-center border-r border-slate-200 w-10">#</th>
+                            <th scope="col" @click="sortBy('product_code')" class="py-2 px-2.5 border-r border-slate-200 w-20 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center gap-1">
+                                    <span>Code</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'product_code' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'product_code' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('product_name')" class="py-2 px-3 border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center gap-1">
+                                    <span>Product Name</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'product_name' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'product_name' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('advance_qty')" class="py-2 px-2.5 text-right border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span>Advance</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'advance_qty' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'advance_qty' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('bill_qty')" class="py-2 px-2.5 text-right border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span>Bill</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'bill_qty' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'bill_qty' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('diff')" class="py-2 px-2.5 text-right border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span>Diff</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'diff' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'diff' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('matched_bill_qty')" class="py-2 px-2.5 text-right border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span>Matched</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'matched_bill_qty' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'matched_bill_qty' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('unmatched_bill_qty')" class="py-2 px-2.5 text-right border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span>Pending</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'unmatched_bill_qty' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'unmatched_bill_qty' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('match_pct')" class="py-2 px-2 text-right border-r border-slate-200 w-16 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span>Match %</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'match_pct' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'match_pct' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" @click="sortBy('stock_balance')" class="py-2 px-2.5 text-right border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition">
+                                <div class="flex items-center justify-end gap-1">
+                                    <span>Inv Stock</span>
+                                    <span class="inline-flex flex-col text-[8px] leading-none print:hidden">
+                                        <span :class="sortColumn === 'stock_balance' && sortDirection === 'asc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▲</span>
+                                        <span :class="sortColumn === 'stock_balance' && sortDirection === 'desc' ? 'text-emerald-700 font-black' : 'text-slate-300'">▼</span>
+                                    </span>
+                                </div>
+                            </th>
+                            <th scope="col" class="py-2 px-3 text-left">Issue / Status</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-200">
-                        @foreach($rows as $idx => $row)
-                            <tr class="{{ !empty($row['unit_mismatch']) ? 'bg-rose-50/40' : ($idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white') }}">
-                                <td class="py-2 px-2 text-center font-mono font-bold text-slate-400 border-r border-slate-200">
-                                    {{ $idx + 1 }}
+                        <template x-for="(row, idx) in sortedRows" :key="row.product_id + '-' + row.unit">
+                            <tr :class="row.unit_mismatch ? 'bg-rose-50/40' : (idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white')">
+                                <td class="py-2 px-2 text-center font-mono font-bold text-slate-400 border-r border-slate-200"
+                                    x-text="idx + 1">
                                 </td>
-                                <td class="py-2 px-2.5 font-mono text-[11px] font-bold text-slate-700 border-r border-slate-200">
-                                    {{ $row['product_code'] ?: ($row['sku'] ?: '—') }}
+                                <td class="py-2 px-2.5 font-mono text-[11px] font-bold text-slate-700 border-r border-slate-200"
+                                    x-text="row.product_code || row.sku || '—'">
                                 </td>
-                                <td class="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200">
-                                    {{ $row['product_name'] }}
+                                <td class="py-2 px-3 font-semibold text-slate-900 border-r border-slate-200"
+                                    x-text="row.product_name">
                                 </td>
-                                <td class="py-2 px-2.5 text-right font-mono text-slate-800 border-r border-slate-200">
-                                    {{ $row['formatted_advance'] }}
+                                <td class="py-2 px-2.5 text-right font-mono text-slate-800 border-r border-slate-200"
+                                    x-text="row.formatted_advance">
                                 </td>
-                                <td class="py-2 px-2.5 text-right font-mono text-slate-800 border-r border-slate-200">
-                                    {{ $row['formatted_bill'] }}
+                                <td class="py-2 px-2.5 text-right font-mono text-slate-800 border-r border-slate-200"
+                                    x-text="row.formatted_bill">
                                 </td>
                                 <td class="py-2 px-2.5 text-right font-mono font-bold border-r border-slate-200">
-                                    @if(!empty($row['unit_mismatch']))
+                                    <template x-if="row.unit_mismatch">
                                         <span class="text-rose-700">Unit Mismatch</span>
-                                    @elseif((float) ($row['diff'] ?? 0) > 0.0001)
-                                        <span class="text-emerald-700">{{ $row['formatted_diff'] }}</span>
-                                    @elseif((float) ($row['diff'] ?? 0) < -0.0001)
-                                        <span class="text-rose-700">{{ $row['formatted_diff'] }}</span>
-                                    @else
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && row.diff > 0.0001">
+                                        <span class="text-emerald-700" x-text="row.formatted_diff"></span>
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && row.diff < -0.0001">
+                                        <span class="text-rose-700" x-text="row.formatted_diff"></span>
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && Math.abs(row.diff || 0) <= 0.0001">
                                         <span class="text-slate-400">0</span>
-                                    @endif
+                                    </template>
                                 </td>
-                                <td class="py-2 px-2.5 text-right font-mono text-slate-700 border-r border-slate-200">
-                                    {{ number_format((float) ($row['matched_bill_qty'] ?? 0), 2) }} {{ $row['unit'] }}
+                                <td class="py-2 px-2.5 text-right font-mono text-slate-700 border-r border-slate-200"
+                                    x-text="Number(row.matched_bill_qty || 0).toFixed(2) + ' ' + row.unit">
                                 </td>
-                                <td class="py-2 px-2.5 text-right font-mono font-bold text-amber-800 border-r border-slate-200">
-                                    {{ number_format((float) ($row['unmatched_bill_qty'] ?? 0), 2) }} {{ $row['unit'] }}
+                                <td class="py-2 px-2.5 text-right font-mono font-bold text-amber-800 border-r border-slate-200"
+                                    x-text="Number(row.unmatched_bill_qty || 0).toFixed(2) + ' ' + row.unit">
                                 </td>
                                 <td class="py-2 px-2 text-right font-mono font-bold border-r border-slate-200">
-                                    @if(!empty($row['unit_mismatch']))
+                                    <template x-if="row.unit_mismatch">
                                         <span class="text-slate-400">--</span>
-                                    @else
-                                        <span class="{{ (float) ($row['match_pct'] ?? 0) >= 100 ? 'text-emerald-700' : 'text-amber-700' }}">
-                                            {{ $row['formatted_match_pct'] }}
+                                    </template>
+                                    <template x-if="!row.unit_mismatch">
+                                        <span :class="Number(row.match_pct || 0) >= 100 ? 'text-emerald-700' : 'text-amber-700'"
+                                              x-text="row.formatted_match_pct">
                                         </span>
-                                    @endif
+                                    </template>
                                 </td>
-                                <td class="py-2 px-2.5 text-right font-mono text-slate-800 border-r border-slate-200">
-                                    {{ $row['formatted_stock_balance'] }}
+                                <td class="py-2 px-2.5 text-right font-mono text-slate-800 border-r border-slate-200"
+                                    x-text="row.formatted_stock_balance">
                                 </td>
                                 <td class="py-2 px-3 text-left">
-                                    @if(!empty($row['unit_mismatch']))
-                                        <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">
-                                            UNIT MISMATCH ({{ $row['unit'] }})
+                                    <template x-if="row.unit_mismatch">
+                                        <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200"
+                                              x-text="'UNIT MISMATCH (' + row.unit + ')'">
                                         </span>
-                                    @elseif((float) ($row['bill_qty'] ?? 0) <= 0.0001 && (float) ($row['advance_qty'] ?? 0) > 0)
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && Number(row.bill_qty || 0) <= 0.0001 && Number(row.advance_qty || 0) > 0">
                                         <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
                                             Advance Only (No Bill)
                                         </span>
-                                    @elseif((float) ($row['advance_qty'] ?? 0) <= 0.0001 && (float) ($row['bill_qty'] ?? 0) > 0)
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && Number(row.advance_qty || 0) <= 0.0001 && Number(row.bill_qty || 0) > 0">
                                         <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
                                             Bill Only (No Advance)
                                         </span>
-                                    @elseif((float) ($row['unmatched_bill_qty'] ?? 0) > 0.0001)
-                                        <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                                            Bill Pending: {{ number_format((float) ($row['unmatched_bill_qty'] ?? 0), 2) }} {{ $row['unit'] }}
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && Number(row.unmatched_bill_qty || 0) > 0.0001 && Number(row.bill_qty || 0) > 0 && Number(row.advance_qty || 0) > 0">
+                                        <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200"
+                                              x-text="'Bill Pending: ' + Number(row.unmatched_bill_qty || 0).toFixed(2) + ' ' + row.unit">
                                         </span>
-                                    @elseif((float) ($row['diff'] ?? 0) > 0.0001)
-                                        <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                                            Advance Excess: +{{ number_format((float) ($row['diff'] ?? 0), 2) }} {{ $row['unit'] }}
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && Number(row.diff || 0) > 0.0001 && Number(row.unmatched_bill_qty || 0) <= 0.0001 && Number(row.bill_qty || 0) > 0 && Number(row.advance_qty || 0) > 0">
+                                        <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200"
+                                              x-text="'Advance Excess: +' + Number(row.diff || 0).toFixed(2) + ' ' + row.unit">
                                         </span>
-                                    @else
+                                    </template>
+                                    <template x-if="!row.unit_mismatch && Number(row.unmatched_bill_qty || 0) <= 0.0001 && Number(row.diff || 0) <= 0.0001 && Number(row.bill_qty || 0) > 0 && Number(row.advance_qty || 0) > 0">
                                         <span class="text-slate-500 font-medium">Discrepancy</span>
-                                    @endif
+                                    </template>
                                 </td>
                             </tr>
-                        @endforeach
+                        </template>
                     </tbody>
                 </table>
             @endif

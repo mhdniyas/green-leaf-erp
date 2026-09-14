@@ -29,6 +29,8 @@ use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Models\WarehouseCustomer;
+use App\Models\WarehouseSale;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Inventory\WastageService;
@@ -1642,6 +1644,11 @@ class AdminCashbookReportsController extends Controller
             return false;
         })->values();
 
+        $sortBy = (string) $request->input('sort_by', $request->input('sort_column', $request->input('sort', 'product_code')));
+        $sortDir = strtolower((string) $request->input('sort_dir', $request->input('sort_direction', $request->input('direction', 'asc')))) === 'desc' ? 'desc' : 'asc';
+
+        $unmatchedRows = $this->sortComparisonRows($unmatchedRows, $sortBy, $sortDir);
+
         $summary = [
             'total_items' => $unmatchedRows->count(),
             'total_advance_qty' => round((float) $unmatchedRows->sum('advance_qty'), 2),
@@ -1659,8 +1666,79 @@ class AdminCashbookReportsController extends Controller
             'selectedWarehouseId' => $selectedWarehouseId,
             'rows' => $unmatchedRows,
             'summary' => $summary,
+            'sortBy' => $sortBy,
+            'sortDir' => $sortDir,
             'title' => 'Inventory Discrepancies (< 100% Match)',
         ]);
+    }
+
+    /**
+     * Sort comparison rows by a specified column and direction.
+     *
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function sortComparisonRows(Collection $rows, string $sortBy, string $sortDir): Collection
+    {
+        $isDesc = strtolower($sortDir) === 'desc';
+
+        return $rows->sort(function (array $a, array $b) use ($sortBy, $isDesc): int {
+            $res = 0;
+
+            if (in_array($sortBy, ['product_code', 'code', 'sku'], true)) {
+                $codeA = trim((string) ($a['product_code'] ?: ($a['sku'] ?? '')));
+                $codeB = trim((string) ($b['product_code'] ?: ($b['sku'] ?? '')));
+
+                $sortA = Product::sortableSku($codeA);
+                $sortB = Product::sortableSku($codeB);
+
+                $res = strcmp($sortA, $sortB);
+                if ($res === 0) {
+                    $res = strcasecmp((string) ($a['product_name'] ?? ''), (string) ($b['product_name'] ?? ''));
+                }
+            } elseif (in_array($sortBy, ['product_name', 'name'], true)) {
+                $res = strcasecmp((string) ($a['product_name'] ?? ''), (string) ($b['product_name'] ?? ''));
+                if ($res === 0) {
+                    $sortA = Product::sortableSku(trim((string) ($a['product_code'] ?: ($a['sku'] ?? ''))));
+                    $sortB = Product::sortableSku(trim((string) ($b['product_code'] ?: ($b['sku'] ?? ''))));
+                    $res = strcmp($sortA, $sortB);
+                }
+            } elseif ($sortBy === 'advance_qty' || $sortBy === 'advance') {
+                $valA = (float) ($a['advance_qty'] ?? 0);
+                $valB = (float) ($b['advance_qty'] ?? 0);
+                $res = $valA <=> $valB;
+            } elseif ($sortBy === 'bill_qty' || $sortBy === 'bill') {
+                $valA = (float) ($a['bill_qty'] ?? 0);
+                $valB = (float) ($b['bill_qty'] ?? 0);
+                $res = $valA <=> $valB;
+            } elseif ($sortBy === 'diff') {
+                $valA = (float) ($a['diff'] ?? 0);
+                $valB = (float) ($b['diff'] ?? 0);
+                $res = $valA <=> $valB;
+            } elseif (in_array($sortBy, ['matched_bill_qty', 'matched_qty', 'matched'], true)) {
+                $valA = (float) ($a['matched_bill_qty'] ?? 0);
+                $valB = (float) ($b['matched_bill_qty'] ?? 0);
+                $res = $valA <=> $valB;
+            } elseif (in_array($sortBy, ['unmatched_bill_qty', 'pending_qty', 'pending'], true)) {
+                $valA = (float) ($a['unmatched_bill_qty'] ?? 0);
+                $valB = (float) ($b['unmatched_bill_qty'] ?? 0);
+                $res = $valA <=> $valB;
+            } elseif (in_array($sortBy, ['match_pct', 'match'], true)) {
+                $valA = isset($a['match_pct']) && $a['match_pct'] !== null ? (float) $a['match_pct'] : -1.0;
+                $valB = isset($b['match_pct']) && $b['match_pct'] !== null ? (float) $b['match_pct'] : -1.0;
+                $res = $valA <=> $valB;
+            } elseif (in_array($sortBy, ['stock_balance', 'inv_stock', 'stock'], true)) {
+                $valA = (float) ($a['stock_balance'] ?? 0);
+                $valB = (float) ($b['stock_balance'] ?? 0);
+                $res = $valA <=> $valB;
+            } else {
+                $sortA = Product::sortableSku(trim((string) ($a['product_code'] ?: ($a['sku'] ?? ''))));
+                $sortB = Product::sortableSku(trim((string) ($b['product_code'] ?: ($b['sku'] ?? ''))));
+                $res = strcmp($sortA, $sortB);
+            }
+
+            return $isDesc ? -$res : $res;
+        })->values();
     }
 
     /**
@@ -4103,5 +4181,155 @@ class AdminCashbookReportsController extends Controller
         }
 
         return $groupedByDate;
+    }
+
+    /**
+     * Cashbook Warehouse Sales Financial & Operational Report.
+     */
+    public function warehouseSales(Request $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $date = $request->input('date', Carbon::today()->toDateString());
+        $startDate = $request->input('start_date');
+        $endDate = $request->input('end_date');
+        $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        $customerId = $request->filled('customer_id') ? $request->integer('customer_id') : null;
+        $soldByUserId = $request->filled('sold_by_user_id') ? $request->integer('sold_by_user_id') : null;
+        $paymentMethod = $request->input('payment_method');
+        $moneyHolderType = $request->input('money_holder_type');
+        $moneyHolderUserId = $request->filled('money_holder_user_id') ? $request->integer('money_holder_user_id') : null;
+        $search = trim((string) $request->input('search', ''));
+        $status = $request->input('status', 'all');
+
+        $query = WarehouseSale::query()
+            ->with(['items.product', 'payments.moneyHolderUser', 'customer', 'soldBy', 'warehouse'])
+            ->when($startDate && $endDate, function (Builder $q) use ($startDate, $endDate) {
+                $q->whereBetween('business_date', [$startDate, $endDate]);
+            }, function (Builder $q) use ($date, $startDate) {
+                if ($startDate && ! request()->filled('end_date')) {
+                    $q->whereDate('business_date', '>=', $startDate);
+                } elseif (! request()->filled('start_date') && request()->filled('end_date')) {
+                    $q->whereDate('business_date', '<=', request()->input('end_date'));
+                } elseif ($date) {
+                    $q->whereDate('business_date', $date);
+                }
+            })
+            ->when($warehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $warehouseId))
+            ->when($customerId !== null, fn (Builder $q) => $q->where('customer_id', $customerId))
+            ->when($soldByUserId !== null, fn (Builder $q) => $q->where('sold_by_user_id', $soldByUserId))
+            ->when($status !== 'all', fn (Builder $q) => $q->where('status', $status))
+            ->when($paymentMethod, function (Builder $q) use ($paymentMethod) {
+                $q->whereHas('payments', fn (Builder $pq) => $pq->where('payment_method', strtolower($paymentMethod)));
+            })
+            ->when($moneyHolderType, function (Builder $q) use ($moneyHolderType) {
+                $q->whereHas('payments', fn (Builder $pq) => $pq->where('money_holder_type', $moneyHolderType));
+            })
+            ->when($moneyHolderUserId !== null, function (Builder $q) use ($moneyHolderUserId) {
+                $q->whereHas('payments', fn (Builder $pq) => $pq->where('money_holder_user_id', $moneyHolderUserId));
+            })
+            ->when($search !== '', function (Builder $q) use ($search) {
+                $q->where(function (Builder $sq) use ($search) {
+                    $sq->where('invoice_number', 'like', "%{$search}%")
+                        ->orWhere('customer_name_snapshot', 'like', "%{$search}%")
+                        ->orWhere('customer_phone_snapshot', 'like', "%{$search}%");
+                });
+            })
+            ->orderByDesc('business_date')
+            ->orderByDesc('id');
+
+        $sales = $query->get();
+
+        // Calculate KPI Metrics (Confirmed Sales Only)
+        $confirmedSales = $sales->where('status', WarehouseSale::STATUS_CONFIRMED);
+
+        $totalSalesAmount = (float) $confirmedSales->sum('total_amount');
+        $invoiceCount = $confirmedSales->count();
+
+        $cashSalesAmount = 0.0;
+        $onlineSalesAmount = 0.0;
+        $creditSalesAmount = 0.0;
+        $companyCashHolding = 0.0;
+        $userCashHolding = 0.0;
+
+        foreach ($confirmedSales as $sale) {
+            foreach ($sale->payments as $p) {
+                $amt = (float) $p->amount;
+                $m = strtolower($p->payment_method);
+                if ($m === 'cash') {
+                    $cashSalesAmount += $amt;
+                    if ($p->money_holder_type === 'user') {
+                        $userCashHolding += $amt;
+                    } else {
+                        $companyCashHolding += $amt;
+                    }
+                } elseif ($m === 'credit') {
+                    $creditSalesAmount += $amt;
+                } else {
+                    $onlineSalesAmount += $amt;
+                }
+            }
+        }
+
+        $summary = [
+            'total_sales_amount' => round($totalSalesAmount, 2),
+            'invoice_count' => $invoiceCount,
+            'cash_sales_amount' => round($cashSalesAmount, 2),
+            'online_sales_amount' => round($onlineSalesAmount, 2),
+            'credit_sales_amount' => round($creditSalesAmount, 2),
+            'company_cash_holding' => round($companyCashHolding, 2),
+            'user_cash_holding' => round($userCashHolding, 2),
+        ];
+
+        $warehouses = Warehouse::query()->active()->orderBy('name')->get(['id', 'name', 'code']);
+        $customers = WarehouseCustomer::query()->orderBy('name')->get(['id', 'name', 'phone']);
+        $users = User::query()->orderBy('name')->get(['id', 'name']);
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+
+        return view('admin.cashbook.reports.warehouse_sales', [
+            'sales' => $sales,
+            'summary' => $summary,
+            'warehouses' => $warehouses,
+            'customers' => $customers,
+            'users' => $users,
+            'shops' => $shops,
+            'date' => $date,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'selectedWarehouseId' => $warehouseId,
+            'selectedCustomerId' => $customerId,
+            'selectedSoldByUserId' => $soldByUserId,
+            'selectedPaymentMethod' => $paymentMethod,
+            'selectedMoneyHolderType' => $moneyHolderType,
+            'selectedMoneyHolderUserId' => $moneyHolderUserId,
+            'search' => $search,
+            'status' => $status,
+        ]);
+    }
+
+    /**
+     * Cashbook Warehouse Sale Detail with complete traceability.
+     */
+    public function warehouseSaleDetail(WarehouseSale $warehouseSale): View
+    {
+        $this->ensureAuthorized(request());
+
+        $warehouseSale->loadMissing([
+            'items.product',
+            'items.stockMovements.batch',
+            'payments.moneyHolderUser',
+            'payments.companyAccount',
+            'warehouse',
+            'customer',
+            'soldBy',
+            'cancelledBy',
+        ]);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+
+        return view('admin.cashbook.reports.warehouse_sale_detail', [
+            'sale' => $warehouseSale,
+            'shops' => $shops,
+        ]);
     }
 }

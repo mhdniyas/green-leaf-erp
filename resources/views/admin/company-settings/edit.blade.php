@@ -36,6 +36,7 @@
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2" role="tablist" aria-label="Company settings sections">
                     <button type="button" data-settings-tab="company" role="tab" aria-selected="true" class="settings-tab shrink-0 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white">Company</button>
                     <button type="button" data-settings-tab="operations" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Operations</button>
+                    <button type="button" data-settings-tab="warehouse-sales" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Warehouse Sales</button>
                     <button type="button" data-settings-tab="auto-load" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Auto Load All</button>
                     <button type="button" data-settings-tab="history" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Trigger History</button>
                 </div>
@@ -153,6 +154,95 @@
                                 <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, unlocked invoices from past business dates can be repriced. Finalized invoices stay frozen.</span>
                             </span>
                         </label>
+                        </div>
+                    </section>
+
+                    <section data-settings-panel="warehouse-sales" role="tabpanel" class="settings-panel hidden max-w-4xl space-y-6">
+                        <div>
+                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-600">Warehouse Sales Access</p>
+                            <p class="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
+                                Configure direct sales permissions. When enabled, only selected users can access <code>/warehouse/sales</code> to perform direct warehouse sales, strictly scoped to their assigned warehouses.
+                            </p>
+                        </div>
+
+                        <!-- 1. Enable Warehouse Sales Toggle -->
+                        <div class="rounded-2xl border p-4 transition-all {{ old('warehouse_sales_enabled', $warehouseSalesConfig['enabled']) ? 'border-emerald-300 bg-emerald-50/70 shadow-sm' : 'border-slate-200 bg-slate-50' }}">
+                            <label class="flex cursor-pointer items-start gap-3">
+                                <input type="hidden" name="warehouse_sales_enabled" value="0">
+                                <input
+                                    id="warehouse_sales_enabled"
+                                    type="checkbox"
+                                    name="warehouse_sales_enabled"
+                                    value="1"
+                                    {{ old('warehouse_sales_enabled', $warehouseSalesConfig['enabled']) ? 'checked' : '' }}
+                                    class="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                >
+                                <span>
+                                    <span class="block text-sm font-black text-slate-900">Enable Warehouse Sales</span>
+                                    <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">
+                                        When OFF, the operational sales screen is inaccessible. Existing sales and Cashbook historical reporting remain safe and readable.
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+
+                        <!-- 2. Users & Warehouse Permission Matrix -->
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <label class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-600">
+                                    Users Allowed to Make Warehouse Sales &amp; Warehouse Access
+                                </label>
+                                <span class="text-xs font-semibold text-slate-400">Explicit Access Control</span>
+                            </div>
+                            <p class="text-xs text-slate-500 font-medium">
+                                Select which users can create sales, and check the specific warehouses each user is permitted to sell from.
+                            </p>
+
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                @foreach($allActiveUsers as $user)
+                                    @php
+                                        $isAllowed = in_array((int) $user->id, (array) old('warehouse_sales_allowed_user_ids', $warehouseSalesConfig['allowed_user_ids'] ?? []), true);
+                                        $userAllowedWarehouses = (array) (old("warehouse_sales_user_warehouses.{$user->id}", $warehouseSalesConfig['user_warehouses'][$user->id] ?? []));
+                                    @endphp
+                                    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs hover:border-slate-300 transition space-y-3">
+                                        <label class="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                name="warehouse_sales_allowed_user_ids[]"
+                                                value="{{ $user->id }}"
+                                                @checked($isAllowed)
+                                                class="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 user-sale-access-chk"
+                                                data-user-id="{{ $user->id }}"
+                                            >
+                                            <div class="flex-1 min-w-0">
+                                                <div class="text-sm font-bold text-slate-900 truncate">{{ $user->name }}</div>
+                                                <div class="text-xs text-slate-500 font-mono truncate">{{ $user->email }}</div>
+                                            </div>
+                                        </label>
+
+                                        <!-- Warehouse checklist for this user -->
+                                        <div class="pt-2 border-t border-slate-100 space-y-1.5 pl-7">
+                                            <div class="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                Allowed Warehouses:
+                                            </div>
+                                            <div class="flex flex-wrap gap-2">
+                                                @foreach($allActiveWarehouses as $wh)
+                                                    <label class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            name="warehouse_sales_user_warehouses[{{ $user->id }}][]"
+                                                            value="{{ $wh->id }}"
+                                                            @checked(in_array((int) $wh->id, array_map('intval', $userAllowedWarehouses), true))
+                                                            class="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                                        >
+                                                        <span>{{ $wh->name }}</span>
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
                         </div>
                     </section>
 

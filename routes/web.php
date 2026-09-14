@@ -71,6 +71,7 @@ use App\Http\Controllers\Web\ShopPresetController;
 use App\Http\Controllers\Web\SortSheetController;
 use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
+use App\Http\Controllers\Web\Warehouse\WarehouseSalesController;
 use App\Http\Controllers\Web\WebsiteEnquiryController;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
@@ -648,6 +649,18 @@ Route::middleware('auth')->group(function () {
         Route::post('/{shopOrder}/remove-unpriced-items', [WarehouseLoadoutController::class, 'removeUnpricedItems'])->name('remove-unpriced-items');
     });
 
+    // ── Operational Warehouse Sales ─────────────────────────────────────────
+    Route::prefix('warehouse/sales')->name('warehouse.sales.')->group(function () {
+        Route::get('/', [WarehouseSalesController::class, 'index'])->name('index');
+        Route::get('/create', [WarehouseSalesController::class, 'create'])->name('create');
+        Route::post('/', [WarehouseSalesController::class, 'store'])->name('store');
+        Route::get('/search-products', [WarehouseSalesController::class, 'searchProducts'])->name('search-products');
+        Route::get('/search-customers', [WarehouseSalesController::class, 'searchCustomers'])->name('search-customers');
+        Route::post('/customers', [WarehouseSalesController::class, 'storeCustomer'])->name('customers.store');
+        Route::get('/{warehouseSale}', [WarehouseSalesController::class, 'show'])->name('show');
+        Route::post('/{warehouseSale}/cancel', [WarehouseSalesController::class, 'cancel'])->name('cancel');
+    });
+
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('inventory/empty', [EmptyInventoryController::class, 'index'])->name('inventory-empty.index');
@@ -657,6 +670,15 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
+        Route::post('business-day/override', [BusinessDaySettingsController::class, 'overrideToday'])->name('business-day.override');
+        Route::post('business-day/reset-override', [BusinessDaySettingsController::class, 'resetOverride'])->name('business-day.reset-override');
+        Route::resource('users', UserController::class);
+        Route::post('users/{user}/restore', [UserController::class, 'restore'])->name('users.restore');
+        Route::delete('users/{user}/force', [UserController::class, 'forceDelete'])->name('users.force-delete');
+        Route::post('users/{user}/login-as', [UserAccessController::class, 'loginAs'])->name('users.login-as');
+        Route::get('staff-management', [StaffManagementController::class, 'index'])->name('staff-management.index');
+        Route::post('staff-management/sync-access', [StaffManagementController::class, 'syncAccess'])->name('staff-management.sync-access');
+        Route::post('auto-load-all/runs/summary', [AdminAutoLoadAllController::class, 'storeRunSummary'])->name('auto-load-all.runs.summary');
         Route::get('auto-load-all', [AdminAutoLoadAllController::class, 'create'])->name('auto-load-all.create');
         Route::prefix('auto-load-all/api')->name('auto-load-all.api.')->group(function () {
             Route::get('/manifest', [ApiWarehouseLoadoutController::class, 'index'])->name('manifest');
@@ -682,6 +704,8 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills', [AdminCashbookReportsController::class, 'glBills'])->name('reports.gl-bills');
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
+            Route::get('warehouse-sales', [AdminCashbookReportsController::class, 'warehouseSales'])->name('warehouse-sales');
+            Route::get('warehouse-sales/{warehouseSale}', [AdminCashbookReportsController::class, 'warehouseSaleDetail'])->name('warehouse-sales.show');
             Route::get('auto-match', [AdminDailyAutoMatchController::class, 'index'])->name('auto-match');
             Route::get('auto-match/preview', [AdminDailyAutoMatchController::class, 'preview'])->name('auto-match.preview');
             Route::post('auto-match/execute', [AdminDailyAutoMatchController::class, 'execute'])->name('auto-match.execute');

@@ -162,6 +162,10 @@
                     <i data-lucide="boxes" class="w-4 h-4"></i>
                     <span>Inventory</span>
                 </a>
+                <a href="{{ route('admin.cashbook.warehouse-sales') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.warehouse-sales*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="shopping-cart" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Warehouse Sales</span>
+                </a>
                 <a href="{{ route('admin.cashbook.bill-changes') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bill-changes*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="receipt-text" class="w-4 h-4"></i>
                     <span>Bill Changes</span>

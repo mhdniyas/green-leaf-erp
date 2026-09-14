@@ -36,6 +36,7 @@
             date: '{{ $date }}',
             formattedDate: '{{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}',
             selectedWarehouseId: '{{ $selectedWarehouseId }}' || null,
+            currentWarehouseId: '{{ $selectedWarehouseId }}',
             selectedWarehouseName: '{{ $selectedWarehouse?->name ?? 'All Warehouses' }}',
             pendingBillsCount: {{ (int) $pendingBillsCount }},
             pendingBillsList: @js($pendingBillsList),
@@ -46,6 +47,15 @@
             },
             get matchedCount() {
                 return (this.rows || []).filter(r => !r.unit_mismatch && Number(r.match_pct) >= 99.99 && (r.unmatched_bill_qty <= 0.0001) && (r.unmatched_adv_qty <= 0.0001) && Math.abs(Number(r.diff || 0)) <= 0.0001).length;
+            },
+            get printUrl() {
+                const base = '{{ route('admin.cashbook.inventory.print-unmatched') }}';
+                const params = new URLSearchParams();
+                if (this.date) params.set('date', this.date);
+                if (this.selectedWarehouseId) params.set('warehouse_id', this.selectedWarehouseId);
+                if (this.sortColumn) params.set('sort_by', this.sortColumn);
+                if (this.sortDirection) params.set('sort_dir', this.sortDirection);
+                return base + '?' + params.toString();
             },
             sortBy(column) {
                 if (this.sortColumn === column) {
@@ -665,7 +675,8 @@
 
             <!-- Top Actions: Print Unmatched, Match All & Share Pending WhatsApp -->
             <div class="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-                <a href="{{ route('admin.cashbook.inventory.print-unmatched', array_filter(['date' => $date, 'warehouse_id' => $selectedWarehouseId])) }}"
+                <a :href="printUrl"
+                   href="{{ route('admin.cashbook.inventory.print-unmatched', array_filter(['date' => $date, 'warehouse_id' => $selectedWarehouseId])) }}"
                    target="_blank"
                    class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs cursor-pointer"
                    title="Print all products with < 100% match or discrepancies">

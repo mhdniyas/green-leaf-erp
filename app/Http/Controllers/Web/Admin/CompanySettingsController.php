@@ -8,7 +8,9 @@ use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
 use App\Models\Shop;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Warehouse\WarehouseSalesAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -31,6 +33,10 @@ class CompanySettingsController extends Controller
         'auto_load_all_allow_manual',
         'shop_attendance_cutoff_time',
     ];
+
+    public function __construct(
+        private readonly WarehouseSalesAccessService $warehouseSalesAccessService,
+    ) {}
 
     public function edit(Request $request): View
     {
@@ -75,6 +81,21 @@ class CompanySettingsController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'code', 'warehouse_tag']);
 
+        $allActiveUsers = User::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'email']);
+
+        $allActiveWarehouses = Warehouse::query()
+            ->active()
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
+        $warehouseSalesConfig = [
+            'enabled' => $this->warehouseSalesAccessService->isFeatureEnabled(),
+            'allowed_user_ids' => $this->warehouseSalesAccessService->allowedUserIds(),
+            'user_warehouses' => $this->warehouseSalesAccessService->userWarehousesMap(),
+        ];
+
         $operationalDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
         $autoLoadAllRuns = Activity::query()
@@ -84,7 +105,17 @@ class CompanySettingsController extends Controller
             ->limit(8)
             ->get();
 
-        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers', 'directSaleShops', 'allActiveShops', 'operationalDate', 'autoLoadAllRuns'));
+        return view('admin.company-settings.edit', compact(
+            'companyDetails',
+            'purchaserUsers',
+            'directSaleShops',
+            'allActiveShops',
+            'allActiveUsers',
+            'allActiveWarehouses',
+            'warehouseSalesConfig',
+            'operationalDate',
+            'autoLoadAllRuns'
+        ));
     }
 
     public function update(Request $request): RedirectResponse
@@ -109,6 +140,10 @@ class CompanySettingsController extends Controller
             'auto_load_all_delay_seconds' => ['nullable', 'integer', 'min:1', 'max:60'],
             'auto_load_all_allow_manual' => ['nullable', 'boolean'],
             'shop_attendance_cutoff_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
+            'warehouse_sales_enabled' => ['nullable', 'boolean'],
+            'warehouse_sales_allowed_user_ids' => ['nullable', 'array'],
+            'warehouse_sales_allowed_user_ids.*' => ['integer', 'exists:users,id'],
+            'warehouse_sales_user_warehouses' => ['nullable', 'array'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
@@ -118,9 +153,29 @@ class CompanySettingsController extends Controller
             );
         }
 
+        // Save Warehouse Sales settings
+        $enabled = (bool) ($validated['warehouse_sales_enabled'] ?? false);
+        $allowedUserIds = array_values(array_map('intval', $validated['warehouse_sales_allowed_user_ids'] ?? []));
+        $userWarehousesRaw = $validated['warehouse_sales_user_warehouses'] ?? [];
+        $userWarehouses = [];
+
+        foreach ($allowedUserIds as $uId) {
+            if (isset($userWarehousesRaw[$uId]) && is_array($userWarehousesRaw[$uId])) {
+                $userWarehouses[$uId] = array_values(array_map('intval', $userWarehousesRaw[$uId]));
+            } else {
+                $userWarehouses[$uId] = [];
+            }
+        }
+
+        $this->warehouseSalesAccessService->updateSettings([
+            'enabled' => $enabled,
+            'allowed_user_ids' => $allowedUserIds,
+            'user_warehouses' => $userWarehouses,
+        ]);
+
         return redirect()
             ->route('admin.company-settings.edit')
-            ->with('success', 'Company bill details updated.');
+            ->with('success', 'Company settings updated successfully.');
     }
 
     private function authorizeAdmin(Request $request): void
