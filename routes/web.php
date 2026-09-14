@@ -590,6 +590,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchaser/carts/submit', [PurchaserDashboardController::class, 'submitCart'])->name('purchaser.carts.submit');
     Route::patch('/purchaser/carts/{cart}/status', [PurchaserDashboardController::class, 'updateOperationalStatus'])->name('purchaser.carts.status');
     Route::get('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'invoiceShow'])->name('purchaser.invoices.show');
+    Route::delete('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'destroyInvoice'])->name('purchaser.invoices.destroy');
     Route::get('/purchaser/invoices/{invoice}/pdf', [PurchaserDashboardController::class, 'invoicePdf'])->name('purchaser.invoices.pdf');
     Route::patch('/purchaser/invoices/{invoice}/payment', [PurchaserDashboardController::class, 'updateInvoicePayment'])->name('purchaser.invoices.payment');
     Route::post('/purchaser/suppliers/{supplier}/bulk-payment', [PurchaserDashboardController::class, 'bulkPayment'])->name('purchaser.suppliers.bulk-payment');

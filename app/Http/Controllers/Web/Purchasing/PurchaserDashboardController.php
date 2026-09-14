@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Actions\Purchasing\CancelPurchaseInvoiceAction;
 use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
@@ -1522,6 +1523,39 @@ class PurchaserDashboardController extends Controller
             'backRouteParameters' => ['date' => $invoice->purchaserCart?->business_date?->format('Y-m-d')],
             'financeAudience' => 'purchaser',
         ]);
+    }
+
+    public function destroyInvoice(Request $request, PurchaseInvoice $invoice): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $ownedInvoice = PurchaseInvoice::query()
+            ->whereKey($invoice->getKey())
+            ->whereHas('purchaserCart', fn ($query) => $query->where('user_id', $request->user()->id))
+            ->firstOrFail();
+
+        try {
+            DB::transaction(function () use ($ownedInvoice, $request): void {
+                app(CancelPurchaseInvoiceAction::class)->execute(
+                    $ownedInvoice,
+                    $request->user(),
+                    'Wrong amount/items',
+                    $request->string('cancellation_note')->trim()->toString() ?: 'Removed by purchaser from vendor bill view.',
+                );
+
+                $ownedInvoice->delete();
+                $ownedInvoice->purchaserCart()->update(['status' => 'cancelled']);
+            }, attempts: 3);
+        } catch (\RuntimeException $exception) {
+            return redirect()->back()->withErrors(['invoice' => $exception->getMessage()]);
+        }
+
+        return redirect()
+            ->route('purchaser.vendors', array_filter([
+                'date' => $ownedInvoice->purchaserCart?->business_date?->format('Y-m-d'),
+                'tab' => $request->string('tab')->toString(),
+            ]))
+            ->with('success', 'Bill deleted. It was cancelled and soft-deleted with an audit trail.');
     }
 
     public function mergeDraftCarts(Request $request, PurchaserCart $cart): RedirectResponse
