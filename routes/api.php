@@ -103,6 +103,9 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::apiResource('orders', PurchaseOrderController::class);
             Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
             Route::get('advance-inventory', [GoodsReceivedController::class, 'advanceInventory'])->name('advance-inventory');
+            Route::post('advance-inventory/match', [GoodsReceivedController::class, 'matchDayInventory'])->name('advance-inventory.match');
+            Route::post('advance-inventory/match-all', [GoodsReceivedController::class, 'matchAllDayInventory'])->name('advance-inventory.match-all');
+            Route::post('advance-inventory/update-unit', [GoodsReceivedController::class, 'updateInventoryItemUnit'])->name('advance-inventory.update-unit');
             Route::get('grns/advance-inventory', [GoodsReceivedController::class, 'advanceInventory'])->name('grns.advance-inventory');
             Route::get('grns/pending-suggestions', [GoodsReceivedController::class, 'pendingSuggestions'])->name('grns.pending-suggestions');
             Route::get('grns/advance-match-suggestions', [GoodsReceivedController::class, 'advanceMatchSuggestions'])->name('grns.advance-match-suggestions');

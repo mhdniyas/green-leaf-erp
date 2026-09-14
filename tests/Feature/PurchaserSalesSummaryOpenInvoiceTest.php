@@ -13,7 +13,7 @@ class PurchaserSalesSummaryOpenInvoiceTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_open_invoice_is_included_in_sales_summary_api(): void
+    public function test_approved_invoice_is_included_in_sales_summary_api(): void
     {
         $this->seed(RolePermissionSeeder::class);
         $user = User::factory()->create();
@@ -21,7 +21,7 @@ class PurchaserSalesSummaryOpenInvoiceTest extends TestCase
 
         ShopInvoice::factory()->create([
             'business_date' => '2026-09-01',
-            'status' => 'open',
+            'status' => 'approved',
             'final_total' => 3141.60,
             'paid_amount' => 0,
             'balance_amount' => 3141.60,

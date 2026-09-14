@@ -17,6 +17,9 @@ use App\Models\GoodsReceivedItem;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
 use App\Services\Purchasing\AdvanceInventoryService;
+use App\Services\Purchasing\DailyInventoryComparisonService;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\AutoAdvanceClearExecutionService;
 use App\Services\Purchasing\AutoAdvanceClearPlanningService;
@@ -43,21 +46,125 @@ class GoodsReceivedController extends Controller
         $validated = $request->validate([
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'date' => ['nullable', 'date'],
-            'exact_date' => ['nullable', 'boolean'],
             'search' => ['nullable', 'string', 'max:120'],
+            'match_filter' => ['nullable', 'string', 'in:all,unmatched,matched'],
+            'sort_by' => ['nullable', 'string'],
+            'sort_dir' => ['nullable', 'string', 'in:asc,desc'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $validated['authorized_warehouse_ids'] = app(WarehouseReceiptReadScope::class)->warehouseIds(
+        $selectedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
             $request->user(),
-            $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null
+            $selectedWarehouseId
         );
 
-        $perPage = (int) ($validated['per_page'] ?? 20);
-        $paginator = app(AdvanceInventoryService::class)->paginateDailyInventory($validated, $perPage);
+        $date = $request->filled('date')
+            ? Carbon::parse((string) $request->input('date'))->toDateString()
+            : today()->toDateString();
 
-        return ApiResponse::paginated($paginator);
+        $service = app(DailyInventoryComparisonService::class);
+        $allRows = $service->buildComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
+        $summary = $service->calculateSummary($allRows);
+
+        $perPage = (int) ($validated['per_page'] ?? 25);
+        $page = (int) ($validated['page'] ?? 1);
+
+        $paginator = $service->paginateComparisonRows($allRows, $validated, $perPage, $page);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $paginator->items(),
+            'summary' => $summary,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+        ]);
+    }
+
+    public function matchDayInventory(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'unit' => ['required', 'string', 'max:50'],
+        ]);
+
+        $date = Carbon::parse($validated['date'])->toDateString();
+        $productId = (int) $validated['product_id'];
+        $unit = trim((string) $validated['unit']);
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        $userId = (int) $request->user()->id;
+
+        $service = app(DailyInventoryComparisonService::class);
+        $result = DB::transaction(function () use ($service, $date, $productId, $unit, $warehouseId, $authorizedWarehouseIds, $userId): array {
+            return $service->executeDayInventoryMatch($date, $productId, $unit, $warehouseId, $authorizedWarehouseIds, $userId);
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $result,
+            'message' => $result['message'],
+        ]);
+    }
+
+    public function matchAllDayInventory(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $date = Carbon::parse($validated['date'])->toDateString();
+        $warehouseId = ! empty($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user(), $warehouseId);
+        $userId = (int) $request->user()->id;
+
+        $service = app(DailyInventoryComparisonService::class);
+        $result = $service->matchAllDayInventory($date, $warehouseId, $authorizedWarehouseIds, $userId);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $result,
+            'message' => $result['message'],
+        ]);
+    }
+
+    public function updateInventoryItemUnit(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrPurchaser($request);
+
+        $validated = $request->validate([
+            'goods_received_item_id' => ['required', 'integer', 'exists:goods_received_items,id'],
+            'new_unit' => ['required', 'string', 'max:50'],
+        ]);
+
+        $itemId = (int) $validated['goods_received_item_id'];
+        $newUnit = (string) $validated['new_unit'];
+        $userId = (int) $request->user()->id;
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds($request->user());
+        $service = app(DailyInventoryComparisonService::class);
+
+        $result = $service->updateItemUnit($itemId, $newUnit, $userId, $authorizedWarehouseIds);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $result,
+            'message' => $result['message'],
+        ]);
     }
 
     public function index(Request $request): JsonResponse

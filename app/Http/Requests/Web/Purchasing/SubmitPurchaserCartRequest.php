@@ -11,7 +11,7 @@ class SubmitPurchaserCartRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return (bool) $this->user()?->hasRole('purchaser');
+        return (bool) $this->user()?->hasAnyRole(['purchaser', 'admin', 'purchase']);
     }
 
     public function rules(PurchaserBusinessDayService $businessDayService): array
