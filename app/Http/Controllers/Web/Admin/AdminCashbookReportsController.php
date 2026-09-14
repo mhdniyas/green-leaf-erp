@@ -1556,6 +1556,114 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
+     * Print View for Daily Inventory Discrepancies (< 100% Match or Unit Mismatch or Differences).
+     */
+    public function printUnmatchedInventory(Request $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $selectedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        if ($selectedWarehouseId !== null && ! Warehouse::query()->where('id', $selectedWarehouseId)->exists()) {
+            abort(404, 'Warehouse not found.');
+        }
+
+        $userAuthorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user()
+        );
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $selectedWarehouseId
+        );
+
+        if ($selectedWarehouseId !== null && $userAuthorizedWarehouseIds !== null && ! in_array($selectedWarehouseId, $userAuthorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        if ($request->filled('date')) {
+            $date = Carbon::parse((string) $request->input('date'))->toDateString();
+        } else {
+            $latestAdvDate = GoodsReceived::query()
+                ->where('receipt_type', 'warehouse_advance')
+                ->where('status', '!=', 'cancelled')
+                ->whereNotNull('received_at')
+                ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
+                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds))
+                ->latest('received_at')
+                ->value('received_at');
+
+            $latestBillDate = GoodsReceivedItem::query()
+                ->whereHas('goodsReceived', function (Builder $q): void {
+                    $q->where(function (Builder $sub): void {
+                        $sub->where('receipt_type', '!=', 'warehouse_advance')
+                            ->orWhereNull('receipt_type');
+                    })
+                        ->where('status', '!=', 'cancelled')
+                        ->whereNotNull('received_at');
+                })
+                ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId)))
+                ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds)))
+                ->join('goods_received', 'goods_received_items.goods_received_id', '=', 'goods_received.id')
+                ->latest('goods_received.received_at')
+                ->value('goods_received.received_at');
+
+            $latestDates = array_filter([$latestAdvDate, $latestBillDate]);
+            $latestReceiptDate = ! empty($latestDates) ? max($latestDates) : null;
+
+            $date = $latestReceiptDate
+                ? ($latestReceiptDate instanceof Carbon ? $latestReceiptDate->toDateString() : Carbon::parse($latestReceiptDate)->toDateString())
+                : today()->toDateString();
+        }
+
+        $warehouses = Warehouse::query()
+            ->where('is_active', true)
+            ->when($userAuthorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('id', $userAuthorizedWarehouseIds))
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
+        $selectedWarehouse = $selectedWarehouseId !== null ? $warehouses->firstWhere('id', $selectedWarehouseId) : null;
+        $comparisonRows = $this->buildInventoryComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
+
+        $unmatchedRows = $comparisonRows->filter(function (array $row): bool {
+            if (! empty($row['unit_mismatch'])) {
+                return true;
+            }
+            $matchPct = isset($row['match_pct']) ? (float) $row['match_pct'] : null;
+            if ($matchPct === null || $matchPct < 99.99) {
+                return true;
+            }
+            if (($row['unmatched_bill_qty'] ?? 0.0) > 0.0001 || ($row['unmatched_adv_qty'] ?? 0.0) > 0.0001) {
+                return true;
+            }
+            if (abs((float) ($row['diff'] ?? 0.0)) > 0.0001) {
+                return true;
+            }
+
+            return false;
+        })->values();
+
+        $summary = [
+            'total_items' => $unmatchedRows->count(),
+            'total_advance_qty' => round((float) $unmatchedRows->sum('advance_qty'), 2),
+            'total_bill_qty' => round((float) $unmatchedRows->sum('bill_qty'), 2),
+            'total_matched_qty' => round((float) $unmatchedRows->sum('matched_bill_qty'), 2),
+            'total_unmatched_bill_qty' => round((float) $unmatchedRows->sum('unmatched_bill_qty'), 2),
+            'total_unmatched_adv_qty' => round((float) $unmatchedRows->sum('unmatched_adv_qty'), 2),
+            'unit_fix_count' => $unmatchedRows->where('unit_mismatch', true)->count(),
+        ];
+
+        return view('admin.cashbook.reports.inventory_unmatched_print', [
+            'date' => $date,
+            'warehouses' => $warehouses,
+            'selectedWarehouse' => $selectedWarehouse,
+            'selectedWarehouseId' => $selectedWarehouseId,
+            'rows' => $unmatchedRows,
+            'summary' => $summary,
+            'title' => 'Inventory Discrepancies (< 100% Match)',
+        ]);
+    }
+
+    /**
      * Build day-wise comparison rows between Advance receipts and Purchase Bills for a given date.
      */
     protected function buildInventoryComparisonRows(string $date, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds): Collection

@@ -270,7 +270,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <a href="{{ route('inventory.products.edit', $row->id) }}"
+                                <a href="{{ route('inventory.products.edit', $row->public_uuid ?: $row->id) }}"
                                    class="ml-4 shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
                                     <i data-lucide="pencil" class="w-3 h-3"></i>
                                     Fix

@@ -72,7 +72,7 @@ class ProductController extends Controller
             ->where('p.is_active', 1)
             ->where('pu.is_base', 1)
             ->where('pu.is_orderable', 0)
-            ->select('p.id', 'p.name', 'p.sku', DB::raw("'Base unit is_orderable=0 — invoice will throw \'cannot be invoiced\' error' as detail"))
+            ->select('p.id', 'p.public_uuid', 'p.name', 'p.sku', DB::raw("'Base unit is_orderable=0 — invoice will throw cannot be invoiced error' as detail"))
             ->orderBy('p.name')
             ->get();
 
@@ -85,7 +85,7 @@ class ProductController extends Controller
                 ->where('dpa.business_date', $today)
                 ->where('dpa.status', 'approved')
             )
-            ->select('p.id', 'p.name', 'p.sku', DB::raw("CONCAT('No approved price for {$today}') as detail"))
+            ->select('p.id', 'p.public_uuid', 'p.name', 'p.sku', DB::raw("CONCAT('No approved price for {$today}') as detail"))
             ->orderBy('p.name')
             ->get();
 
@@ -102,7 +102,7 @@ class ProductController extends Controller
                 ->whereRaw('LOWER(pu.unit) = LOWER(dpa.price_unit)')
                 ->where('pu.is_orderable', 1)
             )
-            ->select('p.id', 'p.name', 'p.sku',
+            ->select('p.id', 'p.public_uuid', 'p.name', 'p.sku',
                 DB::raw("CONCAT('Price unit \"', dpa.price_unit, '\" has no orderable product unit — conversion error') as detail")
             )
             ->orderBy('p.name')
@@ -115,7 +115,7 @@ class ProductController extends Controller
                 ->from('product_units as pu')
                 ->whereColumn('pu.product_id', 'p.id')
             )
-            ->select('p.id', 'p.name', 'p.sku', DB::raw("'No product units defined — all conversions will fail' as detail"))
+            ->select('p.id', 'p.public_uuid', 'p.name', 'p.sku', DB::raw("'No product units defined — all conversions will fail' as detail"))
             ->orderBy('p.name')
             ->get();
 
@@ -123,7 +123,7 @@ class ProductController extends Controller
         $nullBaseUnit = DB::table('products as p')
             ->where('p.is_active', 1)
             ->whereNull('p.unit')
-            ->select('p.id', 'p.name', 'p.sku', DB::raw("'Product base unit is NULL — unpredictable invoice behaviour' as detail"))
+            ->select('p.id', 'p.public_uuid', 'p.name', 'p.sku', DB::raw("'Product base unit is NULL — unpredictable invoice behaviour' as detail"))
             ->orderBy('p.name')
             ->get();
 
@@ -134,7 +134,7 @@ class ProductController extends Controller
             ->where('dpa.business_date', $today)
             ->where('dpa.status', 'approved')
             ->whereNull('dpa.price_unit')
-            ->select('p.id', 'p.name', 'p.sku', DB::raw("'Price unit is NULL in today\'s approval — may default wrongly' as detail"))
+            ->select('p.id', 'p.public_uuid', 'p.name', 'p.sku', DB::raw("'Price unit is NULL in today''s approval — may default wrongly' as detail"))
             ->orderBy('p.name')
             ->get();
 
@@ -147,7 +147,7 @@ class ProductController extends Controller
                 ->where('dpa.status', 'approved')
                 ->where('dpa.business_date', '>=', now()->subDays(7)->toDateString())
             )
-            ->select('p.id', 'p.name', 'p.sku', DB::raw("'No approved price in last 7 days — price seeder may have missed this product' as detail"))
+            ->select('p.id', 'p.public_uuid', 'p.name', 'p.sku', DB::raw("'No approved price in last 7 days — price seeder may have missed this product' as detail"))
             ->orderBy('p.name')
             ->get();
 
@@ -157,18 +157,20 @@ class ProductController extends Controller
             ->where('p.is_active', 1)
             ->select(
                 'p.id as id',
+                'p.public_uuid',
                 'p.name',
                 'p.sku',
                 'pu.unit',
                 DB::raw('COUNT(*) as unit_count'),
                 DB::raw("CONCAT('Unit \"', pu.unit, '\" appears ', COUNT(*), ' times — may cause wrong conversion lookup') as detail")
             )
-            ->groupBy('p.id', 'p.name', 'p.sku', 'pu.unit')
+            ->groupBy('p.id', 'p.public_uuid', 'p.name', 'p.sku', 'pu.unit')
             ->havingRaw('COUNT(*) > 1')
             ->orderBy('p.name')
             ->get();
 
         // 9. Today's approved price above 5000 — informational sanity check
+        $maxFn = DB::connection()->getDriverName() === 'sqlite' ? 'MAX' : 'GREATEST';
         $priceAbove5000 = DB::table('daily_price_approvals as dpa')
             ->join('products as p', 'p.id', '=', 'dpa.product_id')
             ->where('p.is_active', 1)
@@ -180,6 +182,7 @@ class ProductController extends Controller
             )
             ->select(
                 'p.id as id',
+                'p.public_uuid',
                 'p.name',
                 'p.sku',
                 'dpa.price_unit',
@@ -188,7 +191,7 @@ class ProductController extends Controller
                 'dpa.price_c',
                 DB::raw("CONCAT('Price A=', dpa.price_a, ' B=', dpa.price_b, ' C=', dpa.price_c, ' ', dpa.price_unit, ' — verify this is not a data entry error') as detail")
             )
-            ->orderByRaw('GREATEST(dpa.price_a, dpa.price_b, dpa.price_c) DESC')
+            ->orderByRaw("{$maxFn}(dpa.price_a, dpa.price_b, dpa.price_c) DESC")
             ->get();
 
         $criticalCount = $baseUnitNotOrderable->count()

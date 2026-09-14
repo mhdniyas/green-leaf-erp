@@ -28,6 +28,7 @@
             savingItemId: null,
             availableUnits: ['kg', 'box', 'piece', 'bunch', 'bag', 'packet', 'crate'],
             search: '',
+            matchFilter: 'all',
             perPage: 50,
             currentPage: 1,
             sortColumn: 'product_name',
@@ -40,6 +41,12 @@
             pendingBillsList: @js($pendingBillsList),
             rows: @js($rows),
             summary: @js($summary),
+            get unmatchedCount() {
+                return (this.rows || []).filter(r => r.unit_mismatch || r.match_pct === null || r.match_pct === undefined || Number(r.match_pct) < 99.99 || (r.unmatched_bill_qty > 0.0001) || (r.unmatched_adv_qty > 0.0001) || Math.abs(Number(r.diff || 0)) > 0.0001).length;
+            },
+            get matchedCount() {
+                return (this.rows || []).filter(r => !r.unit_mismatch && Number(r.match_pct) >= 99.99 && (r.unmatched_bill_qty <= 0.0001) && (r.unmatched_adv_qty <= 0.0001) && Math.abs(Number(r.diff || 0)) <= 0.0001).length;
+            },
             sortBy(column) {
                 if (this.sortColumn === column) {
                     this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
@@ -59,6 +66,11 @@
                         const code = (r.product_code || r.sku || '').toLowerCase();
                         return name.includes(q) || code.includes(q);
                     });
+                }
+                if (this.matchFilter === 'unmatched') {
+                    list = list.filter(r => r.unit_mismatch || r.match_pct === null || r.match_pct === undefined || Number(r.match_pct) < 99.99 || (r.unmatched_bill_qty > 0.0001) || (r.unmatched_adv_qty > 0.0001) || Math.abs(Number(r.diff || 0)) > 0.0001);
+                } else if (this.matchFilter === 'matched') {
+                    list = list.filter(r => !r.unit_mismatch && Number(r.match_pct) >= 99.99 && (r.unmatched_bill_qty <= 0.0001) && (r.unmatched_adv_qty <= 0.0001) && Math.abs(Number(r.diff || 0)) <= 0.0001);
                 }
                 if (this.sortColumn) {
                     list = [...list].sort((a, b) => {
@@ -570,11 +582,11 @@
             </div>
         </div>
 
-        <!-- 4 & 5. Actions Bar + Search & Per Page -->
+        <!-- 4 & 5. Actions Bar + Search & Per Page & Match Filter -->
         <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
             <div class="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 <!-- Search Box -->
-                <div class="relative flex-1 sm:w-64 min-w-[200px]">
+                <div class="relative flex-1 sm:w-56 min-w-[180px]">
                     <input type="text"
                            x-model="search"
                            @input="currentPage = 1"
@@ -585,6 +597,34 @@
                             x-show="search"
                             @click="search = ''; currentPage = 1"
                             class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
+                </div>
+
+                <!-- Match Status Filter Pills -->
+                <div class="inline-flex items-center rounded-xl bg-slate-100 p-0.5 border border-slate-200 text-xs font-bold">
+                    <button type="button"
+                            @click="matchFilter = 'all'; currentPage = 1"
+                            class="px-2.5 py-1.5 rounded-lg transition"
+                            :class="matchFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
+                        All (<span x-text="(rows || []).length"></span>)
+                    </button>
+                    <button type="button"
+                            @click="matchFilter = 'unmatched'; currentPage = 1"
+                            class="px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
+                            :class="matchFilter === 'unmatched' ? 'bg-amber-50 text-amber-900 font-black shadow-xs border border-amber-200' : 'text-slate-600 hover:text-slate-900'">
+                        <span>< 100%</span>
+                        <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono"
+                              :class="matchFilter === 'unmatched' ? 'bg-amber-200 text-amber-950 font-black' : 'bg-slate-200 text-slate-700'"
+                              x-text="unmatchedCount"></span>
+                    </button>
+                    <button type="button"
+                            @click="matchFilter = 'matched'; currentPage = 1"
+                            class="px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
+                            :class="matchFilter === 'matched' ? 'bg-emerald-50 text-emerald-900 font-black shadow-xs border border-emerald-200' : 'text-slate-600 hover:text-slate-900'">
+                        <span>100% Matched</span>
+                        <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono"
+                              :class="matchFilter === 'matched' ? 'bg-emerald-200 text-emerald-950 font-black' : 'bg-slate-200 text-slate-700'"
+                              x-text="matchedCount"></span>
+                    </button>
                 </div>
 
                 <!-- Per Page Selector -->
@@ -601,8 +641,17 @@
                 </div>
             </div>
 
-            <!-- Top Actions: Match All & Share Pending WhatsApp -->
-            <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <!-- Top Actions: Print Unmatched, Match All & Share Pending WhatsApp -->
+            <div class="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                <a href="{{ route('admin.cashbook.inventory.print-unmatched', array_filter(['date' => $date, 'warehouse_id' => $selectedWarehouseId])) }}"
+                   target="_blank"
+                   class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                   title="Print all products with < 100% match or discrepancies">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Print (< 100% Match)</span>
+                    <span class="ml-0.5 px-1.5 py-0.2 rounded-md bg-slate-800 text-[10px] text-amber-300 font-mono font-bold" x-text="unmatchedCount"></span>
+                </a>
+
                 <button type="button"
                         @click="matchAll()"
                         :disabled="matchingAll"

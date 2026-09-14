@@ -204,17 +204,31 @@ class Product extends Model implements AuditableContract
     {
         $field ??= $this->getRouteKeyName();
 
-        $query = $this->newQuery()->where($field, $value);
+        if ($field === 'public_uuid' && Str::isUuid((string) $value)) {
+            $product = $this->newQuery()->where('public_uuid', $value)->first();
+            if ($product) {
+                return $product;
+            }
+        }
 
         if (is_numeric($value)) {
-            $query->orWhere($this->getKeyName(), (int) $value);
+            $product = $this->newQuery()->where($this->getKeyName(), (int) $value)->first();
+            if ($product) {
+                return $product;
+            }
         }
 
-        if ($field !== 'sku') {
-            $query->orWhere('sku', $value);
+        if ($field !== null && $field !== 'public_uuid') {
+            $product = $this->newQuery()->where($field, $value)->first();
+            if ($product) {
+                return $product;
+            }
         }
 
-        return $query->first();
+        return $this->newQuery()
+            ->where('sku', (string) $value)
+            ->orWhere('public_uuid', (string) $value)
+            ->first();
     }
 
     public function conversionToBaseForUnit(?string $unit): ?float
