@@ -14,9 +14,9 @@ use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Activitylog\Models\Activity;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class RepairCrossDateMatchesCommandTest extends TestCase
@@ -35,7 +35,7 @@ class RepairCrossDateMatchesCommandTest extends TestCase
     {
         parent::setUp();
 
-        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $this->seed(RolePermissionSeeder::class);
 
         $this->admin = User::factory()->create();
         $this->admin->assignRole('admin');

@@ -150,8 +150,17 @@
                                         </span>
                                     </div>
 
-                                    <div class="text-sm font-bold text-slate-900 truncate">
-                                        {{ $sale->customer_name_snapshot }}
+                                    <div class="text-sm font-bold text-slate-900 truncate flex items-center gap-1.5 flex-wrap">
+                                        @if($sale->isShopSale())
+                                            <span class="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-indigo-100 text-indigo-800">Shop</span>
+                                            <span>{{ $sale->shop?->name ?? $sale->customer_name_snapshot }}</span>
+                                        @elseif($sale->isWalkingCustomer())
+                                            <span class="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-amber-100 text-amber-800">Walking</span>
+                                            <span>{{ $sale->customer_name_snapshot }}</span>
+                                        @else
+                                            <span class="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-100 text-emerald-800">Cash Sales</span>
+                                        @endif
+
                                         @if($sale->customer_phone_snapshot)
                                             <span class="text-xs font-mono font-normal text-slate-400">· {{ $sale->customer_phone_snapshot }}</span>
                                         @endif

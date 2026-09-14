@@ -7,6 +7,7 @@ namespace App\Services\Warehouse;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Models\Product;
+use App\Models\Shop;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -94,31 +95,82 @@ class WarehouseSaleService
             ]);
         }
 
-        // Resolve customer snapshot
+        // Resolve customer type & snapshot
+        $rawType = isset($data['customer_type']) && $data['customer_type'] !== '' ? (string) $data['customer_type'] : null;
+        $shopId = ! empty($data['shop_id']) ? (int) $data['shop_id'] : null;
         $customerId = ! empty($data['customer_id']) ? (int) $data['customer_id'] : null;
         $customerName = trim((string) ($data['customer_name'] ?? ''));
         $customerPhone = ! empty($data['customer_phone']) ? trim((string) $data['customer_phone']) : null;
 
-        if ($customerId !== null) {
+        if ($rawType === WarehouseSale::CUSTOMER_TYPE_SHOP || $shopId !== null) {
+            if (! $shopId) {
+                throw ValidationException::withMessages([
+                    'shop_id' => 'Please select a valid shop.',
+                ]);
+            }
+            $shop = Shop::query()->findOrFail($shopId);
+            $customerType = WarehouseSale::CUSTOMER_TYPE_SHOP;
+            $customerName = $shop->name;
+            $customerPhone = $shop->contact_phone ?: null;
+            $customerId = null;
+        } elseif ($rawType === WarehouseSale::CUSTOMER_TYPE_WALKING || $rawType === 'walkin') {
+            $customerType = WarehouseSale::CUSTOMER_TYPE_WALKING;
+            $shopId = null;
+            $customerId = null;
+            if ($customerName === '') {
+                $customerName = 'Walking Customer';
+            }
+        } elseif ($customerId !== null) {
             $customer = WarehouseCustomer::query()->find($customerId);
+            $customerType = WarehouseSale::CUSTOMER_TYPE_WALKING;
+            $shopId = null;
             if ($customer) {
                 $customerName = $customer->name;
                 $customerPhone = $customer->phone ?: $customerPhone;
+            } else {
+                $customerName = $customerName !== '' ? $customerName : 'Walking Customer';
             }
+        } elseif ($rawType === WarehouseSale::CUSTOMER_TYPE_CASH_SALES || ($rawType === null && $customerName === '')) {
+            // Default: Cash Sales (anonymous grouped sales)
+            $customerType = WarehouseSale::CUSTOMER_TYPE_CASH_SALES;
+            $shopId = null;
+            $customerId = null;
+            $customerName = 'Cash Sales';
+            $customerPhone = null;
+        } else {
+            // Backward compatibility: custom name supplied without explicit customer_type
+            $customerType = WarehouseSale::CUSTOMER_TYPE_WALKING;
+            $shopId = null;
+            $customerId = null;
+            $customerName = $customerName !== '' ? $customerName : 'Walking Customer';
         }
 
-        if ($customerName === '') {
-            $customerName = 'Walk-in Customer';
-        }
+        return DB::transaction(function () use (
+            $data,
+            $user,
+            $warehouse,
+            $businessDate,
+            $customerType,
+            $shopId,
+            $customerId,
+            $customerName,
+            $customerPhone
+        ): WarehouseSale {
+            // 2. Validate Items & Prices with Stock Availability Verification
+            $rawItems = $data['items'] ?? [];
+            if (empty($rawItems)) {
+                throw ValidationException::withMessages([
+                    'items' => 'At least one product item is required.',
+                ]);
+            }
 
-        return DB::transaction(function () use ($data, $user, $warehouse, $businessDate, $itemsData, $customerId, $customerName, $customerPhone): WarehouseSale {
-            $subtotal = 0.0;
             $validatedItems = [];
+            $subtotal = 0.0;
 
             // 2. Lock inventory batches and validate stock for ALL items before deducting
-            foreach ($itemsData as $idx => $rawItem) {
+            foreach ($rawItems as $idx => $rawItem) {
                 $productId = (int) ($rawItem['product_id'] ?? 0);
-                $qty = (float) ($rawItem['qty'] ?? 0);
+                $qty = (float) ($rawItem['qty'] ?? ($rawItem['entered_qty'] ?? 0));
                 $unitPrice = (float) ($rawItem['unit_price'] ?? 0);
                 $unit = trim((string) ($rawItem['unit'] ?? 'kg'));
                 $gradeStr = trim((string) ($rawItem['grade'] ?? 'A'));
@@ -181,6 +233,8 @@ class WarehouseSaleService
             $sale = WarehouseSale::query()->create([
                 'invoice_number' => $invoiceNumber,
                 'warehouse_id' => $warehouse->id,
+                'customer_type' => $customerType,
+                'shop_id' => $shopId,
                 'customer_id' => $customerId,
                 'customer_name_snapshot' => $customerName,
                 'customer_phone_snapshot' => $customerPhone,
@@ -255,6 +309,9 @@ class WarehouseSaleService
                 : null;
 
             $companyAccountId = ! empty($data['company_account_id']) ? (int) $data['company_account_id'] : null;
+            $paymentReference = ! empty($data['payment_reference'])
+                ? trim((string) $data['payment_reference'])
+                : (! empty($data['reference']) ? trim((string) $data['reference']) : null);
 
             WarehouseSalePayment::query()->create([
                 'warehouse_sale_id' => $sale->id,
@@ -263,7 +320,7 @@ class WarehouseSaleService
                 'money_holder_type' => $moneyHolderType,
                 'money_holder_user_id' => $moneyHolderUserId,
                 'company_account_id' => $companyAccountId,
-                'reference' => $data['reference'] ?? null,
+                'reference' => $paymentReference,
                 'status' => 'completed',
                 'received_at' => now(),
             ]);

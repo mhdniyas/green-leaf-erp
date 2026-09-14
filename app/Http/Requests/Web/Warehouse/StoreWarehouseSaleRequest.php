@@ -36,7 +36,8 @@ class StoreWarehouseSaleRequest extends FormRequest
     {
         return [
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'customer_type' => ['nullable', 'string', 'in:walkin,existing,new'],
+            'customer_type' => ['nullable', 'string', 'in:cash_sales,walking_customer,shop,walkin,existing,new'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'customer_id' => ['nullable', 'integer', 'exists:warehouse_customers,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:50'],

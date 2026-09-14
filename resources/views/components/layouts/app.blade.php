@@ -514,6 +514,11 @@
                             <x-nav-item href="{{ route('purchaser.suppliers') }}" :active="request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers')" :sub="true">
                                 Vendor Hub
                             </x-nav-item>
+                            @if(\App\Services\Warehouse\WarehouseSalesAccessService::userCanMakeSales(auth()->user()))
+                            <x-nav-item href="{{ route('warehouse.sales.index') }}" :active="request()->routeIs('warehouse.sales.*')" :sub="true">
+                                Warehouse Sales
+                            </x-nav-item>
+                            @endif
                         </div>
                         <div class="space-y-1">
                             <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Money</p>
@@ -595,6 +600,11 @@
                                 Sales Summary
                             </x-nav-item>
                         @endcan
+                        @if(\App\Services\Warehouse\WarehouseSalesAccessService::userCanMakeSales(auth()->user()))
+                            <x-nav-item href="{{ route('warehouse.sales.index') }}" :active="request()->routeIs('warehouse.sales.*')" :sub="true">
+                                Warehouse Sales
+                            </x-nav-item>
+                        @endif
                     </div>
                 </div>
             @else
@@ -631,11 +641,13 @@
 
                 {{-- Sales Group --}}
                 @if(
+                    auth()->user()->hasRole('admin') ||
                     auth()->user()->can('sales.customer.view') ||
-                    auth()->user()->can('sales.invoice.view')
+                    auth()->user()->can('sales.invoice.view') ||
+                    \App\Services\Warehouse\WarehouseSalesAccessService::userCanMakeSales(auth()->user())
                 )
                 @php
-                    $isSalesActive = request()->routeIs('sales.*');
+                    $isSalesActive = request()->routeIs('sales.*') || request()->routeIs('warehouse.sales.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -664,6 +676,11 @@
                             Sales Invoices
                         </x-nav-item>
                         @endcan
+                        @if(auth()->user()->hasRole('admin') || \App\Services\Warehouse\WarehouseSalesAccessService::userCanMakeSales(auth()->user()))
+                        <x-nav-item href="{{ route('warehouse.sales.index') }}" :active="request()->routeIs('warehouse.sales.*')" :sub="true">
+                            Warehouse Sales
+                        </x-nav-item>
+                        @endif
                     </div>
                 </div>
                 @endif

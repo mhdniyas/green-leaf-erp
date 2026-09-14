@@ -26,11 +26,19 @@ class WarehouseSale extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    public const CUSTOMER_TYPE_CASH_SALES = 'cash_sales';
+
+    public const CUSTOMER_TYPE_WALKING = 'walking_customer';
+
+    public const CUSTOMER_TYPE_SHOP = 'shop';
+
     protected $fillable = [
         'uuid',
         'invoice_number',
         'warehouse_id',
         'customer_id',
+        'customer_type',
+        'shop_id',
         'customer_name_snapshot',
         'customer_phone_snapshot',
         'business_date',
@@ -98,6 +106,48 @@ class WarehouseSale extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(WarehouseCustomer::class, 'customer_id');
+    }
+
+    public function shop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class, 'shop_id');
+    }
+
+    public function isShopSale(): bool
+    {
+        return $this->customer_type === self::CUSTOMER_TYPE_SHOP || $this->shop_id !== null;
+    }
+
+    public function isWalkingCustomer(): bool
+    {
+        return $this->customer_type === self::CUSTOMER_TYPE_WALKING;
+    }
+
+    public function isAnonymousCashSale(): bool
+    {
+        return $this->customer_type === self::CUSTOMER_TYPE_CASH_SALES || empty($this->customer_type);
+    }
+
+    public function customerTypeLabel(): string
+    {
+        if ($this->isShopSale()) {
+            return 'Shop';
+        }
+
+        if ($this->isWalkingCustomer()) {
+            return 'Walking';
+        }
+
+        return 'Cash Sales';
+    }
+
+    public function customerDisplayName(): string
+    {
+        if ($this->isShopSale()) {
+            return $this->shop?->name ?? $this->customer_name_snapshot;
+        }
+
+        return $this->customer_name_snapshot ?: 'Cash Sales';
     }
 
     public function soldBy(): BelongsTo

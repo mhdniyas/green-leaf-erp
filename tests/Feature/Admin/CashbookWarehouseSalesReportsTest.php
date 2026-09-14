@@ -9,6 +9,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\Shop;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -107,11 +108,13 @@ class CashbookWarehouseSalesReportsTest extends TestCase
     {
         $this->seedStock(200.0);
 
-        // Create Sale 1: Cash held by User (₹600)
+        $shop = Shop::factory()->create(['name' => 'Casio Shop', 'code' => 'CASIO']);
+
+        // Create Sale 1: Cash Sales (₹600)
         $this->actingAs($this->salesUser);
         $this->post(route('warehouse.sales.store'), [
             'warehouse_id' => $this->warehouse->id,
-            'customer_name' => 'ABC Hotel',
+            'customer_type' => 'cash_sales',
             'business_date' => now()->toDateString(),
             'payment_method' => 'cash',
             'money_holder_type' => 'user',
@@ -121,10 +124,11 @@ class CashbookWarehouseSalesReportsTest extends TestCase
             ],
         ]);
 
-        // Create Sale 2: UPI direct to Company (₹300)
+        // Create Sale 2: Shop Sale - Casio Shop (₹300)
         $this->post(route('warehouse.sales.store'), [
             'warehouse_id' => $this->warehouse->id,
-            'customer_name' => 'Walk-in UPI',
+            'customer_type' => 'shop',
+            'shop_id' => $shop->id,
             'business_date' => now()->toDateString(),
             'payment_method' => 'upi',
             'money_holder_type' => 'company',
@@ -133,14 +137,38 @@ class CashbookWarehouseSalesReportsTest extends TestCase
             ],
         ]);
 
+        // Create Sale 3: Walking Customer - Mohammed (₹150)
+        $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'walking_customer',
+            'customer_name' => 'Mohammed',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->product->id, 'qty' => 5.0, 'unit_price' => 30.0],
+            ],
+        ]);
+
         // Admin checks Cashbook Warehouse Sales report
         $this->actingAs($this->adminUser);
         $response = $this->get(route('admin.cashbook.warehouse-sales'));
         $response->assertOk();
-        $response->assertSee('ABC Hotel');
-        $response->assertSee('Walk-in UPI');
-        $response->assertSee('900.00'); // Total sales
-        $response->assertSee('600.00'); // Cash sales / user holding
+        $response->assertSee('Cash Sales');
+        $response->assertSee('Casio Shop');
+        $response->assertSee('Mohammed');
+        $response->assertSee('1,050.00'); // Total sales
+
+        // Test filtering by customer_type = shop
+        $shopFilterResponse = $this->get(route('admin.cashbook.warehouse-sales', ['customer_type' => 'shop']));
+        $shopFilterResponse->assertOk();
+        $shopFilterResponse->assertSee('Casio Shop');
+        $shopFilterResponse->assertDontSee('Mohammed');
+
+        // Test filtering by shop_id
+        $shopIdFilterResponse = $this->get(route('admin.cashbook.warehouse-sales', ['shop_id' => $shop->id]));
+        $shopIdFilterResponse->assertOk();
+        $shopIdFilterResponse->assertSee('Casio Shop');
     }
 
     public function test_unauthorized_user_is_forbidden_from_cashbook_warehouse_sales_report(): void
@@ -159,11 +187,13 @@ class CashbookWarehouseSalesReportsTest extends TestCase
     {
         $this->seedStock(50.0);
 
+        $shop = Shop::factory()->create(['name' => 'Casio']);
+
         $this->actingAs($this->salesUser);
         $this->post(route('warehouse.sales.store'), [
             'warehouse_id' => $this->warehouse->id,
-            'customer_name' => 'Traceable Customer',
-            'customer_phone' => '9988776655',
+            'customer_type' => 'shop',
+            'shop_id' => $shop->id,
             'business_date' => now()->toDateString(),
             'payment_method' => 'cash',
             'money_holder_type' => 'user',
@@ -181,7 +211,7 @@ class CashbookWarehouseSalesReportsTest extends TestCase
 
         $response->assertOk();
         $response->assertSee($sale->invoice_number);
-        $response->assertSee('Traceable Customer');
+        $response->assertSee('Casio');
         $response->assertSee('Tomato');
         $response->assertSee('Auditable Inventory Movements');
         $response->assertSee('SALE_OUT');

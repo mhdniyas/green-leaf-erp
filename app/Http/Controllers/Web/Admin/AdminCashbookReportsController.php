@@ -4195,6 +4195,8 @@ class AdminCashbookReportsController extends Controller
         $endDate = $request->input('end_date');
         $warehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
         $customerId = $request->filled('customer_id') ? $request->integer('customer_id') : null;
+        $customerType = $request->input('customer_type');
+        $shopId = $request->filled('shop_id') ? $request->integer('shop_id') : null;
         $soldByUserId = $request->filled('sold_by_user_id') ? $request->integer('sold_by_user_id') : null;
         $paymentMethod = $request->input('payment_method');
         $moneyHolderType = $request->input('money_holder_type');
@@ -4203,7 +4205,7 @@ class AdminCashbookReportsController extends Controller
         $status = $request->input('status', 'all');
 
         $query = WarehouseSale::query()
-            ->with(['items.product', 'payments.moneyHolderUser', 'customer', 'soldBy', 'warehouse'])
+            ->with(['items.product', 'payments.moneyHolderUser', 'customer', 'shop', 'soldBy', 'warehouse'])
             ->when($startDate && $endDate, function (Builder $q) use ($startDate, $endDate) {
                 $q->whereBetween('business_date', [$startDate, $endDate]);
             }, function (Builder $q) use ($date, $startDate) {
@@ -4217,6 +4219,8 @@ class AdminCashbookReportsController extends Controller
             })
             ->when($warehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $warehouseId))
             ->when($customerId !== null, fn (Builder $q) => $q->where('customer_id', $customerId))
+            ->when($customerType && $customerType !== 'all', fn (Builder $q) => $q->where('customer_type', $customerType))
+            ->when($shopId !== null, fn (Builder $q) => $q->where('shop_id', $shopId))
             ->when($soldByUserId !== null, fn (Builder $q) => $q->where('sold_by_user_id', $soldByUserId))
             ->when($status !== 'all', fn (Builder $q) => $q->where('status', $status))
             ->when($paymentMethod, function (Builder $q) use ($paymentMethod) {
@@ -4232,7 +4236,8 @@ class AdminCashbookReportsController extends Controller
                 $q->where(function (Builder $sq) use ($search) {
                     $sq->where('invoice_number', 'like', "%{$search}%")
                         ->orWhere('customer_name_snapshot', 'like', "%{$search}%")
-                        ->orWhere('customer_phone_snapshot', 'like', "%{$search}%");
+                        ->orWhere('customer_phone_snapshot', 'like', "%{$search}%")
+                        ->orWhereHas('shop', fn (Builder $shq) => $shq->where('name', 'like', "%{$search}%")->orWhere('code', 'like', "%{$search}%"));
                 });
             })
             ->orderByDesc('business_date')
@@ -4284,7 +4289,7 @@ class AdminCashbookReportsController extends Controller
         $warehouses = Warehouse::query()->active()->orderBy('name')->get(['id', 'name', 'code']);
         $customers = WarehouseCustomer::query()->orderBy('name')->get(['id', 'name', 'phone']);
         $users = User::query()->orderBy('name')->get(['id', 'name']);
-        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $shops = Shop::query()->orderBy('name')->get(['id', 'name', 'code']);
 
         return view('admin.cashbook.reports.warehouse_sales', [
             'sales' => $sales,
@@ -4298,6 +4303,8 @@ class AdminCashbookReportsController extends Controller
             'endDate' => $endDate,
             'selectedWarehouseId' => $warehouseId,
             'selectedCustomerId' => $customerId,
+            'selectedCustomerType' => $customerType,
+            'selectedShopId' => $shopId,
             'selectedSoldByUserId' => $soldByUserId,
             'selectedPaymentMethod' => $paymentMethod,
             'selectedMoneyHolderType' => $moneyHolderType,
@@ -4321,6 +4328,7 @@ class AdminCashbookReportsController extends Controller
             'payments.companyAccount',
             'warehouse',
             'customer',
+            'shop',
             'soldBy',
             'cancelledBy',
         ]);

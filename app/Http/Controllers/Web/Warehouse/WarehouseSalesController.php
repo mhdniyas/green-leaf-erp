@@ -9,6 +9,7 @@ use App\Http\Requests\Web\Warehouse\CancelWarehouseSaleRequest;
 use App\Http\Requests\Web\Warehouse\StoreWarehouseCustomerRequest;
 use App\Http\Requests\Web\Warehouse\StoreWarehouseSaleRequest;
 use App\Models\Product;
+use App\Models\Shop;
 use App\Models\User;
 use App\Models\WarehouseCustomer;
 use App\Models\WarehouseSale;
@@ -53,7 +54,7 @@ class WarehouseSalesController extends Controller
         $nextDate = Carbon::parse($date)->addDay()->toDateString();
 
         $sales = WarehouseSale::query()
-            ->with(['items.product', 'payments.moneyHolderUser', 'customer', 'soldBy'])
+            ->with(['items.product', 'payments.moneyHolderUser', 'customer', 'soldBy', 'shop'])
             ->whereDate('business_date', $date)
             ->where('warehouse_id', $selectedWarehouseId)
             ->orderByDesc('id')
@@ -99,6 +100,10 @@ class WarehouseSalesController extends Controller
             $selectedWarehouseId = (int) $allowedWarehouses->first()->id;
         }
 
+        $shops = Shop::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'contact_phone']);
+
         $customers = WarehouseCustomer::query()
             ->where('is_active', true)
             ->orderBy('name')
@@ -107,7 +112,7 @@ class WarehouseSalesController extends Controller
         $products = Product::query()
             ->where('is_active', true)
             ->orderBy('name')
-            ->get(['id', 'name', 'sku', 'unit', 'default_price']);
+            ->get(['id', 'name', 'sku', 'unit', 'base_price']);
 
         $productIds = $products->pluck('id')->all();
         $stockMap = $this->stockLedgerService->availableSortedStockForProducts($productIds, $selectedWarehouseId);
@@ -120,7 +125,7 @@ class WarehouseSalesController extends Controller
                 'name' => $p->name,
                 'sku' => $p->sku,
                 'unit' => $p->unit ?: 'kg',
-                'price' => (float) ($p->default_price ?? 0),
+                'price' => (float) ($p->base_price ?? 0),
                 'available_stock' => $stock,
             ];
         })->values();
@@ -134,6 +139,7 @@ class WarehouseSalesController extends Controller
         return view('warehouse.sales.create', [
             'allowedWarehouses' => $allowedWarehouses,
             'selectedWarehouseId' => $selectedWarehouseId,
+            'shops' => $shops,
             'customers' => $customers,
             'productsWithStock' => $productsWithStock,
             'activeUsers' => $activeUsers,
@@ -177,6 +183,7 @@ class WarehouseSalesController extends Controller
             'customer',
             'soldBy',
             'cancelledBy',
+            'shop',
         ]);
 
         return view('warehouse.sales.show', [
@@ -246,7 +253,7 @@ class WarehouseSalesController extends Controller
         $products = Product::query()
             ->where('is_active', true)
             ->orderBy('name')
-            ->get(['id', 'name', 'sku', 'unit', 'default_price']);
+            ->get(['id', 'name', 'sku', 'unit', 'base_price']);
 
         $stockMap = $this->stockLedgerService->availableSortedStockForProducts($products->pluck('id')->all(), $warehouseId ?: null);
 
@@ -258,10 +265,10 @@ class WarehouseSalesController extends Controller
                 'name' => $p->name,
                 'sku' => $p->sku,
                 'unit' => $p->unit ?: 'kg',
-                'price' => (float) ($p->default_price ?? 0),
+                'price' => (float) ($p->base_price ?? 0),
                 'available_stock' => $stock,
             ];
-        });
+        })->values();
 
         return response()->json([
             'status' => 'success',
@@ -277,6 +284,10 @@ class WarehouseSalesController extends Controller
         }
 
         if (! $this->accessService->canUserMakeSales($user)) {
+            if (($user->hasRole('admin') || $user->isMainAdmin()) && ! $this->accessService->isFeatureEnabled()) {
+                abort(403, 'Warehouse Sales is currently disabled in Company Settings. Please go to Company Settings (/admin/company-settings) and turn on Warehouse Sales.');
+            }
+
             abort(403, 'You do not have access to Warehouse Sales.');
         }
     }

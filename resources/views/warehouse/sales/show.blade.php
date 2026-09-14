@@ -78,9 +78,20 @@
             <div class="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
                     <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Customer</span>
-                    <span class="text-sm font-bold text-slate-900 block mt-0.5">{{ $sale->customer_name_snapshot }}</span>
+                    <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                        @if($sale->isShopSale())
+                            <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-indigo-100 text-indigo-800 border border-indigo-200">Shop</span>
+                            <span class="text-sm font-black text-slate-900">{{ $sale->shop?->name ?? $sale->customer_name_snapshot }}</span>
+                        @elseif($sale->isWalkingCustomer())
+                            <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-200">Walking</span>
+                            <span class="text-sm font-black text-slate-900">{{ $sale->customer_name_snapshot }}</span>
+                        @else
+                            <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">Cash Sales</span>
+                            <span class="text-sm font-black text-slate-900">{{ $sale->customer_name_snapshot ?: 'Cash Sales' }}</span>
+                        @endif
+                    </div>
                     @if($sale->customer_phone_snapshot)
-                        <span class="font-mono text-slate-500 block">{{ $sale->customer_phone_snapshot }}</span>
+                        <span class="font-mono text-slate-500 block mt-0.5">{{ $sale->customer_phone_snapshot }}</span>
                     @endif
                 </div>
                 <div class="text-right">

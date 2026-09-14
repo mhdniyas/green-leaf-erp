@@ -9,6 +9,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\Shop;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -115,6 +116,285 @@ class WarehouseSalesTest extends TestCase
         return $batch;
     }
 
+    public function test_new_sale_defaults_to_cash_sales_and_lists_existing_shops(): void
+    {
+        $shop1 = Shop::factory()->create(['name' => 'Casio Shop', 'code' => 'CS01']);
+        $shop2 = Shop::factory()->create(['name' => 'Lulu Budhigere', 'code' => 'LB02']);
+
+        $this->actingAs($this->salesUser);
+
+        $response = $this->get(route('warehouse.sales.create'));
+        $response->assertOk();
+        $response->assertSee('Cash Sales');
+        $response->assertSee('Casio Shop');
+        $response->assertSee('Lulu Budhigere');
+        $response->assertSee('Walking Customer');
+    }
+
+    public function test_cash_sales_can_be_confirmed_without_creating_another_customer(): void
+    {
+        $this->seedStock($this->productA, 50.0, $this->warehouse);
+
+        $initialCustomerCount = WarehouseCustomer::query()->count();
+
+        $this->actingAs($this->salesUser);
+
+        $response = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'cash_sales',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 5, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $sale = WarehouseSale::query()->first();
+        $this->assertNotNull($sale);
+        $this->assertEquals(WarehouseSale::CUSTOMER_TYPE_CASH_SALES, $sale->customer_type);
+        $this->assertEquals('Cash Sales', $sale->customer_name_snapshot);
+        $this->assertNull($sale->shop_id);
+        $this->assertNull($sale->warehouse_customer_id);
+
+        // No new warehouse_customers row created for anonymous cash sale
+        $this->assertEquals($initialCustomerCount, WarehouseCustomer::query()->count());
+    }
+
+    public function test_multiple_cash_sales_create_separate_invoices_without_duplicate_customers(): void
+    {
+        $this->seedStock($this->productA, 100.0, $this->warehouse);
+
+        $this->actingAs($this->salesUser);
+
+        // Sale 1
+        $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'cash_sales',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 10, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        // Sale 2
+        $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'cash_sales',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 20, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $sales = WarehouseSale::query()->orderBy('id')->get();
+        $this->assertCount(2, $sales);
+        $this->assertNotEquals($sales[0]->invoice_number, $sales[1]->invoice_number);
+        $this->assertEquals(300.0, (float) $sales[0]->total_amount);
+        $this->assertEquals(600.0, (float) $sales[1]->total_amount);
+        $this->assertEquals('Cash Sales', $sales[0]->customer_name_snapshot);
+        $this->assertEquals('Cash Sales', $sales[1]->customer_name_snapshot);
+
+        $this->assertEquals(0, WarehouseCustomer::query()->count());
+    }
+
+    public function test_shop_sale_references_correct_existing_shop_without_creating_warehouse_customer(): void
+    {
+        $this->seedStock($this->productA, 50.0, $this->warehouse);
+
+        $shop = Shop::factory()->create([
+            'name' => 'Grandcity Supermarket',
+            'code' => 'GC01',
+            'contact_phone' => '9876500000',
+        ]);
+
+        $this->actingAs($this->salesUser);
+
+        $response = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'shop',
+            'shop_id' => $shop->id,
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'credit',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 15, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $sale = WarehouseSale::query()->first();
+        $this->assertNotNull($sale);
+        $this->assertEquals(WarehouseSale::CUSTOMER_TYPE_SHOP, $sale->customer_type);
+        $this->assertEquals($shop->id, $sale->shop_id);
+        $this->assertEquals('Grandcity Supermarket', $sale->customer_name_snapshot);
+        $this->assertEquals('9876500000', $sale->customer_phone_snapshot);
+        $this->assertEquals($shop->id, $sale->shop->id);
+
+        // Shop is NOT duplicated in warehouse_customers
+        $this->assertEquals(0, WarehouseCustomer::query()->count());
+    }
+
+    public function test_unauthorized_shop_or_warehouse_manipulation_rejected(): void
+    {
+        $this->seedStock($this->productA, 50.0, $this->warehouse);
+        $unauthorizedWarehouse = Warehouse::factory()->create(['name' => 'Secret Warehouse', 'is_active' => true]);
+
+        $this->actingAs($this->salesUser);
+
+        // Attempt sale on unauthorized warehouse
+        $response = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $unauthorizedWarehouse->id,
+            'customer_type' => 'cash_sales',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 5, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $response->assertForbidden();
+
+        // Attempt non-existent shop_id
+        $badShopResponse = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'shop',
+            'shop_id' => 999999,
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 5, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $badShopResponse->assertSessionHasErrors(['shop_id']);
+    }
+
+    public function test_walking_customer_works_without_name(): void
+    {
+        $this->seedStock($this->productA, 50.0, $this->warehouse);
+
+        $this->actingAs($this->salesUser);
+
+        $response = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'walking_customer',
+            'customer_name' => '',
+            'customer_phone' => '',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 5, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $sale = WarehouseSale::query()->first();
+        $this->assertNotNull($sale);
+        $this->assertEquals(WarehouseSale::CUSTOMER_TYPE_WALKING, $sale->customer_type);
+        $this->assertEquals('Walking Customer', $sale->customer_name_snapshot);
+    }
+
+    public function test_walking_customer_works_with_custom_name_and_phone(): void
+    {
+        $this->seedStock($this->productA, 50.0, $this->warehouse);
+
+        $this->actingAs($this->salesUser);
+
+        $response = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'walking_customer',
+            'customer_name' => 'Mohammed',
+            'customer_phone' => '9876543210',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'company',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 5, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $sale = WarehouseSale::query()->first();
+        $this->assertNotNull($sale);
+        $this->assertEquals(WarehouseSale::CUSTOMER_TYPE_WALKING, $sale->customer_type);
+        $this->assertEquals('Mohammed', $sale->customer_name_snapshot);
+        $this->assertEquals('9876543210', $sale->customer_phone_snapshot);
+    }
+
+    public function test_customer_type_does_not_force_payment_method_cash_sales_with_upi(): void
+    {
+        $this->seedStock($this->productA, 50.0, $this->warehouse);
+
+        $this->actingAs($this->salesUser);
+
+        // Customer: Cash Sales, Payment: UPI
+        $response = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'cash_sales',
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'upi',
+            'money_holder_type' => 'company',
+            'payment_reference' => 'UPI-REF-12345',
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 5, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $sale = WarehouseSale::query()->first();
+        $this->assertNotNull($sale);
+        $this->assertEquals(WarehouseSale::CUSTOMER_TYPE_CASH_SALES, $sale->customer_type);
+        $payment = $sale->primaryPayment();
+        $this->assertEquals('upi', $payment->payment_method);
+        $this->assertEquals('UPI-REF-12345', $payment->reference);
+    }
+
+    public function test_customer_type_does_not_force_payment_method_shop_with_cash(): void
+    {
+        $this->seedStock($this->productA, 50.0, $this->warehouse);
+
+        $shop = Shop::factory()->create(['name' => 'Casio']);
+
+        $this->actingAs($this->salesUser);
+
+        // Customer: Shop - Casio, Payment: Cash
+        $response = $this->post(route('warehouse.sales.store'), [
+            'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'shop',
+            'shop_id' => $shop->id,
+            'business_date' => now()->toDateString(),
+            'payment_method' => 'cash',
+            'money_holder_type' => 'user',
+            'money_holder_user_id' => $this->salesUser->id,
+            'items' => [
+                ['product_id' => $this->productA->id, 'qty' => 5, 'unit_price' => 30.0],
+            ],
+        ]);
+
+        $response->assertRedirect();
+
+        $sale = WarehouseSale::query()->first();
+        $this->assertNotNull($sale);
+        $this->assertEquals(WarehouseSale::CUSTOMER_TYPE_SHOP, $sale->customer_type);
+        $this->assertEquals($shop->id, $sale->shop_id);
+        $payment = $sale->primaryPayment();
+        $this->assertEquals('cash', $payment->payment_method);
+        $this->assertTrue($sale->isUserHeldCash());
+    }
+
     public function test_confirmed_sale_creates_invoice_items_and_inventory_movements(): void
     {
         $this->seedStock($this->productA, 100.0, $this->warehouse);
@@ -149,26 +429,36 @@ class WarehouseSalesTest extends TestCase
         $this->assertEquals(800.0, (float) $sale->subtotal);
         $this->assertEquals(50.0, (float) $sale->discount);
         $this->assertEquals(750.0, (float) $sale->total_amount);
-        $this->assertEquals(WarehouseSale::STATUS_CONFIRMED, $sale->status);
-        $this->assertEquals($this->salesUser->id, $sale->sold_by_user_id);
+        $this->assertEquals(750.0, (float) $sale->paid_amount);
+        $this->assertTrue($sale->isConfirmed());
 
-        // Check payment record
+        // Verify items
+        $this->assertCount(1, $sale->items);
+        $item = $sale->items->first();
+        $this->assertEquals($this->productA->id, $item->product_id);
+        $this->assertEquals(25.0, (float) $item->entered_qty);
+        $this->assertEquals(32.0, (float) $item->unit_price);
+        $this->assertEquals(800.0, (float) $item->line_total);
+
+        // Verify payment
         $this->assertCount(1, $sale->payments);
         $payment = $sale->payments->first();
         $this->assertEquals('cash', $payment->payment_method);
+        $this->assertEquals(750.0, (float) $payment->amount);
         $this->assertEquals('user', $payment->money_holder_type);
         $this->assertEquals($this->salesUser->id, $payment->money_holder_user_id);
-        $this->assertTrue($payment->isHeldByUser());
-        $this->assertFalse($payment->isHeldByCompany());
 
-        // Check inventory movements
-        $saleMovement = StockMovement::query()
-            ->where('warehouse_sale_item_id', $sale->items->first()->id)
+        // Verify stock movement
+        $movements = StockMovement::query()
+            ->where('warehouse_sale_item_id', $item->id)
             ->where('type', StockMovementType::Sale->value)
-            ->first();
+            ->get();
 
-        $this->assertNotNull($saleMovement);
-        $this->assertEquals(25.0, (float) $saleMovement->quantity);
+        $this->assertCount(1, $movements);
+        $movement = $movements->first();
+        $this->assertEquals(25.0, (float) $movement->quantity);
+        $this->assertEquals($this->warehouse->id, $movement->warehouse_id);
+        $this->assertEquals($this->productA->id, $movement->product_id);
     }
 
     public function test_sale_cannot_exceed_available_inventory_and_blocks_negative_stock(): void
@@ -235,7 +525,7 @@ class WarehouseSalesTest extends TestCase
         $this->assertTrue($payment->isHeldByCompany());
     }
 
-    public function test_cancelling_confirmed_sale_restores_inventory_exactly_once(): void
+    public function test_sale_cancellation_reverses_inventory_and_is_idempotent(): void
     {
         $this->seedStock($this->productA, 50.0, $this->warehouse);
 
@@ -243,7 +533,7 @@ class WarehouseSalesTest extends TestCase
 
         $this->post(route('warehouse.sales.store'), [
             'warehouse_id' => $this->warehouse->id,
-            'customer_name' => 'Test Hotel',
+            'customer_name' => 'To Be Cancelled',
             'business_date' => now()->toDateString(),
             'payment_method' => 'cash',
             'money_holder_type' => 'user',
@@ -366,6 +656,7 @@ class WarehouseSalesTest extends TestCase
 
         $this->post(route('warehouse.sales.store'), [
             'warehouse_id' => $this->warehouse->id,
+            'customer_type' => 'walking_customer',
             'customer_name' => '<script>alert("xss")</script> Safe Hotel',
             'business_date' => now()->toDateString(),
             'money_holder_type' => 'company',

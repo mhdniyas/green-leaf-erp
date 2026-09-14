@@ -91,12 +91,38 @@
         <!-- 2. Filters Bar -->
         <form method="GET" action="{{ route('admin.cashbook.warehouse-sales') }}"
               class="rounded-3xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 <!-- Search -->
                 <div>
                     <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Search Invoice / Customer</label>
-                    <input type="text" name="search" value="{{ $search }}" placeholder="WS-..., Customer name, phone..."
+                    <input type="text" name="search" value="{{ $search }}" placeholder="WS-..., Shop, Customer..."
                            class="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">
+                </div>
+
+                <!-- Customer Type Filter -->
+                <div>
+                    <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Customer Type</label>
+                    <select name="customer_type" onchange="this.form.submit()"
+                            class="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none cursor-pointer">
+                        <option value="">All Types</option>
+                        <option value="cash_sales" @selected($selectedCustomerType === 'cash_sales')>Cash Sales</option>
+                        <option value="shop" @selected($selectedCustomerType === 'shop')>Shop</option>
+                        <option value="walking_customer" @selected($selectedCustomerType === 'walking_customer')>Walking Customer</option>
+                    </select>
+                </div>
+
+                <!-- Shop Filter -->
+                <div>
+                    <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Shop</label>
+                    <select name="shop_id" onchange="this.form.submit()"
+                            class="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none cursor-pointer">
+                        <option value="">All Shops</option>
+                        @foreach($shops as $sh)
+                            <option value="{{ $sh->id }}" @selected((int)$selectedShopId === (int)$sh->id)>
+                                {{ $sh->name }} {{ $sh->code ? "({$sh->code})" : '' }}
+                            </option>
+                        @endforeach
+                    </select>
                 </div>
 
                 <!-- Warehouse Filter -->
@@ -108,20 +134,6 @@
                         @foreach($warehouses as $wh)
                             <option value="{{ $wh->id }}" @selected((int)$selectedWarehouseId === (int)$wh->id)>
                                 {{ $wh->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <!-- Customer Filter -->
-                <div>
-                    <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Customer</label>
-                    <select name="customer_id" onchange="this.form.submit()"
-                            class="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none cursor-pointer">
-                        <option value="">All Customers</option>
-                        @foreach($customers as $c)
-                            <option value="{{ $c->id }}" @selected((int)$selectedCustomerId === (int)$c->id)>
-                                {{ $c->name }} {{ $c->phone ? "({$c->phone})" : '' }}
                             </option>
                         @endforeach
                     </select>
@@ -196,7 +208,7 @@
             <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 class="text-sm font-black text-slate-900">Warehouse Sales Ledger</h2>
-                    <p class="text-xs text-slate-500">Trace every sale to invoice, customer, payment, money holder, and inventory movements.</p>
+                    <p class="text-xs text-slate-500">Trace every sale to invoice, customer type, customer, payment, money holder, and inventory movements.</p>
                 </div>
                 <div class="text-xs font-bold text-slate-500">
                     Showing <span class="font-black text-slate-900">{{ $sales->count() }}</span> records
@@ -210,6 +222,7 @@
                             <th scope="col" class="py-3 px-3 text-center w-12">#</th>
                             <th scope="col" class="py-3 px-3">Invoice</th>
                             <th scope="col" class="py-3 px-3">Date &amp; Time</th>
+                            <th scope="col" class="py-3 px-3">Customer Type</th>
                             <th scope="col" class="py-3 px-3">Customer</th>
                             <th scope="col" class="py-3 px-3">Warehouse</th>
                             <th scope="col" class="py-3 px-3">Sold By</th>
@@ -252,9 +265,32 @@
                                     <div class="text-[10px] text-slate-400">{{ $sale->created_at?->timezone('Asia/Kolkata')->format('h:i A') }}</div>
                                 </td>
 
+                                <!-- Customer Type -->
+                                <td class="py-3 px-3 whitespace-nowrap">
+                                    @if($sale->isShopSale())
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-100 text-blue-800 border border-blue-200">
+                                            Shop
+                                        </span>
+                                    @elseif($sale->isWalkingCustomer())
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-200">
+                                            Walking
+                                        </span>
+                                    @else
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                            Cash Sales
+                                        </span>
+                                    @endif
+                                </td>
+
                                 <!-- Customer -->
                                 <td class="py-3 px-3">
-                                    <div class="font-bold text-slate-900">{{ $sale->customer_name_snapshot }}</div>
+                                    <div class="font-bold text-slate-900">
+                                        @if($sale->isShopSale() && $sale->shop)
+                                            {{ $sale->shop->name }}
+                                        @else
+                                            {{ $sale->customerDisplayName() }}
+                                        @endif
+                                    </div>
                                     @if($sale->customer_phone_snapshot)
                                         <div class="text-[10px] font-mono text-slate-400">{{ $sale->customer_phone_snapshot }}</div>
                                     @endif
@@ -329,7 +365,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="11" class="py-12 text-center text-slate-400 font-semibold">
+                                <td colspan="12" class="py-12 text-center text-slate-400 font-semibold">
                                     No warehouse sales records found matching the selected filters.
                                 </td>
                             </tr>

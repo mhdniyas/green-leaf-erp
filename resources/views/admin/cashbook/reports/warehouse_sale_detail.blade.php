@@ -49,9 +49,27 @@
         <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
             <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Customer & Warehouse</h3>
             <div class="space-y-2 text-sm">
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-500">Customer Type:</span>
+                    <span class="font-medium text-slate-800">
+                        @if($sale->isShopSale())
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800">Shop</span>
+                        @elseif($sale->isWalkingCustomer())
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-purple-100 text-purple-800">Walking Customer</span>
+                        @else
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">Cash Sales</span>
+                        @endif
+                    </span>
+                </div>
                 <div class="flex justify-between">
                     <span class="text-slate-500">Customer:</span>
-                    <span class="font-medium text-slate-800">{{ $sale->customer_name_snapshot }}</span>
+                    <span class="font-medium text-slate-800">
+                        @if($sale->isShopSale() && $sale->shop)
+                            {{ $sale->shop->name }}
+                        @else
+                            {{ $sale->customerDisplayName() }}
+                        @endif
+                    </span>
                 </div>
                 @if($sale->customer_phone_snapshot)
                     <div class="flex justify-between">
@@ -65,7 +83,7 @@
                 </div>
                 <div class="flex justify-between">
                     <span class="text-slate-500">Sold By:</span>
-                    <span class="font-medium text-slate-800">{{ $sale->soldByUser->name ?? 'N/A' }}</span>
+                    <span class="font-medium text-slate-800">{{ $sale->soldBy?->name ?? 'N/A' }}</span>
                 </div>
             </div>
         </div>

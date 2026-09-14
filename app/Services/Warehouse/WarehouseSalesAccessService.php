@@ -95,6 +95,10 @@ class WarehouseSalesAccessService
             return false;
         }
 
+        if ($user->hasRole('admin') || $user->isMainAdmin()) {
+            return true;
+        }
+
         return in_array((int) $user->id, $this->allowedUserIds(), true);
     }
 
@@ -125,7 +129,7 @@ class WarehouseSalesAccessService
             }
 
             // If user has all warehouse access or no specific filter, return all active
-            if ($user->hasAllWarehouseAccess() || $user->hasRole('admin')) {
+            if ($user->hasAllWarehouseAccess() || $user->hasRole('admin') || $user->isMainAdmin()) {
                 return Warehouse::query()->active()->orderBy('name')->get();
             }
 
