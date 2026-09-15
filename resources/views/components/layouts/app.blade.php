@@ -411,8 +411,8 @@
                         <x-nav-item href="{{ route('admin.accounting.purchasers.index') }}" :active="request()->routeIs('admin.accounting.purchasers.index') || request()->routeIs('admin.accounting.purchasers.show')" :sub="true">
                             Purchaser Ledger
                         </x-nav-item>
-                        <x-nav-item href="{{ route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]) }}" :active="request()->routeIs('admin.accounting.purchasers.direct-purchase.*')" :sub="true">
-                            Direct Purchase
+                        <x-nav-item href="{{ route('purchaser.add-ons.create', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.add-ons.*')" :sub="true">
+                            Purchaser Add-on
                         </x-nav-item>
                         <x-nav-item href="{{ route('purchasing.direct-sales.create', ['date' => $navDate]) }}" :active="request()->routeIs('purchasing.direct-sales.*')" :sub="true">
                             Direct Sale

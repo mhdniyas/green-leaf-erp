@@ -351,13 +351,12 @@ class RequisitionController extends Controller
         ];
     }
 
-    public function createAdminDirectPurchase(Request $request): View
+    public function createAdminDirectPurchase(Request $request): RedirectResponse
     {
         $this->authorizeAdminDirectPurchase($request);
 
-        return view('admin.accounting.purchasers.direct-purchase', [
-            ...$this->directPurchaseFormData($request, route('admin.accounting.purchasers.direct-purchase.store')),
-            'directPurchaseAudience' => 'admin',
+        return redirect()->route('purchaser.add-ons.create', [
+            'date' => $request->input('date'),
         ]);
     }
 
@@ -420,13 +419,7 @@ class RequisitionController extends Controller
     {
         $this->authorizeAdminDirectPurchase($request);
 
-        return $this->storeDirectPurchaseDemand(
-            request: $request,
-            emptyRedirectRoute: 'admin.accounting.purchasers.direct-purchase.create',
-            successRedirectRoute: 'purchaser.vendors',
-            managerNote: 'Green Leaf Direct Purchase',
-            successPrefix: 'Green Leaf Direct Purchase order',
-        );
+        return $this->storePurchaserDirectPurchase($request);
     }
 
     public function storePurchaserDirectPurchase(Request $request): RedirectResponse

@@ -173,9 +173,9 @@
                     'active' => request()->routeIs('admin.accounting.purchasers.index') || request()->routeIs('admin.accounting.purchasers.show'),
                 ],
                 [
-                    'label' => 'Direct Purchase',
-                    'href' => route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]),
-                    'active' => request()->routeIs('admin.accounting.purchasers.direct-purchase.*'),
+                'label' => 'Purchaser Add-on',
+                'href' => route('purchaser.add-ons.create', ['date' => $navDate]),
+                'active' => request()->routeIs('purchaser.add-ons.*'),
                 ],
                 [
                     'label' => 'Purchaser Daily',
@@ -237,9 +237,9 @@
                 'active' => request()->routeIs('admin.accounting.purchasers.index') || request()->routeIs('admin.accounting.purchasers.show'),
             ],
             [
-                'label' => 'Direct Purchase',
-                'href' => route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]),
-                'active' => request()->routeIs('admin.accounting.purchasers.direct-purchase.*'),
+                    'label' => 'Purchaser Add-on',
+                    'href' => route('purchaser.add-ons.create', ['date' => $navDate]),
+                    'active' => request()->routeIs('purchaser.add-ons.*'),
             ],
             [
                 'label' => 'Purchaser Daily',
@@ -288,7 +288,7 @@
     }
 
     if ($canManagePurchaserCash) {
-        $mobileItems[] = ['label' => 'Buy', 'href' => route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]), 'active' => request()->routeIs('admin.accounting.purchasers.direct-purchase.*')];
+        $mobileItems[] = ['label' => 'Add-on', 'href' => route('purchaser.add-ons.create', ['date' => $navDate]), 'active' => request()->routeIs('purchaser.add-ons.*')];
     }
 @endphp
 

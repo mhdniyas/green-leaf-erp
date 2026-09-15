@@ -1914,8 +1914,8 @@ class AdminAccountingController extends Controller
         abort_unless($user->is($admin), 403);
 
         return redirect()
-            ->route('admin.accounting.purchasers.direct-purchase.create', ['date' => today()->toDateString()])
-            ->with('success', 'Green Leaf Direct Purchase window opened for '.$admin->name.'.');
+            ->route('purchaser.add-ons.create', ['date' => today()->toDateString()])
+            ->with('success', 'Purchaser add-on demand window opened for '.$admin->name.'.');
     }
 
     public function loginAsPurchaser(Request $request, User $user): RedirectResponse
