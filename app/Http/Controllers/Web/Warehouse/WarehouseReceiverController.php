@@ -130,30 +130,6 @@ class WarehouseReceiverController extends Controller
                 'confirm_url' => route('warehouse.receiver.confirm', $batch->id),
             ]);
 
-        $directPurchaseGrns = $this->warehouseReceiveRepository->directPurchaseGrns($date);
-        $directProductIds = $directPurchaseGrns
-            ->flatMap(fn ($grn) => $grn->items->pluck('product_id'))
-            ->unique()->values();
-
-        $pendingDirectOrders = $this->warehouseReceiveRepository->pendingDirectPurchaseOrders($date, $source, $categoryId, $search, $warehouseIds)
-            ->filter(fn (ShopOrder $order) => $order->items->pluck('product_id')->intersect($directProductIds)->isEmpty())
-            ->values()
-            ->map(fn (ShopOrder $order) => [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'delivery_status' => $order->delivery_status,
-                'receive_url' => route('warehouse.receiver.direct-purchase.receive', $order->id),
-                'items' => $order->items->map(fn ($item) => [
-                    'id' => $item->id,
-                    'product_name' => $item->product?->name,
-                    'product_sku' => $item->product?->sku,
-                    'category_name' => $item->product?->category?->name,
-                    'approved_qty' => (float) ($item->approved_qty ?: $item->requested_qty),
-                    'unit' => $item->unit,
-                    'default_warehouse_id' => $item->product?->default_warehouse_id ?? $warehouses->first()?->id,
-                ]),
-            ]);
-
         return response()->json([
             'success' => true,
             'date' => $date,
@@ -162,7 +138,7 @@ class WarehouseReceiverController extends Controller
             'confirm_all_batches_url' => route('warehouse.receiver.confirm-all'),
             'pending_grns' => $pendingGrns->values(),
             'pending_batches' => $pendingBatches->values(),
-            'pending_direct_orders' => $pendingDirectOrders->values(),
+            'pending_direct_orders' => [],
         ]);
     }
 

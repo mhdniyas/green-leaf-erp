@@ -9,8 +9,10 @@ use App\Http\Controllers\Web\Admin\AdminAutoLoadAllController;
 use App\Http\Controllers\Web\Admin\AdminCashbookReportsController;
 use App\Http\Controllers\Web\Admin\AdminDailyAutoMatchController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
+use App\Http\Controllers\Web\Admin\AdminShopPurchasingVerificationController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CashbookSettlementController;
+use App\Http\Controllers\Web\Admin\CashbookVendorController;
 use App\Http\Controllers\Web\Admin\CashFlowTreeController;
 use App\Http\Controllers\Web\Admin\CompanySettingsController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
@@ -58,6 +60,7 @@ use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
 use App\Http\Controllers\Web\Purchasing\PurchaserReportController;
+use App\Http\Controllers\Web\Purchasing\PurchasingBusinessDayController;
 use App\Http\Controllers\Web\Purchasing\ShopInvoiceController;
 use App\Http\Controllers\Web\Purchasing\ShopPriceGroupController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
@@ -65,6 +68,8 @@ use App\Http\Controllers\Web\RequisitionController;
 use App\Http\Controllers\Web\Sales\CustomerController;
 use App\Http\Controllers\Web\Sales\PaymentController;
 use App\Http\Controllers\Web\Sales\SalesInvoiceController;
+use App\Http\Controllers\Web\ShopOwner\ShopPurchaseController;
+use App\Http\Controllers\Web\ShopOwner\ShopPurchaserDailyVerificationController;
 use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopOwnerStaffController;
 use App\Http\Controllers\Web\ShopPresetController;
@@ -259,6 +264,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/cashbook', [ShopOwnerController::class, 'cashbookShow'])->name('cashbook.show');
         Route::get('/cashbook/create', [ShopOwnerController::class, 'cashbookCreate'])->name('cashbook.create');
         Route::get('/cashbook/settings', [ShopOwnerController::class, 'cashbookSettings'])->name('cashbook.settings');
+        Route::get('/cashbook/vendors', [CashbookVendorController::class, 'shopOwnerIndex'])->name('cashbook.vendors');
         Route::get('/cashbook/reports', [ShopOwnerController::class, 'cashbookReports'])->name('cashbook.reports');
         Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
             Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
@@ -282,6 +288,20 @@ Route::middleware('auth')->group(function () {
         Route::post('/staff/delete-cashbook-orphan', [ShopOwnerStaffController::class, 'deleteCashbookOrphan'])->name('staff.delete-cashbook-orphan');
         Route::put('/staff/payments/{payment}', [ShopOwnerStaffController::class, 'updateStaffPayment'])->name('staff.payments.update');
         Route::delete('/staff/payments/{payment}', [ShopOwnerStaffController::class, 'destroyStaffPayment'])->name('staff.payments.destroy');
+
+        Route::prefix('purchasing')->name('purchasing.')->group(function () {
+            Route::get('/', [ShopPurchaseController::class, 'index'])->name('index');
+            Route::get('/create', [ShopPurchaseController::class, 'create'])->name('create');
+            Route::post('/', [ShopPurchaseController::class, 'store'])->name('store');
+            Route::get('/vendors/search', [ShopPurchaseController::class, 'searchVendors'])->name('vendors.search');
+            Route::get('/reports/vendors', [ShopPurchaseController::class, 'vendorReport'])->name('reports.vendors');
+            Route::get('/reports/vendors/{supplier}', [ShopPurchaseController::class, 'vendorDetail'])->name('reports.vendor-detail');
+            Route::get('/daily-verification', [ShopPurchaserDailyVerificationController::class, 'show'])->name('verification');
+            Route::post('/daily-verification/verify', [ShopPurchaserDailyVerificationController::class, 'verify'])->name('verification.verify');
+            Route::post('/daily-verification/second-verify', [ShopPurchaserDailyVerificationController::class, 'secondVerify'])->name('verification.second-verify');
+            Route::post('/daily-verification/finalize', [ShopPurchaserDailyVerificationController::class, 'finalize'])->name('verification.finalize');
+            Route::post('/daily-verification/carry-forward', [ShopPurchaserDailyVerificationController::class, 'carryForward'])->name('verification.carry-forward');
+        });
     });
 
     // ── Inventory ──────────────────────────────────────────────────────────
@@ -433,6 +453,17 @@ Route::middleware('auth')->group(function () {
         Route::post('invoices/{invoice}/fix-calculation', [PurchaseInvoiceController::class, 'fixCalculation'])->name('invoices.fix-calculation');
         Route::post('invoices/fix-all-calculations', [PurchaseInvoiceController::class, 'fixAllCalculations'])->name('invoices.fix-all-calculations');
         Route::post('invoices/{invoice}/supplier', [PurchaseInvoiceController::class, 'changeSupplier'])->name('invoices.change-supplier');
+
+        // Purchaser Business Days
+        Route::get('business-days', [PurchasingBusinessDayController::class, 'index'])->name('business-days.index');
+        Route::post('business-days/open', [PurchasingBusinessDayController::class, 'open'])->name('business-days.open');
+        Route::get('business-days/{uuid}', [PurchasingBusinessDayController::class, 'show'])->name('business-days.show');
+        Route::post('business-days/{uuid}/verify-close', [PurchasingBusinessDayController::class, 'verifyAndClose'])->name('business-days.verify-close');
+        Route::post('business-days/{uuid}/reopen', [PurchasingBusinessDayController::class, 'reopen'])->name('business-days.reopen');
+        Route::get('business-days/{uuid}/bills/create', [PurchasingBusinessDayController::class, 'createBill'])->name('business-days.bills.create');
+        Route::post('business-days/{uuid}/bills', [PurchasingBusinessDayController::class, 'storeBill'])->name('business-days.bills.store');
+        Route::get('business-days/{uuid}/bills/{grn}/edit', [PurchasingBusinessDayController::class, 'editBill'])->name('business-days.bills.edit');
+        Route::put('business-days/{uuid}/bills/{grn}', [PurchasingBusinessDayController::class, 'updateBill'])->name('business-days.bills.update');
     });
 
     // ── Sales ──────────────────────────────────────────────────────────────
@@ -609,8 +640,6 @@ Route::middleware('auth')->group(function () {
         Route::post('/receive-grns/all', [WarehouseReceiverController::class, 'processReceiveAllGrns'])->name('process-receive-grns.all');
         Route::get('/receive-grn/{grn}', [WarehouseReceiverController::class, 'receiveGrnForm'])->name('receive-grn');
         Route::post('/receive-grn/{grn}', [WarehouseReceiverController::class, 'processReceiveGrn'])->name('process-receive-grn');
-        Route::get('/direct-purchase/{order}/receive', [WarehouseReceiverController::class, 'receiveDirectPurchaseForm'])->name('direct-purchase.receive-form');
-        Route::post('/direct-purchase/{order}/receive', [WarehouseReceiverController::class, 'receiveDirectPurchase'])->name('direct-purchase.receive');
         Route::get('/loadout/{order}', [WarehouseReceiverController::class, 'loadoutDetails'])->name('loadout.show');
         Route::post('/loadout/item/{item}', [WarehouseReceiverController::class, 'loadoutItem'])->name('loadout.item');
         Route::post('/loadout/order/{order}/all', [WarehouseReceiverController::class, 'loadoutOrderAll'])->name('loadout.order-all');
@@ -687,6 +716,11 @@ Route::middleware('auth')->group(function () {
             Route::post('/orders/{shopOrder}/save', [ApiWarehouseLoadoutController::class, 'save'])->name('save');
             Route::post('/runs', [AdminAutoLoadAllController::class, 'storeRunSummary'])->name('runs.store');
         });
+
+        Route::prefix('purchasing')->name('purchasing.')->group(function () {
+            Route::get('daily-verifications', [AdminShopPurchasingVerificationController::class, 'index'])->name('daily-verifications.index');
+            Route::post('daily-verifications/{verification}/reopen', [AdminShopPurchasingVerificationController::class, 'reopen'])->name('daily-verifications.reopen');
+        });
         // Cashbook admin dashboard — full port of the standalone ledger-app.
         // Completely isolated from the ShopOwner accounting screens.
         // All routes are guarded at controller level by ensureMainAdmin().
@@ -711,6 +745,7 @@ Route::middleware('auth')->group(function () {
             Route::get('auto-match/preview', [AdminDailyAutoMatchController::class, 'preview'])->name('auto-match.preview');
             Route::post('auto-match/execute', [AdminDailyAutoMatchController::class, 'execute'])->name('auto-match.execute');
             Route::get('inventory', [AdminCashbookReportsController::class, 'inventory'])->name('inventory');
+            Route::get('inventory/print-pending', [AdminCashbookReportsController::class, 'printPendingBills'])->name('inventory.print-pending');
             Route::get('inventory/print-unmatched', [AdminCashbookReportsController::class, 'printUnmatchedInventory'])->name('inventory.print-unmatched');
             Route::get('inventory/share/unmatched-advances/whatsapp', [AdminCashbookReportsController::class, 'shareUnmatchedAdvancesWhatsApp'])->name('inventory.share.unmatched-advances.whatsapp');
             Route::get('inventory/pending-bills-days', [AdminCashbookReportsController::class, 'pendingBillsDaysSummary'])->name('inventory.pending-bills-days');
@@ -889,6 +924,14 @@ Route::middleware('auth')->group(function () {
             Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');
             Route::post('settings/staff', [CashbookController::class, 'updateStaffSettings'])->name('settings.staff');
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
+            Route::post('settings/shops/{shop}/toggle-purchasing', [CashbookController::class, 'toggleShopPurchasing'])->name('settings.shop.toggle-purchasing');
+            Route::get('settings/shops/{shop}/vendors', [CashbookVendorController::class, 'index'])->name('settings.shop.vendors.index');
+            Route::post('settings/shops/{shop}/vendors/link', [CashbookVendorController::class, 'link'])->name('settings.shop.vendors.link');
+            Route::post('settings/shops/{shop}/vendors/create', [CashbookVendorController::class, 'storeNew'])->name('settings.shop.vendors.create');
+            Route::put('settings/shops/{shop}/vendors/{supplier}', [CashbookVendorController::class, 'update'])->name('settings.shop.vendors.update');
+            Route::post('settings/shops/{shop}/vendors/{supplier}/toggle-status', [CashbookVendorController::class, 'toggleStatus'])->name('settings.shop.vendors.toggle-status');
+            Route::delete('settings/shops/{shop}/vendors/{supplier}/unlink', [CashbookVendorController::class, 'unlink'])->name('settings.shop.vendors.unlink');
+            Route::get('settings/shops/{shop}/vendors/search-global', [CashbookVendorController::class, 'searchGlobalSuppliers'])->name('settings.shop.vendors.search-global');
             Route::get('settings/shops/{shop}/settlements', [CashbookSettlementController::class, 'index'])->name('settings.shop.settlements.index');
             Route::post('settings/shops/{shop}/settlements/reorder', [CashbookSettlementController::class, 'reorder'])->name('settings.shop.settlements.reorder');
             Route::get('settings/shops/{shop}/settlements/create', [CashbookSettlementController::class, 'create'])->name('settings.shop.settlements.create');

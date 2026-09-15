@@ -45,7 +45,6 @@
                             <select id="receive-source" name="receive_source" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
                                 <option value="all" @selected(($receiveSource ?? 'all') === 'all')>All Sources</option>
                                 <option value="vendor" @selected(($receiveSource ?? 'all') === 'vendor')>Vendor Sheets</option>
-                                <option value="direct" @selected(($receiveSource ?? 'all') === 'direct')>Direct Purchases</option>
                                 <option value="batch" @selected(($receiveSource ?? 'all') === 'batch')>Pending Batches</option>
                             </select>
                             <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
@@ -255,9 +254,8 @@
             const el = tabContentEl.pending;
             const grns       = data.pending_grns || [];
             const batches    = data.pending_batches || [];
-            const direct     = data.pending_direct_orders || [];
             const warehouses = data.warehouses || [];
-            const total      = grns.length + batches.length + direct.length;
+            const total      = grns.length + batches.length;
 
             if (total === 0) {
                 el.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
@@ -320,48 +318,7 @@
                 </div>`;
             }
 
-            // 2. Pending Direct Purchases
-            if (direct.length > 0) {
-                html += `
-                <div class="space-y-3 mt-4">
-                    <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500 pl-1">Pending Direct Purchases (${direct.length})</h3>
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        ${direct.map(order => `
-                            <div class="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
-                                <form action="${escAttr(order.receive_url)}" method="POST" class="space-y-3">
-                                    <input type="hidden" name="_token" value="${csrfToken}">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <div>
-                                            <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">Direct Purchase</span>
-                                            <h4 class="text-sm font-black text-slate-900 mt-1 font-mono">${escHtml(order.order_number)}</h4>
-                                        </div>
-                                    </div>
-                                    <div class="space-y-2 pt-2 border-t border-slate-100">
-                                        ${(order.items || []).map(item => `
-                                            <div class="rounded-xl border border-slate-200 bg-slate-50 p-2.5 flex items-center justify-between gap-2">
-                                                <div class="min-w-0">
-                                                    <p class="text-xs font-bold text-slate-900 truncate">${escHtml(item.product_name || '-')}</p>
-                                                    <p class="text-[10px] text-slate-500 font-semibold">${item.approved_qty.toFixed(2)} ${escHtml(item.unit || '')}</p>
-                                                </div>
-                                                <div class="w-36 shrink-0">
-                                                    <select name="items[${item.id}][warehouse_id]" required class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none cursor-pointer">
-                                                        ${warehouses.map(wh => `<option value="${wh.id}" ${wh.id == item.default_warehouse_id ? 'selected' : ''}>${escHtml(wh.name)}</option>`).join('')}
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                    <button type="submit" class="w-full rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 border-none cursor-pointer">
-                                        Receive Direct Purchase
-                                    </button>
-                                </form>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 3. Pending Batches
+            // 2. Pending Batches
             if (batches.length > 0) {
                 html += `
                 <div class="space-y-3 mt-4">

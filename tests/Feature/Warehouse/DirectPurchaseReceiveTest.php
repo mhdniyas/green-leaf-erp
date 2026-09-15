@@ -69,7 +69,7 @@ class DirectPurchaseReceiveTest extends TestCase
         ]);
     }
 
-    public function test_get_direct_purchase_receive_page_resolves_by_numeric_id(): void
+    public function test_direct_purchase_receive_page_is_disabled_for_numeric_id(): void
     {
         $directOrder = ShopOrder::create([
             'order_number' => 'RQ-20260827-DP01',
@@ -93,17 +93,13 @@ class DirectPurchaseReceiveTest extends TestCase
         $response = $this->actingAs($this->receiver)
             ->get("/warehouse-receiver/direct-purchase/{$directOrder->id}/receive");
 
-        $response->assertOk()
-            ->assertSee('Direct Purchase Receive')
-            ->assertSee('RQ-20260827-DP01')
-            ->assertSee('Fresh Tomato')
-            ->assertSee('Central Warehouse');
+        $response->assertNotFound();
 
         // Confirm GET caused zero stock movements/batches
         $this->assertEquals(0, StockBatch::count());
     }
 
-    public function test_get_direct_purchase_receive_page_resolves_by_order_number_string(): void
+    public function test_direct_purchase_receive_page_is_disabled_for_order_number(): void
     {
         $directOrder = ShopOrder::create([
             'order_number' => 'RQ-20260827-DP02',
@@ -127,13 +123,10 @@ class DirectPurchaseReceiveTest extends TestCase
         $response = $this->actingAs($this->receiver)
             ->get("/warehouse-receiver/direct-purchase/{$directOrder->order_number}/receive");
 
-        $response->assertOk()
-            ->assertSee('Direct Purchase Receive')
-            ->assertSee('RQ-20260827-DP02')
-            ->assertSee('Fresh Tomato');
+        $response->assertNotFound();
     }
 
-    public function test_post_direct_purchase_receive_creates_stock_batch_and_updates_order(): void
+    public function test_post_direct_purchase_receive_is_disabled(): void
     {
         $directOrder = ShopOrder::create([
             'order_number' => 'RQ-20260827-DP03',
@@ -163,23 +156,17 @@ class DirectPurchaseReceiveTest extends TestCase
                 ],
             ]);
 
-        $response->assertRedirect()
-            ->assertSessionHas('success');
+        $response->assertNotFound();
 
         // Verify StockBatch created
-        $this->assertDatabaseHas('stock_batches', [
-            'product_id' => $this->product->id,
-            'warehouse_id' => $this->warehouse->id,
-            'total_kg' => 120.00,
-            'warehouse_receive_pending' => false,
-        ]);
+        $this->assertDatabaseMissing('stock_batches', ['product_id' => $this->product->id]);
 
         // Verify ShopOrder status updated
         $directOrder->refresh();
-        $this->assertEquals('ready_for_dispatch', $directOrder->delivery_status);
+        $this->assertEquals('pending_delivery', $directOrder->delivery_status);
     }
 
-    public function test_unauthorized_user_is_forbidden_from_viewing_and_receiving(): void
+    public function test_direct_purchase_receive_is_unavailable_to_all_users(): void
     {
         $directOrder = ShopOrder::create([
             'order_number' => 'RQ-20260827-DP04',
@@ -190,24 +177,22 @@ class DirectPurchaseReceiveTest extends TestCase
             'delivery_status' => 'pending_delivery',
         ]);
 
-        $this->unauthorizedUser->givePermissionTo('warehouse.receive.view');
-
         $responseGet = $this->actingAs($this->unauthorizedUser)
             ->get("/warehouse-receiver/direct-purchase/{$directOrder->id}/receive");
 
-        $responseGet->assertRedirect(route('dashboard'));
+        $responseGet->assertNotFound();
 
         $responseGetJson = $this->actingAs($this->unauthorizedUser)
             ->getJson("/warehouse-receiver/direct-purchase/{$directOrder->id}/receive");
 
-        $responseGetJson->assertForbidden();
+        $responseGetJson->assertNotFound();
 
         $responsePost = $this->actingAs($this->unauthorizedUser)
             ->post("/warehouse-receiver/direct-purchase/{$directOrder->id}/receive", [
                 'items' => [],
             ]);
 
-        $responsePost->assertForbidden();
+        $responsePost->assertNotFound();
     }
 
     public function test_non_direct_purchase_order_returns_404(): void
@@ -275,14 +260,14 @@ class DirectPurchaseReceiveTest extends TestCase
             'unit' => 'KG',
         ]);
 
-        // Pending receive tab must include direct purchase order
+        // Pending receive tab must exclude direct purchase order
         $responsePending = $this->actingAs($this->receiver)
             ->getJson("/warehouse-receiver/tab/pending?date={$today}");
 
         $responsePending->assertOk();
         $pendingData = $responsePending->json();
         $directOrderNumbers = collect($pendingData['pending_direct_orders'])->pluck('order_number')->all();
-        $this->assertContains('RQ-20260827-DP-PENDING', $directOrderNumbers);
+        $this->assertNotContains('RQ-20260827-DP-PENDING', $directOrderNumbers);
 
         // Loadout tab must contain shop order but NEVER direct purchase
         $responseLoadout = $this->actingAs($this->receiver)
