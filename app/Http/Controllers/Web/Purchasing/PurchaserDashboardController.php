@@ -916,6 +916,7 @@ class PurchaserDashboardController extends Controller
         $todayCarts = PurchaserCart::query()
             ->where('user_id', $userId)
             ->whereDate('business_date', $date)
+            ->where('status', '!=', 'cancelled')
             ->with([
                 'supplier',
                 'items.product.category',
@@ -929,6 +930,7 @@ class PurchaserDashboardController extends Controller
         $historyCarts = PurchaserCart::query()
             ->where('user_id', $userId)
             ->whereDate('business_date', '<', $date)
+            ->where('status', '!=', 'cancelled')
             ->with([
                 'supplier',
                 'items.product.category',
@@ -994,6 +996,7 @@ class PurchaserDashboardController extends Controller
         $monthCarts = PurchaserCart::query()
             ->where('user_id', $userId)
             ->whereBetween('business_date', [$monthStart->format('Y-m-d'), $monthEnd->format('Y-m-d')])
+            ->where('status', '!=', 'cancelled')
             ->with(['items', 'purchaseInvoice'])
             ->get();
 
