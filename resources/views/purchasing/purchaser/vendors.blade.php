@@ -239,7 +239,7 @@
                                                     <label class="text-[9px] font-bold text-slate-500">Price</label>
                                                     <input type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" id="processed-price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
                                                 </div>
-                                                @if ((float) $cart->purchaseInvoice->paid_amount <= 0 && $cart->items->count() > 1 && $cart->goodsReceived?->status !== 'approved')
+                                                @if ($cart->items->count() > 1 && $cart->goodsReceived?->status !== 'approved')
                                                     <button type="button" onclick="confirmDeleteItem({{ $item->id }}, '{{ route('purchaser.cart-items.destroy', $item) }}', 'pending', {{ $cart->id }})" class="mt-5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600" title="Remove item" aria-label="Remove {{ $item->product->name }}">
                                                         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v3M4 7h16" /></svg>
                                                     </button>
@@ -252,8 +252,8 @@
                                         Update Qty, Price & Total
                                     </button>
                                 </form>
-                                @if ((float) $cart->purchaseInvoice->paid_amount <= 0 && $cart->goodsReceived?->status !== 'approved')
-                                    <form action="{{ route('purchaser.invoices.destroy', $cart->purchaseInvoice) }}" method="POST" class="mt-2" onsubmit="return confirm('Cancel this bill? This action is audited and cannot be undone.');">
+                                @if ($cart->goodsReceived?->status !== 'approved')
+                                    <form action="{{ route('purchaser.invoices.destroy', $cart->purchaseInvoice) }}" method="POST" class="mt-2" onsubmit="return confirm('Cancel this bill and revert to pending? The bill will be cancelled with a full audit trail.');">
                                         @csrf
                                         @method('DELETE')
                                         <input type="hidden" name="tab" value="pending">
@@ -439,7 +439,7 @@
                                                     <label class="text-[9px] font-bold text-slate-500">Price</label>
                                                     <input type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" id="processed-price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
                                                 </div>
-                                                @if ((float) $cart->purchaseInvoice->paid_amount <= 0 && $cart->items->count() > 1 && $cart->goodsReceived?->status !== 'approved')
+                                                @if ($cart->items->count() > 1 && $cart->goodsReceived?->status !== 'approved')
                                                     <button type="button" onclick="confirmDeleteItem({{ $item->id }}, '{{ route('purchaser.cart-items.destroy', $item) }}', 'completed', {{ $cart->id }})" class="mt-5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600" title="Remove item" aria-label="Remove {{ $item->product->name }}">
                                                         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v3M4 7h16" /></svg>
                                                     </button>
@@ -452,8 +452,8 @@
                                         Update Qty, Price & Total
                                     </button>
                                 </form>
-                                @if ((float) $cart->purchaseInvoice->paid_amount <= 0 && $cart->goodsReceived?->status !== 'approved')
-                                    <form action="{{ route('purchaser.invoices.destroy', $cart->purchaseInvoice) }}" method="POST" class="mt-2" onsubmit="return confirm('Cancel this bill? This action is audited and cannot be undone.');">
+                                @if ($cart->goodsReceived?->status !== 'approved')
+                                    <form action="{{ route('purchaser.invoices.destroy', $cart->purchaseInvoice) }}" method="POST" class="mt-2" onsubmit="return confirm('Cancel this bill and revert to pending? The bill will be cancelled with a full audit trail.');">
                                         @csrf
                                         @method('DELETE')
                                         <input type="hidden" name="tab" value="completed">

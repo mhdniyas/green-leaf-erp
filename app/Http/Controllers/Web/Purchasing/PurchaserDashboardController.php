@@ -17,6 +17,7 @@ use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceived;
+use App\Models\JournalEntry;
 use App\Models\ProcurementExpense;
 use App\Models\Product;
 use App\Models\ProductUnit;
@@ -33,13 +34,16 @@ use App\Models\ShopOrderItem;
 use App\Models\ShopPriceGroup;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Finance\JournalService;
 use App\Services\Purchasing\BulkPaymentService;
+use App\Services\Purchasing\DailyInventoryComparisonService;
 use App\Services\Purchasing\PurchaseGradePriceResolver;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\PurchaserCartBatchStateResolver;
 use App\Services\Purchasing\PurchaserReadCacheService;
+use App\Services\Purchasing\ShopPurchaserDailyVerificationService;
 use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\PerformanceProbe;
@@ -86,11 +90,104 @@ class PurchaserDashboardController extends Controller
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly PurchaseGradePriceResolver $purchaseGradePriceResolver,
         private readonly PurchaserReadCacheService $readCacheService,
+        private readonly DailyInventoryComparisonService $comparisonService,
     ) {}
 
     public function index(): RedirectResponse
     {
         return redirect()->route('purchaser.daily');
+    }
+
+    public function dashboard(Request $request): View
+    {
+        $this->ensurePurchaser($request);
+
+        $warehouses = Warehouse::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        $selectedWarehouseId = $request->filled('warehouse_id')
+            ? $request->integer('warehouse_id')
+            : (int) ($warehouses->first()?->id ?? 1);
+
+        $selectedWarehouse = $warehouses->firstWhere('id', $selectedWarehouseId) ?? $warehouses->first();
+        $activeDay = $this->businessDayService->getActiveForWarehouse($selectedWarehouseId);
+
+        $pendingCount = 0;
+        $unitIssuesCount = 0;
+        if ($activeDay) {
+            $rows = $this->comparisonService->buildComparisonRows(
+                $activeDay->business_date->toDateString(),
+                (int) $activeDay->warehouse_id
+            );
+            $pendingCount = $rows->filter(function (array $r): bool {
+                $pending = (float) ($r['advance_qty'] ?? 0) - (float) ($r['matched_bill_qty'] ?? 0);
+
+                return $pending > 0.0001 || ($r['unit_mismatch'] ?? false);
+            })->count();
+            $unitIssuesCount = $rows->where('unit_mismatch', true)->count();
+        }
+
+        $openOrdersCount = PurchaseOrder::whereIn('status', [
+            POStatus::Draft,
+            POStatus::Approved,
+            POStatus::SentToSupplier,
+            POStatus::PartiallyReceived,
+        ])->count();
+
+        $todayStr = today()->toDateString();
+        $billsTodayCount = GoodsReceived::query()
+            ->where(function ($q): void {
+                $q->where('receipt_type', '!=', 'warehouse_advance')->orWhereNull('receipt_type');
+            })
+            ->where('status', '!=', 'cancelled')
+            ->whereDate('received_at', $todayStr)
+            ->count();
+
+        $advanceTodayCount = GoodsReceived::query()
+            ->where('receipt_type', 'warehouse_advance')
+            ->where('status', '!=', 'cancelled')
+            ->whereDate('received_at', $todayStr)
+            ->count();
+
+        $recentOrders = PurchaseOrder::query()
+            ->with(['supplier'])
+            ->whereIn('status', [
+                POStatus::Draft,
+                POStatus::Approved,
+                POStatus::SentToSupplier,
+                POStatus::PartiallyReceived,
+                POStatus::Received,
+            ])
+            ->orderByDesc('order_date')
+            ->limit(5)
+            ->get();
+
+        $recentBills = GoodsReceived::query()
+            ->where(function ($q): void {
+                $q->where('receipt_type', '!=', 'warehouse_advance')->orWhereNull('receipt_type');
+            })
+            ->where('status', '!=', 'cancelled')
+            ->with(['purchaseOrder.supplier', 'warehouse'])
+            ->latest('received_at')
+            ->latest('id')
+            ->limit(5)
+            ->get();
+
+        return view('purchaser.dashboard', [
+            'warehouses' => $warehouses,
+            'selectedWarehouse' => $selectedWarehouse,
+            'selectedWarehouseId' => $selectedWarehouseId,
+            'activeDay' => $activeDay,
+            'pendingCount' => $pendingCount,
+            'unitIssuesCount' => $unitIssuesCount,
+            'openOrdersCount' => $openOrdersCount,
+            'billsTodayCount' => $billsTodayCount,
+            'advanceTodayCount' => $advanceTodayCount,
+            'recentOrders' => $recentOrders,
+            'recentBills' => $recentBills,
+        ]);
     }
 
     public function settings(Request $request): View|RedirectResponse
@@ -1536,6 +1633,11 @@ class PurchaserDashboardController extends Controller
 
         try {
             DB::transaction(function () use ($ownedInvoice, $request): void {
+                // If the only journal entries on this invoice are auto-generated
+                // purchaser_daily_purchase_payment entries (no real settlements/payments),
+                // reverse them so the cancel action can proceed safely.
+                $this->reverseAutoPurchasePaymentJournals($ownedInvoice, (int) $request->user()->id);
+
                 app(CancelPurchaseInvoiceAction::class)->execute(
                     $ownedInvoice,
                     $request->user(),
@@ -1544,7 +1646,10 @@ class PurchaserDashboardController extends Controller
                 );
 
                 $ownedInvoice->delete();
-                $ownedInvoice->purchaserCart()->update(['status' => 'cancelled']);
+                $ownedInvoice->purchaserCart()->update([
+                    'status' => 'pending',
+                    'bill_number' => null,
+                ]);
             }, attempts: 3);
         } catch (\RuntimeException $exception) {
             return redirect()->back()->withErrors(['invoice' => $exception->getMessage()]);
@@ -1553,9 +1658,55 @@ class PurchaserDashboardController extends Controller
         return redirect()
             ->route('purchaser.vendors', array_filter([
                 'date' => $ownedInvoice->purchaserCart?->business_date?->format('Y-m-d'),
-                'tab' => $request->string('tab')->toString(),
+                'tab' => 'pending',
             ]))
-            ->with('success', 'Bill deleted. It was cancelled and soft-deleted with an audit trail.');
+            ->with('success', 'Bill cancelled. Cart reverted to pending — you can now re-process it.');
+    }
+
+    /**
+     * Reverse auto-generated purchaser_daily_purchase_payment journal entries on an invoice
+     * so that it can safely be cancelled. Only reverses auto-pay entries; throws if real
+     * settlement or manual payment entries exist.
+     */
+    private function reverseAutoPurchasePaymentJournals(PurchaseInvoice $invoice, int $userId): void
+    {
+        $journalEntries = JournalEntry::query()
+            ->where('source_type', PurchaseInvoice::class)
+            ->where('source_id', $invoice->id)
+            ->get();
+
+        if ($journalEntries->isEmpty()) {
+            return;
+        }
+
+        // Only safe to auto-reverse entries created by the daily purchase payment sync.
+        // If any entry is NOT that type, it indicates a real cashbook settlement — refuse.
+        $nonAutoEntries = $journalEntries->filter(
+            fn (JournalEntry $e) => ! str_starts_with((string) $e->source_event, 'purchaser_daily_purchase_payment:')
+        );
+
+        if ($nonAutoEntries->isNotEmpty()) {
+            throw new \RuntimeException('This bill has payment or settlement activity that cannot be auto-reversed. Reverse those transactions first before cancelling.');
+        }
+
+        // Reset the paid_amount to 0 so CancelPurchaseInvoiceAction passes its assertion.
+        $invoice->update([
+            'paid_amount' => 0,
+            'payment_status' => 'unpaid',
+        ]);
+
+        // Delete the auto-generated journal entries (they are bookkeeping-only; no real cash moved).
+        $journalEntries->each(fn (JournalEntry $e) => $e->delete());
+
+        activity()
+            ->performedOn($invoice)
+            ->causedBy($userId)
+            ->event('purchase_invoice.auto_payment_reversed')
+            ->withProperties([
+                'reversed_journal_ids' => $journalEntries->pluck('id')->all(),
+                'note' => 'Auto-reversed daily purchase payment journals to allow bill cancellation.',
+            ])
+            ->log('purchase_invoice.auto_payment_reversed');
     }
 
     public function mergeDraftCarts(Request $request, PurchaserCart $cart): RedirectResponse
@@ -1889,6 +2040,9 @@ class PurchaserDashboardController extends Controller
             ->with('items')
             ->firstOrFail();
 
+        app(ShopPurchaserDailyVerificationService::class)
+            ->assertScopeNotFinalizedForCart($cart);
+
         $validated = $request->validate([
             'quantity' => ['required', 'numeric', 'min:0.01'],
             'unit_price' => ['required', 'numeric', 'min:0.01'],
@@ -1920,6 +2074,9 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
 
         $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
+
+        app(ShopPurchaserDailyVerificationService::class)
+            ->assertScopeNotFinalizedForCart($cart);
 
         $validated = $request->validate([
             'items' => ['required', 'array', 'min:1'],
@@ -1987,6 +2144,9 @@ class PurchaserDashboardController extends Controller
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            app(ShopPurchaserDailyVerificationService::class)
+                ->assertScopeNotFinalizedForCart($cart);
+
             $cartItems = $cart->items()->lockForUpdate()->get();
 
             if ($cart->status === 'submitted') {
@@ -2013,10 +2173,13 @@ class PurchaserDashboardController extends Controller
                     ->reject(fn (PurchaserCartItem $cartLine): bool => $cartLine->is($cartItem))
                     ->sum(fn (PurchaserCartItem $cartLine): float => (float) $cartLine->quantity * (float) $cartLine->unit_price), 2);
                 $remainingNet = round(max(0, $remainingGross - min($remainingGross, (float) $invoice->discount_amount)), 2);
-                $recordedPaid = max(
-                    (float) $invoice->paid_amount,
-                    (float) $invoice->payments->sum('amount'),
+                // Use actual payment records and settlements as the source of truth.
+                // The denormalized paid_amount field can be written by cashbook auto-sync
+                // without a real payment transaction, so we exclude it here.
+                $recordedPaid = round(
+                    (float) $invoice->payments->sum('amount') +
                     (float) $invoice->vendorSettlementAllocations->sum('total_settled'),
+                    2
                 );
 
                 if ($recordedPaid > $remainingNet + 0.01) {
@@ -2193,6 +2356,9 @@ class PurchaserDashboardController extends Controller
         }
 
         $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
+
+        app(ShopPurchaserDailyVerificationService::class)
+            ->assertScopeNotFinalizedForCart($cart);
 
         $returnTo = $request->input('return_to', 'vendors');
 
