@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class ProductService
 {
@@ -162,29 +163,56 @@ class ProductService
         }
 
         $existingUnits = $product->orderUnits()->get();
-        $existingById = $existingUnits->keyBy('id');
-        $existingByLabel = $existingUnits->keyBy(fn (ProductUnit $unit): string => mb_strtolower(trim((string) $unit->label)));
-        $existingByUnit = $existingUnits->keyBy(fn (ProductUnit $unit): string => mb_strtolower(trim((string) $unit->unit)));
+        $availableUnits = $existingUnits->keyBy('id');
 
         $plannedRows = [];
         $keptIds = [];
+        $assignedLabels = [];
 
+        // 1. Match each incoming row to the best existing ProductUnit
         foreach ($units as $index => $unit) {
             $normalizedLabel = mb_strtolower(trim((string) $unit['label']));
-            $normalizedUnit = mb_strtolower(trim((string) $unit['unit']));
+            $normalizedUnit = ProductUnit::normalizeUnit((string) $unit['unit']);
+            $submittedId = filled($unit['id'] ?? null) ? (int) $unit['id'] : null;
 
-            $existing = filled($unit['id'] ?? null)
-                ? $existingById->get((int) $unit['id'])
-                : ($existingByLabel->get($normalizedLabel) ?? $existingByUnit->get($normalizedUnit));
+            if (in_array($normalizedLabel, $assignedLabels, true)) {
+                throw ValidationException::withMessages([
+                    'units' => 'Each unit measure must have a unique label for this product.',
+                ]);
+            }
+            $assignedLabels[] = $normalizedLabel;
+
+            // Matching Priority:
+            // 1. Exact match on both normalized unit AND normalized label
+            $existing = $availableUnits->first(function (ProductUnit $pu) use ($normalizedUnit, $normalizedLabel): bool {
+                return ProductUnit::normalizeUnit($pu->unit) === $normalizedUnit
+                    && mb_strtolower(trim((string) $pu->label)) === $normalizedLabel;
+            });
+
+            // 2. Match on normalized unit (reuses the existing measure for this unit)
+            if (! $existing) {
+                $existing = $availableUnits->first(function (ProductUnit $pu) use ($normalizedUnit): bool {
+                    return ProductUnit::normalizeUnit($pu->unit) === $normalizedUnit;
+                });
+            }
+
+            // 3. Match on submitted ID (only if its unit is compatible and available)
+            if (! $existing && $submittedId !== null && $availableUnits->has($submittedId)) {
+                $candidate = $availableUnits->get($submittedId);
+                if (ProductUnit::normalizeUnit($candidate->unit) === $normalizedUnit) {
+                    $existing = $candidate;
+                }
+            }
 
             if ($existing) {
-                $existingById->forget($existing->id);
-                $existingByLabel->forget(mb_strtolower(trim((string) $existing->label)));
-                $existingByUnit->forget(mb_strtolower(trim((string) $existing->unit)));
+                $availableUnits->forget($existing->id);
+                $keptIds[] = (int) $existing->id;
             }
 
             $plannedRows[] = [
                 'existing' => $existing,
+                'normalized_label' => $normalizedLabel,
+                'normalized_unit' => $normalizedUnit,
                 'attributes' => [
                     'unit' => $unit['unit'],
                     'label' => $unit['label'],
@@ -194,12 +222,25 @@ class ProductService
                     'sort_order' => $unit['sort_order'] ?? $index,
                 ],
             ];
+        }
 
-            if ($existing) {
-                $keptIds[] = (int) $existing->id;
+        // 2. Conflict safety check: ensure no target label collides with an omitted row in DB
+        $omittedUnits = $existingUnits->whereNotIn('id', $keptIds);
+        foreach ($plannedRows as $row) {
+            $targetLabel = $row['normalized_label'];
+            $collidingOmitted = $omittedUnits->first(function (ProductUnit $pu) use ($targetLabel): bool {
+                return mb_strtolower(trim((string) $pu->label)) === $targetLabel;
+            });
+
+            if ($collidingOmitted) {
+                throw ValidationException::withMessages([
+                    'units' => 'This unit/label is already used by another measure for this product.',
+                ]);
             }
         }
 
+        // 3. Execute updates atomically:
+        // A. Deactivate all omitted rows (retained in DB, is_base=false, is_orderable=false)
         $product->orderUnits()
             ->when($keptIds !== [], fn ($query) => $query->whereNotIn('id', $keptIds))
             ->update([
@@ -215,8 +256,7 @@ class ProductService
             ->filter(fn (array $row): bool => ! ($row['existing'] instanceof ProductUnit))
             ->values();
 
-        // Avoid transient UNIQUE(product_id, label) collisions (including label swaps)
-        // by parking existing rows on temporary labels before assigning final labels.
+        // B. Park existing rows on temporary labels to prevent transient collisions (e.g. label swaps)
         foreach ($rowsToUpdate as $rowIndex => $row) {
             /** @var ProductUnit $existing */
             $existing = $row['existing'];
@@ -225,12 +265,14 @@ class ProductService
             ]);
         }
 
+        // C. Apply final target attributes
         foreach ($rowsToUpdate as $row) {
             /** @var ProductUnit $existing */
             $existing = $row['existing'];
             $existing->update($row['attributes']);
         }
 
+        // D. Create new rows
         foreach ($rowsToCreate as $row) {
             $product->orderUnits()->create($row['attributes']);
         }

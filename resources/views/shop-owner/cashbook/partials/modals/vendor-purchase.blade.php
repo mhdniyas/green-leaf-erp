@@ -70,17 +70,42 @@
                     </div>
                 </div>
 
-                <select id="vp-vendor-select" onchange="onVendorPurchaseSupplierChange()" required
-                        class="{{ $linkedVendors->isEmpty() ? 'hidden' : '' }} h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:outline-none transition">
-                    <option value="">-- Select Linked Active Vendor --</option>
-                    @foreach($linkedVendors as $v)
-                        <option value="{{ $v->id }}"
-                                data-credit="{{ $v->credit_approved ? '1' : '0' }}"
-                                data-mobile="{{ $v->mobile_number }}">
-                            {{ $v->name }} {{ $v->mobile_number ? '('.$v->mobile_number.')' : '' }}
-                        </option>
-                    @endforeach
-                </select>
+                <div id="vp-vendor-dropdown-container" class="{{ $linkedVendors->isEmpty() ? 'hidden' : '' }} relative">
+                    {{-- Hidden input for form submission & JS state --}}
+                    <input type="hidden" id="vp-vendor-select" name="supplier_id" value="" data-credit="0" data-mobile="">
+
+                    {{-- Custom Trigger Button --}}
+                    <button type="button" id="vp-vendor-btn" onclick="toggleVpVendorDropdown(event)"
+                            class="h-10 w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-left text-xs font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:outline-none transition cursor-pointer">
+                        <div class="min-w-0 flex-1">
+                            <span id="vp-vendor-label" class="block truncate text-slate-400 font-medium">
+                                -- Select Linked Active Vendor --
+                            </span>
+                            <span id="vp-vendor-sublabel" class="hidden text-[10px] font-semibold text-slate-500 font-mono truncate block"></span>
+                        </div>
+                        <svg class="h-4 w-4 shrink-0 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
+
+                    {{-- Floating Searchable Dropdown Panel --}}
+                    <div id="vp-vendor-menu" onclick="event.stopPropagation()"
+                         class="hidden absolute left-0 top-full mt-1 w-full z-40 rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+                        <div class="p-2 border-b border-slate-100 bg-slate-50/80">
+                            <div class="relative">
+                                <input type="text" id="vp-vendor-search" placeholder="Search vendor name or phone..." autocomplete="off"
+                                       oninput="filterVpVendorList()"
+                                       onkeydown="handleVpVendorKeyNav(event)"
+                                       class="h-8 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-2.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none">
+                                <svg class="absolute left-2 top-2 h-4 w-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div id="vp-vendor-options" class="max-h-52 overflow-y-auto divide-y divide-slate-100 py-1 text-xs">
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {{-- 2. Payment Section --}}
@@ -133,9 +158,8 @@
                 {{-- Column Headers (Hidden on tiny screens, clear on md+) --}}
                 <div class="hidden sm:grid sm:grid-cols-12 gap-2 text-[10px] font-black uppercase tracking-wider text-slate-400 px-1">
                     <div class="col-span-5">Product</div>
-                    <div class="col-span-2">Qty</div>
-                    <div class="col-span-2">Rate (₹)</div>
-                    <div class="col-span-2 text-right">Amount</div>
+                    <div class="col-span-3">Qty</div>
+                    <div class="col-span-3">Total Price (₹)</div>
                     <div class="col-span-1 text-center"></div>
                 </div>
 

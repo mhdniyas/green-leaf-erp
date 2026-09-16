@@ -452,4 +452,108 @@ class ShopCashbookVendorPurchaseUiTest extends TestCase
         $creditApprovedResponse->assertOk();
         $creditApprovedResponse->assertJson(['success' => true]);
     }
+
+    public function test_cashbook_show_provides_purchasable_products_list(): void
+    {
+        $this->shop->update(['shop_purchasing_enabled' => true]);
+
+        $prod = Product::factory()->create([
+            'name' => 'Fresh Tomato',
+            'sku' => 'TOM-001',
+            'unit' => 'kg',
+            'base_price' => 20.0,
+        ]);
+
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show', ['date' => '2026-09-15']));
+        $response->assertOk();
+
+        $products = $response->viewData('purchasableProducts');
+        $this->assertNotEmpty($products);
+
+        $p1 = collect($products)->firstWhere('id', $prod->id);
+        $this->assertNotNull($p1);
+        $this->assertEquals('TOM-001', $p1['sku']);
+        $this->assertEquals('kg', $p1['unit']);
+        $this->assertEquals('Fresh Tomato', $p1['name']);
+    }
+
+    public function test_cashbook_purchase_with_total_price_derives_unit_price_server_side(): void
+    {
+        $businessDate = '2026-09-15';
+
+        // 100 kg Tomato for ₹1,000 Total Price -> Server derives rate = ₹10.00
+        $response = $this->actingAs($this->shopUser)->postJson(route('shop-owner.purchasing.store'), [
+            'supplier_id' => $this->activeVendorWithCredit->id,
+            'payment_method' => 'Cash',
+            'business_date' => $businessDate,
+            'bill_number' => 'BILL-TOTAL-001',
+            'notes' => 'Bulk Tomato Purchase',
+            'items' => [
+                [
+                    'product_id' => $this->product->id,
+                    'quantity' => 100,
+                    'total_price' => 1000.0,
+                    'unit' => 'kg',
+                ],
+            ],
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $invoice = PurchaseInvoice::query()->where('invoice_number', 'BILL-TOTAL-001')->first();
+        $this->assertNotNull($invoice);
+        $this->assertSame(1000.0, (float) $invoice->amount);
+
+        // Cart item derived unit_price
+        $cartItem = $invoice->purchaserCart->items->first();
+        $this->assertNotNull($cartItem);
+        $this->assertSame(100.0, (float) $cartItem->quantity);
+        $this->assertSame(10.0, (float) $cartItem->unit_price);
+        $this->assertSame(1000.0, (float) $cartItem->line_total);
+    }
+
+    public function test_vendor_purchase_modal_contains_custom_searchable_dropdown_and_average_price_ui(): void
+    {
+        $this->shop->update(['shop_purchasing_enabled' => true]);
+
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show', ['date' => '2026-09-15']));
+        $response->assertOk();
+
+        $response->assertSee('toggleVpProductDropdown', false);
+        $response->assertSee('renderVpProductOptions', false);
+        $response->assertSee('updateRowAveragePriceDisplay', false);
+        $response->assertSee('Avg Buy', false);
+        $response->assertSee('Avg Buy: —', false);
+        $response->assertSee('closeAllVpProductDropdowns', false);
+        $response->assertSee('vp-prod-search-', false);
+        $response->assertSee('vp-prod-menu-', false);
+        $response->assertSee('vp-item-product', false);
+        $response->assertSee('vp-item-qty', false);
+        $response->assertSee('vp-item-total', false);
+        $response->assertSee('Total Price (₹)', false);
+    }
+
+    public function test_vendor_purchase_modal_contains_custom_searchable_vendor_dropdown(): void
+    {
+        $this->shop->update(['shop_purchasing_enabled' => true]);
+
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show', ['date' => '2026-09-15']));
+        $response->assertOk();
+
+        // Custom vendor dropdown markup
+        $response->assertSee('vp-vendor-dropdown-container', false);
+        $response->assertSee('vp-vendor-btn', false);
+        $response->assertSee('vp-vendor-menu', false);
+        $response->assertSee('vp-vendor-search', false);
+        $response->assertSee('vp-vendor-options', false);
+        $response->assertSee('type="hidden" id="vp-vendor-select"', false);
+        $response->assertDontSee('<select id="vp-vendor-select"', false);
+
+        // Custom vendor dropdown JS methods
+        $response->assertSee('toggleVpVendorDropdown', false);
+        $response->assertSee('renderVpVendorOptions', false);
+        $response->assertSee('selectVpVendor', false);
+        $response->assertSee('closeVpVendorDropdown', false);
+    }
 }

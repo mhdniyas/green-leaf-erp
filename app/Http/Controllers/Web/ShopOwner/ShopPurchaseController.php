@@ -133,8 +133,17 @@ class ShopPurchaseController extends Controller
         if ($request->has('items') && is_array($request->input('items'))) {
             $items = $request->input('items');
             foreach ($items as $idx => $item) {
-                if (is_array($item) && isset($item['rate']) && ! isset($item['unit_price'])) {
-                    $items[$idx]['unit_price'] = $item['rate'];
+                if (is_array($item)) {
+                    $qty = isset($item['quantity']) ? (float) $item['quantity'] : (isset($item['qty']) ? (float) $item['qty'] : 0.0);
+                    if (isset($item['total_price'])) {
+                        $totalPrice = (float) $item['total_price'];
+                        $items[$idx]['unit_price'] = $qty > 0 ? round($totalPrice / $qty, 4) : 0.0;
+                    } elseif (isset($item['rate']) && ! isset($item['unit_price'])) {
+                        $items[$idx]['unit_price'] = $item['rate'];
+                    }
+                    if (isset($item['qty']) && ! isset($item['quantity'])) {
+                        $items[$idx]['quantity'] = $item['qty'];
+                    }
                 }
             }
             $request->merge(['items' => $items]);

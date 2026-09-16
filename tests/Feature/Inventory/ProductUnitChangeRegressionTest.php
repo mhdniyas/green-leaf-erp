@@ -729,4 +729,248 @@ class ProductUnitChangeRegressionTest extends TestCase
         $this->assertSame(500.0, (float) $invoiceItem->unit_price);
         $this->assertSame(1500.0, (float) $invoiceItem->final_line_total);
     }
+
+    /**
+     * Test 10: Existing inactive CRATE row is reused and reactivated without duplicate or SQL exception.
+     */
+    public function test_existing_inactive_crate_reused_without_duplicate(): void
+    {
+        $product = Product::factory()->create([
+            'name' => 'Cabbage Test',
+            'sku' => 'CAB-001',
+            'unit' => 'piece',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+        $pieceUnit = ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'piece',
+            'label' => 'PIECE',
+            'conversion_to_base' => 1.0,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+        $crateUnit = ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'crate',
+            'label' => 'CRATE',
+            'conversion_to_base' => 20.0,
+            'is_base' => false,
+            'is_orderable' => false, // Inactive
+        ]);
+
+        $productService = app(ProductService::class);
+        $productService->update($product, new ProductData(
+            categoryId: (int) $product->category_id,
+            defaultWarehouseId: (int) $this->warehouse->id,
+            name: $product->name,
+            sku: $product->sku,
+            unit: 'piece',
+            description: null,
+            bufferQty: 0.0,
+            carryoverEnabled: false,
+            isActive: true,
+            showInPurchaserOrder: true,
+            units: [
+                ['id' => $pieceUnit->id, 'unit' => 'piece', 'label' => 'PIECE', 'conversion_to_base' => 1.0, 'is_base' => true, 'is_orderable' => true],
+                ['unit' => 'crate', 'label' => 'CRATE', 'conversion_to_base' => 25.0, 'is_base' => false, 'is_orderable' => true],
+            ],
+        ));
+
+        // Total rows must still be 2 (piece and crate)
+        $this->assertSame(2, ProductUnit::query()->where('product_id', $product->id)->count());
+        $crateUnit->refresh();
+        $this->assertTrue((bool) $crateUnit->is_orderable);
+        $this->assertSame(25.0, (float) $crateUnit->conversion_to_base);
+    }
+
+    /**
+     * Test 11: Stale submitted ID does not cause renaming of row A to row B's label.
+     */
+    public function test_stale_submitted_id_reuses_existing_target_unit_row_safely(): void
+    {
+        $product = Product::factory()->create([
+            'name' => 'Carrot Test',
+            'sku' => 'CAR-001',
+            'unit' => 'piece',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+        $unitA = ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'piece',
+            'label' => 'PIECE',
+            'conversion_to_base' => 1.0,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+        $unitB = ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'crate',
+            'label' => 'CRATE',
+            'conversion_to_base' => 15.0,
+            'is_base' => false,
+            'is_orderable' => false,
+        ]);
+
+        // Form submits unitA's id, but with unit=crate, label=CRATE
+        $productService = app(ProductService::class);
+        $productService->update($product, new ProductData(
+            categoryId: (int) $product->category_id,
+            defaultWarehouseId: (int) $this->warehouse->id,
+            name: $product->name,
+            sku: $product->sku,
+            unit: 'crate',
+            description: null,
+            bufferQty: 0.0,
+            carryoverEnabled: false,
+            isActive: true,
+            showInPurchaserOrder: true,
+            units: [
+                ['id' => $unitA->id, 'unit' => 'crate', 'label' => 'CRATE', 'conversion_to_base' => 1.0, 'is_base' => true, 'is_orderable' => true],
+            ],
+        ));
+
+        $this->assertSame(2, ProductUnit::query()->where('product_id', $product->id)->count());
+
+        // unitB (CRATE) should have been reactivated
+        $unitB->refresh();
+        $this->assertTrue((bool) $unitB->is_base);
+        $this->assertTrue((bool) $unitB->is_orderable);
+        $this->assertSame('CRATE', $unitB->label);
+        $this->assertSame('crate', $unitB->unit);
+
+        // unitA (PIECE) remains deactivated and was NOT renamed to CRATE
+        $unitA->refresh();
+        $this->assertFalse((bool) $unitA->is_base);
+        $this->assertFalse((bool) $unitA->is_orderable);
+        $this->assertSame('PIECE', $unitA->label);
+        $this->assertSame('piece', $unitA->unit);
+    }
+
+    /**
+     * Test 12: Genuine conflicting label throws ValidationException and prevents HTTP 500 error.
+     */
+    public function test_genuine_conflicting_label_throws_validation_exception(): void
+    {
+        $product = Product::factory()->create([
+            'name' => 'Lemon Test',
+            'sku' => 'LEM-001',
+            'unit' => 'kg',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1.0,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'box',
+            'label' => 'BOX (10 KG)',
+            'conversion_to_base' => 10.0,
+            'is_base' => false,
+            'is_orderable' => false,
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        // Incoming attempts to assign existing omitted BOX label to a piece unit
+        $productService = app(ProductService::class);
+        $productService->update($product, new ProductData(
+            categoryId: (int) $product->category_id,
+            defaultWarehouseId: (int) $this->warehouse->id,
+            name: $product->name,
+            sku: $product->sku,
+            unit: 'kg',
+            description: null,
+            bufferQty: 0.0,
+            carryoverEnabled: false,
+            isActive: true,
+            showInPurchaserOrder: true,
+            units: [
+                ['unit' => 'kg', 'label' => 'KG', 'conversion_to_base' => 1.0, 'is_base' => true, 'is_orderable' => true],
+                ['unit' => 'piece', 'label' => 'BOX (10 KG)', 'conversion_to_base' => 0.5, 'is_base' => false, 'is_orderable' => true],
+            ],
+        ));
+    }
+
+    /**
+     * Test 13: Historical safety - reactivating/deactivating units does not modify transactions.
+     */
+    public function test_historical_transactions_safety_on_unit_reactivation(): void
+    {
+        $product = Product::factory()->create([
+            'name' => 'Onion Test',
+            'sku' => 'ON-001',
+            'unit' => 'kg',
+            'default_warehouse_id' => $this->warehouse->id,
+        ]);
+        $kgUnit = ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1.0,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+
+        // Historical Shop Order Item
+        $order = ShopOrder::factory()->approved()->create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $this->businessDate,
+        ]);
+        $orderItem = ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_grade' => 'A',
+            'requested_qty' => 15.0,
+            'approved_qty' => 15.0,
+            'unit' => 'kg',
+            'requested_unit' => 'kg',
+            'line_total' => 300.0,
+        ]);
+
+        // Change unit kg -> piece -> kg
+        $productService = app(ProductService::class);
+        $productService->update($product, new ProductData(
+            categoryId: (int) $product->category_id,
+            defaultWarehouseId: (int) $this->warehouse->id,
+            name: $product->name,
+            sku: $product->sku,
+            unit: 'piece',
+            description: null,
+            bufferQty: 0.0,
+            carryoverEnabled: false,
+            isActive: true,
+            showInPurchaserOrder: true,
+            units: [
+                ['unit' => 'piece', 'label' => 'PIECE', 'conversion_to_base' => 1.0, 'is_base' => true, 'is_orderable' => true],
+            ],
+        ));
+
+        $productService->update($product, new ProductData(
+            categoryId: (int) $product->category_id,
+            defaultWarehouseId: (int) $this->warehouse->id,
+            name: $product->name,
+            sku: $product->sku,
+            unit: 'kg',
+            description: null,
+            bufferQty: 0.0,
+            carryoverEnabled: false,
+            isActive: true,
+            showInPurchaserOrder: true,
+            units: [
+                ['unit' => 'kg', 'label' => 'KG', 'conversion_to_base' => 1.0, 'is_base' => true, 'is_orderable' => true],
+            ],
+        ));
+
+        // Verify orderItem remains completely unchanged
+        $orderItem->refresh();
+        $this->assertSame('kg', $orderItem->unit);
+        $this->assertSame('kg', $orderItem->requested_unit);
+        $this->assertSame(15.0, (float) $orderItem->approved_qty);
+        $this->assertSame(300.0, (float) $orderItem->line_total);
+    }
 }

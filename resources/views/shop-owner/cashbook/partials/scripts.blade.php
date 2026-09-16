@@ -14,6 +14,7 @@
     const isPurchasingEnabled = @json($shop->isPurchasingEnabled());
     const openVendorPurchaseOnLoad = @json($openVendorPurchase ?? false);
     const purchasableProducts = @json($purchasableProducts ?? []);
+    let linkedVendorsData = @json($linkedVendors ?? []);
     const storePurchaseUrl = @json(route('shop-owner.purchasing.store'));
     const storeVendorUrl = @json(route('shop-owner.purchasing.vendors.store'));
     const activeBusinessDate = @json($selectedDate->format('Y-m-d'));
@@ -1538,20 +1539,175 @@
     let vpRowIndex = 0;
     let isVpSubmitting = false;
 
+    // ==========================================
+    // CUSTOM VENDOR DROPDOWN LOGIC
+    // ==========================================
+    function closeVpVendorDropdown() {
+        const menu = document.getElementById('vp-vendor-menu');
+        if (menu) menu.classList.add('hidden');
+    }
+
+    function toggleVpVendorDropdown(event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        const menu = document.getElementById('vp-vendor-menu');
+        if (!menu) return;
+
+        const isCurrentlyOpen = !menu.classList.contains('hidden');
+        closeAllVpProductDropdowns();
+        closeVpVendorDropdown();
+
+        if (!isCurrentlyOpen) {
+            menu.classList.remove('hidden');
+            const searchInput = document.getElementById('vp-vendor-search');
+            if (searchInput) {
+                searchInput.value = '';
+                renderVpVendorOptions('');
+                setTimeout(() => searchInput.focus(), 50);
+            }
+        }
+    }
+
+    function renderVpVendorOptions(filterTerm = '') {
+        const container = document.getElementById('vp-vendor-options');
+        if (!container) return;
+
+        const hiddenInput = document.getElementById('vp-vendor-select');
+        const selectedId = hiddenInput ? hiddenInput.value : '';
+        const term = (filterTerm || '').trim().toLowerCase();
+
+        const filtered = (linkedVendorsData || []).filter(v => {
+            if (!term) return true;
+            const nameMatch = (v.name || '').toLowerCase().includes(term);
+            const mobileMatch = (v.mobile_number || '').toLowerCase().includes(term);
+            return nameMatch || mobileMatch;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div class="px-3 py-3 text-center text-xs font-medium text-slate-400">
+                    No vendors match "${escapeHtml(filterTerm)}"
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        filtered.forEach(v => {
+            const isSelected = String(v.id) === String(selectedId);
+            html += `
+                <button type="button" role="option" data-vendor-id="${v.id}"
+                        onclick="selectVpVendor(${v.id}, event)"
+                        class="vp-vendor-option-item w-full px-3 py-2 text-left hover:bg-emerald-50 transition cursor-pointer ${isSelected ? 'bg-emerald-50/80 font-bold' : ''}">
+                    <div class="font-bold text-slate-900 truncate">${escapeHtml(v.name)}</div>
+                    ${v.mobile_number ? `<div class="text-[10px] text-slate-400 font-mono truncate mt-0.5">${escapeHtml(v.mobile_number)}</div>` : ''}
+                </button>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    function filterVpVendorList() {
+        const searchInput = document.getElementById('vp-vendor-search');
+        renderVpVendorOptions(searchInput ? searchInput.value : '');
+    }
+
+    function handleVpVendorKeyNav(event) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeVpVendorDropdown();
+            const btn = document.getElementById('vp-vendor-btn');
+            if (btn) btn.focus();
+            return;
+        }
+
+        const options = Array.from(document.querySelectorAll('#vp-vendor-options .vp-vendor-option-item'));
+        if (options.length === 0) return;
+
+        let activeIndex = options.findIndex(el => el.classList.contains('bg-emerald-100') || el.classList.contains('ring-2'));
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (activeIndex >= 0) {
+                options[activeIndex].classList.remove('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            }
+            activeIndex = (activeIndex + 1) % options.length;
+            options[activeIndex].classList.add('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            options[activeIndex].scrollIntoView({ block: 'nearest' });
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (activeIndex >= 0) {
+                options[activeIndex].classList.remove('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            }
+            activeIndex = (activeIndex - 1 + options.length) % options.length;
+            options[activeIndex].classList.add('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            options[activeIndex].scrollIntoView({ block: 'nearest' });
+        } else if (event.key === 'Enter') {
+            event.preventDefault();
+            const target = activeIndex >= 0 ? options[activeIndex] : options[0];
+            if (target) {
+                const vid = parseInt(target.dataset.vendorId, 10);
+                selectVpVendor(vid);
+            }
+        }
+    }
+
+    function selectVpVendor(vendorId, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        const vendor = (linkedVendorsData || []).find(v => String(v.id) === String(vendorId));
+        const hiddenInput = document.getElementById('vp-vendor-select');
+        const labelEl = document.getElementById('vp-vendor-label');
+        const sublabelEl = document.getElementById('vp-vendor-sublabel');
+
+        if (hiddenInput) {
+            hiddenInput.value = vendorId || '';
+            hiddenInput.dataset.credit = vendor && vendor.credit_approved ? '1' : '0';
+            hiddenInput.dataset.mobile = vendor ? (vendor.mobile_number || '') : '';
+        }
+
+        if (labelEl) {
+            if (vendor) {
+                labelEl.textContent = vendor.name;
+                labelEl.className = 'block truncate text-slate-900 font-bold';
+            } else {
+                labelEl.textContent = '-- Select Linked Active Vendor --';
+                labelEl.className = 'block truncate text-slate-400 font-medium';
+            }
+        }
+
+        if (sublabelEl) {
+            if (vendor && vendor.mobile_number) {
+                sublabelEl.textContent = vendor.mobile_number;
+                sublabelEl.classList.remove('hidden');
+            } else {
+                sublabelEl.textContent = '';
+                sublabelEl.classList.add('hidden');
+            }
+        }
+
+        closeVpVendorDropdown();
+        onVendorPurchaseSupplierChange();
+    }
+
     function openVendorPurchaseModal() {
         const modal = document.getElementById('vendor-purchase-modal');
         if (!modal) return;
+
+        closeVpVendorDropdown();
+        closeAllVpProductDropdowns();
 
         // Reset form error container
         const errAlert = document.getElementById('vp-error-alert');
         if (errAlert) errAlert.classList.add('hidden');
 
         // Reset vendor select
-        const vendorSelect = document.getElementById('vp-vendor-select');
-        if (vendorSelect) {
-            vendorSelect.value = '';
-            onVendorPurchaseSupplierChange();
-        }
+        selectVpVendor('');
 
         // Reset bill & notes
         const billInput = document.getElementById('vp-bill-number');
@@ -1573,6 +1729,8 @@
     }
 
     function closeVendorPurchaseModal() {
+        closeVpVendorDropdown();
+        closeAllVpProductDropdowns();
         const modal = document.getElementById('vendor-purchase-modal');
         if (modal) modal.classList.add('hidden');
         syncModalOpenState();
@@ -1587,8 +1745,8 @@
 
         if (!vendorSelect || !creditRadio) return;
 
-        const selectedOption = vendorSelect.selectedOptions ? vendorSelect.selectedOptions[0] : null;
-        const isCreditApproved = selectedOption && selectedOption.dataset.credit === '1';
+        const isCreditApproved = vendorSelect.dataset.credit === '1'
+            || (vendorSelect.selectedOptions && vendorSelect.selectedOptions[0]?.dataset.credit === '1');
 
         if (isCreditApproved) {
             creditRadio.disabled = false;
@@ -1612,57 +1770,299 @@
         }
     }
 
-    function addVendorPurchaseRow(defaultProductId = '', defaultQty = '', defaultRate = '') {
+    function closeAllVpProductDropdowns() {
+        document.querySelectorAll('[id^="vp-prod-menu-"]').forEach(menu => {
+            menu.classList.add('hidden');
+        });
+    }
+
+    function toggleVpProductDropdown(rowId, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        const menu = document.getElementById(`vp-prod-menu-${rowId}`);
+        if (!menu) return;
+
+        const isCurrentlyOpen = !menu.classList.contains('hidden');
+        closeAllVpProductDropdowns();
+
+        if (!isCurrentlyOpen) {
+            menu.classList.remove('hidden');
+            const searchInput = document.getElementById(`vp-prod-search-${rowId}`);
+            if (searchInput) {
+                searchInput.value = '';
+                renderVpProductOptions(rowId, '');
+                setTimeout(() => searchInput.focus(), 50);
+            }
+        }
+    }
+
+    function renderVpProductOptions(rowId, filterTerm = '') {
+        const container = document.getElementById(`vp-prod-options-${rowId}`);
+        if (!container) return;
+
+        const hiddenInput = document.getElementById(`vp-prod-id-${rowId}`);
+        const selectedId = hiddenInput ? hiddenInput.value : '';
+        const term = (filterTerm || '').trim().toLowerCase();
+
+        const filtered = (purchasableProducts || []).filter(p => {
+            if (!term) return true;
+            const nameMatch = (p.name || '').toLowerCase().includes(term);
+            const skuMatch = (p.sku || '').toLowerCase().includes(term);
+            const catMatch = (p.category_name || '').toLowerCase().includes(term);
+            return nameMatch || skuMatch || catMatch;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div class="px-3 py-3 text-center text-xs font-medium text-slate-400">
+                    No products match "${escapeHtml(filterTerm)}"
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        filtered.forEach(p => {
+            const isSelected = String(p.id) === String(selectedId);
+            html += `
+                <button type="button" role="option" data-product-id="${p.id}"
+                        onclick="selectVpProduct(${rowId}, ${p.id}, event)"
+                        class="vp-option-item w-full px-3 py-2 text-left hover:bg-emerald-50 transition cursor-pointer ${isSelected ? 'bg-emerald-50/80 font-bold' : ''}">
+                    <div class="font-bold text-slate-900 truncate">${escapeHtml(p.name)}</div>
+                    <div class="text-[10px] text-slate-400 truncate mt-0.5">
+                        ${p.sku ? 'SKU: ' + escapeHtml(p.sku) + ' · ' : ''}${p.category_name ? escapeHtml(p.category_name) + ' · ' : ''}Unit: ${escapeHtml(p.unit || 'kg')}
+                    </div>
+                </button>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    function filterVpProductList(rowId) {
+        const searchInput = document.getElementById(`vp-prod-search-${rowId}`);
+        renderVpProductOptions(rowId, searchInput ? searchInput.value : '');
+    }
+
+    function handleVpProductKeyNav(event, rowId) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeAllVpProductDropdowns();
+            const btn = document.getElementById(`vp-prod-btn-${rowId}`);
+            if (btn) btn.focus();
+            return;
+        }
+
+        const options = Array.from(document.querySelectorAll(`#vp-prod-options-${rowId} .vp-option-item`));
+        if (options.length === 0) return;
+
+        let activeIndex = options.findIndex(el => el.classList.contains('bg-emerald-100') || el.classList.contains('ring-2'));
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (activeIndex >= 0) {
+                options[activeIndex].classList.remove('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            }
+            activeIndex = (activeIndex + 1) % options.length;
+            options[activeIndex].classList.add('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            options[activeIndex].scrollIntoView({ block: 'nearest' });
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (activeIndex >= 0) {
+                options[activeIndex].classList.remove('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            }
+            activeIndex = (activeIndex - 1 + options.length) % options.length;
+            options[activeIndex].classList.add('bg-emerald-100', 'ring-2', 'ring-emerald-400');
+            options[activeIndex].scrollIntoView({ block: 'nearest' });
+        } else if (event.key === 'Enter') {
+            event.preventDefault();
+            const target = activeIndex >= 0 ? options[activeIndex] : options[0];
+            if (target) {
+                const pid = parseInt(target.dataset.productId, 10);
+                selectVpProduct(rowId, pid);
+            }
+        }
+    }
+
+    function selectVpProduct(rowId, productId, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        const product = (purchasableProducts || []).find(p => String(p.id) === String(productId));
+        const hiddenInput = document.getElementById(`vp-prod-id-${rowId}`);
+        const labelEl = document.getElementById(`vp-prod-label-${rowId}`);
+
+        if (hiddenInput) {
+            hiddenInput.value = productId || '';
+            hiddenInput.dataset.unit = product ? (product.unit || 'kg') : 'kg';
+            hiddenInput.dataset.avg = product ? (product.avg_purchase_price || 0) : 0;
+        }
+
+        if (labelEl) {
+            if (product) {
+                labelEl.textContent = product.name;
+                labelEl.className = 'truncate text-slate-900 font-bold';
+            } else {
+                labelEl.textContent = '-- Select / Search Product --';
+                labelEl.className = 'truncate text-slate-400 font-medium';
+            }
+        }
+
+        closeAllVpProductDropdowns();
+        updateRowAveragePriceDisplay(rowId);
+        recalculateVendorPurchaseTotals();
+
+        // Focus quantity input for fast entry
+        const qtyInput = document.querySelector(`#vp-row-${rowId} .vp-item-qty`);
+        if (qtyInput) {
+            qtyInput.focus();
+        }
+    }
+
+    function updateRowAveragePriceDisplay(rowId) {
+        const avgDisplay = document.getElementById(`vp-prod-avg-${rowId}`);
+        if (!avgDisplay) return;
+
+        const hiddenInput = document.getElementById(`vp-prod-id-${rowId}`);
+        const productId = hiddenInput ? parseInt(hiddenInput.value, 10) : 0;
+
+        if (!productId) {
+            avgDisplay.innerHTML = '';
+            return;
+        }
+
+        const product = (purchasableProducts || []).find(p => String(p.id) === String(productId));
+        if (!product) {
+            avgDisplay.innerHTML = '';
+            return;
+        }
+
+        const skuText = product.sku ? `SKU ${escapeHtml(product.sku)} · ` : '';
+        const unit = escapeHtml(product.unit || 'kg');
+        const qtyInput = document.querySelector(`#vp-row-${rowId} .vp-item-qty`);
+        const totalInput = document.querySelector(`#vp-row-${rowId} .vp-item-total`);
+
+        const qty = parseFloat(qtyInput ? qtyInput.value : 0) || 0;
+        const total = parseFloat(totalInput ? totalInput.value : 0) || 0;
+
+        let infoText = '';
+        if (qty > 0 && total > 0) {
+            const avg = (total / qty).toFixed(2);
+            infoText = `${skuText}Avg Buy ₹${avg}/${unit}`;
+        } else {
+            infoText = `${skuText}Avg Buy: —`;
+        }
+
+        avgDisplay.innerHTML = `<span class="text-[10px] text-slate-400 font-semibold leading-tight truncate block mt-0.5">${infoText}</span>`;
+    }
+
+    function onVendorPurchaseRowQtyTotalChange(rowId) {
+        updateRowAveragePriceDisplay(rowId);
+        recalculateVendorPurchaseTotals();
+    }
+
+    function addVendorPurchaseRow(defaultProductId = '', defaultQty = '', defaultTotal = '') {
         const container = document.getElementById('vp-products-list');
         if (!container) return;
 
         const rowId = vpRowIndex++;
         const div = document.createElement('div');
-        div.className = 'p-2.5 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-white hover:border-slate-300 transition space-y-2';
+        div.className = 'py-2 px-1 border-b border-slate-100 hover:bg-slate-50/60 transition';
         div.id = `vp-row-${rowId}`;
 
-        let productOptions = '<option value="">-- Select Product --</option>';
-        purchasableProducts.forEach(p => {
-            const isSel = String(p.id) === String(defaultProductId);
-            productOptions += `<option value="${p.id}" data-unit="${escapeHtml(p.unit || 'kg')}" ${isSel ? 'selected' : ''}>${escapeHtml(p.name)}</option>`;
-        });
+        const selectedProduct = defaultProductId
+            ? (purchasableProducts || []).find(p => String(p.id) === String(defaultProductId))
+            : null;
+
+        const labelText = selectedProduct
+            ? selectedProduct.name
+            : '-- Select / Search Product --';
+        const labelClass = selectedProduct
+            ? 'truncate text-slate-900 font-bold'
+            : 'truncate text-slate-400 font-medium';
+        const initialUnit = selectedProduct ? (selectedProduct.unit || 'kg') : 'kg';
 
         div.innerHTML = `
-            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                <div class="sm:col-span-5">
-                    <select class="vp-item-product h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"
-                            onchange="onVendorPurchaseRowProductChange(${rowId}, this)">
-                        ${productOptions}
-                    </select>
-                </div>
-                <div class="sm:col-span-2">
-                    <div class="relative">
-                        <input type="number" step="0.01" min="0.01" value="${defaultQty}" placeholder="Qty"
-                               class="vp-item-qty h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-900 font-mono focus:border-emerald-500 focus:outline-none"
-                               oninput="recalculateVendorPurchaseTotals()">
+            <div class="grid grid-cols-12 gap-2 items-start">
+                {{-- Product Column (sm:col-span-5) --}}
+                <div class="col-span-11 sm:col-span-5 relative">
+                    <input type="hidden" class="vp-item-product" id="vp-prod-id-${rowId}" value="${defaultProductId}" data-unit="${escapeHtml(initialUnit)}">
+                    <button type="button" id="vp-prod-btn-${rowId}" onclick="toggleVpProductDropdown(${rowId}, event)"
+                            class="h-8 w-full flex items-center justify-between gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-left text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none transition cursor-pointer">
+                        <span id="vp-prod-label-${rowId}" class="${labelClass}">
+                            ${escapeHtml(labelText)}
+                        </span>
+                        <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
+
+                    {{-- Floating Dropdown Panel --}}
+                    <div id="vp-prod-menu-${rowId}" onclick="event.stopPropagation()"
+                         class="hidden absolute left-0 top-full mt-1 w-full sm:min-w-[280px] z-40 rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+                        <div class="p-2 border-b border-slate-100 bg-slate-50/80">
+                            <div class="relative">
+                                <input type="text" id="vp-prod-search-${rowId}" placeholder="Search product name or SKU..." autocomplete="off"
+                                       oninput="filterVpProductList(${rowId})"
+                                       onkeydown="handleVpProductKeyNav(event, ${rowId})"
+                                       class="h-8 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-2.5 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none">
+                                <svg class="absolute left-2 top-2 h-4 w-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div id="vp-prod-options-${rowId}" class="max-h-48 overflow-y-auto divide-y divide-slate-100 py-1 text-xs">
+                        </div>
+                    </div>
+
+                    {{-- Average Buy info directly below product name inside Product column --}}
+                    <div id="vp-prod-avg-${rowId}" class="px-0.5 min-h-[14px]">
                     </div>
                 </div>
-                <div class="sm:col-span-2">
-                    <div class="relative">
-                        <input type="number" step="0.01" min="0" value="${defaultRate}" placeholder="Rate ₹"
-                               class="vp-item-rate h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-900 font-mono focus:border-emerald-500 focus:outline-none"
-                               oninput="recalculateVendorPurchaseTotals()">
-                    </div>
-                </div>
-                <div class="sm:col-span-2 flex items-center justify-between sm:justify-end">
-                    <span class="sm:hidden text-[10px] font-bold text-slate-500 uppercase">Amount:</span>
-                    <span class="vp-item-amount font-mono text-xs font-black text-slate-950">₹0.00</span>
-                </div>
-                <div class="sm:col-span-1 text-right sm:text-center">
+
+                {{-- Mobile-only remove button (top right) --}}
+                <div class="col-span-1 sm:hidden text-right flex justify-end">
                     <button type="button" onclick="removeVendorPurchaseRow(${rowId})" aria-label="Remove item"
                             class="inline-flex items-center justify-center h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer">
-                        <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+                        <i data-lucide="x" class="h-4 w-4"></i>
+                    </button>
+                </div>
+
+                {{-- Qty (col-span-6 sm:col-span-3) --}}
+                <div class="col-span-6 sm:col-span-3">
+                    <div class="relative">
+                        <input type="number" step="0.01" min="0.01" value="${defaultQty}" placeholder="Qty"
+                               class="vp-item-qty h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-900 font-mono focus:border-emerald-500 focus:outline-none"
+                               oninput="onVendorPurchaseRowQtyTotalChange(${rowId})">
+                    </div>
+                </div>
+
+                {{-- Total Price (col-span-6 sm:col-span-3) --}}
+                <div class="col-span-6 sm:col-span-3">
+                    <div class="relative">
+                        <input type="number" step="0.01" min="0" value="${defaultTotal}" placeholder="Total ₹"
+                               class="vp-item-total h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-900 font-mono focus:border-emerald-500 focus:outline-none"
+                               oninput="onVendorPurchaseRowQtyTotalChange(${rowId})">
+                    </div>
+                </div>
+
+                {{-- Desktop Remove Button (sm:col-span-1) --}}
+                <div class="hidden sm:flex sm:col-span-1 items-center justify-center h-8">
+                    <button type="button" onclick="removeVendorPurchaseRow(${rowId})" aria-label="Remove item"
+                            class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer">
+                        <i data-lucide="x" class="h-3.5 w-3.5"></i>
                     </button>
                 </div>
             </div>
         `;
 
         container.appendChild(div);
+        renderVpProductOptions(rowId, '');
+        updateRowAveragePriceDisplay(rowId);
+
         if (window.lucide) lucide.createIcons();
         recalculateVendorPurchaseTotals();
     }
@@ -1675,28 +2075,14 @@
         }
     }
 
-    function onVendorPurchaseRowProductChange(rowId, selectEl) {
-        recalculateVendorPurchaseTotals();
-    }
-
     function recalculateVendorPurchaseTotals() {
         const rows = document.querySelectorAll('#vp-products-list > div');
         let grandTotal = 0;
 
         rows.forEach(row => {
-            const qtyInput = row.querySelector('.vp-item-qty');
-            const rateInput = row.querySelector('.vp-item-rate');
-            const amountEl = row.querySelector('.vp-item-amount');
-
-            const qty = parseFloat(qtyInput ? qtyInput.value : 0) || 0;
-            const rate = parseFloat(rateInput ? rateInput.value : 0) || 0;
-            const lineTotal = Math.round(qty * rate * 100) / 100;
-
+            const totalInput = row.querySelector('.vp-item-total');
+            const lineTotal = parseFloat(totalInput ? totalInput.value : 0) || 0;
             grandTotal += lineTotal;
-
-            if (amountEl) {
-                amountEl.textContent = formatCurrency(lineTotal, false);
-            }
         });
 
         const grandTotalEl = document.getElementById('vp-grand-total');
@@ -1726,24 +2112,30 @@
         const items = [];
 
         for (const row of rows) {
-            const productSelect = row.querySelector('.vp-item-product');
+            const productInput = row.querySelector('.vp-item-product');
             const qtyInput = row.querySelector('.vp-item-qty');
-            const rateInput = row.querySelector('.vp-item-rate');
+            const totalInput = row.querySelector('.vp-item-total');
 
-            const productId = productSelect ? parseInt(productSelect.value, 10) : 0;
+            const productId = productInput ? parseInt(productInput.value, 10) : 0;
             const qty = parseFloat(qtyInput ? qtyInput.value : 0) || 0;
-            const rate = parseFloat(rateInput ? rateInput.value : 0) || 0;
-            const unit = productSelect && productSelect.selectedOptions[0] ? productSelect.selectedOptions[0].dataset.unit : 'kg';
+            const totalPrice = parseFloat(totalInput ? totalInput.value : 0) || 0;
+            const unit = productInput ? (productInput.dataset.unit || 'kg') : 'kg';
 
             if (productId > 0) {
                 if (qty <= 0) {
                     showVendorPurchaseError('Quantity must be greater than 0 for all selected products.');
                     return;
                 }
+                if (totalPrice <= 0) {
+                    showVendorPurchaseError('Total price must be greater than 0 for all selected products.');
+                    return;
+                }
+                const derivedRate = Math.round((totalPrice / qty) * 10000) / 10000;
                 items.push({
                     product_id: productId,
                     quantity: qty,
-                    unit_price: rate,
+                    total_price: totalPrice,
+                    unit_price: derivedRate,
                     unit: unit,
                     grade: 'A'
                 });
@@ -1751,7 +2143,7 @@
         }
 
         if (items.length === 0) {
-            showVendorPurchaseError('Please add at least one product with quantity and rate.');
+            showVendorPurchaseError('Please select at least one product with quantity and total price.');
             return;
         }
 
@@ -1825,6 +2217,16 @@
             errAlert.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     }
+
+    // Close any open product or vendor dropdown on outside click
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('#vp-vendor-btn') && !e.target.closest('#vp-vendor-menu')) {
+            closeVpVendorDropdown();
+        }
+        if (!e.target.closest('[id^="vp-prod-btn-"]') && !e.target.closest('[id^="vp-prod-menu-"]')) {
+            closeAllVpProductDropdowns();
+        }
+    });
 
     // ==========================================
     // SHOP OWNER NEW VENDOR MODAL
@@ -1917,26 +2319,25 @@
             }
 
             const newVendor = data.vendor || data.supplier;
-            const vendorSelect = document.getElementById('vp-vendor-select');
-            const noVendorsWarning = document.getElementById('vp-no-vendors-warning');
-
-            if (noVendorsWarning) noVendorsWarning.classList.add('hidden');
-            if (vendorSelect) {
-                vendorSelect.classList.remove('hidden');
-
-                // Check if option already exists
-                let existingOpt = Array.from(vendorSelect.options).find(o => String(o.value) === String(newVendor.id));
-                if (!existingOpt) {
-                    const opt = document.createElement('option');
-                    opt.value = newVendor.id;
-                    opt.dataset.credit = newVendor.credit_approved ? '1' : '0';
-                    opt.dataset.mobile = newVendor.mobile_number || '';
-                    opt.textContent = `${newVendor.name}${newVendor.mobile_number ? ' (' + newVendor.mobile_number + ')' : ''}`;
-                    vendorSelect.appendChild(opt);
-                    existingOpt = opt;
+            if (newVendor) {
+                const exists = (linkedVendorsData || []).some(v => String(v.id) === String(newVendor.id));
+                if (!exists) {
+                    linkedVendorsData.push({
+                        id: newVendor.id,
+                        name: newVendor.name,
+                        mobile_number: newVendor.mobile_number || '',
+                        credit_approved: Boolean(newVendor.credit_approved)
+                    });
+                    linkedVendorsData.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
                 }
-                existingOpt.selected = true;
-                onVendorPurchaseSupplierChange();
+
+                const noVendorsWarning = document.getElementById('vp-no-vendors-warning');
+                const vendorDropdownContainer = document.getElementById('vp-vendor-dropdown-container');
+
+                if (noVendorsWarning) noVendorsWarning.classList.add('hidden');
+                if (vendorDropdownContainer) vendorDropdownContainer.classList.remove('hidden');
+
+                selectVpVendor(newVendor.id);
             }
 
             closeShopOwnerCreateVendorModal();

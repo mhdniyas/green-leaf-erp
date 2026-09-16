@@ -1380,7 +1380,15 @@ class ShopOwnerController extends Controller
             : collect();
 
         $purchasableProducts = $shop->isPurchasingEnabled()
-            ? Product::query()->active()->with(['category:id,name', 'orderUnits'])->orderBy('name')->get(['id', 'category_id', 'name', 'sku', 'unit'])
+            ? Product::query()->active()->with(['category:id,name'])->orderBy('name')->get(['id', 'category_id', 'name', 'sku', 'unit'])
+                ->map(fn (Product $p): array => [
+                    'id' => (int) $p->id,
+                    'category_id' => $p->category_id ? (int) $p->category_id : null,
+                    'category_name' => $p->category?->name,
+                    'name' => (string) $p->name,
+                    'sku' => (string) ($p->sku ?? ''),
+                    'unit' => (string) ($p->unit ?: 'kg'),
+                ])
             : collect();
 
         return view('shop-owner.cashbook.index', [
