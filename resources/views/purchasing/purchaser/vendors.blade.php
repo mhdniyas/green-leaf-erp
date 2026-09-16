@@ -215,7 +215,7 @@
                         </div>
                     </div>
 
-                    <details class="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-2">
+                    <details class="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-2" {{ $cart->purchaseInvoice ? 'open' : '' }}>
                         <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-slate-700">
                             {{ $cart->purchaseInvoice ? 'Edit Qty / Price (Processed Bill)' : 'View Cart Items' }}
                         </summary>
@@ -415,7 +415,7 @@
                         <span class="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Completed</span>
                     </div>
 
-                    <details class="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-2">
+                    <details class="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-2" {{ $cart->purchaseInvoice ? 'open' : '' }}>
                         <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-slate-700">
                             {{ $cart->purchaseInvoice ? 'Edit Qty / Price (Processed Bill)' : 'View Cart Items' }}
                         </summary>
