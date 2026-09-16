@@ -144,8 +144,12 @@ class ShopInvoiceService
                             return 0.0;
                         }
 
-                        // For products with actual_weight (e.g. FULL_BUNCH weighed at warehouse), use actual_weight.
-                        return (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                        $itemUnit = ProductUnit::normalizeUnit((string) ($item->requested_unit ?: $item->unit));
+                        if ($itemUnit === 'kg') {
+                            return (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                        }
+
+                        return (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
                     });
 
                     $isInvoiceDeliveryFinalized = in_array((string) $invoice->delivery_status, [
@@ -1472,36 +1476,91 @@ class ShopInvoiceService
         }
 
         $normalizedPriceUnit = ProductUnit::normalizeUnit($priceUnit ?: $product->unit);
-        $normalizedBaseUnit = ProductUnit::normalizeUnit((string) $product->unit);
+        $normalizedProductBaseUnit = ProductUnit::normalizeUnit((string) $product->unit);
 
-        if ($normalizedPriceUnit === $normalizedBaseUnit) {
+        // 1. Same Unit = Always 1:1 (check before ProductUnit conversion lookup)
+        if ($normalizedPriceUnit === $normalizedProductBaseUnit) {
             return round($baseQuantity, 4);
         }
 
-        // Live product_units is the source of truth so admin corrections apply
-        // retroactively to every order without needing manual data patches.
-        $product->loadMissing('orderUnits');
-        $conversionToBase = $product->orderUnits
-            ->first(fn (ProductUnit $unit): bool => ProductUnit::normalizeUnit($unit->unit) === $normalizedPriceUnit)
-            ?->conversion_to_base;
+        // Trust historical order item unit snapshot first so unit changes (e.g. kg -> piece)
+        // on products do not break existing historical orders/invoices.
+        if ($orderItems instanceof Collection && $orderItems->isNotEmpty()) {
+            $matchingOrderItemUnit = $orderItems->first(function (ShopOrderItem $item) use ($normalizedPriceUnit, $product): bool {
+                $itemUnit = ProductUnit::normalizeUnit((string) $item->unit);
 
-        if (($conversionToBase === null || (float) $conversionToBase <= 0) && $orderItems instanceof Collection && $orderItems->isNotEmpty()) {
-            $conversionToBase = $orderItems
+                return (int) $item->product_id === (int) $product->id
+                    && $itemUnit === $normalizedPriceUnit;
+            });
+
+            if ($matchingOrderItemUnit) {
+                return round($baseQuantity, 4);
+            }
+        }
+
+        // 2. Fixed Packaging Conversion from stored order item snapshot or ProductUnit
+        if ($orderItems instanceof Collection && $orderItems->isNotEmpty()) {
+            $storedConversion = $orderItems
                 ->first(function (ShopOrderItem $item) use ($normalizedPriceUnit, $product): bool {
                     return (int) $item->product_id === (int) $product->id
                         && ProductUnit::normalizeUnit((string) ($item->requested_unit ?: $item->unit)) === $normalizedPriceUnit
                         && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0;
                 })
                 ?->requested_unit_conversion_to_base;
+
+            if ($storedConversion !== null && (float) $storedConversion > 0) {
+                return round($baseQuantity / (float) $storedConversion, 4);
+            }
         }
 
-        if ($conversionToBase === null || (float) $conversionToBase <= 0) {
+        // Check live ProductUnit for fixed conversions (e.g. box -> 10 kg)
+        $product->loadMissing('orderUnits');
+        $conversionToBase = $product->orderUnits
+            ->first(fn (ProductUnit $unit): bool => ProductUnit::normalizeUnit($unit->unit) === $normalizedPriceUnit)
+            ?->conversion_to_base;
+
+        if ($conversionToBase !== null && (float) $conversionToBase > 0) {
+            return round($baseQuantity / (float) $conversionToBase, 4);
+        }
+
+        // 3. Variable Measure: Check if one unit is count/piece and the other is weight (kg)
+        $countUnits = ['piece', 'bunch', 'full_bunch'];
+        $orderItemUnit = $orderItems?->first() ? ProductUnit::normalizeUnit((string) ($orderItems->first()->requested_unit ?: $orderItems->first()->unit)) : $normalizedProductBaseUnit;
+
+        // Case: Order is piece-based, Price is kg-based
+        if (in_array($orderItemUnit, $countUnits, true) && $normalizedPriceUnit === 'kg') {
+            $actualWeight = (float) ($orderItems?->sum(fn (ShopOrderItem $item): float => (float) ($item->actual_weight ?? 0)) ?? 0);
+            if ($actualWeight > 0) {
+                // If baseQuantity matches total loaded pieces, use actual measured weight directly
+                $totalPieces = (float) ($orderItems?->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_qty ?? $item->approved_qty ?? $item->requested_qty ?? 0)) ?? 0);
+                if ($totalPieces > 0 && abs($baseQuantity - $totalPieces) > 0.0001) {
+                    return round($actualWeight * ($baseQuantity / $totalPieces), 4);
+                }
+
+                return round($actualWeight, 4);
+            }
+
             throw ValidationException::withMessages([
-                'prices' => "{$product->name} cannot be invoiced in {$priceUnit}. Add a valid conversion in inventory units.",
+                'prices' => "Actual kg quantity is required to price this {$orderItemUnit}-based loadout at a per-{$priceUnit} rate.",
             ]);
         }
 
-        return round($baseQuantity / (float) $conversionToBase, 4);
+        // Case: Order is kg-based, Price is piece-based
+        if ($orderItemUnit === 'kg' && in_array($normalizedPriceUnit, $countUnits, true)) {
+            $totalCount = (float) ($orderItems?->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)) ?? 0);
+            if ($totalCount > 0) {
+                return round($totalCount, 4);
+            }
+
+            throw ValidationException::withMessages([
+                'prices' => "Actual piece count is required to price this kg-based loadout at a per-{$priceUnit} rate.",
+            ]);
+        }
+
+        // 4. Any other unresolved mismatch
+        throw ValidationException::withMessages([
+            'prices' => "{$product->name} (priced in {$priceUnit}) has no valid quantity for {$orderItemUnit} orders. An actual measured quantity is required.",
+        ]);
     }
 
     /**

@@ -7,6 +7,7 @@ namespace App\Services\Purchasing;
 use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
@@ -152,6 +153,10 @@ class DailyPendingAdvanceWhatsAppService
 
                 foreach ($productPoItems as $poItem) {
                     $billUnit = $poItem->purchase_unit ?: ($poItem->unit ?? ($product?->unit ?? 'KG'));
+                    if (ProductUnit::normalizeUnit($advUnit) === ProductUnit::normalizeUnit($billUnit)) {
+                        continue;
+                    }
+
                     $billConv = $this->balanceCalculator->resolveStrictUnitConversion($product, $billUnit);
                     if ($billConv === null) {
                         $unitIssuePoItem = $poItem;

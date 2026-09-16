@@ -164,16 +164,24 @@ class ProductService
         $existingUnits = $product->orderUnits()->get();
         $existingById = $existingUnits->keyBy('id');
         $existingByLabel = $existingUnits->keyBy(fn (ProductUnit $unit): string => mb_strtolower(trim((string) $unit->label)));
+        $existingByUnit = $existingUnits->keyBy(fn (ProductUnit $unit): string => mb_strtolower(trim((string) $unit->unit)));
 
         $plannedRows = [];
         $keptIds = [];
 
         foreach ($units as $index => $unit) {
             $normalizedLabel = mb_strtolower(trim((string) $unit['label']));
+            $normalizedUnit = mb_strtolower(trim((string) $unit['unit']));
 
             $existing = filled($unit['id'] ?? null)
                 ? $existingById->get((int) $unit['id'])
-                : $existingByLabel->get($normalizedLabel);
+                : ($existingByLabel->get($normalizedLabel) ?? $existingByUnit->get($normalizedUnit));
+
+            if ($existing) {
+                $existingById->forget($existing->id);
+                $existingByLabel->forget(mb_strtolower(trim((string) $existing->label)));
+                $existingByUnit->forget(mb_strtolower(trim((string) $existing->unit)));
+            }
 
             $plannedRows[] = [
                 'existing' => $existing,
@@ -192,11 +200,12 @@ class ProductService
             }
         }
 
-        if ($keptIds !== []) {
-            $product->orderUnits()->whereNotIn('id', $keptIds)->delete();
-        } else {
-            $product->orderUnits()->delete();
-        }
+        $product->orderUnits()
+            ->when($keptIds !== [], fn ($query) => $query->whereNotIn('id', $keptIds))
+            ->update([
+                'is_base' => false,
+                'is_orderable' => false,
+            ]);
 
         $rowsToUpdate = collect($plannedRows)
             ->filter(fn (array $row): bool => $row['existing'] instanceof ProductUnit)

@@ -159,8 +159,8 @@ $unitRows = old('units', $existingUnitRows);
                     </div>
 
                     <div class="space-y-1.5">
-                        <label for="unit" class="block text-sm font-medium text-gray-700">Active Unit <span class="text-red-500">*</span></label>
-                        <p class="text-xs text-gray-400">The unit shop incharges order and get invoiced in. Other units below stay saved for reference.</p>
+                        <label for="unit" class="block text-sm font-medium text-gray-700">Base Unit <span class="text-red-500">*</span></label>
+                        <p class="text-xs text-gray-400">Used for new transactions. Changing this does not change previous orders or bills.</p>
                         <div class="relative" data-product-select data-select-target="unit">
                             <input id="unit" type="hidden" name="unit" value="{{ $baseUnit }}" data-product-select-input>
                             <button type="button" data-product-select-trigger class="flex w-full items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left text-sm font-bold text-slate-900 transition hover:border-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 @error('unit') border-red-300 @enderror" aria-haspopup="listbox" aria-expanded="false">
@@ -190,10 +190,10 @@ $unitRows = old('units', $existingUnitRows);
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                             <h3 class="text-sm font-black text-slate-950">Units & Measures</h3>
-                            <p class="mt-1 text-xs font-semibold text-slate-500">Keep one active unit for ordering and billing. Add box, piece, bag, or other units with their conversion to the active unit — switching the active unit later keeps these conversions intact.</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">Base unit defines the standard unit for new transactions. Changing base unit does not alter previous orders, bills, or loadouts.</p>
                             <div class="mt-2 flex flex-wrap gap-2 text-[11px] font-black">
-                                <span class="rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-emerald-700">BOX needs KG conversion</span>
-                                <span class="rounded-lg border border-sky-100 bg-sky-50 px-2 py-1 text-sky-700">PIECE conversion optional</span>
+                                <span class="rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-emerald-700">FIXED MEASURE: Box uses configured ratio</span>
+                                <span class="rounded-lg border border-sky-100 bg-sky-50 px-2 py-1 text-sky-700">VARIABLE MEASURE: Piece / KG recorded per transaction</span>
                             </div>
                         </div>
                         <button type="button" id="add-product-unit-row" class="inline-flex w-fit items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white hover:bg-slate-800">
@@ -203,10 +203,10 @@ $unitRows = old('units', $existingUnitRows);
 
                     @error('units') <p class="mt-3 text-xs font-bold text-red-600">{{ $message }}</p> @enderror
 
-                    <div class="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                        <div class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] gap-2 border-b border-slate-100 bg-slate-100 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                    <div class="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <div class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] gap-2 border-b border-slate-100 bg-slate-100/80 px-3 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
                             <span>Unit</span>
-                            <span>Per Unit</span>
+                            <span>Measure / Conversion</span>
                             <span>Orderable</span>
                             <span></span>
                         </div>
@@ -215,8 +215,9 @@ $unitRows = old('units', $existingUnitRows);
                                 @php
                                     $rowUnit = $unitRow['unit'] ?? $baseUnit;
                                     $isBaseRow = $rowUnit === $baseUnit || (bool) ($unitRow['is_base'] ?? false);
+                                    $isFixed = $rowUnit === 'box';
                                 @endphp
-                                <div data-product-unit-row class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] items-center gap-2 px-3 py-2">
+                                <div data-product-unit-row class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] items-center gap-2 px-3 py-2.5">
                                     @if(! empty($unitRow['id']))
                                         <input type="hidden" name="units[{{ $index }}][id]" value="{{ $unitRow['id'] }}">
                                     @endif
@@ -258,7 +259,7 @@ $unitRows = old('units', $existingUnitRows);
                                         X
                                     </button>
                                     <input type="hidden" name="units[{{ $index }}][label]" value="{{ $unitRow['label'] ?? strtoupper((string) $rowUnit) }}" data-unit-label>
-                                    <p data-unit-row-hint class="col-span-4 hidden rounded-lg px-2 py-1 text-[11px] font-black"></p>
+                                    <p data-unit-row-hint class="col-span-4 hidden rounded-lg px-2.5 py-1.5 text-[11px] font-black"></p>
                                 </div>
                             @endforeach
                         </div>
@@ -548,16 +549,18 @@ $unitRows = old('units', $existingUnitRows);
                         removeButton.classList.toggle('opacity-40', isBase);
                     }
                     if (hint && unitSelect) {
-                        hint.className = 'col-span-4 hidden rounded-lg px-2 py-1 text-[11px] font-black';
+                        hint.className = 'col-span-4 hidden rounded-lg px-2.5 py-1 text-[11px] font-bold';
 
-                        if (!isBase && unitSelect.value === 'box') {
-                            hint.textContent = 'BOX needs KG conversion. Example: 1 BOX = 12 ' + baseUnit.toUpperCase();
+                        if (isBase) {
+                            hint.textContent = 'CURRENT BASE UNIT: 1 ' + baseUnit.toUpperCase() + ' = 1 ' + baseUnit.toUpperCase() + ' (Standard for new orders)';
+                            hint.classList.remove('hidden');
+                            hint.classList.add('border', 'border-slate-200', 'bg-slate-50', 'text-slate-600');
+                        } else if (unitSelect.value === 'box') {
+                            hint.textContent = 'FIXED MEASURE: 1 BOX = ' + (conversionInput?.value || '10') + ' ' + baseUnit.toUpperCase() + ' (Configured conversion)';
                             hint.classList.remove('hidden');
                             hint.classList.add('border', 'border-emerald-100', 'bg-emerald-50', 'text-emerald-700');
-                        } else if (!isBase && unitSelect.value === 'piece') {
-                            hint.textContent = conversionInput?.value
-                                ? 'Shop incharge sees PIECE and conversion info.'
-                                : 'Shop incharge sees PIECE as count only.';
+                        } else {
+                            hint.textContent = 'VARIABLE MEASURE: Actual quantity/weight recorded per transaction. No fixed conversion required.';
                             hint.classList.remove('hidden');
                             hint.classList.add('border', 'border-sky-100', 'bg-sky-50', 'text-sky-700');
                         }
