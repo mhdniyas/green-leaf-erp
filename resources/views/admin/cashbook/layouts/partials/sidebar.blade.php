@@ -170,6 +170,14 @@
                     <i data-lucide="receipt-text" class="w-4 h-4"></i>
                     <span>Bill Changes</span>
                 </a>
+                <a href="{{ route('admin.cashbook.purchaser-business-days.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.purchaser-business-days.*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="calendar-check-2" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Purchaser Business Days</span>
+                </a>
+                <a href="{{ route('admin.cashbook.purchaser-business-days.reports') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.purchaser-business-days.reports') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4 text-teal-600"></i>
+                    <span>Business Day Reports</span>
+                </a>
                 <a href="{{ route('admin.cashbook.payables') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.payables') ? 'active-sidebar' : '' }}">
                     <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
                     <span>Shop Payables Report</span>

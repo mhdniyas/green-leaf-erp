@@ -525,6 +525,15 @@ class WarehouseLoadoutController extends Controller
                     ->values();
 
                 foreach ($productIds as $productId) {
+                    $hasWeightInput = array_key_exists($productId, $itemsInput) && $itemsInput[$productId] !== null && trim((string) $itemsInput[$productId]) !== '';
+                    $hasUnitQtyInput = array_key_exists($productId, $unitQtysInput) && $unitQtysInput[$productId] !== null && trim((string) $unitQtysInput[$productId]) !== '';
+                    $hasStatusInput = array_key_exists($productId, $request->input('item_status', [])) && $request->input("item_status.{$productId}") !== null && trim((string) $request->input("item_status.{$productId}")) !== '';
+                    $hasNoteInput = array_key_exists($productId, $request->input('item_notes', [])) && $request->input("item_notes.{$productId}") !== null && trim((string) $request->input("item_notes.{$productId}")) !== '';
+
+                    if (! $hasWeightInput && ! $hasUnitQtyInput && ! $hasStatusInput && ! $hasNoteInput) {
+                        continue;
+                    }
+
                     $actualWeight = isset($itemsInput[$productId]) && $itemsInput[$productId] !== ''
                         ? max(0.0, (float) $itemsInput[$productId])
                         : 0.0;
@@ -668,12 +677,32 @@ class WarehouseLoadoutController extends Controller
                                 'sorted_at' => now(),
                                 'sorted_by' => $userId,
                             ]);
+                        } else {
+                            $targetRows[] = array_merge($basePriceData, [
+                                'requested_qty' => $totalRequested,
+                                'approved_qty' => $totalApproved,
+                                'loaded_qty' => 0.0,
+                                'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
+                                'requested_unit_quantity' => $requestedUnitQty,
+                                'line_total' => round($totalApproved * $unitSellingPrice, 2),
+                                'actual_weight' => null,
+                                'delivered_qty' => null,
+                                'excess_qty' => 0.0,
+                                'excess_value' => 0.0,
+                                'loadout_discrepancy_type' => 'none',
+                                'loadout_discrepancy_note' => null,
+                                'sorting_status' => 'allocated',
+                                'is_sorted' => false,
+                                'sorted_at' => null,
+                                'sorted_by' => null,
+                            ]);
                         }
                     }
 
                     $this->applyOrderItemRows($rows, $shopOrder->id, $productId, $targetRows);
                 }
 
+                $anyItemLoaded = $shopOrder->items()->where('sorting_status', 'loaded')->where('loaded_qty', '>', 0)->exists();
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
                 $shopOrder->update(['delivery_status' => $newStatus]);
 

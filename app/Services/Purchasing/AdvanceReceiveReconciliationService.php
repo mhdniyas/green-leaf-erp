@@ -277,8 +277,14 @@ class AdvanceReceiveReconciliationService
             /** @var Product $product */
             $product = $item->product;
             $itemUnit = $item->received_unit ?: $product->unit;
-            $conversionToBase = (float) ($this->balanceCalculator->resolveStrictUnitConversion($product, $itemUnit) ?? 1.0);
-            $billBaseQty = round((float) $item->received_qty * $conversionToBase, 3);
+            $normLine = ProductUnit::normalizeUnit($itemUnit);
+            $normProd = ProductUnit::normalizeUnit($product->unit);
+            $conversionToBase = $this->balanceCalculator->resolveStrictUnitConversion($product, $itemUnit);
+            if ($conversionToBase === null && $normLine === $normProd) {
+                $conversionToBase = 1.0;
+            }
+            $convFactor = $conversionToBase ?? 1.0;
+            $billBaseQty = round((float) $item->received_qty * $convFactor, 3);
             $totalBillBaseQty += $billBaseQty;
 
             if ($firstUnit === null) {
@@ -303,8 +309,16 @@ class AdvanceReceiveReconciliationService
                     continue;
                 }
 
+                $normCand = ProductUnit::normalizeUnit($cand['unit']);
+                if ($normCand !== $normLine) {
+                    $candConv = $this->balanceCalculator->resolveStrictUnitConversion($product, $cand['unit']);
+                    if ($candConv === null || $conversionToBase === null) {
+                        continue;
+                    }
+                }
+
                 $matchBase = min($availableBase, $remainingNeededBase);
-                $matchItemQty = $conversionToBase > 0 ? round($matchBase / $conversionToBase, 3) : $matchBase;
+                $matchItemQty = $convFactor > 0 ? round($matchBase / $convFactor, 3) : $matchBase;
 
                 $suggestedMatches[] = [
                     'advance_goods_received_id' => $cand['advance_goods_received_id'],
@@ -568,11 +582,13 @@ class AdvanceReceiveReconciliationService
 
                 if ($data->purchaseOrderId) {
                     $targetPo = PurchaseOrder::find($data->purchaseOrderId);
-                    $billDate = $targetPo?->order_date ? ($targetPo->order_date instanceof Carbon ? $targetPo->order_date->toDateString() : Carbon::parse($targetPo->order_date)->toDateString()) : null;
-                    $advDate = $advanceGrn->received_at instanceof Carbon ? $advanceGrn->received_at->toDateString() : ($advanceGrn->received_at ? Carbon::parse($advanceGrn->received_at)->toDateString() : null);
-                    if ($billDate !== null && $advDate !== null && $advDate !== $billDate) {
+                    $poPseudoGrn = [
+                        'business_day_id' => $targetPo?->business_day_id,
+                        'received_at' => $targetPo?->order_date,
+                    ];
+                    if (! app(PurchaserBusinessDayService::class)->areEligibleForMatch($advanceGrn, $poPseudoGrn)) {
                         throw ValidationException::withMessages([
-                            'advance_matches' => "Advance Receive {$advanceGrn->grn_number} date ({$advDate}) does not match Purchase Order date ({$billDate}). Same-business-day matching is required.",
+                            'advance_matches' => "Advance Receive {$advanceGrn->grn_number} and Purchase Order belong to different Business Days. Same-business-day matching is required.",
                         ]);
                     }
                 }
@@ -821,6 +837,7 @@ class AdvanceReceiveReconciliationService
                 $reconLine = $createdReconciliationLines[$key] ?? null;
 
                 AdvanceReceiveMatch::create([
+                    'business_day_id' => $billGrn->business_day_id ?? $data->businessDayId ?? null,
                     'advance_goods_received_id' => $matchRecord['advance_goods_received_id'],
                     'advance_goods_received_item_id' => $matchRecord['advance_goods_received_item_id'],
                     'advance_stock_batch_id' => $matchRecord['advance_stock_batch_id'],
@@ -1281,6 +1298,7 @@ class AdvanceReceiveReconciliationService
                 $reconLine = $createdReconciliationLines[$key] ?? null;
 
                 AdvanceReceiveMatch::create([
+                    'business_day_id' => $lockedGrn->business_day_id ?? null,
                     'advance_goods_received_id' => $matchRecord['advance_goods_received_id'],
                     'advance_goods_received_item_id' => $matchRecord['advance_goods_received_item_id'],
                     'advance_stock_batch_id' => $matchRecord['advance_stock_batch_id'] ?? null,
@@ -2216,6 +2234,7 @@ class AdvanceReceiveReconciliationService
 
             // 4. Create AdvanceReceiveMatch
             $matchRecord = AdvanceReceiveMatch::create([
+                'business_day_id' => $advGrn->business_day_id ?? $billGrn->business_day_id ?? $po->business_day_id,
                 'advance_goods_received_id' => $advGrn->id,
                 'advance_goods_received_item_id' => $advItem->id,
                 'advance_stock_batch_id' => $batch?->id,

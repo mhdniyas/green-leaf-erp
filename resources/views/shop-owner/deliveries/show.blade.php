@@ -12,5 +12,9 @@
             'deliveryEligibility' => $deliveryEligibility ?? null,
             'deliveryPriceReadiness' => $deliveryPriceReadiness ?? null,
         ])
+
+        @if ($order->invoice)
+            @include('purchasing.shop-invoices.partials.credit-note', ['invoice' => $order->invoice])
+        @endif
     </div>
 @endsection

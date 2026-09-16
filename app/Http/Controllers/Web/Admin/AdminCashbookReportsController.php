@@ -37,9 +37,9 @@ use App\Services\Inventory\WastageService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\AdvanceAvailableBalanceCalculator;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
-use App\Services\Purchasing\DailyInventoryComparisonService;
 use App\Services\Purchasing\AutoAdvanceClearExecutionService;
 use App\Services\Purchasing\AutoAdvanceClearPlanningService;
+use App\Services\Purchasing\DailyInventoryComparisonService;
 use App\Services\Purchasing\DailyPendingAdvanceWhatsAppService;
 use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
@@ -1532,6 +1532,7 @@ class AdminCashbookReportsController extends Controller
         $pendingBillsCollection = $this->getPendingBillsForDate($date, $selectedWarehouseId, $authorizedWarehouseIds);
         $pendingBillsCount = $pendingBillsCollection->count();
         $pendingBillsList = $this->formatPendingBillsList($pendingBillsCollection);
+        $managerSummary = app(DailyInventoryComparisonService::class)->getDailyManagerSummary($date, $selectedWarehouseId, $authorizedWarehouseIds);
 
         $summary = [
             'total_advance_qty' => round((float) $comparisonRows->sum('advance_qty'), 2),
@@ -1555,6 +1556,55 @@ class AdminCashbookReportsController extends Controller
             'pendingBillsCount' => $pendingBillsCount,
             'pendingBillsList' => $pendingBillsList,
             'summary' => $summary,
+            'managerSummary' => $managerSummary,
+        ]);
+    }
+
+    /**
+     * Print View for Pending Bills After Match (Clean 2-Column: Product | Pending).
+     */
+    public function printPendingBills(Request $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $selectedWarehouseId = $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null;
+        if ($selectedWarehouseId !== null && ! Warehouse::query()->where('id', $selectedWarehouseId)->exists()) {
+            abort(404, 'Warehouse not found.');
+        }
+
+        $userAuthorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user()
+        );
+
+        $authorizedWarehouseIds = app(WarehouseReceiptReadScope::class)->warehouseIds(
+            $request->user(),
+            $selectedWarehouseId
+        );
+
+        if ($selectedWarehouseId !== null && $userAuthorizedWarehouseIds !== null && ! in_array($selectedWarehouseId, $userAuthorizedWarehouseIds, true)) {
+            abort(403, 'Unauthorized warehouse access.');
+        }
+
+        $date = $request->filled('date')
+            ? Carbon::parse((string) $request->input('date'))->toDateString()
+            : today()->toDateString();
+
+        $warehouses = Warehouse::query()
+            ->where('is_active', true)
+            ->when($userAuthorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('id', $userAuthorizedWarehouseIds))
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
+        $selectedWarehouse = $selectedWarehouseId !== null ? $warehouses->firstWhere('id', $selectedWarehouseId) : null;
+        $managerSummary = app(DailyInventoryComparisonService::class)->getDailyManagerSummary($date, $selectedWarehouseId, $authorizedWarehouseIds);
+
+        return view('admin.cashbook.reports.inventory_pending_print', [
+            'date' => $date,
+            'warehouses' => $warehouses,
+            'selectedWarehouse' => $selectedWarehouse,
+            'selectedWarehouseId' => $selectedWarehouseId,
+            'managerSummary' => $managerSummary,
+            'title' => 'Green Leaf - Pending Bills',
         ]);
     }
 

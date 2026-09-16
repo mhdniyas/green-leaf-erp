@@ -492,6 +492,15 @@ class ApiWarehouseLoadoutController extends Controller
                 $this->markLoadoutStartedForProducts($shopOrder, $productIds);
 
                 foreach ($productIds as $productId) {
+                    $hasWeightInput = array_key_exists($productId, $itemsInput) && $itemsInput[$productId] !== null && trim((string) $itemsInput[$productId]) !== '';
+                    $hasUnitQtyInput = array_key_exists($productId, $unitQtysInput) && $unitQtysInput[$productId] !== null && trim((string) $unitQtysInput[$productId]) !== '';
+                    $hasStatusInput = array_key_exists($productId, $request->input('item_status', [])) && $request->input("item_status.{$productId}") !== null && trim((string) $request->input("item_status.{$productId}")) !== '';
+                    $hasNoteInput = array_key_exists($productId, $request->input('item_notes', [])) && $request->input("item_notes.{$productId}") !== null && trim((string) $request->input("item_notes.{$productId}")) !== '';
+
+                    if (! $hasWeightInput && ! $hasUnitQtyInput && ! $hasStatusInput && ! $hasNoteInput) {
+                        continue;
+                    }
+
                     $actualWeight = isset($itemsInput[$productId]) && $itemsInput[$productId] !== ''
                         ? max(0.0, (float) $itemsInput[$productId])
                         : 0.0;
@@ -630,12 +639,32 @@ class ApiWarehouseLoadoutController extends Controller
                                 'sorted_at' => now(),
                                 'sorted_by' => $userId,
                             ]);
+                        } else {
+                            $targetRows[] = array_merge($basePriceData, [
+                                'requested_qty' => $totalRequested,
+                                'approved_qty' => $totalApproved,
+                                'loaded_qty' => 0.0,
+                                'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
+                                'requested_unit_quantity' => $requestedUnitQty,
+                                'line_total' => round($totalApproved * $unitSellingPrice, 2),
+                                'actual_weight' => null,
+                                'delivered_qty' => null,
+                                'excess_qty' => 0.0,
+                                'excess_value' => 0.0,
+                                'loadout_discrepancy_type' => 'none',
+                                'loadout_discrepancy_note' => null,
+                                'sorting_status' => 'allocated',
+                                'is_sorted' => false,
+                                'sorted_at' => null,
+                                'sorted_by' => null,
+                            ]);
                         }
                     }
 
                     $this->applyOrderItemRows($rows, $shopOrder->id, $productId, $targetRows);
                 }
 
+                $anyItemLoaded = $shopOrder->items()->where('sorting_status', 'loaded')->where('loaded_qty', '>', 0)->exists();
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
                 $shopOrder->update(['delivery_status' => $newStatus]);
 
@@ -1271,11 +1300,12 @@ class ApiWarehouseLoadoutController extends Controller
             ->first();
         $itemVersion = ($itemState?->item_count ?? 0).'|'.($itemState?->max_updated_at ?? '');
 
-        $invoiceVersion = (string) DB::table('shop_invoices')
-            ->leftJoin('shop_invoice_items', 'shop_invoice_items.shop_invoice_id', '=', 'shop_invoices.id')
+        $invoiceMax = (string) DB::table('shop_invoices')->where('shop_order_id', $shopOrder->id)->max('updated_at');
+        $itemsMax = (string) DB::table('shop_invoice_items')
+            ->join('shop_invoices', 'shop_invoices.id', '=', 'shop_invoice_items.shop_invoice_id')
             ->where('shop_invoices.shop_order_id', $shopOrder->id)
-            ->selectRaw('MAX(GREATEST(shop_invoices.updated_at, COALESCE(shop_invoice_items.updated_at, shop_invoices.updated_at))) as max_updated_at')
-            ->value('max_updated_at');
+            ->max('shop_invoice_items.updated_at');
+        $invoiceVersion = max($invoiceMax, $itemsMax);
 
         $stateVersion = (string) ShopOrderLoadoutState::query()
             ->where('shop_order_id', $shopOrder->id)

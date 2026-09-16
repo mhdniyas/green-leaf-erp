@@ -14,6 +14,7 @@ use App\Models\PurchaseInvoice;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Purchasing\PurchaseInvoiceService;
+use App\Services\Purchasing\ShopPurchaserDailyVerificationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -373,6 +374,9 @@ class PurchaseInvoiceController extends Controller
         ]);
 
         $newSupplierId = (int) $validated['supplier_id'];
+
+        app(ShopPurchaserDailyVerificationService::class)
+            ->assertScopeNotFinalizedForInvoice($invoice);
 
         DB::transaction(function () use ($invoice, $newSupplierId): void {
             $invoice->update(['supplier_id' => $newSupplierId]);

@@ -9,6 +9,7 @@ use App\Http\Controllers\Web\Admin\AdminAutoLoadAllController;
 use App\Http\Controllers\Web\Admin\AdminCashbookReportsController;
 use App\Http\Controllers\Web\Admin\AdminDailyAutoMatchController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
+use App\Http\Controllers\Web\Admin\AdminPurchaserBusinessDayController;
 use App\Http\Controllers\Web\Admin\AdminShopPurchasingVerificationController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CashbookSettlementController;
@@ -58,6 +59,7 @@ use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
 use App\Http\Controllers\Web\Purchasing\PurchaseGradePriceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
+use App\Http\Controllers\Web\Purchasing\PurchaserBusinessDayCloseController;
 use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
 use App\Http\Controllers\Web\Purchasing\PurchaserReportController;
 use App\Http\Controllers\Web\Purchasing\PurchasingBusinessDayController;
@@ -293,6 +295,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/', [ShopPurchaseController::class, 'index'])->name('index');
             Route::get('/create', [ShopPurchaseController::class, 'create'])->name('create');
             Route::post('/', [ShopPurchaseController::class, 'store'])->name('store');
+            Route::post('/vendors', [ShopPurchaseController::class, 'storeVendor'])->name('vendors.store');
             Route::get('/vendors/search', [ShopPurchaseController::class, 'searchVendors'])->name('vendors.search');
             Route::get('/reports/vendors', [ShopPurchaseController::class, 'vendorReport'])->name('reports.vendors');
             Route::get('/reports/vendors/{supplier}', [ShopPurchaseController::class, 'vendorDetail'])->name('reports.vendor-detail');
@@ -464,6 +467,30 @@ Route::middleware('auth')->group(function () {
         Route::post('business-days/{uuid}/bills', [PurchasingBusinessDayController::class, 'storeBill'])->name('business-days.bills.store');
         Route::get('business-days/{uuid}/bills/{grn}/edit', [PurchasingBusinessDayController::class, 'editBill'])->name('business-days.bills.edit');
         Route::put('business-days/{uuid}/bills/{grn}', [PurchasingBusinessDayController::class, 'updateBill'])->name('business-days.bills.update');
+
+        // Purchaser Business Days Close Submodule
+        Route::prefix('business-days/{uuid}/close')->name('business-days.close.')->group(function () {
+            Route::get('/', [PurchaserBusinessDayCloseController::class, 'index'])->name('index');
+            Route::get('/bills', [PurchaserBusinessDayCloseController::class, 'bills'])->name('bills');
+            Route::get('/advances', [PurchaserBusinessDayCloseController::class, 'advances'])->name('advances');
+            Route::get('/pending', [PurchaserBusinessDayCloseController::class, 'pending'])->name('pending');
+            Route::get('/issues', [PurchaserBusinessDayCloseController::class, 'issues'])->name('issues');
+            Route::get('/inventory', [PurchaserBusinessDayCloseController::class, 'inventory'])->name('inventory');
+            Route::get('/cancelled', [PurchaserBusinessDayCloseController::class, 'cancelled'])->name('cancelled');
+            Route::post('/', [PurchaserBusinessDayCloseController::class, 'close'])->name('store');
+        });
+    });
+
+    // ── Purchaser Business Days Close Submodule (Direct Purchaser Prefix) ───
+    Route::prefix('purchaser/business-days/{uuid}/close')->name('purchaser.business-days.close.')->group(function () {
+        Route::get('/', [PurchaserBusinessDayCloseController::class, 'index'])->name('index');
+        Route::get('/bills', [PurchaserBusinessDayCloseController::class, 'bills'])->name('bills');
+        Route::get('/advances', [PurchaserBusinessDayCloseController::class, 'advances'])->name('advances');
+        Route::get('/pending', [PurchaserBusinessDayCloseController::class, 'pending'])->name('pending');
+        Route::get('/issues', [PurchaserBusinessDayCloseController::class, 'issues'])->name('issues');
+        Route::get('/inventory', [PurchaserBusinessDayCloseController::class, 'inventory'])->name('inventory');
+        Route::get('/cancelled', [PurchaserBusinessDayCloseController::class, 'cancelled'])->name('cancelled');
+        Route::post('/', [PurchaserBusinessDayCloseController::class, 'close'])->name('store');
     });
 
     // ── Sales ──────────────────────────────────────────────────────────────
@@ -620,9 +647,9 @@ Route::middleware('auth')->group(function () {
     Route::delete('/purchaser/cart-items/{item}', [PurchaserDashboardController::class, 'destroyCartItem'])->name('purchaser.cart-items.destroy');
     Route::post('/purchaser/carts/submit', [PurchaserDashboardController::class, 'submitCart'])->name('purchaser.carts.submit');
     Route::patch('/purchaser/carts/{cart}/status', [PurchaserDashboardController::class, 'updateOperationalStatus'])->name('purchaser.carts.status');
-    Route::get('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'invoiceShow'])->name('purchaser.invoices.show');
+    Route::get('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'invoiceShow'])->name('purchaser.invoices.show')->withTrashed();
     Route::delete('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'destroyInvoice'])->name('purchaser.invoices.destroy');
-    Route::get('/purchaser/invoices/{invoice}/pdf', [PurchaserDashboardController::class, 'invoicePdf'])->name('purchaser.invoices.pdf');
+    Route::get('/purchaser/invoices/{invoice}/pdf', [PurchaserDashboardController::class, 'invoicePdf'])->name('purchaser.invoices.pdf')->withTrashed();
     Route::patch('/purchaser/invoices/{invoice}/payment', [PurchaserDashboardController::class, 'updateInvoicePayment'])->name('purchaser.invoices.payment');
     Route::post('/purchaser/suppliers/{supplier}/bulk-payment', [PurchaserDashboardController::class, 'bulkPayment'])->name('purchaser.suppliers.bulk-payment');
     Route::post('/purchaser/corrections', [PurchaserDashboardController::class, 'storeCorrectionRequest'])->name('purchaser.corrections.store');
@@ -740,7 +767,15 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
             Route::get('warehouse-sales', [AdminCashbookReportsController::class, 'warehouseSales'])->name('warehouse-sales');
-            Route::get('warehouse-sales/{warehouseSale}', [AdminCashbookReportsController::class, 'warehouseSaleDetail'])->name('warehouse-sales.show');
+            // Purchaser Business Days (Admin Cashbook Oversight)
+            Route::prefix('purchaser-business-days')->name('purchaser-business-days.')->group(function () {
+                Route::get('/', [AdminPurchaserBusinessDayController::class, 'index'])->name('index');
+                Route::get('reports', [AdminPurchaserBusinessDayController::class, 'reports'])->name('reports');
+                Route::get('reports/pending-export/pdf', [AdminPurchaserBusinessDayController::class, 'exportPendingPdf'])->name('reports.pending-pdf');
+                Route::get('{uuid}', [AdminPurchaserBusinessDayController::class, 'show'])->name('show');
+                Route::post('{uuid}/reopen', [AdminPurchaserBusinessDayController::class, 'reopen'])->name('reopen');
+            });
+
             Route::get('auto-match', [AdminDailyAutoMatchController::class, 'index'])->name('auto-match');
             Route::get('auto-match/preview', [AdminDailyAutoMatchController::class, 'preview'])->name('auto-match.preview');
             Route::post('auto-match/execute', [AdminDailyAutoMatchController::class, 'execute'])->name('auto-match.execute');
@@ -926,6 +961,7 @@ Route::middleware('auth')->group(function () {
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
             Route::post('settings/shops/{shop}/toggle-purchasing', [CashbookController::class, 'toggleShopPurchasing'])->name('settings.shop.toggle-purchasing');
             Route::get('settings/shops/{shop}/vendors', [CashbookVendorController::class, 'index'])->name('settings.shop.vendors.index');
+            Route::post('settings/shops/{shop}/vendors/toggle-creation-permission', [CashbookVendorController::class, 'toggleCreationPermission'])->name('settings.shop.vendors.toggle-creation-permission');
             Route::post('settings/shops/{shop}/vendors/link', [CashbookVendorController::class, 'link'])->name('settings.shop.vendors.link');
             Route::post('settings/shops/{shop}/vendors/create', [CashbookVendorController::class, 'storeNew'])->name('settings.shop.vendors.create');
             Route::put('settings/shops/{shop}/vendors/{supplier}', [CashbookVendorController::class, 'update'])->name('settings.shop.vendors.update');

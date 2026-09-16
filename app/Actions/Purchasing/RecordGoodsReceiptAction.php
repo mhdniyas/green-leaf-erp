@@ -10,11 +10,14 @@ use App\Models\BillReconciliation;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\PurchaseBusinessDay;
+use App\Models\PurchaseBusinessDayCarryForward;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -72,12 +75,34 @@ class RecordGoodsReceiptAction
             // Generate GRN number
             $grnNumber = $this->grnRepository->generateGrnNumber();
 
+            $businessDayId = $data->businessDayId;
+            if ($businessDayId === null && $data->purchaseOrderId) {
+                $po = PurchaseOrder::find($data->purchaseOrderId);
+                $businessDayId = $po?->business_day_id;
+            }
+            if ($businessDayId === null && $data->warehouseId) {
+                $activeDay = app(PurchaserBusinessDayService::class)->getActiveForWarehouse($data->warehouseId);
+                $businessDayId = $activeDay?->id;
+            }
+            if (! empty($data->carryForwardUuid)) {
+                $carryRecord = PurchaseBusinessDayCarryForward::where('uuid', $data->carryForwardUuid)->first();
+                $dayRecord = $businessDayId ? PurchaseBusinessDay::find($businessDayId) : null;
+                if ($dayRecord && $carryRecord) {
+                    app(PurchaserBusinessDayService::class)->assertCarryForwardCompletionAllowed($dayRecord, $carryRecord, $data->items);
+                } else {
+                    app(PurchaserBusinessDayService::class)->assertBusinessDayNotClosed($businessDayId);
+                }
+            } else {
+                app(PurchaserBusinessDayService::class)->assertBusinessDayNotClosed($businessDayId);
+            }
+
             // Create GRN
             /** @var GoodsReceived $grn */
             $grn = $this->grnRepository->create([
                 'purchase_order_id' => $data->purchaseOrderId,
                 'destination_shop_id' => $data->destinationShopId,
                 'warehouse_id' => $data->warehouseId,
+                'business_day_id' => $businessDayId,
                 'client_submission_id' => $data->clientSubmissionId,
                 'submission_payload_hash' => $payloadHash,
                 'grn_number' => $grnNumber,

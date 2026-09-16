@@ -94,6 +94,7 @@ class CashbookShopSyncService
 
                 $this->syncPresetSettingsToShop($profile, $preset);
                 $this->ensureOtherEntriesForShop($erpShop->id);
+                $this->ensureVendorPurchaseForShop($erpShop->id);
                 $this->ensurePaymentsHeaderAndCategory($erpShop->id);
                 if ($isNewProfile) {
                     $this->settlements->ensureDefaults($profile);
@@ -378,5 +379,42 @@ class CashbookShopSyncService
         if ($setting->header_group_id !== $paymentsHeader->id) {
             $setting->update(['header_group_id' => $paymentsHeader->id]);
         }
+    }
+
+    public function ensureVendorPurchaseForShop(int $shopId): void
+    {
+        $vendorPurchaseType = LedgerEntryType::firstOrCreate(
+            ['code' => 'vendor_purchase'],
+            [
+                'name' => 'Vendor Purchase',
+                'category' => 'expense',
+                'active' => true,
+                'is_system' => true,
+                'display_order' => 19,
+            ]
+        );
+
+        ShopLedgerEntrySetting::query()->firstOrCreate(
+            [
+                'shop_id' => $shopId,
+                'entry_type_id' => $vendorPurchaseType->id,
+            ],
+            [
+                'version' => 1,
+                'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
+                'effective_to' => null,
+                'enabled' => true,
+                'default_funding_source' => 'sales',
+                'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
+                'include_in_sales' => false,
+                'include_in_income' => false,
+                'include_in_expense' => true,
+                'include_in_pl' => true,
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+                'display_order' => 19,
+            ]
+        );
     }
 }

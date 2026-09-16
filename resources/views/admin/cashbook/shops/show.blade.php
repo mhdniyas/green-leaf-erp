@@ -25,6 +25,15 @@
     $grossSalesAmount = (float) ($dailySettlement['gross_sales'] ?? 0);
     $totalDeductionsAmount = (float) ($dailySettlement['total_deductions'] ?? 0);
 
+    $expenseOutstandingBreakdown = collect($openSettlementTransactions ?? [])->groupBy('entry_name')->map(function ($transactions): array {
+        return [
+            'count' => $transactions->count(),
+            'gross' => round((float) $transactions->sum('original_amount'), 2),
+            'allocated' => round((float) $transactions->sum('already_allocated'), 2),
+            'remaining' => round((float) $transactions->sum('remaining_due'), 2),
+        ];
+    });
+
     // Day status calculation
     $dayStatusKey = match(true) {
         $needsAcceptance->isNotEmpty() => 'needs_review',
@@ -427,7 +436,7 @@
                 <div class="flex items-center gap-2">
                     <i data-lucide="layers" class="w-4 h-4 text-emerald-600"></i>
                     <h2 class="text-sm font-extrabold text-slate-900 uppercase tracking-wide">
-                        Shop Payments &amp; Settlement Allocation
+                        Shop Payments &amp; Expense Allocation
                     </h2>
                 </div>
                 <div class="flex items-center gap-2">
@@ -458,8 +467,23 @@
                 </div>
                 <div class="rounded-2xl border p-4"
                      :class="settlementOutstanding > 0 ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50'">
-                    <span class="text-[10px] font-black uppercase" :class="settlementOutstanding > 0 ? 'text-rose-700' : 'text-emerald-700'">Settlement Outstanding</span>
+                    <span class="text-[10px] font-black uppercase" :class="settlementOutstanding > 0 ? 'text-rose-700' : 'text-emerald-700'">Expense Outstanding</span>
                     <p class="mt-1 text-xl font-black font-mono" :class="settlementOutstanding > 0 ? 'text-rose-800' : 'text-emerald-800'">₹<span x-text="formatCurrency(settlementOutstanding)">{{ number_format($settlementOutstanding, 2) }}</span></p>
+                    <details class="mt-3 border-t border-rose-200 pt-2 text-xs text-slate-600">
+                        <summary class="cursor-pointer select-none font-bold text-slate-700">How this is calculated</summary>
+                        <p class="mt-2">Gross expense − allocated payments = outstanding expense</p>
+                        <div class="mt-2 space-y-1">
+                            @forelse($expenseOutstandingBreakdown as $category => $breakdown)
+                                <div class="flex items-start justify-between gap-2">
+                                    <span class="min-w-0 truncate">{{ $category }} <span class="text-slate-400">({{ $breakdown['count'] }})</span></span>
+                                    <span class="shrink-0 font-mono font-bold">₹{{ number_format($breakdown['remaining'], 2) }}</span>
+                                </div>
+                                <div class="pl-2 text-[11px] text-slate-500">₹{{ number_format($breakdown['gross'], 2) }} − ₹{{ number_format($breakdown['allocated'], 2) }}</div>
+                            @empty
+                                <p class="text-slate-500">No outstanding expense rows.</p>
+                            @endforelse
+                        </div>
+                    </details>
                 </div>
             </div>
 
@@ -468,17 +492,17 @@
                 <div x-show="eligibleUnallocated <= 0 && settlementOutstanding > 0"
                      class="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 text-xs font-bold">
                     <i data-lucide="info" class="w-3.5 h-3.5 inline-block mr-1"></i>
-                    All available money allocated. Settlement outstanding: ₹<span x-text="formatCurrency(settlementOutstanding)"></span>.
+                    All available money allocated. Expense outstanding: ₹<span x-text="formatCurrency(settlementOutstanding)"></span>.
                 </div>
                 <div x-show="settlementOutstanding <= 0 && eligibleUnallocated > 0"
                      class="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-900 text-xs font-bold">
                     <i data-lucide="check-circle" class="w-3.5 h-3.5 inline-block mr-1"></i>
-                    All eligible settlements cleared. Unallocated money: ₹<span x-text="formatCurrency(eligibleUnallocated)"></span>.
+                    All configured expenses cleared. Unallocated money: ₹<span x-text="formatCurrency(eligibleUnallocated)"></span>.
                 </div>
                 <div x-show="settlementOutstanding <= 0 && eligibleUnallocated <= 0 && paymentsReceived > 0"
                      class="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-900 text-xs font-bold">
                     <i data-lucide="check-circle" class="w-3.5 h-3.5 inline-block mr-1"></i>
-                    Fully settled — all money allocated and all settlements cleared.
+                    Fully settled — all money allocated and all configured expenses cleared.
                 </div>
                 <div x-show="paymentsUnallocated > 0 && eligibleUnallocated <= 0 && paymentsUnallocated !== eligibleUnallocated"
                      class="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-700 text-xs font-bold mt-2">
@@ -2277,7 +2301,7 @@
                         <i data-lucide="check-square" class="w-5 h-5 text-emerald-400"></i>
                     </div>
                     <div>
-                        <h3 class="text-sm font-black uppercase tracking-wide">Manual Settlement Allocation</h3>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Manual Expense Allocation</h3>
                         <p class="text-[11px] text-slate-300 font-medium">Select daily settlements to clear with this payment</p>
                     </div>
                 </div>
@@ -2461,7 +2485,7 @@
                         <i data-lucide="check-square" class="w-5 h-5 text-emerald-400"></i>
                     </div>
                     <div>
-                        <h3 class="text-sm font-black uppercase tracking-wide">Settlement Allocation</h3>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Expense Allocation</h3>
                         <p class="text-[11px] text-slate-300 font-medium">Allocate available payments against this shop&rsquo;s open settlements</p>
                     </div>
                 </div>
@@ -2504,7 +2528,7 @@
                         <span class="text-[10px] text-amber-700 block font-sans">Available for allocation</span>
                     </div>
                     <div class="p-4 rounded-2xl border" :class="bulkSettlementOutstanding > 0 ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'">
-                        <span class="text-[9px] font-extrabold uppercase block" :class="bulkSettlementOutstanding > 0 ? 'text-rose-700' : 'text-emerald-700'">Settlement Outstanding</span>
+                        <span class="text-[9px] font-extrabold uppercase block" :class="bulkSettlementOutstanding > 0 ? 'text-rose-700' : 'text-emerald-700'">Expense Outstanding</span>
                         <span class="text-base font-black" :class="bulkSettlementOutstanding > 0 ? 'text-rose-800' : 'text-emerald-800'">₹<span x-text="formatCurrency(bulkSettlementOutstanding)"></span></span>
                         <span class="text-[10px] block font-sans" :class="bulkSettlementOutstanding > 0 ? 'text-rose-600' : 'text-emerald-600'">Includes older unpaid days</span>
                     </div>
@@ -2519,7 +2543,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 font-bold text-slate-700">
                         <div>Eligible payments: <span class="font-mono text-slate-950">{{ count($bulkEligiblePayments) }}</span></div>
                         <div>Open settlements: <span class="font-mono text-slate-950">{{ $openSettlementTransactions->where('remaining_due', '>', 0)->count() }}</span></div>
-                        <div>Total settlement outstanding: <span class="font-mono text-slate-950">₹{{ number_format((float) $openSettlementTransactions->sum('remaining_due'), 2) }}</span></div>
+                        <div>Total expense outstanding: <span class="font-mono text-slate-950">₹{{ number_format((float) $openSettlementTransactions->sum('remaining_due'), 2) }}</span></div>
                         <div>Eligible amount available: <span class="font-mono text-slate-950">₹{{ number_format((float) collect($bulkEligiblePayments)->sum('unallocated'), 2) }}</span></div>
                         <div class="sm:col-span-2">Total selected for allocation: <span class="font-mono text-emerald-800">₹<span x-text="formatCurrency(bulkSelectedTotal)"></span></span></div>
                     </div>
@@ -2552,7 +2576,7 @@
                         <button type="submit"
                                 :disabled="!bulkAutoAllocated || bulkSelectedTotal <= 0 || isSubmitting"
                                 class="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-xs shadow-sm transition cursor-pointer">
-                            Confirm Settlement Allocation
+                            Confirm Expense Allocation
                         </button>
                     </div>
                 </div>
@@ -2747,7 +2771,7 @@
                     <div class="p-4 rounded-2xl space-y-2" :class="selectedPaymentForDetails.allocation_has_error ? 'border border-rose-200 bg-rose-50' : 'border border-emerald-100 bg-emerald-50/40'">
                         <div class="flex items-center justify-between">
                             <div>
-                                <span class="text-[10px] font-black uppercase tracking-wide text-emerald-900 block">Settlement Allocation</span>
+                                <span class="text-[10px] font-black uppercase tracking-wide text-emerald-900 block">Expense Allocation</span>
                                 <span class="text-[11px] text-emerald-700 font-bold" x-text="selectedPaymentForDetails.allocation_status_label"></span>
                             </div>
                             <button type="button"
@@ -2758,7 +2782,7 @@
                             </button>
                         </div>
                         <p class="text-[11px] text-slate-500 font-medium">
-                            <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.allocations.length"></span> daily settlements cleared with this payment.
+                            <span class="font-bold text-slate-800" x-text="selectedPaymentForDetails.allocations.length"></span> expenses cleared with this payment.
                         </p>
                         <template x-if="selectedPaymentForDetails.allocation_has_error">
                             <p class="text-[11px] font-bold text-rose-700">⚠ Current Allocation Error. Please open allocation and fix.</p>
@@ -2848,8 +2872,8 @@
                         <i data-lucide="layers" class="w-5 h-5 text-emerald-400"></i>
                     </div>
                     <div>
-                        <h3 class="text-sm font-black uppercase tracking-wide">Settlement Allocation Breakdown</h3>
-                        <p class="text-[11px] text-slate-300 font-medium">Daily company payable settlements cleared by this payment</p>
+                        <h3 class="text-sm font-black uppercase tracking-wide">Expense Allocation Breakdown</h3>
+                        <p class="text-[11px] text-slate-300 font-medium">Configured shop expenses cleared by this payment</p>
                     </div>
                 </div>
                 <button type="button" @click="showAllocationBreakdownModal = false" class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition">

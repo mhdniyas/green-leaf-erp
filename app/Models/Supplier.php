@@ -66,10 +66,6 @@ class Supplier extends Model
 
         $query = $this->newQuery()->where($field, $value);
 
-        if ($field === 'public_uuid') {
-            return $query->first();
-        }
-
         if (is_numeric($value)) {
             $query->orWhere($this->getKeyName(), (int) $value);
         }
@@ -138,6 +134,18 @@ class Supplier extends Model
     public function vendorAdvances(): HasMany
     {
         return $this->hasMany(VendorAdvance::class);
+    }
+
+    public function shops(): BelongsToMany
+    {
+        return $this->belongsToMany(Shop::class, 'shop_suppliers')
+            ->withPivot('is_active')
+            ->withTimestamps();
+    }
+
+    public function shopVendorPayables(): HasMany
+    {
+        return $this->hasMany(ShopVendorPayable::class);
     }
 
     public function products(): BelongsToMany

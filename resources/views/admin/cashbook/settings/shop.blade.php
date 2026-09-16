@@ -124,6 +124,7 @@
                     <a href="#income-sales" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100">Income &amp; Sales</a>
                     <a href="#expenses" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100">Expenses</a>
                     <a href="#transfers-settlements" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-100">Transfers &amp; Settlements</a>
+                    <a href="{{ route('admin.cashbook.settings.shop.vendors.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 hover:bg-amber-100">Vendors &rarr;</a>
                     <a href="{{ route('admin.cashbook.settings.shop.payments.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-black text-violet-700 hover:bg-violet-100">Payments &rarr;</a>
                     <a href="#collection" class="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 hover:bg-sky-100">Collection Form</a>
                     <a href="#historical-fetch" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-100">Historical Fetch</a>
@@ -913,6 +914,16 @@
                                 </option>
                             @endforeach
                         </select>
+                    </div>
+
+                    <!-- Edit Policy -->
+                    <div>
+                        <label class="block text-xs font-extrabold text-slate-900 mb-1.5">Edit Permission</label>
+                        <select name="edit_policy" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-slate-400 focus:outline-none">
+                            <option value="past_days_allowed" @selected(($setting->edit_policy ?? 'past_days_allowed') === 'past_days_allowed')>Allow Past Days (Open Days)</option>
+                            <option value="today_only" @selected(($setting->edit_policy ?? 'past_days_allowed') === 'today_only')>Today Only (Current Active Business Day)</option>
+                        </select>
+                        <p class="mt-1 text-[11px] font-semibold text-slate-500">Controls whether shop users can record/edit entries on past open business days.</p>
                     </div>
 
                     <!-- Bank Adjustment Rules Button -->

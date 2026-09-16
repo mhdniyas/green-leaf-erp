@@ -11,6 +11,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StoreGoodsReceivedRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePendingDailyPriceApprovalRequest;
 use App\Models\GoodsReceived;
+use App\Models\PurchaseBusinessDay;
 use App\Models\PurchaseOrder;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\GoodsReceivedService;
@@ -139,7 +140,17 @@ class GoodsReceivedController extends Controller
         )->firstOrFail();
         $po->load(['supplier', 'items.product']);
 
-        return view('purchase-manager.grns.create', compact('po'));
+        $selectedBusinessDayId = $request->filled('business_day_id')
+            ? $request->integer('business_day_id')
+            : ($po->business_day_id ?? null);
+
+        $openBusinessDays = PurchaseBusinessDay::query()
+            ->with('warehouse')
+            ->whereIn('status', [PurchaseBusinessDay::STATUS_OPEN, PurchaseBusinessDay::STATUS_REOPENED])
+            ->orderByDesc('business_date')
+            ->get();
+
+        return view('purchase-manager.grns.create', compact('po', 'openBusinessDays', 'selectedBusinessDayId'));
     }
 
     public function store(StoreGoodsReceivedRequest $request): RedirectResponse
@@ -243,7 +254,16 @@ class GoodsReceivedController extends Controller
 
         $grn->load(['purchaseOrder.supplier', 'purchaseOrder.items.product', 'items']);
 
-        return view('purchase-manager.grns.edit', compact('grn'));
+        $selectedBusinessDayId = $grn->business_day_id;
+
+        $openBusinessDays = PurchaseBusinessDay::query()
+            ->with('warehouse')
+            ->whereIn('status', [PurchaseBusinessDay::STATUS_OPEN, PurchaseBusinessDay::STATUS_REOPENED])
+            ->orWhere('id', $grn->business_day_id)
+            ->orderByDesc('business_date')
+            ->get();
+
+        return view('purchase-manager.grns.edit', compact('grn', 'openBusinessDays', 'selectedBusinessDayId'));
     }
 
     public function update(string $grn, StoreGoodsReceivedRequest $request): RedirectResponse

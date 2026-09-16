@@ -33,12 +33,17 @@ class TransactionGenerator
     public function record(array $input): ShopLedgerTransaction
     {
         return DB::transaction(function () use ($input) {
-            $entryType = LedgerEntryType::where('code', $input['entry_type_code'])
-                ->where('active', true)
-                ->first();
+            if (! empty($input['entry_type_id'])) {
+                $entryType = LedgerEntryType::findOrFail($input['entry_type_id']);
+            } else {
+                $code = $input['entry_type_code'] ?? '';
+                $entryType = LedgerEntryType::where('code', $code)
+                    ->where('active', true)
+                    ->first();
 
-            if (! $entryType) {
-                $entryType = LedgerEntryType::where('code', $input['entry_type_code'])->firstOrFail();
+                if (! $entryType) {
+                    $entryType = LedgerEntryType::where('code', $code)->firstOrFail();
+                }
             }
 
             $setting = $this->ruleResolver->resolve(

@@ -27,6 +27,7 @@ class UpdateSalesShopRequest extends FormRequest
             'warehouse_tag' => ['nullable', 'string', 'max:12', Rule::unique('shops', 'warehouse_tag')->ignore($shop?->id)],
             'shop_price_group_id' => ['nullable', 'integer', 'exists:shop_price_groups,id'],
             'allow_grade_b_purchase' => ['sometimes', 'boolean'],
+            'shop_purchasing_enabled' => ['sometimes', 'boolean'],
             'destination_type' => ['required', 'string', 'in:client,direct'],
             'client_id' => ['nullable', 'integer', 'exists:clients,id'],
             'client_name' => ['nullable', 'string', 'max:120'],

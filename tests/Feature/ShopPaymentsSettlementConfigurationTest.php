@@ -931,7 +931,7 @@ class ShopPaymentsSettlementConfigurationTest extends TestCase
         ]);
     }
 
-    public function test_allocate_all_only_allocates_against_configured_target_categories_and_leaves_unrelated_untouched(): void
+    public function test_allocate_all_only_allocates_against_configured_expense_categories_and_leaves_unrelated_untouched(): void
     {
         $glType = LedgerEntryType::firstOrCreate(['code' => 'gl_bill_p2'], ['name' => 'GL Bill P2', 'category' => 'expense']);
         $miscType = LedgerEntryType::firstOrCreate(['code' => 'misc_exp_p2'], ['name' => 'Misc Expense P2', 'category' => 'expense']);
@@ -963,6 +963,12 @@ class ShopPaymentsSettlementConfigurationTest extends TestCase
         $this->settlementService->savePaymentConfiguration($this->profile, [
             'payable' => ['source' => 'settlement', 'category_ids' => [], 'settlement_id' => $settlement->id],
             'direct_to_company' => ['source' => 'categories', 'category_ids' => []],
+            'expense_allocation' => [
+                'enabled' => true,
+                'auto_allocate' => true,
+                'category_ids' => [$glSetting->id],
+                'default_category_id' => $glSetting->id,
+            ],
         ]);
 
         $glTx = ShopLedgerTransaction::create([

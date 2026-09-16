@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Purchasing;
 
 use App\Enums\Purchasing\InvoiceStatus;
+use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\PurchaseInvoice;
@@ -12,6 +13,8 @@ use App\Models\PurchaseInvoicePayment;
 use App\Models\PurchaserCredit;
 use App\Models\User;
 use App\Models\VendorSettlementAllocation;
+use App\Services\Purchasing\DailyInventoryComparisonService;
+use App\Services\Purchasing\ShopPurchaserDailyVerificationService;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -38,6 +41,9 @@ class CancelPurchaseInvoiceAction
                 ];
             }
 
+            app(ShopPurchaserDailyVerificationService::class)
+                ->assertScopeNotFinalizedForInvoice($lockedInvoice);
+
             $this->assertNoSettlementActivity($lockedInvoice);
 
             $journalCount = JournalEntry::query()
@@ -61,7 +67,11 @@ class CancelPurchaseInvoiceAction
                     ->lockForUpdate()
                     ->first();
 
-                if ($goodsReceived instanceof GoodsReceived && $goodsReceived->status === 'approved') {
+                if ($goodsReceived instanceof GoodsReceived) {
+                    AdvanceReceiveMatch::query()
+                        ->where('bill_goods_received_id', $goodsReceived->id)
+                        ->delete();
+
                     $goodsReceived->update([
                         'bill_status' => 'bill_pending',
                         'bill_number' => null,
@@ -95,6 +105,11 @@ class CancelPurchaseInvoiceAction
                     'stock_changed' => false,
                 ])
                 ->log('purchase_invoice.cancelled');
+
+            $businessDayId = $lockedInvoice->business_day_id ?? $lockedInvoice->goodsReceived?->business_day_id;
+            if ($businessDayId !== null) {
+                app(DailyInventoryComparisonService::class)->reconcileBusinessDay((int) $businessDayId, $user->id);
+            }
 
             return [
                 'invoice' => $lockedInvoice->fresh(['goodsReceived', 'cancelledBy']),

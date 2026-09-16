@@ -144,7 +144,8 @@
                 </div>
 
                 <div class="mt-4 overflow-hidden rounded-lg border border-slate-200">
-                    <div class="hidden grid-cols-[minmax(0,1fr)_5rem_4rem_6rem_7rem] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 sm:grid">
+                    <div class="hidden grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 sm:grid">
+                        <div>Sl No</div>
                         <div>Product</div>
                         <div class="text-right">Qty</div>
                         <div>Unit</div>
@@ -170,7 +171,7 @@
                             @if (! $invoice->isFinalized())
                                 <button
                                     type="button"
-                                    class="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left transition hover:bg-cyan-50 focus:bg-cyan-50 focus:outline-hidden sm:grid-cols-[minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3"
+                                    class="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left transition hover:bg-cyan-50 focus:bg-cyan-50 focus:outline-hidden sm:grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3"
                                     data-item-edit
                                     data-item-id="{{ $item->id }}"
                                     data-order-item-id="{{ $item->shop_order_item_id }}"
@@ -186,9 +187,10 @@
                                     data-final-price="{{ $price }}"
                                     data-line-amount="{{ $lineTotal }}"
                                 >
+                                    <span class="hidden text-xs font-bold text-slate-500 sm:block">{{ $loop->iteration }}</span>
                                     <span class="min-w-0">
                                         <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
-                                        <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">{{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
+                                        <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">#{{ $loop->iteration }} · {{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
                                         @if ($itemChangeLines !== [])
                                             <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
                                         @endif
@@ -200,10 +202,11 @@
                                     <span class="hidden text-right text-sm font-black text-slate-950 sm:block" data-row-amount>{{ $money($lineTotal) }}</span>
                                 </button>
                             @else
-                                <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left sm:grid-cols-[minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3">
+                                <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 py-3 text-left sm:grid-cols-[2.5rem_minmax(0,1fr)_5rem_4rem_6rem_7rem] sm:gap-3">
+                                    <span class="hidden text-xs font-bold text-slate-500 sm:block">{{ $loop->iteration }}</span>
                                     <span class="min-w-0">
                                         <span class="block truncate text-sm font-black text-slate-950">{{ $productName }}</span>
-                                        <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">{{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
+                                        <span class="mt-1 block text-xs font-semibold text-slate-500 sm:hidden">#{{ $loop->iteration }} · {{ $displayQty }} {{ $formatUnit($item->unit) }} at {{ $money($price) }}</span>
                                         @if ($itemChangeLines !== [])
                                             <span class="mt-1 block text-xs font-bold text-amber-700" data-change-product="{{ $productName }}">Changed: {{ implode(' | ', $itemChangeLines) }}</span>
                                         @endif
@@ -271,6 +274,8 @@
                 </div>
             </div>
         </section>
+
+        @include('purchasing.shop-invoices.partials.credit-note', ['invoice' => $invoice])
 
         <section class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <div class="flex flex-col gap-1 border-b border-slate-100 pb-3">

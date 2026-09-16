@@ -26,6 +26,7 @@ class PurchaseOrder extends Model
     protected $fillable = [
         'supplier_id',
         'destination_shop_id',
+        'business_day_id',
         'purchaser_cart_id',
         'po_number',
         'status',
@@ -65,6 +66,11 @@ class PurchaseOrder extends Model
     public function destinationShop(): BelongsTo
     {
         return $this->belongsTo(Shop::class, 'destination_shop_id');
+    }
+
+    public function businessDay(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseBusinessDay::class, 'business_day_id');
     }
 
     public function createdBy(): BelongsTo

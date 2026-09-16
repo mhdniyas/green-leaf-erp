@@ -31,7 +31,8 @@ class ShopLedgerProfile extends Model
      *     payable: array{source: string, category_ids: array<int, int>, settlement_id: ?int},
      *     sales_collections: array{source: string, direct_category_ids: array<int, int>, cash_category_ids: array<int, int>, category_ids: array<int, int>, settlement_id: ?int},
      *     direct_to_company: array{source: string, category_ids: array<int, int>, settlement_id: ?int},
-     *     paid: array{source: string, category_ids: array<int, int>, settlement_id: ?int}
+     *     paid: array{source: string, category_ids: array<int, int>, settlement_id: ?int},
+     *     expense_allocation: array{enabled: bool, auto_allocate: bool, category_ids: array<int, int>, default_category_id: ?int}
      * }
      */
     public function getPaymentConfiguration(): array
@@ -40,6 +41,7 @@ class ShopLedgerProfile extends Model
         $payable = $config['payable'] ?? [];
         $direct = $config['direct_to_company'] ?? $config['paid'] ?? [];
         $salesCollections = $config['sales_collections'] ?? [];
+        $expenseAllocation = $config['expense_allocation'] ?? [];
 
         $paymentSettlementId = isset($config['payment_settlement_id']) && $config['payment_settlement_id'] !== ''
             ? (int) $config['payment_settlement_id']
@@ -76,6 +78,12 @@ class ShopLedgerProfile extends Model
             'sales_collections' => $salesConfig,
             'direct_to_company' => $directConfig,
             'paid' => $directConfig,
+            'expense_allocation' => [
+                'enabled' => (bool) ($expenseAllocation['enabled'] ?? true),
+                'auto_allocate' => (bool) ($expenseAllocation['auto_allocate'] ?? true),
+                'category_ids' => array_values(array_map('intval', (array) ($expenseAllocation['category_ids'] ?? []))),
+                'default_category_id' => ! empty($expenseAllocation['default_category_id']) ? (int) $expenseAllocation['default_category_id'] : null,
+            ],
         ];
     }
 

@@ -1114,13 +1114,33 @@ class PurchaserDashboardController extends Controller
         $completedCarts = $submittedCarts
             ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) && ! $this->cartHasPaymentPending($cart))
             ->values();
+        $cancelledInvoices = PurchaseInvoice::withTrashed()
+            ->where('status', InvoiceStatus::Cancelled)
+            ->where(function ($query) use ($user, $date, $purchaseGrade): void {
+                $query->whereHas('purchaserCart', function ($cartQuery) use ($user, $date, $purchaseGrade): void {
+                    $cartQuery->where('user_id', $user->id)
+                        ->whereDate('business_date', $date)
+                        ->when($purchaseGrade !== null, fn ($q) => $q->where('purchase_grade', $purchaseGrade));
+                })->orWhere(function ($standaloneQuery) use ($user, $date): void {
+                    $standaloneQuery->where('purchaser_submitted_by', $user->id)
+                        ->whereDate('created_at', $date);
+                });
+            })
+            ->with(['supplier', 'purchaserCart.items.product', 'cancelledBy'])
+            ->latest('cancelled_at')
+            ->get();
+
+        $cancelledCartIdsFromInvoices = $cancelledInvoices->pluck('purchaser_cart_id')->filter()->unique()->all();
+        $standaloneCancelledCarts = $cancelledCarts->reject(fn (PurchaserCart $c): bool => in_array((int) $c->id, $cancelledCartIdsFromInvoices, true))->values();
+        $totalCancelledCount = $cancelledInvoices->count() + $standaloneCancelledCarts->count();
+
         $activeTab = $request->string('tab')->toString();
 
         if (! in_array($activeTab, ['draft', 'pending', 'completed', 'cancelled'], true)) {
             $activeTab = match (true) {
                 $completedCarts->contains('id', $focusCartId) => 'completed',
                 $pendingCarts->contains('id', $focusCartId) => 'pending',
-                $cancelledCarts->contains('id', $focusCartId) => 'cancelled',
+                $cancelledCarts->contains('id', $focusCartId) || $cancelledInvoices->contains('purchaser_cart_id', $focusCartId) => 'cancelled',
                 default => 'draft',
             };
         }
@@ -1158,7 +1178,7 @@ class PurchaserDashboardController extends Controller
             'draft_count' => $draftCarts->count(),
             'pending_count' => $pendingCarts->count(),
             'completed_count' => $completedCarts->count(),
-            'cancelled_count' => $cancelledCarts->count(),
+            'cancelled_count' => $totalCancelledCount,
             'product_count' => $productCatalog->count(),
             'supplier_count' => $suppliers->count(),
         ]);
@@ -1169,7 +1189,9 @@ class PurchaserDashboardController extends Controller
             'draftCarts' => $draftCarts,
             'pendingCarts' => $pendingCarts,
             'completedCarts' => $completedCarts,
-            'cancelledCarts' => $cancelledCarts,
+            'cancelledCarts' => $standaloneCancelledCarts,
+            'cancelledInvoices' => $cancelledInvoices,
+            'totalCancelledCount' => $totalCancelledCount,
             'mergeSuggestions' => $mergeSuggestions,
             'mergeableDraftCounts' => $mergeableDraftCounts,
             'productCatalog' => $productCatalog,
@@ -1578,7 +1600,7 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $invoice = PurchaseInvoice::query()
+        $invoice = PurchaseInvoice::withTrashed()
             ->whereKey($invoice->id)
             ->whereHas('purchaserCart', function ($query) use ($request): void {
                 $query->where('user_id', $request->user()->id);
@@ -1598,7 +1620,7 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $invoice = PurchaseInvoice::query()
+        $invoice = PurchaseInvoice::withTrashed()
             ->whereKey($invoice->id)
             ->whereHas('purchaserCart', function ($query) use ($request): void {
                 $query->where('user_id', $request->user()->id);
@@ -1646,12 +1668,10 @@ class PurchaserDashboardController extends Controller
                 );
 
                 $ownedInvoice->delete();
-                // Keep status as 'submitted' — pendingCarts is filtered from submittedCarts.
-                // With the GRN now cancelled, isWarehouseConfirmed() returns false,
-                // which places this cart in the pending tab automatically.
                 $ownedInvoice->purchaserCart()->update([
                     'status' => 'submitted',
                     'bill_number' => null,
+                    'payment_status' => 'unpaid',
                 ]);
             }, attempts: 3);
         } catch (\RuntimeException $exception) {

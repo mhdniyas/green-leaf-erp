@@ -54,7 +54,7 @@ class ShopPaymentLedgerReconciliationService
      */
     public function getOpenDailySettlements(int $shopId, ?string $month = null): Collection
     {
-        $targetCategories = app(ShopSettlementService::class)->resolvePayableAllocationTargets($shopId);
+        $targetCategories = app(ShopSettlementService::class)->resolveExpenseAllocationTargets($shopId);
         $targetEntryTypeIds = $targetCategories->pluck('entry_type_id')->filter()->unique()->all();
 
         // Direct-to-company settings exclude any setting with company_account_id
@@ -72,15 +72,11 @@ class ShopPaymentLedgerReconciliationService
             ->whereNotIn('status', ['void', 'voided', 'reversed'])
             ->whereNull('company_account_id');
 
-        if (! empty($eligibleEntryTypeIds)) {
-            $query->whereIn('entry_type_id', $eligibleEntryTypeIds);
-        } else {
-            $query->where(function ($q) {
-                $q->where('direction', 'expense')
-                    ->orWhere('affects_expense', true)
-                    ->orWhere('settlement_delta', '>', 0);
-            });
+        if (empty($eligibleEntryTypeIds)) {
+            return collect();
         }
+
+        $query->whereIn('entry_type_id', $eligibleEntryTypeIds);
 
         if ($month) {
             $monthStart = Carbon::parse($month.'-01')->startOfMonth()->toDateString();
@@ -416,12 +412,12 @@ class ShopPaymentLedgerReconciliationService
                     ]);
                 }
 
-                $targetCategories = app(ShopSettlementService::class)->resolvePayableAllocationTargets($shopId);
+                $targetCategories = app(ShopSettlementService::class)->resolveExpenseAllocationTargets($shopId);
                 $targetEntryTypeIds = $targetCategories->pluck('entry_type_id')->filter()->unique()->all();
 
-                if (! empty($targetEntryTypeIds) && ! in_array($transaction->entry_type_id, $targetEntryTypeIds, true)) {
+                if (! in_array($transaction->entry_type_id, $targetEntryTypeIds, true)) {
                     throw ValidationException::withMessages([
-                        'allocations' => 'Transaction category is not one of the configured payable allocation targets for this shop.',
+                        'allocations' => 'Transaction category is not enabled in Expense Allocation settings for this shop.',
                     ]);
                 }
 
@@ -720,6 +716,12 @@ class ShopPaymentLedgerReconciliationService
      */
     public function clearAndReallocatePayment(ShopInvoicePaymentRequest $payment, int $userId): array
     {
+        if (! app(ShopSettlementService::class)->expenseAllocationConfiguration((int) $payment->shop_id)['auto_allocate']) {
+            throw ValidationException::withMessages([
+                'allocation' => 'Auto allocation is disabled in this shop’s Payments Settings.',
+            ]);
+        }
+
         return DB::transaction(function () use ($payment, $userId): array {
             $lockedPayment = ShopInvoicePaymentRequest::query()
                 ->whereKey($payment->id)

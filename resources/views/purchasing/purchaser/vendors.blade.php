@@ -56,7 +56,7 @@
                 Completed ({{ $completedCarts->count() }})
             </button>
             <button type="button" id="tab-cancelled-btn" onclick="switchVendorTab('cancelled')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
-                Cancelled ({{ $cancelledCarts->count() }})
+                Cancelled ({{ $totalCancelledCount ?? $cancelledCarts->count() }})
             </button>
         </div>
 
@@ -592,8 +592,9 @@
                                     @csrf
                                     @method('DELETE')
                                     <input type="hidden" name="cancellation_note" value="Reverted to pending by purchaser from completed view.">
-                                    <button type="submit" class="inline-flex h-8 items-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-[10px] font-black text-amber-700 hover:bg-amber-100">
-                                        ↩ Revert to Pending
+                                    <button type="submit" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-[10px] font-black text-amber-700 hover:bg-amber-100">
+                                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                                        Revert to Pending
                                     </button>
                                 </form>
                             @endif
@@ -606,6 +607,68 @@
         </div>
 
         <div id="section-cancelled" class="hidden space-y-3">
+            @forelse ($cancelledInvoices as $invoice)
+                <article id="invoice-card-{{ $invoice->id }}" class="rounded-2xl border border-rose-200 bg-white p-3 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $invoice->invoice_number }}</p>
+                                @if ($invoice->purchaserCart)
+                                    <span class="text-[9px] font-semibold text-slate-400">· Cart {{ $invoice->purchaserCart->cart_number }}</span>
+                                @endif
+                            </div>
+                            <h3 class="mt-1 truncate text-sm font-black text-slate-950">{{ $invoice->supplier?->name ?: 'Supplier pending' }}</h3>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">
+                                Cancelled {{ $invoice->cancelled_at?->format('d M Y, h:i A') ?: ($invoice->deleted_at?->format('d M Y, h:i A') ?: '') }}
+                                @if ($invoice->cancelledBy)
+                                    by {{ $invoice->cancelledBy->name }}
+                                @endif
+                            </p>
+                            @if ($invoice->cancellation_note || $invoice->cancellation_reason)
+                                <p class="mt-0.5 text-[11px] font-medium text-rose-600">
+                                    Reason: {{ $invoice->cancellation_note ?: $invoice->cancellation_reason }}
+                                </p>
+                            @endif
+                        </div>
+                        <span class="rounded-full bg-rose-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Bill Cancelled</span>
+                    </div>
+
+                    @if ($invoice->purchaserCart?->items?->isNotEmpty())
+                        <div class="mt-3 space-y-1 rounded-2xl border border-slate-100 bg-slate-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Items ({{ $invoice->purchaserCart->items->count() }})</p>
+                            <div class="divide-y divide-slate-200/60">
+                                @foreach ($invoice->purchaserCart->items as $item)
+                                    <div class="flex items-center justify-between gap-2 py-1.5 text-xs">
+                                        <span class="font-bold text-slate-800">{{ $item->product?->name ?? 'Unknown' }}</span>
+                                        <span class="font-semibold text-slate-600">
+                                            {{ (float) $item->quantity }} {{ $item->product?->unit ?? '' }}
+                                            @if ((float) $item->unit_price > 0)
+                                                · ₹{{ number_format((float) $item->unit_price, 2) }}
+                                            @endif
+                                            @if ((float) $item->line_total > 0)
+                                                = <span class="font-bold text-slate-900">₹{{ number_format((float) $item->line_total, 2) }}</span>
+                                            @endif
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
+                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[10px] font-bold text-slate-500">
+                        <span>Total: ₹{{ number_format((float) $invoice->amount, 2) }}</span>
+                        <div class="flex items-center gap-2">
+                            <a href="{{ route('purchaser.invoices.show', $invoice) }}" class="inline-flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-100">
+                                <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                View Cancelled Bill
+                            </a>
+                            <span class="font-bold text-rose-600">Cancelled</span>
+                        </div>
+                    </div>
+                </article>
+            @empty
+            @endforelse
+
             @forelse ($cancelledCarts as $cart)
                 <article id="cart-card-{{ $cart->id }}" class="rounded-2xl border {{ $focusCartId === $cart->id ? 'border-rose-300 ring-2 ring-rose-100' : 'border-slate-200' }} bg-white p-3 shadow-sm">
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -647,7 +710,9 @@
                     </div>
                 </article>
             @empty
-                <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">No cancelled carts for this business day.</p>
+                @if ($cancelledInvoices->isEmpty())
+                    <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">No cancelled carts or bills for this business day.</p>
+                @endif
             @endforelse
         </div>
     </div>
@@ -764,7 +829,9 @@
                     <h3 class="text-sm font-black text-slate-950">Share Cart</h3>
                     <p id="cart-share-title" class="mt-1 text-[11px] font-semibold text-slate-500"></p>
                 </div>
-                <button type="button" onclick="closeCartShareModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+                <button type="button" onclick="closeCartShareModal()" class="text-slate-400 hover:text-slate-600">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
             </div>
 
             <div class="mt-4 space-y-3">

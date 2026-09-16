@@ -392,10 +392,8 @@ class DailyAdvanceMatchExecutionService
                     break 2;
                 }
 
-                // Strict same-business-day executor guard: Advance date == Bill date
-                $advDate = $advGrn->received_at instanceof Carbon ? $advGrn->received_at->toDateString() : (string) $advGrn->received_at;
-                $billDate = $billGrn->received_at instanceof Carbon ? $billGrn->received_at->toDateString() : (string) $billGrn->received_at;
-                if ($advDate !== $billDate) {
+                // Same-business-day executor guard using PurchaserBusinessDayService
+                if (! app(PurchaserBusinessDayService::class)->areEligibleForMatch($advGrn, $billGrn)) {
                     $coverageOk = false;
                     break 2;
                 }
@@ -434,6 +432,7 @@ class DailyAdvanceMatchExecutionService
                 }
 
                 $validatedMatches[] = [
+                    'business_day_id' => $advGrn->business_day_id ?? $billGrn->business_day_id,
                     'advance_goods_received_id' => $advGrn->id,
                     'advance_goods_received_item_id' => $advItem->id,
                     'advance_stock_batch_id' => $advGrn->stockBatches->first()?->id,

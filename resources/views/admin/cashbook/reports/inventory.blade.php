@@ -1,13 +1,13 @@
 @extends('admin.cashbook.layouts.app')
 
-@section('title', 'Daily Inventory Comparison — ' . \Carbon\Carbon::parse($date)->format('d M Y'))
+@section('title', 'Manager Daily Purchase Match Summary — ' . \Carbon\Carbon::parse($date)->format('d M Y'))
 
 @section('header_title')
     <i data-lucide="scale" class="w-5 h-5 text-emerald-600"></i> Daily Inventory Comparison
 @endsection
 
 @section('header_subtitle')
-    Daily warehouse Advance vs Purchase Bill received comparison by product and unit.
+    Manager daily purchase bills, advance receives, same-day match, and pending bills summary.
 @endsection
 
 @section('content')
@@ -18,7 +18,9 @@
             saving: false,
             matching: false,
             matchingAll: false,
-            pendingDetailsOpen: false,
+            purchaseBillsModalOpen: false,
+            advanceReceivesModalOpen: false,
+            pendingBillsModalOpen: false,
             otherDatesModalOpen: false,
             otherDatesLoading: false,
             otherDatesList: [],
@@ -40,13 +42,19 @@
             selectedWarehouseName: '{{ $selectedWarehouse?->name ?? 'All Warehouses' }}',
             pendingBillsCount: {{ (int) $pendingBillsCount }},
             pendingBillsList: @js($pendingBillsList),
+            managerSummary: @js($managerSummary),
             rows: @js($rows),
             summary: @js($summary),
-            get unmatchedCount() {
-                return (this.rows || []).filter(r => r.unit_mismatch || r.match_pct === null || r.match_pct === undefined || Number(r.match_pct) < 99.99 || (r.unmatched_bill_qty > 0.0001) || (r.unmatched_adv_qty > 0.0001) || Math.abs(Number(r.diff || 0)) > 0.0001).length;
+            get pendingOnlyCount() {
+                return (this.rows || []).filter(r => {
+                    const adv = Number(r.advance_qty || 0);
+                    const matched = Number(r.matched_bill_qty || 0);
+                    const pending = Math.max(0, adv - matched);
+                    return r.unit_mismatch || pending > 0.0001 || (Number(r.unmatched_bill_qty || 0) > 0.0001);
+                }).length;
             },
-            get matchedCount() {
-                return (this.rows || []).filter(r => !r.unit_mismatch && Number(r.match_pct) >= 99.99 && (r.unmatched_bill_qty <= 0.0001) && (r.unmatched_adv_qty <= 0.0001) && Math.abs(Number(r.diff || 0)) <= 0.0001).length;
+            get unitFixCount() {
+                return (this.rows || []).filter(r => r.unit_mismatch).length;
             },
             get printUrl() {
                 const base = '{{ route('admin.cashbook.inventory.print-unmatched') }}';
@@ -55,6 +63,13 @@
                 if (this.selectedWarehouseId) params.set('warehouse_id', this.selectedWarehouseId);
                 if (this.sortColumn) params.set('sort_by', this.sortColumn);
                 if (this.sortDirection) params.set('sort_dir', this.sortDirection);
+                return base + '?' + params.toString();
+            },
+            get printPendingUrl() {
+                const base = '{{ route('admin.cashbook.inventory.print-pending') }}';
+                const params = new URLSearchParams();
+                if (this.date) params.set('date', this.date);
+                if (this.selectedWarehouseId) params.set('warehouse_id', this.selectedWarehouseId);
                 return base + '?' + params.toString();
             },
             sortBy(column) {
@@ -77,10 +92,15 @@
                         return name.includes(q) || code.includes(q);
                     });
                 }
-                if (this.matchFilter === 'unmatched') {
-                    list = list.filter(r => r.unit_mismatch || r.match_pct === null || r.match_pct === undefined || Number(r.match_pct) < 99.99 || (r.unmatched_bill_qty > 0.0001) || (r.unmatched_adv_qty > 0.0001) || Math.abs(Number(r.diff || 0)) > 0.0001);
-                } else if (this.matchFilter === 'matched') {
-                    list = list.filter(r => !r.unit_mismatch && Number(r.match_pct) >= 99.99 && (r.unmatched_bill_qty <= 0.0001) && (r.unmatched_adv_qty <= 0.0001) && Math.abs(Number(r.diff || 0)) <= 0.0001);
+                if (this.matchFilter === 'pending_only') {
+                    list = list.filter(r => {
+                        const adv = Number(r.advance_qty || 0);
+                        const matched = Number(r.matched_bill_qty || 0);
+                        const pending = Math.max(0, adv - matched);
+                        return r.unit_mismatch || pending > 0.0001 || (Number(r.unmatched_bill_qty || 0) > 0.0001);
+                    });
+                } else if (this.matchFilter === 'unit_fix') {
+                    list = list.filter(r => r.unit_mismatch);
                 }
                 if (this.sortColumn) {
                     list = [...list].sort((a, b) => {
@@ -196,15 +216,9 @@
                     });
                     const data = await res.json();
                     if (res.ok && data.status === 'success') {
-                        // Remove from pending list
                         this.pendingBillsList = this.pendingBillsList.filter(b => !(b.type === bill.type && b.id === bill.id));
                         this.pendingBillsCount = this.pendingBillsList.length;
-                        if (this.pendingBillsList.length === 0) {
-                            window.location.reload();
-                        } else {
-                            alert(data.message || 'Bill received successfully');
-                            window.location.reload();
-                        }
+                        window.location.reload();
                     } else {
                         alert(data.message || 'Failed to receive bill');
                         this.receivingSingleId = null;
@@ -237,7 +251,6 @@
                     });
                     const data = await res.json();
                     if (res.ok && data.status === 'success') {
-                        alert(data.message || 'Bills received successfully');
                         window.location.reload();
                     } else {
                         alert(data.message || 'Failed to receive pending bills');
@@ -271,7 +284,6 @@
                     });
                     const data = await res.json();
                     if (res.ok && data.status === 'success') {
-                        alert(data.message || 'Bills received successfully');
                         if (dateStr === this.date) {
                             window.location.reload();
                         } else {
@@ -346,39 +358,28 @@
                 }
             },
             sharePendingWhatsApp() {
-                const lines = [
-                    'Green Leaf - Bill Match Pending',
-                    'Date: ' + this.formattedDate,
-                    'Warehouse: ' + this.selectedWarehouseName,
-                    ''
-                ];
-
-                let pendingCount = 0;
-
-                for (const row of this.rows) {
-                    if (row.unit_mismatch) {
-                        lines.push(row.product_code ? `${row.product_code} · ${row.product_name}` : row.product_name);
-                        lines.push('Advance: ' + row.formatted_advance);
-                        lines.push('Bill: ' + row.formatted_bill);
-                        lines.push('Status: UNIT FIX REQUIRED');
-                        lines.push('');
-                        pendingCount++;
-                    } else if (row.bill_qty > 0 && row.unmatched_bill_qty > 0.0001) {
-                        lines.push(row.product_code ? `${row.product_code} · ${row.product_name}` : row.product_name);
-                        lines.push('Bill: ' + row.formatted_bill);
-                        lines.push('Matched: ' + this.formatNumber(row.matched_bill_qty) + ' ' + row.unit);
-                        lines.push('Pending: ' + this.formatNumber(row.unmatched_bill_qty) + ' ' + row.unit);
-                        lines.push('');
-                        pendingCount++;
-                    }
-                }
-
-                if (pendingCount === 0) {
+                const pendingItems = this.managerSummary?.pending_bills_after_match?.products || [];
+                if (pendingItems.length === 0) {
                     alert('All bills are fully matched for this date and warehouse!');
                     return;
                 }
 
-                lines.push('Total Pending Products: ' + pendingCount);
+                const lines = [
+                    'Green Leaf - Pending Bills',
+                    'Date: ' + this.formattedDate,
+                    'Warehouse: ' + this.selectedWarehouseName,
+                    '',
+                    'Product               Pending'
+                ];
+
+                for (const item of pendingItems) {
+                    const padLength = Math.max(1, 22 - (item.product_name || '').length);
+                    const spaces = ' '.repeat(padLength);
+                    lines.push(`${item.product_name}${spaces}${item.pending_qty}`);
+                }
+
+                lines.push('');
+                lines.push('Pending Products: ' + pendingItems.length);
 
                 const message = lines.join('\n');
                 window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent(message), '_blank', 'noopener');
@@ -417,36 +418,6 @@
                     const data = await res.json();
                     if (res.ok && data.status === 'success') {
                         item.unit = targetUnit;
-                        window.location.reload();
-                    } else {
-                        alert(data.message || 'Failed to update unit');
-                        this.saving = false;
-                        this.savingItemId = null;
-                    }
-                } catch (e) {
-                    alert('Error updating unit: ' + e.message);
-                    this.saving = false;
-                    this.savingItemId = null;
-                }
-            },
-            async saveUnit(itemId, newUnit) {
-                this.saving = true;
-                this.savingItemId = itemId;
-                try {
-                    const res = await fetch('{{ route('admin.cashbook.inventory.update-item-unit') }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                        },
-                        body: JSON.stringify({
-                            goods_received_item_id: itemId,
-                            new_unit: newUnit
-                        })
-                    });
-                    const data = await res.json();
-                    if (res.ok && data.status === 'success') {
                         window.location.reload();
                     } else {
                         alert(data.message || 'Failed to update unit');
@@ -498,127 +469,196 @@
             </form>
         </div>
 
-        <!-- 2. Pending Receive Details Banner -->
-        <div class="rounded-2xl p-4 transition shadow-xs border"
-             :class="pendingBillsCount > 0 ? 'bg-amber-50/70 border-amber-200/80' : 'bg-emerald-50/70 border-emerald-200/80'">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <div class="flex items-center gap-3 flex-wrap">
-                    <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                         :class="pendingBillsCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'">
-                        <i :data-lucide="pendingBillsCount > 0 ? 'inbox' : 'check-circle-2'" class="w-5 h-5"></i>
+        <!-- 2. TOP MANAGER SUMMARY CARDS (4 Compact Cards) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <!-- Card A: Purchase Bills -->
+            <div @click="purchaseBillsModalOpen = true; $nextTick(() => { if (window.lucide) lucide.createIcons(); });"
+                 class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs hover:border-slate-300 hover:shadow-sm transition cursor-pointer flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Purchase Bills</span>
+                        <span class="p-1 rounded-lg bg-slate-100 text-slate-600">
+                            <i data-lucide="receipt" class="w-4 h-4"></i>
+                        </span>
                     </div>
-                    <div>
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <span class="text-xs font-extrabold text-slate-900">
-                                Pending Purchase Bills:
-                                <span :class="pendingBillsCount > 0 ? 'text-amber-800 font-black text-sm' : 'text-emerald-700 font-bold'"
-                                      x-text="pendingBillsCount"></span>
-                            </span>
-                            <span class="text-[11px] font-semibold text-slate-500 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200/60 font-mono">
-                                Selected Date: {{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}
-                            </span>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span class="text-2xl font-black font-mono text-slate-900" x-text="managerSummary?.purchase_bills?.count || 0"></span>
+                        <span class="text-xs font-bold text-slate-500">bills</span>
+                        <span class="text-slate-300">·</span>
+                        <span class="text-xs font-bold text-slate-600" x-text="(managerSummary?.purchase_bills?.products_count || 0) + ' products'"></span>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span class="font-mono font-bold text-slate-700 truncate" x-text="managerSummary?.purchase_bills?.formatted_totals || '0'"></span>
+                    <span class="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5 shrink-0 ml-1">
+                        <span>Details</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </span>
+                </div>
+            </div>
+
+            <!-- Card B: Advance Receives -->
+            <div @click="advanceReceivesModalOpen = true; $nextTick(() => { if (window.lucide) lucide.createIcons(); });"
+                 class="rounded-2xl border border-indigo-200 bg-indigo-50/30 p-4 shadow-xs hover:border-indigo-300 hover:shadow-sm transition cursor-pointer flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider text-indigo-800">Advance Receives</span>
+                        <span class="p-1 rounded-lg bg-indigo-100 text-indigo-700">
+                            <i data-lucide="truck" class="w-4 h-4"></i>
+                        </span>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span class="text-2xl font-black font-mono text-indigo-950" x-text="managerSummary?.advance_receives?.count || 0"></span>
+                        <span class="text-xs font-bold text-indigo-800">GRNs</span>
+                        <span class="text-indigo-300">·</span>
+                        <span class="text-xs font-bold text-indigo-800" x-text="(managerSummary?.advance_receives?.products_count || 0) + ' products'"></span>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-indigo-100/80 flex items-center justify-between text-xs">
+                    <span class="font-mono font-bold text-indigo-900 truncate" x-text="managerSummary?.advance_receives?.formatted_totals || '0'"></span>
+                    <span class="text-[11px] font-bold text-indigo-700 flex items-center gap-0.5 shrink-0 ml-1">
+                        <span>Details</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </span>
+                </div>
+            </div>
+
+            <!-- Card C: Pending Bills After Match (MAIN CARD) -->
+            <div @click="pendingBillsModalOpen = true; $nextTick(() => { if (window.lucide) lucide.createIcons(); });"
+                 class="rounded-2xl border p-4 shadow-xs hover:shadow-sm transition cursor-pointer flex flex-col justify-between relative"
+                 :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'border-amber-300 bg-amber-50/50' : 'border-emerald-300 bg-emerald-50/50'">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider"
+                              :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'text-amber-900' : 'text-emerald-900'">
+                            Pending Bills After Match
+                        </span>
+                        <span class="p-1 rounded-lg"
+                              :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'bg-amber-200 text-amber-900' : 'bg-emerald-200 text-emerald-900'">
+                            <i :data-lucide="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'alert-circle' : 'check-circle-2'" class="w-4 h-4"></i>
+                        </span>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-base font-black font-mono leading-snug"
+                             :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'text-amber-950' : 'text-emerald-950'"
+                             x-text="managerSummary?.pending_bills_after_match?.formatted_totals || '0'"></div>
+                        <div class="mt-1 flex items-center gap-2 text-xs font-semibold"
+                             :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'text-amber-800' : 'text-emerald-800'">
+                            <span>Pending Products: <strong class="font-mono text-sm" x-text="managerSummary?.pending_bills_after_match?.pending_products_count || 0"></strong></span>
+                            <span>·</span>
+                            <span>Cleared: <strong class="font-mono" x-text="managerSummary?.pending_bills_after_match?.formatted_advance_cleared_pct || 'N/A'"></strong></span>
                         </div>
-                        <template x-if="pendingBillsCount === 0">
-                            <p class="text-[11px] font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
-                                All purchase bills received ✓
-                            </p>
-                        </template>
-                        <template x-if="pendingBillsCount > 0">
-                            <p class="text-[11px] font-medium text-amber-700 mt-0.5">
-                                Pending warehouse receive confirmation for selected date and warehouse.
-                            </p>
-                        </template>
                     </div>
                 </div>
+                <div class="mt-3 pt-2.5 border-t flex items-center justify-between text-xs"
+                     :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'border-amber-200' : 'border-emerald-200'">
+                    <span class="text-[11px] font-bold"
+                          :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'text-amber-800' : 'text-emerald-800'">
+                        <span x-text="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'Missing bills detected' : 'All advance matched ✓'"></span>
+                    </span>
+                    <span class="text-[11px] font-black flex items-center gap-0.5"
+                          :class="(managerSummary?.pending_bills_after_match?.pending_products_count || 0) > 0 ? 'text-amber-900' : 'text-emerald-900'">
+                        <span>View 2-Col List</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </span>
+                </div>
+            </div>
 
-                <div class="flex items-center gap-2 flex-wrap">
-                    <template x-if="pendingBillsCount > 0">
-                        <button type="button"
-                                @click="pendingDetailsOpen = true; $nextTick(() => { if (window.lucide) lucide.createIcons(); });"
-                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
-                            <i data-lucide="eye" class="w-3.5 h-3.5 text-slate-600"></i>
-                            <span>View Pending Details</span>
-                        </button>
-                    </template>
-
-                    <template x-if="pendingBillsCount > 0">
-                        <button type="button"
-                                @click="receiveAllPending()"
-                                :disabled="receivingPending"
-                                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
-                            <i data-lucide="package-check" class="w-3.5 h-3.5" :class="receivingPending ? 'animate-spin' : ''"></i>
-                            <span x-text="receivingPending ? 'Receiving...' : ('Receive All ' + pendingBillsCount)"></span>
-                        </button>
-                    </template>
-
-                    <button type="button"
-                            @click="fetchOtherDates()"
-                            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold transition shadow-xs cursor-pointer">
-                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>
-                        <span>Other Pending Dates</span>
-                    </button>
+            <!-- Card D: Unit Fix Required -->
+            <div @click="matchFilter = 'unit_fix'; currentPage = 1"
+                 class="rounded-2xl border p-4 shadow-xs hover:shadow-sm transition cursor-pointer flex flex-col justify-between"
+                 :class="(managerSummary?.unit_fix_required?.count || 0) > 0 ? 'border-rose-300 bg-rose-50/50' : 'border-slate-200 bg-white'">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider"
+                              :class="(managerSummary?.unit_fix_required?.count || 0) > 0 ? 'text-rose-900' : 'text-slate-500'">
+                            Unit Fix Required
+                        </span>
+                        <span class="p-1 rounded-lg"
+                              :class="(managerSummary?.unit_fix_required?.count || 0) > 0 ? 'bg-rose-200 text-rose-900' : 'bg-slate-100 text-slate-600'">
+                            <i data-lucide="wrench" class="w-4 h-4"></i>
+                        </span>
+                    </div>
+                    <div class="mt-2 flex items-baseline gap-2">
+                        <span class="text-2xl font-black font-mono"
+                              :class="(managerSummary?.unit_fix_required?.count || 0) > 0 ? 'text-rose-950' : 'text-slate-900'"
+                              x-text="managerSummary?.unit_fix_required?.count || 0"></span>
+                        <span class="text-xs font-bold"
+                              :class="(managerSummary?.unit_fix_required?.count || 0) > 0 ? 'text-rose-800' : 'text-slate-500'">
+                            products
+                        </span>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t flex items-center justify-between text-xs"
+                     :class="(managerSummary?.unit_fix_required?.count || 0) > 0 ? 'border-rose-200 text-rose-800 font-bold' : 'border-slate-100 text-slate-500'">
+                    <span x-text="(managerSummary?.unit_fix_required?.count || 0) > 0 ? 'Click to filter unit mismatches' : 'All units matched'"></span>
+                    <i data-lucide="filter" class="w-3.5 h-3.5"></i>
                 </div>
             </div>
         </div>
 
-        <!-- 3. Full-day Summary Cards -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-            <!-- Advance -->
-            <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Advance Qty</div>
-                <div class="mt-1 text-base font-black font-mono text-slate-900" x-text="formatNumber(summary.total_advance_qty)"></div>
-                <div class="text-[10px] text-slate-400">Total advance items</div>
+        <!-- 3. ACTIONS ROW -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div class="flex items-center gap-2 flex-wrap">
+                <!-- Action 1: Receive All Pending -->
+                <button type="button"
+                        @click="receiveAllPending()"
+                        :disabled="receivingPending || pendingBillsCount === 0"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i data-lucide="package-check" class="w-4 h-4" :class="receivingPending ? 'animate-spin' : ''"></i>
+                    <span x-text="receivingPending ? 'Receiving...' : ('Receive All Pending (' + pendingBillsCount + ')')"></span>
+                </button>
+
+                <!-- Action 2: Match All (Recovery Only) -->
+                <button type="button"
+                        @click="matchAll()"
+                        :disabled="matchingAll"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50"
+                        title="Re-run same-day auto match for all eligible products">
+                    <i data-lucide="refresh-cw" class="w-4 h-4" :class="matchingAll ? 'animate-spin' : ''"></i>
+                    <span x-text="matchingAll ? 'Matching...' : 'Match All (Recovery)'"></span>
+                </button>
+
+                <!-- Action 3: Share Pending -->
+                <button type="button"
+                        @click="sharePendingWhatsApp()"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                    <i data-lucide="message-circle" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Share Pending (WhatsApp)</span>
+                </button>
+
+                <a :href="printPendingUrl"
+                   target="_blank"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer"
+                   title="Print or PDF 2-column pending list">
+                    <i data-lucide="printer" class="w-4 h-4 text-slate-600"></i>
+                    <span>PDF / Print Pending</span>
+                </a>
             </div>
 
-            <!-- Bill -->
-            <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Bill Qty</div>
-                <div class="mt-1 text-base font-black font-mono text-slate-900" x-text="formatNumber(summary.total_bill_qty)"></div>
-                <div class="text-[10px] text-slate-400">Received bills</div>
-            </div>
+            <div class="flex items-center gap-2">
+                <button type="button"
+                        @click="fetchOtherDates()"
+                        class="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold transition shadow-xs cursor-pointer">
+                    <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-500"></i>
+                    <span>Other Pending Dates</span>
+                </button>
 
-            <!-- Matched -->
-            <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 shadow-xs">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Matched Qty</div>
-                <div class="mt-1 text-base font-black font-mono text-emerald-900" x-text="formatNumber(summary.total_matched_qty)"></div>
-                <div class="text-[10px] text-emerald-700">Stock reconciled</div>
-            </div>
-
-            <!-- Bill Pending -->
-            <div class="rounded-xl border border-amber-200 bg-amber-50/50 p-3 shadow-xs">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-amber-800">Bill Pending</div>
-                <div class="mt-1 text-base font-black font-mono text-amber-900" x-text="formatNumber(summary.total_unmatched_bill_qty)"></div>
-                <div class="text-[10px] text-amber-700">Unmatched bill qty</div>
-            </div>
-
-            <!-- Match % -->
-            <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Match %</div>
-                <div class="mt-1 text-base font-black font-mono"
-                     :class="summary.overall_match_pct >= 100 ? 'text-emerald-700' : (summary.overall_match_pct > 0 ? 'text-amber-700' : 'text-slate-700')"
-                     x-text="summary.overall_match_pct + '%'"></div>
-                <div class="text-[10px] text-slate-400">Day coverage</div>
-            </div>
-
-            <!-- Unit Fix Required -->
-            <div class="rounded-xl border p-3 shadow-xs"
-                 :class="summary.unit_fix_count > 0 ? 'border-rose-200 bg-rose-50/50' : 'border-slate-200 bg-white'">
-                <div class="text-[10px] font-bold uppercase tracking-wider"
-                     :class="summary.unit_fix_count > 0 ? 'text-rose-800' : 'text-slate-500'">Unit Fix Required</div>
-                <div class="mt-1 text-base font-black font-mono"
-                     :class="summary.unit_fix_count > 0 ? 'text-rose-700' : 'text-slate-900'"
-                     x-text="summary.unit_fix_count"></div>
-                <div class="text-[10px]" :class="summary.unit_fix_count > 0 ? 'text-rose-600 font-bold' : 'text-slate-400'">
-                    <span x-text="summary.unit_fix_count > 0 ? 'Mismatch detected' : 'Units consistent'"></span>
-                </div>
+                <a :href="printUrl"
+                   target="_blank"
+                   class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                   title="Print full comparison with discrepancies">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Print Discrepancies</span>
+                </a>
             </div>
         </div>
 
-        <!-- 4 & 5. Actions Bar + Search & Per Page & Match Filter -->
+        <!-- 4. SEARCH / FILTER BAR -->
         <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
             <div class="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 <!-- Search Box -->
-                <div class="relative flex-1 sm:w-56 min-w-[180px]">
+                <div class="relative flex-1 sm:w-60 min-w-[200px]">
                     <input type="text"
                            x-model="search"
                            @input="currentPage = 1"
@@ -631,31 +671,31 @@
                             class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
                 </div>
 
-                <!-- Match Status Filter Pills -->
+                <!-- Match Filter: [ All ] [ Pending Only ] [ Unit Fix ] -->
                 <div class="inline-flex items-center rounded-xl bg-slate-100 p-0.5 border border-slate-200 text-xs font-bold">
                     <button type="button"
                             @click="matchFilter = 'all'; currentPage = 1"
-                            class="px-2.5 py-1.5 rounded-lg transition"
+                            class="px-3 py-1.5 rounded-lg transition"
                             :class="matchFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
                         All (<span x-text="(rows || []).length"></span>)
                     </button>
                     <button type="button"
-                            @click="matchFilter = 'unmatched'; currentPage = 1"
-                            class="px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
-                            :class="matchFilter === 'unmatched' ? 'bg-amber-50 text-amber-900 font-black shadow-xs border border-amber-200' : 'text-slate-600 hover:text-slate-900'">
-                        <span>< 100%</span>
+                            @click="matchFilter = 'pending_only'; currentPage = 1"
+                            class="px-3 py-1.5 rounded-lg transition flex items-center gap-1"
+                            :class="matchFilter === 'pending_only' ? 'bg-amber-50 text-amber-900 font-black shadow-xs border border-amber-200' : 'text-slate-600 hover:text-slate-900'">
+                        <span>Pending Only</span>
                         <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono"
-                              :class="matchFilter === 'unmatched' ? 'bg-amber-200 text-amber-950 font-black' : 'bg-slate-200 text-slate-700'"
-                              x-text="unmatchedCount"></span>
+                              :class="matchFilter === 'pending_only' ? 'bg-amber-200 text-amber-950 font-black' : 'bg-slate-200 text-slate-700'"
+                              x-text="pendingOnlyCount"></span>
                     </button>
                     <button type="button"
-                            @click="matchFilter = 'matched'; currentPage = 1"
-                            class="px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
-                            :class="matchFilter === 'matched' ? 'bg-emerald-50 text-emerald-900 font-black shadow-xs border border-emerald-200' : 'text-slate-600 hover:text-slate-900'">
-                        <span>100% Matched</span>
+                            @click="matchFilter = 'unit_fix'; currentPage = 1"
+                            class="px-3 py-1.5 rounded-lg transition flex items-center gap-1"
+                            :class="matchFilter === 'unit_fix' ? 'bg-rose-50 text-rose-900 font-black shadow-xs border border-rose-200' : 'text-slate-600 hover:text-slate-900'">
+                        <span>Unit Fix</span>
                         <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono"
-                              :class="matchFilter === 'matched' ? 'bg-emerald-200 text-emerald-950 font-black' : 'bg-slate-200 text-slate-700'"
-                              x-text="matchedCount"></span>
+                              :class="matchFilter === 'unit_fix' ? 'bg-rose-200 text-rose-950 font-black' : 'bg-slate-200 text-slate-700'"
+                              x-text="unitFixCount"></span>
                     </button>
                 </div>
 
@@ -672,37 +712,9 @@
                     </select>
                 </div>
             </div>
-
-            <!-- Top Actions: Print Unmatched, Match All & Share Pending WhatsApp -->
-            <div class="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-                <a :href="printUrl"
-                   href="{{ route('admin.cashbook.inventory.print-unmatched', array_filter(['date' => $date, 'warehouse_id' => $selectedWarehouseId])) }}"
-                   target="_blank"
-                   class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-xs cursor-pointer"
-                   title="Print all products with < 100% match or discrepancies">
-                    <i data-lucide="printer" class="w-4 h-4"></i>
-                    <span>Print (< 100% Match)</span>
-                    <span class="ml-0.5 px-1.5 py-0.2 rounded-md bg-slate-800 text-[10px] text-amber-300 font-mono font-bold" x-text="unmatchedCount"></span>
-                </a>
-
-                <button type="button"
-                        @click="matchAll()"
-                        :disabled="matchingAll"
-                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
-                    <i data-lucide="refresh-cw" class="w-4 h-4" :class="matchingAll ? 'animate-spin' : ''"></i>
-                    <span x-text="matchingAll ? 'Matching...' : 'Match All'"></span>
-                </button>
-
-                <button type="button"
-                        @click="sharePendingWhatsApp()"
-                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold transition shadow-xs cursor-pointer">
-                    <i data-lucide="message-circle" class="w-4 h-4 text-emerald-600"></i>
-                    <span>Share Pending WhatsApp</span>
-                </button>
-            </div>
         </div>
 
-        <!-- 6. Single Compact Comparison Table with Sl No, Product Code, Sorting -->
+        <!-- 5. MAIN COMPARISON TABLE -->
         <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse text-xs">
@@ -894,7 +906,7 @@
                 </table>
             </div>
 
-            <!-- 7. Pagination Footer -->
+            <!-- Pagination Footer -->
             <div x-show="filteredRows.length > 0" class="border-t border-slate-200 bg-slate-50/50 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div class="text-slate-500">
                     Showing
@@ -926,108 +938,211 @@
             </div>
         </div>
 
-        <!-- MODAL 1: Pending Details Popup -->
-        <div x-show="pendingDetailsOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-            <div @click.outside="pendingDetailsOpen = false" class="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-hidden">
-                <!-- Header -->
-                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+        <!-- MODAL: Pending Bills Details (2-COLUMN ONLY: Product | Pending) -->
+        <div x-show="pendingBillsModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div @click.outside="pendingBillsModalOpen = false" class="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden">
+                <!-- Modal Header -->
+                <div class="px-6 py-4 border-b border-slate-200 bg-amber-50/70 flex items-center justify-between">
                     <div>
                         <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
-                            <i data-lucide="package-check" class="w-4 h-4 text-indigo-600"></i>
-                            <span>Pending Purchase Bills</span>
+                            <i data-lucide="alert-circle" class="w-4 h-4 text-amber-600"></i>
+                            <span>Pending Bills After Match</span>
                         </h3>
-                        <div class="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-500">
-                            <span class="font-bold text-slate-700">Date:</span>
-                            <span class="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-800">{{ \Carbon\Carbon::parse($date)->format('d-m-Y') }}</span>
-                            <span class="text-slate-300">·</span>
-                            <span class="font-bold text-slate-700">Warehouse:</span>
-                            <span class="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-800">{{ $selectedWarehouse?->name ?? 'All Warehouses' }}</span>
-                            <span class="text-slate-300">·</span>
-                            <span class="font-bold text-slate-700">Total Pending:</span>
-                            <span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-black text-[11px]" x-text="pendingBillsList.length"></span>
+                        <div class="flex items-center gap-2 mt-1 flex-wrap text-xs text-slate-600">
+                            <span>Date: <strong class="text-slate-900" x-text="formattedDate"></strong></span>
+                            <span>·</span>
+                            <span>Warehouse: <strong class="text-slate-900" x-text="selectedWarehouseName"></strong></span>
+                            <span>·</span>
+                            <span>Pending Products: <strong class="text-amber-800 font-black" x-text="managerSummary?.pending_bills_after_match?.pending_products_count || 0"></strong></span>
                         </div>
                     </div>
-                    <button type="button" @click="pendingDetailsOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
+                    <button type="button" @click="pendingBillsModalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
                 </div>
 
-                <!-- Table Content -->
+                <!-- 2-Column Table Content: Product | Pending -->
                 <div class="p-4 overflow-y-auto flex-1">
                     <table class="w-full text-left border-collapse text-xs">
                         <thead>
                             <tr class="border-b border-slate-200 bg-slate-50/90 select-none">
-                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-center w-12">Sl</th>
-                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] w-28">PO / Bill</th>
-                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] w-36">Supplier</th>
-                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px]">Items</th>
-                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-center w-28">Status</th>
-                                <th class="py-2 px-3 font-bold text-slate-600 text-[11px] text-center w-24">Action</th>
+                                <th class="py-2.5 px-4 font-black text-slate-800 text-xs">Product</th>
+                                <th class="py-2.5 px-4 font-black text-slate-800 text-xs text-right w-36">Pending</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
-                            <template x-for="(bill, bIndex) in pendingBillsList" :key="bill.type + '-' + bill.id">
+                            <template x-for="p in (managerSummary?.pending_bills_after_match?.products || [])" :key="p.product_name + '-' + p.unit">
+                                <tr class="hover:bg-slate-50/70 transition" :class="p.unit_mismatch ? 'bg-amber-50/30' : ''">
+                                    <td class="py-2.5 px-4 font-semibold text-slate-900">
+                                        <span x-text="p.product_name"></span>
+                                        <template x-if="p.unit_mismatch">
+                                            <span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800 font-bold border border-amber-200">Unit Fix Required</span>
+                                        </template>
+                                    </td>
+                                    <td class="py-2.5 px-4 font-black font-mono text-slate-900 text-right" x-text="p.pending_qty"></td>
+                                </tr>
+                            </template>
+
+                            <tr x-show="(managerSummary?.pending_bills_after_match?.products || []).length === 0">
+                                <td colspan="2" class="py-8 text-center text-slate-500 font-bold">
+                                    No pending bills. All advance stock has been matched! ✓
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tfoot x-show="(managerSummary?.pending_bills_after_match?.products || []).length > 0">
+                            <tr class="border-t-2 border-slate-200 bg-slate-50 font-black">
+                                <td class="py-2.5 px-4 text-slate-900">
+                                    Pending Products: <span x-text="managerSummary?.pending_bills_after_match?.pending_products_count || 0"></span>
+                                </td>
+                                <td class="py-2.5 px-4 text-right font-mono text-slate-900" x-text="managerSummary?.pending_bills_after_match?.formatted_totals || '0'"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- Modal Footer with Share Actions -->
+                <div class="px-6 py-3.5 border-t border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                @click="sharePendingWhatsApp()"
+                                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer">
+                            <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+                            <span>Share WhatsApp</span>
+                        </button>
+                        <a :href="printPendingUrl"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                            <i data-lucide="printer" class="w-3.5 h-3.5 text-slate-600"></i>
+                            <span>Print / PDF</span>
+                        </a>
+                    </div>
+                    <button type="button"
+                            @click="pendingBillsModalOpen = false"
+                            class="px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: Purchase Bills Details Popup -->
+        <div x-show="purchaseBillsModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div @click.outside="purchaseBillsModalOpen = false" class="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
+                            <i data-lucide="receipt" class="w-4 h-4 text-emerald-600"></i>
+                            <span>Today Purchase Bills</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">
+                            Purchase Bills & POs for <strong class="text-slate-800" x-text="formattedDate"></strong> / <span x-text="selectedWarehouseName"></span>
+                        </p>
+                    </div>
+                    <button type="button" @click="purchaseBillsModalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
+                </div>
+
+                <div class="p-4 overflow-y-auto flex-1">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="border-b border-slate-200 bg-slate-50/90 select-none">
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] w-32">Bill / PO</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px]">Supplier</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] text-center w-24">Products</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] text-right">Quantity Totals</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] text-center w-28">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
+                            <template x-for="item in (managerSummary?.purchase_bills?.items || [])" :key="item.type + '-' + item.id">
                                 <tr class="hover:bg-slate-50/70 transition">
-                                    <td class="py-2.5 px-3 text-center font-mono text-slate-400 font-bold" x-text="bIndex + 1"></td>
-                                    <td class="py-2.5 px-3 font-mono font-bold text-slate-900" x-text="bill.bill_number"></td>
-                                    <td class="py-2.5 px-3 font-medium text-slate-700" x-text="bill.supplier_name"></td>
-                                    <td class="py-2.5 px-3 text-slate-600 text-[11px]">
-                                        <span class="font-bold text-slate-800" x-text="bill.items_count + ' items · '"></span>
-                                        <span x-text="bill.items_summary"></span>
-                                    </td>
+                                    <td class="py-2.5 px-3 font-mono font-bold text-slate-900" x-text="item.bill_number"></td>
+                                    <td class="py-2.5 px-3 font-medium text-slate-700" x-text="item.supplier_name"></td>
+                                    <td class="py-2.5 px-3 text-center font-mono" x-text="item.products_count"></td>
+                                    <td class="py-2.5 px-3 text-right font-mono font-bold text-slate-900" x-text="item.quantity_totals"></td>
                                     <td class="py-2.5 px-3 text-center">
-                                        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200">
-                                            Pending Receive
-                                        </span>
-                                    </td>
-                                    <td class="py-2.5 px-3 text-center">
-                                        <button type="button"
-                                                @click="receiveSingle(bill)"
-                                                :disabled="receivingSingleId === (bill.type + '_' + bill.id)"
-                                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
-                                            <i data-lucide="package-check" class="w-3 h-3" :class="receivingSingleId === (bill.type + '_' + bill.id) ? 'animate-spin' : ''"></i>
-                                            <span x-text="receivingSingleId === (bill.type + '_' + bill.id) ? 'Receiving...' : 'Receive'"></span>
-                                        </button>
+                                        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-black"
+                                              :class="item.status === 'Received' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'"
+                                              x-text="item.status"></span>
                                     </td>
                                 </tr>
                             </template>
 
-                            <tr x-show="pendingBillsList.length === 0">
-                                <td colspan="6" class="py-8 text-center text-slate-400 font-semibold">
-                                    No pending bills found for this date and warehouse.
+                            <tr x-show="(managerSummary?.purchase_bills?.items || []).length === 0">
+                                <td colspan="5" class="py-8 text-center text-slate-400 font-semibold">
+                                    No purchase bills recorded for this date and warehouse.
                                 </td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
 
-                <!-- Footer -->
-                <div class="px-6 py-3.5 border-t border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3">
-                    <div class="text-xs font-bold text-slate-700">
-                        <span x-text="pendingBillsList.length"></span> Bills Pending
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                        <button type="button"
-                                @click="pendingDetailsOpen = false"
-                                class="px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
-                            Close
-                        </button>
-
-                        <button type="button"
-                                x-show="pendingBillsList.length > 0"
-                                @click="receiveAllPending()"
-                                :disabled="receivingPending"
-                                class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
-                            <span x-text="receivingPending ? 'Receiving...' : ('Receive All ' + pendingBillsList.length)"></span>
-                        </button>
-                    </div>
+                <div class="px-6 py-3 border-t border-slate-200 bg-slate-50/70 flex justify-end">
+                    <button type="button" @click="purchaseBillsModalOpen = false" class="px-4 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                        Close
+                    </button>
                 </div>
             </div>
         </div>
 
-        <!-- MODAL 2: Other Pending Dates Popup -->
+        <!-- MODAL: Advance Receives Details Popup -->
+        <div x-show="advanceReceivesModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div @click.outside="advanceReceivesModalOpen = false" class="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-200 bg-indigo-50/70 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
+                            <i data-lucide="truck" class="w-4 h-4 text-indigo-600"></i>
+                            <span>Today Advance Receives</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">
+                            Advance GRNs for <strong class="text-slate-800" x-text="formattedDate"></strong> / <span x-text="selectedWarehouseName"></span>
+                        </p>
+                    </div>
+                    <button type="button" @click="advanceReceivesModalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
+                </div>
+
+                <div class="p-4 overflow-y-auto flex-1">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="border-b border-slate-200 bg-slate-50/90 select-none">
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] w-36">Advance GRN</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] text-center w-24">Products</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] text-right">Quantity Totals</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] text-center w-36">Received Time</th>
+                                <th class="py-2.5 px-3 font-bold text-slate-600 text-[11px] text-center w-24">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
+                            <template x-for="item in (managerSummary?.advance_receives?.items || [])" :key="item.id">
+                                <tr class="hover:bg-slate-50/70 transition">
+                                    <td class="py-2.5 px-3 font-mono font-bold text-slate-900" x-text="item.grn_number"></td>
+                                    <td class="py-2.5 px-3 text-center font-mono" x-text="item.products_count"></td>
+                                    <td class="py-2.5 px-3 text-right font-mono font-bold text-indigo-950" x-text="item.quantity_totals"></td>
+                                    <td class="py-2.5 px-3 text-center font-mono text-slate-600" x-text="item.received_time || '—'"></td>
+                                    <td class="py-2.5 px-3 text-center">
+                                        <span class="inline-block px-2 py-0.5 rounded text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200"
+                                              x-text="item.status"></span>
+                                    </td>
+                                </tr>
+                            </template>
+
+                            <tr x-show="(managerSummary?.advance_receives?.items || []).length === 0">
+                                <td colspan="5" class="py-8 text-center text-slate-400 font-semibold">
+                                    No advance receipts recorded for this date and warehouse.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="px-6 py-3 border-t border-slate-200 bg-slate-50/70 flex justify-end">
+                    <button type="button" @click="advanceReceivesModalOpen = false" class="px-4 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: Other Pending Dates Popup -->
         <div x-show="otherDatesModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
             <div @click.outside="otherDatesModalOpen = false" class="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden">
-                <!-- Header -->
                 <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
                     <div>
                         <h3 class="text-sm font-black text-slate-900 flex items-center gap-2">
@@ -1035,13 +1150,12 @@
                             <span>Other Pending Dates</span>
                         </h3>
                         <p class="text-[11px] text-slate-500 mt-0.5">
-                            Dates with pending purchase bills for <span class="font-bold text-slate-700">{{ $selectedWarehouse?->name ?? 'All Warehouses' }}</span>
+                            Dates with pending purchase bills for <span class="font-bold text-slate-700" x-text="selectedWarehouseName"></span>
                         </p>
                     </div>
                     <button type="button" @click="otherDatesModalOpen = false" class="text-slate-400 hover:text-slate-600 font-bold text-base cursor-pointer">✕</button>
                 </div>
 
-                <!-- Content -->
                 <div class="p-4 overflow-y-auto flex-1">
                     <div x-show="otherDatesLoading" class="py-8 text-center text-slate-400 font-semibold flex items-center justify-center gap-2">
                         <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-indigo-600"></i>
@@ -1094,7 +1208,6 @@
                     </div>
                 </div>
 
-                <!-- Footer -->
                 <div class="px-6 py-3 border-t border-slate-200 bg-slate-50/70 flex justify-end">
                     <button type="button" @click="otherDatesModalOpen = false" class="px-4 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition shadow-xs cursor-pointer">
                         Close
@@ -1103,7 +1216,7 @@
             </div>
         </div>
 
-        <!-- Fix Unit Modal -->
+        <!-- MODAL: Fix Unit Modal -->
         <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
             <div @click.outside="modalOpen = false" class="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-3">

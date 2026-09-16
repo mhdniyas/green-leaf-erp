@@ -16,13 +16,10 @@ use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
-use App\Services\Purchasing\AdvanceInventoryService;
-use App\Services\Purchasing\DailyInventoryComparisonService;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use App\Services\Purchasing\AdvanceReceiveReconciliationService;
 use App\Services\Purchasing\AutoAdvanceClearExecutionService;
 use App\Services\Purchasing\AutoAdvanceClearPlanningService;
+use App\Services\Purchasing\DailyInventoryComparisonService;
 use App\Services\Purchasing\DailyPendingAdvanceWhatsAppService;
 use App\Services\Purchasing\GoodsReceivedService;
 use App\Services\Purchasing\WarehouseReceiptReadScope;
@@ -30,6 +27,8 @@ use App\Services\Purchasing\WarehouseReceiptStateResolver;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 class GoodsReceivedController extends Controller
@@ -67,6 +66,7 @@ class GoodsReceivedController extends Controller
         $service = app(DailyInventoryComparisonService::class);
         $allRows = $service->buildComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
         $summary = $service->calculateSummary($allRows);
+        $managerSummary = $service->getDailyManagerSummary($date, $selectedWarehouseId, $authorizedWarehouseIds);
 
         $perPage = (int) ($validated['per_page'] ?? 25);
         $page = (int) ($validated['page'] ?? 1);
@@ -77,6 +77,7 @@ class GoodsReceivedController extends Controller
             'status' => 'success',
             'data' => $paginator->items(),
             'summary' => $summary,
+            'manager_summary' => $managerSummary,
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),

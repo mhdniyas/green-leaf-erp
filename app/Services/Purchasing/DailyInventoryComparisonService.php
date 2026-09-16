@@ -4,23 +4,22 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Enums\Purchasing\POStatus;
+use App\Models\AdvanceReceiveMatch;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\PurchaseBusinessDay;
 use App\Models\PurchaseOrder;
-use App\Models\PurchaseOrderItem;
-use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
-use App\Services\WarehouseReceiptReadScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use App\Models\AdvanceReceiveMatch;
 
 class DailyInventoryComparisonService
 {
@@ -41,7 +40,13 @@ class DailyInventoryComparisonService
             ->whereHas('goodsReceived', function (Builder $q) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
                 $q->where('receipt_type', 'warehouse_advance')
                     ->where('status', '!=', 'cancelled')
-                    ->whereDate('received_at', $date)
+                    ->where(function (Builder $dq) use ($date): void {
+                        $dq->whereHas('businessDay', fn (Builder $bdq) => $bdq->whereDate('business_date', $date))
+                            ->orWhere(function (Builder $sub) use ($date): void {
+                                $sub->whereNull('business_day_id')
+                                    ->whereDate('received_at', $date);
+                            });
+                    })
                     ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
                     ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds));
             })
@@ -56,7 +61,13 @@ class DailyInventoryComparisonService
                         ->orWhereNull('receipt_type');
                 })
                     ->where('status', '!=', 'cancelled')
-                    ->whereDate('received_at', $date);
+                    ->where(function (Builder $dq) use ($date): void {
+                        $dq->whereHas('businessDay', fn (Builder $bdq) => $bdq->whereDate('business_date', $date))
+                            ->orWhere(function (Builder $sub) use ($date): void {
+                                $sub->whereNull('business_day_id')
+                                    ->whereDate('received_at', $date);
+                            });
+                    });
             })
             ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
                 $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId));
@@ -564,7 +575,13 @@ class DailyInventoryComparisonService
             ->whereHas('goodsReceived', function (Builder $q) use ($date, $warehouseId, $authorizedWarehouseIds): void {
                 $q->where('receipt_type', 'warehouse_advance')
                     ->where('status', '!=', 'cancelled')
-                    ->whereDate('received_at', $date)
+                    ->where(function (Builder $dq) use ($date): void {
+                        $dq->whereHas('businessDay', fn (Builder $bdq) => $bdq->whereDate('business_date', $date))
+                            ->orWhere(function (Builder $sub) use ($date): void {
+                                $sub->whereNull('business_day_id')
+                                    ->whereDate('received_at', $date);
+                            });
+                    })
                     ->when($warehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $warehouseId))
                     ->when($warehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds));
             })
@@ -583,7 +600,13 @@ class DailyInventoryComparisonService
                         ->orWhereNull('receipt_type');
                 })
                     ->where('status', '!=', 'cancelled')
-                    ->whereDate('received_at', $date);
+                    ->where(function (Builder $dq) use ($date): void {
+                        $dq->whereHas('businessDay', fn (Builder $bdq) => $bdq->whereDate('business_date', $date))
+                            ->orWhere(function (Builder $sub) use ($date): void {
+                                $sub->whereNull('business_day_id')
+                                    ->whereDate('received_at', $date);
+                            });
+                    });
             })
             ->when($warehouseId !== null, function (Builder $q) use ($warehouseId): void {
                 $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $warehouseId));
@@ -624,6 +647,7 @@ class DailyInventoryComparisonService
 
         $totalMatchedInRun = 0.0;
         $matchesCreated = 0;
+        $businessDayService = app(PurchaserBusinessDayService::class);
 
         // FIFO matching loop within selected date only
         foreach ($billItems as $billItem) {
@@ -636,13 +660,17 @@ class DailyInventoryComparisonService
                     continue;
                 }
 
+                $advGrn = $advItem->goodsReceived;
+                $billGrn = $billItem->goodsReceived;
+
+                if (! $businessDayService->areEligibleForMatch($advGrn, $billGrn)) {
+                    continue;
+                }
+
                 $matchQty = min($billItemAvail[$billItem->id], $advItemAvail[$advItem->id]);
                 if ($matchQty <= 0.0001) {
                     continue;
                 }
-
-                $advGrn = $advItem->goodsReceived;
-                $billGrn = $billItem->goodsReceived;
 
                 $advBatch = $advGrn?->stockBatches->firstWhere('goods_received_item_id', $advItem->id)
                     ?? $advGrn?->stockBatches->firstWhere('product_id', $productId);
@@ -652,6 +680,7 @@ class DailyInventoryComparisonService
 
                 // Create AdvanceReceiveMatch
                 AdvanceReceiveMatch::create([
+                    'business_day_id' => $advGrn?->business_day_id ?? $billGrn?->business_day_id,
                     'advance_goods_received_id' => $advItem->goods_received_id,
                     'advance_goods_received_item_id' => $advItem->id,
                     'advance_stock_batch_id' => $advBatch?->id,
@@ -861,10 +890,10 @@ class DailyInventoryComparisonService
     {
         return PurchaseOrder::query()
             ->whereDate('order_date', $date)
-            ->whereIn('status', ['draft', 'sent', 'partial_received'])
-            ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->where('warehouse_id', $selectedWarehouseId))
-            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereIn('warehouse_id', $authorizedWarehouseIds))
-            ->with(['supplier', 'warehouse', 'items.product'])
+            ->whereIn('status', [POStatus::Draft, POStatus::Approved, POStatus::SentToSupplier, POStatus::PartiallyReceived, 'draft', 'sent', 'partial_received', 'sent_to_supplier'])
+            ->when($selectedWarehouseId !== null, fn (Builder $q) => $q->whereHas('items.product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId)))
+            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $q) => $q->whereHas('items.product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds)))
+            ->with(['supplier', 'items.product'])
             ->get();
     }
 
@@ -893,5 +922,352 @@ class DailyInventoryComparisonService
                 ])->all(),
             ];
         })->all();
+    }
+
+    /**
+     * Format a float number concisely (e.g. 10 instead of 10.00, 10.5 instead of 10.50).
+     */
+    public function formatNumber(float $val): string
+    {
+        return (abs($val - (int) $val) < 0.0001)
+            ? (string) (int) $val
+            : rtrim(rtrim(number_format($val, 2, '.', ''), '0'), '.');
+    }
+
+    /**
+     * Format a unit totals map into a clean readable string (e.g. '14 kg · 3 box · 85 piece').
+     *
+     * @param  array<string, float>  $unitTotalsMap
+     */
+    public function formatUnitTotalsString(array $unitTotalsMap): string
+    {
+        ksort($unitTotalsMap);
+        $parts = [];
+        foreach ($unitTotalsMap as $unit => $qty) {
+            if ($qty > 0.0001) {
+                $parts[] = $this->formatNumber($qty).' '.$unit;
+            }
+        }
+
+        return ! empty($parts) ? implode(' · ', $parts) : '0';
+    }
+
+    /**
+     * Automatically execute same-day matching for all distinct products & units affected by a GRN.
+     * Strict rules: same business date + same warehouse + same product + same unit. No cross-date.
+     *
+     * @return array<string, mixed>
+     */
+    public function autoMatchForGrn(GoodsReceived $grn, int $userId): array
+    {
+        if ($grn->business_day_id !== null) {
+            return $this->reconcileBusinessDay((int) $grn->business_day_id, $userId);
+        }
+
+        $grn->loadMissing(['items.product']);
+
+        if ($grn->items->isEmpty() || $grn->received_at === null) {
+            return ['matched_products' => 0, 'total_matched_qty' => 0.0];
+        }
+
+        $date = app(PurchaserBusinessDayService::class)->effectiveBusinessDate($grn);
+
+        $warehouseId = $grn->warehouse_id;
+
+        $matchedProducts = 0;
+        $totalMatchedQty = 0.0;
+
+        // Distinct product & unit pairs on this GRN
+        $pairs = [];
+        foreach ($grn->items as $item) {
+            $productId = (int) $item->product_id;
+            if ($productId <= 0) {
+                continue;
+            }
+            $unit = trim((string) ($item->received_unit ?: ($item->product?->unit ?? 'kg')));
+            $key = $productId.':'.ProductUnit::normalizeUnit($unit);
+            $pairs[$key] = [
+                'product_id' => $productId,
+                'unit' => $unit,
+            ];
+        }
+
+        foreach ($pairs as $pair) {
+            $result = $this->executeDayInventoryMatch(
+                $date,
+                $pair['product_id'],
+                $pair['unit'],
+                $warehouseId,
+                null,
+                $userId
+            );
+
+            if (($result['matched_qty'] ?? 0.0) > 0.0001) {
+                $matchedProducts++;
+                $totalMatchedQty = round($totalMatchedQty + (float) $result['matched_qty'], 3);
+            }
+        }
+
+        return [
+            'matched_products' => $matchedProducts,
+            'total_matched_qty' => $totalMatchedQty,
+        ];
+    }
+
+    /**
+     * Automatically reconcile unmatched Advance and Bill quantities for a Business Day.
+     * Idempotent operation: re-running with no changes creates zero additional matches.
+     *
+     * @return array<string, mixed>
+     */
+    public function reconcileBusinessDay(int $businessDayId, ?int $userId = null): array
+    {
+        $day = PurchaseBusinessDay::find($businessDayId);
+        if (! $day) {
+            return ['matched_products' => 0, 'total_matched_qty' => 0.0];
+        }
+
+        $effectiveUserId = $userId ?? (int) ($day->opened_by ?? 1);
+        $date = $day->business_date->toDateString();
+        $warehouseId = (int) $day->warehouse_id;
+
+        // Query distinct product & unit pairs for unmatched GoodsReceivedItems for this business day
+        $grnItems = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', function (Builder $q) use ($day): void {
+                $q->where('business_day_id', $day->id)
+                    ->where('status', '!=', 'cancelled');
+            })
+            ->get(['product_id', 'received_unit']);
+
+        $pairs = [];
+        foreach ($grnItems as $item) {
+            $productId = (int) $item->product_id;
+            if ($productId <= 0) {
+                continue;
+            }
+            $unit = trim((string) ($item->received_unit ?: 'kg'));
+            $key = $productId.':'.ProductUnit::normalizeUnit($unit);
+            $pairs[$key] = [
+                'product_id' => $productId,
+                'unit' => $unit,
+            ];
+        }
+
+        $matchedProducts = 0;
+        $totalMatchedQty = 0.0;
+
+        foreach ($pairs as $pair) {
+            $result = $this->executeDayInventoryMatch(
+                $date,
+                $pair['product_id'],
+                $pair['unit'],
+                $warehouseId,
+                null,
+                $effectiveUserId
+            );
+
+            if (($result['matched_qty'] ?? 0.0) > 0.0001) {
+                $matchedProducts++;
+                $totalMatchedQty = round($totalMatchedQty + (float) $result['matched_qty'], 3);
+            }
+        }
+
+        app(PurchaserBusinessDayService::class)->syncCarryForwardsForDay($day->id, $effectiveUserId);
+
+        return [
+            'matched_products' => $matchedProducts,
+            'total_matched_qty' => $totalMatchedQty,
+        ];
+    }
+
+    /**
+     * Build canonical Manager Daily Purchase Match Summary for Web & Flutter.
+     *
+     * @param  array<int>|null  $authorizedWarehouseIds
+     * @return array<string, mixed>
+     */
+    public function getDailyManagerSummary(string $date, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds = null): array
+    {
+        // 1. Query all Advance received items (exact dataset used for comparison table)
+        $advanceItems = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', function (Builder $q) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
+                $q->where('receipt_type', 'warehouse_advance')
+                    ->where('status', '!=', 'cancelled')
+                    ->where(function (Builder $dq) use ($date): void {
+                        $dq->whereHas('businessDay', fn (Builder $bdq) => $bdq->whereDate('business_date', $date))
+                            ->orWhere(function (Builder $sub) use ($date): void {
+                                $sub->whereNull('business_day_id')
+                                    ->whereDate('received_at', $date);
+                            });
+                    })
+                    ->when($selectedWarehouseId !== null, fn (Builder $wq) => $wq->where('warehouse_id', $selectedWarehouseId))
+                    ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, fn (Builder $wq) => $wq->whereIn('warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['product', 'goodsReceived.receivedBy'])
+            ->get();
+
+        // 2. Query all normal Purchase Bill received items (exact dataset used for comparison table)
+        $billItems = GoodsReceivedItem::query()
+            ->whereHas('goodsReceived', function (Builder $q) use ($date): void {
+                $q->where(function (Builder $sub): void {
+                    $sub->where('receipt_type', '!=', 'warehouse_advance')
+                        ->orWhereNull('receipt_type');
+                })
+                    ->where('status', '!=', 'cancelled')
+                    ->where(function (Builder $dq) use ($date): void {
+                        $dq->whereHas('businessDay', fn (Builder $bdq) => $bdq->whereDate('business_date', $date))
+                            ->orWhere(function (Builder $sub) use ($date): void {
+                                $sub->whereNull('business_day_id')
+                                    ->whereDate('received_at', $date);
+                            });
+                    });
+            })
+            ->when($selectedWarehouseId !== null, function (Builder $q) use ($selectedWarehouseId): void {
+                $q->whereHas('product', fn (Builder $pq) => $pq->where('default_warehouse_id', $selectedWarehouseId));
+            })
+            ->when($selectedWarehouseId === null && $authorizedWarehouseIds !== null, function (Builder $q) use ($authorizedWarehouseIds): void {
+                $q->whereHas('product', fn (Builder $pq) => $pq->whereIn('default_warehouse_id', $authorizedWarehouseIds));
+            })
+            ->with(['product', 'goodsReceived.receivedBy', 'goodsReceived.purchaseOrder.supplier'])
+            ->get();
+
+        $comparisonRows = $this->buildComparisonRows($date, $selectedWarehouseId, $authorizedWarehouseIds);
+        $summary = $this->calculateSummary($comparisonRows);
+
+        // A. PURCHASE BILLS CARD (Built from same bill items as table)
+        $purchaseBillsList = [];
+        $billProductIds = $billItems->pluck('product_id')->unique()->all();
+        $billUnitTotals = [];
+
+        foreach ($billItems->groupBy('goods_received_id') as $grnId => $itemsInGrn) {
+            $grn = $itemsInGrn->first()->goodsReceived;
+            $grnUnitMap = [];
+            foreach ($itemsInGrn as $item) {
+                $unit = trim((string) ($item->received_unit ?: ($item->product?->unit ?? 'kg')));
+                $qty = (float) $item->received_qty;
+                $grnUnitMap[$unit] = ($grnUnitMap[$unit] ?? 0.0) + $qty;
+                $billUnitTotals[$unit] = ($billUnitTotals[$unit] ?? 0.0) + $qty;
+            }
+
+            $purchaseBillsList[] = [
+                'id' => $grn?->id ?? $grnId,
+                'type' => 'GRN',
+                'bill_number' => $grn?->bill_number ?: ($grn?->grn_number ?: 'GRN-'.$grnId),
+                'supplier_name' => $grn?->purchaseOrder?->supplier?->name ?? 'Direct Purchase',
+                'products_count' => $itemsInGrn->pluck('product_id')->unique()->count(),
+                'quantity_totals' => $this->formatUnitTotalsString($grnUnitMap),
+                'status' => 'Received',
+                'received_at' => $grn?->received_at ? Carbon::parse($grn->received_at)->format('d-m-Y H:i') : null,
+            ];
+        }
+
+        $purchaseBillsSummary = [
+            'count' => count($purchaseBillsList),
+            'products_count' => count($billProductIds),
+            'unit_totals' => $billUnitTotals,
+            'formatted_totals' => $this->formatUnitTotalsString($billUnitTotals),
+            'items' => $purchaseBillsList,
+        ];
+
+        // B. ADVANCE RECEIVES CARD (Built from same advance items as table)
+        $advanceReceivesList = [];
+        $advanceProductIds = $advanceItems->pluck('product_id')->unique()->all();
+        $advanceUnitTotals = [];
+
+        foreach ($advanceItems->groupBy('goods_received_id') as $grnId => $itemsInGrn) {
+            $grn = $itemsInGrn->first()->goodsReceived;
+            $grnUnitMap = [];
+            foreach ($itemsInGrn as $item) {
+                $unit = trim((string) ($item->received_unit ?: ($item->product?->unit ?? 'kg')));
+                $qty = (float) $item->received_qty;
+                $grnUnitMap[$unit] = ($grnUnitMap[$unit] ?? 0.0) + $qty;
+                $advanceUnitTotals[$unit] = ($advanceUnitTotals[$unit] ?? 0.0) + $qty;
+            }
+
+            $advanceReceivesList[] = [
+                'id' => $grn?->id ?? $grnId,
+                'grn_number' => $grn?->grn_number ?: 'GRN-'.$grnId,
+                'products_count' => $itemsInGrn->pluck('product_id')->unique()->count(),
+                'quantity_totals' => $this->formatUnitTotalsString($grnUnitMap),
+                'received_time' => $grn?->received_at ? Carbon::parse($grn->received_at)->format('d-m-Y H:i') : null,
+                'status' => ucfirst($grn?->status ?? 'Approved'),
+            ];
+        }
+
+        $advanceReceivesSummary = [
+            'count' => count($advanceReceivesList),
+            'products_count' => count($advanceProductIds),
+            'unit_totals' => $advanceUnitTotals,
+            'formatted_totals' => $this->formatUnitTotalsString($advanceUnitTotals),
+            'items' => $advanceReceivesList,
+        ];
+
+        // C. PENDING BILLS AFTER MATCH (MAIN CARD)
+        // Definition: pending_bill_qty = advance_qty - same_day_matched_qty (min 0)
+        $pendingProductsList = [];
+        $pendingByUnit = [];
+        $totalAdvanceQty = (float) $comparisonRows->sum('advance_qty');
+        $totalMatchedQty = (float) $comparisonRows->sum('matched_bill_qty');
+
+        foreach ($comparisonRows as $row) {
+            $advQty = (float) ($row['advance_qty'] ?? 0.0);
+            $matchedQty = (float) ($row['matched_bill_qty'] ?? 0.0);
+            $isUnitMismatch = ! empty($row['unit_mismatch']);
+            $unit = trim((string) ($row['unit'] ?? 'kg'));
+
+            $pendingQty = $isUnitMismatch ? $advQty : max(0.0, round($advQty - $matchedQty, 3));
+
+            if ($pendingQty > 0.0001) {
+                if (! $isUnitMismatch) {
+                    $pendingByUnit[$unit] = ($pendingByUnit[$unit] ?? 0.0) + $pendingQty;
+                }
+                $pendingProductsList[] = [
+                    'product_name' => (string) ($row['product_name'] ?? 'Unknown Product'),
+                    'product_code' => (string) ($row['product_code'] ?: ($row['sku'] ?? '')),
+                    'pending_qty' => $this->formatNumber($pendingQty).' '.$unit,
+                    'raw_pending' => $pendingQty,
+                    'unit' => $unit,
+                    'unit_mismatch' => $isUnitMismatch,
+                ];
+            }
+        }
+
+        $pendingProductsCount = count($pendingProductsList);
+
+        // Advance Cleared %: same-day matched qty / same-day advance qty * 100
+        $advanceClearedPct = $totalAdvanceQty > 0.0001
+            ? round(($totalMatchedQty / $totalAdvanceQty) * 100, 1)
+            : null;
+
+        $pendingBillsAfterMatchSummary = [
+            'pending_products_count' => $pendingProductsCount,
+            'unit_totals' => $pendingByUnit,
+            'formatted_totals' => $this->formatUnitTotalsString($pendingByUnit),
+            'products' => $pendingProductsList,
+            'advance_cleared_pct' => $advanceClearedPct,
+            'formatted_advance_cleared_pct' => $advanceClearedPct !== null ? round($advanceClearedPct).'%' : 'N/A',
+        ];
+
+        // D. UNIT FIX REQUIRED
+        $unitFixRows = $comparisonRows->where('unit_mismatch', true)->values();
+        $unitFixSummary = [
+            'count' => $unitFixRows->count(),
+            'products' => $unitFixRows->map(fn ($r) => [
+                'product_name' => $r['product_name'] ?? 'Unknown',
+                'product_code' => $r['product_code'] ?? ($r['sku'] ?? ''),
+                'advance' => $r['formatted_advance'] ?? '',
+                'bill' => $r['formatted_bill'] ?? '',
+            ])->all(),
+        ];
+
+        return [
+            'date' => $date,
+            'warehouse_id' => $selectedWarehouseId,
+            'purchase_bills' => $purchaseBillsSummary,
+            'advance_receives' => $advanceReceivesSummary,
+            'pending_bills_after_match' => $pendingBillsAfterMatchSummary,
+            'unit_fix_required' => $unitFixSummary,
+            'summary' => $summary,
+        ];
     }
 }

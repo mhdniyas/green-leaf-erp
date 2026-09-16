@@ -796,6 +796,84 @@ class ShopSettlementService
     }
 
     /**
+     * Return the shop-specific expense allocation configuration.
+     *
+     * @return array{enabled: bool, auto_allocate: bool, category_ids: array<int, int>, default_category_id: ?int}
+     */
+    public function expenseAllocationConfiguration(ShopLedgerProfile|Shop|int $shop): array
+    {
+        $shopId = $shop instanceof Shop ? (int) $shop->id : ($shop instanceof ShopLedgerProfile ? (int) $shop->shop_id : (int) $shop);
+        $profile = $shop instanceof ShopLedgerProfile ? $shop : ShopLedgerProfile::query()->where('shop_id', $shopId)->first();
+        $stored = is_array($profile?->payment_configuration) ? ($profile->payment_configuration['expense_allocation'] ?? []) : [];
+
+        $expenseSettings = ShopLedgerEntrySetting::query()
+            ->with('entryType')
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->where(function ($query): void {
+                $query->where('include_in_expense', true)
+                    ->orWhereHas('entryType', fn ($typeQuery) => $typeQuery->where('category', 'expense'));
+            })
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get();
+
+        $availableIds = $expenseSettings->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $configuredIds = array_key_exists('category_ids', $stored)
+            ? array_values(array_intersect($availableIds, array_map('intval', (array) $stored['category_ids'])))
+            : $availableIds;
+
+        $defaultSetting = $expenseSettings->first(fn (ShopLedgerEntrySetting $setting): bool => str_contains(strtolower($setting->displayName()), 'uncategor'))
+            ?? $expenseSettings->first(fn (ShopLedgerEntrySetting $setting): bool => in_array($setting->entryType?->code, ['other_expense', 'others'], true));
+        $storedDefaultId = ! empty($stored['default_category_id']) ? (int) $stored['default_category_id'] : null;
+        $defaultCategoryId = in_array($storedDefaultId, $configuredIds, true)
+            ? $storedDefaultId
+            : ($defaultSetting && in_array((int) $defaultSetting->id, $configuredIds, true) ? (int) $defaultSetting->id : ($configuredIds[0] ?? null));
+
+        return [
+            'enabled' => (bool) ($stored['enabled'] ?? true),
+            'auto_allocate' => (bool) ($stored['auto_allocate'] ?? true),
+            'category_ids' => $configuredIds,
+            'default_category_id' => $defaultCategoryId,
+        ];
+    }
+
+    /**
+     * Resolve expense categories that manual and automatic payment allocation may clear.
+     *
+     * @return \Illuminate\Support\Collection<int, array{id: int, name: string, category: string, role: string, setting_id: int, entry_type_id: int}>
+     */
+    public function resolveExpenseAllocationTargets(ShopLedgerProfile|Shop|int $shop): \Illuminate\Support\Collection
+    {
+        $shopId = $shop instanceof Shop ? (int) $shop->id : ($shop instanceof ShopLedgerProfile ? (int) $shop->shop_id : (int) $shop);
+        $configuration = $this->expenseAllocationConfiguration($shop);
+
+        if (! $configuration['enabled'] || empty($configuration['category_ids'])) {
+            return collect();
+        }
+
+        return ShopLedgerEntrySetting::query()
+            ->with('entryType')
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->where(function ($query): void {
+                $query->where('include_in_expense', true)
+                    ->orWhereHas('entryType', fn ($typeQuery) => $typeQuery->where('category', 'expense'));
+            })
+            ->whereIn('id', $configuration['category_ids'])
+            ->get()
+            ->map(fn (ShopLedgerEntrySetting $setting): array => [
+                'id' => (int) $setting->id,
+                'name' => $setting->displayName(),
+                'category' => $setting->entryType?->category ?? 'expense',
+                'role' => 'add',
+                'setting_id' => (int) $setting->id,
+                'entry_type_id' => (int) $setting->entry_type_id,
+            ])
+            ->values();
+    }
+
+    /**
      * Save the Payments configuration (Payment Settlement mapping, Payable, and Sales Collections).
      *
      * @param  array{
@@ -822,6 +900,7 @@ class ShopSettlementService
             $salesDirectIds = array_values(array_map('intval', (array) ($salesInput['direct_category_ids'] ?? ($directInput['category_ids'] ?? []))));
             $salesCashIds = array_values(array_map('intval', (array) ($salesInput['cash_category_ids'] ?? [])));
             $salesSettlementId = ! empty($salesInput['settlement_id']) ? (int) $salesInput['settlement_id'] : (! empty($directInput['settlement_id']) ? (int) $directInput['settlement_id'] : null);
+            $expenseAllocation = $config['expense_allocation'] ?? $this->expenseAllocationConfiguration($profile);
 
             $directClean = [
                 'source' => $salesSource,
@@ -847,6 +926,12 @@ class ShopSettlementService
                 'sales_collections' => $salesClean,
                 'direct_to_company' => $directClean,
                 'paid' => $directClean,
+                'expense_allocation' => [
+                    'enabled' => (bool) ($expenseAllocation['enabled'] ?? true),
+                    'auto_allocate' => (bool) ($expenseAllocation['auto_allocate'] ?? true),
+                    'category_ids' => array_values(array_map('intval', (array) ($expenseAllocation['category_ids'] ?? []))),
+                    'default_category_id' => ! empty($expenseAllocation['default_category_id']) ? (int) $expenseAllocation['default_category_id'] : null,
+                ],
             ];
 
             $profile->update(['payment_configuration' => $cleanConfig]);
@@ -1165,7 +1250,7 @@ class ShopSettlementService
         $expensePayables = [];
         $settledExpenses = [];
 
-        $payableTargets = $this->resolvePayableAllocationTargets($shopId);
+        $payableTargets = $this->resolveExpenseAllocationTargets($shopId);
         $targetEntryTypeIds = $payableTargets->pluck('entry_type_id')->filter()->unique()->values()->all();
 
         if (! empty($targetEntryTypeIds)) {

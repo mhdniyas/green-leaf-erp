@@ -31,6 +31,7 @@ class LedgerEntryTypeSeeder extends Seeder
 
             // Expense
             ['code' => 'purchase_bill',   'name' => 'GL Bill', 'category' => 'expense'],
+            ['code' => 'vendor_purchase', 'name' => 'Vendor Purchase', 'category' => 'expense'],
             ['code' => 'cash_purchase',   'name' => 'Cash Purchase',   'category' => 'expense'],
             ['code' => 'rent_expense',    'name' => 'Rent',             'category' => 'expense'],
             ['code' => 'vehicle',         'name' => 'Vehicle',          'category' => 'expense'],

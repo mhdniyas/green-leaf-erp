@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -28,12 +29,19 @@ class PurchaseInvoice extends Model
         'public_uuid',
         'goods_received_id',
         'supplier_id',
+        'shop_id',
         'purchaser_cart_id',
+        'business_day_id',
         'purchase_source',
         'invoice_number',
         'amount',
         'discount_amount',
         'status',
+        'is_carried_forward',
+        'carry_forward_reason',
+        'carried_forward_by',
+        'carried_forward_at',
+        'original_business_date',
         'payment_method',
         'payment_paid_by',
         'payment_status',
@@ -54,6 +62,9 @@ class PurchaseInvoice extends Model
         'discount_amount' => 'decimal:2',
         'paid_amount' => 'decimal:2',
         'status' => InvoiceStatus::class,
+        'is_carried_forward' => 'boolean',
+        'carried_forward_at' => 'datetime',
+        'original_business_date' => 'date:Y-m-d',
         'purchaser_submitted_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'created_at' => 'datetime',
@@ -144,10 +155,30 @@ class PurchaseInvoice extends Model
         return $this->status === InvoiceStatus::Cancelled;
     }
 
+    public function isShopPurchase(): bool
+    {
+        return $this->shop_id !== null || $this->purchase_source === 'shop';
+    }
+
     // Relationships
     public function goodsReceived(): BelongsTo
     {
         return $this->belongsTo(GoodsReceived::class, 'goods_received_id');
+    }
+
+    public function businessDay(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseBusinessDay::class, 'business_day_id');
+    }
+
+    public function shop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class, 'shop_id');
+    }
+
+    public function shopVendorPayable(): HasOne
+    {
+        return $this->hasOne(ShopVendorPayable::class);
     }
 
     public function supplier(): BelongsTo

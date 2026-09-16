@@ -15,6 +15,9 @@
     $payableSettlementId = $payableConfig['settlement_id'] ?? null;
     $salesSettlementId = $salesConfig['settlement_id'] ?? ($directConfig['settlement_id'] ?? null);
     $paymentSettlementId = $paymentConfig['payment_settlement_id'] ?? $payableSettlementId ?? null;
+    $expenseAllocationConfig = $paymentConfig['expense_allocation'];
+    $expenseAllocationCategoryIds = array_map('intval', (array) $expenseAllocationConfig['category_ids']);
+    $expenseAllocationDefaultCategoryId = $expenseAllocationConfig['default_category_id'];
 @endphp
 
 <div class="mx-auto max-w-6xl space-y-6">
@@ -312,6 +315,61 @@
         </div>
     </div>
 
+    {{-- Expense Allocation Configuration --}}
+    <div class="rounded-3xl border border-amber-200 bg-white p-5 shadow-xs sm:p-6">
+        <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div class="max-w-xl space-y-2">
+                <span class="text-[10px] font-black uppercase tracking-wider text-amber-700">Payment Matching Rules</span>
+                <h2 class="text-lg font-black text-slate-950">EXPENSE ALLOCATION</h2>
+                <p class="text-xs font-medium text-slate-500">
+                    Manual and automatic payment allocation will clear only the selected expense categories for {{ $currentShop->name }}. Expenses are cleared oldest first.
+                </p>
+                <div class="flex flex-wrap gap-2 pt-1">
+                    <label class="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950">
+                        <input type="checkbox" id="expense_allocation_enabled" @checked($expenseAllocationConfig['enabled']) class="rounded border-amber-300 text-amber-600 focus:ring-amber-500">
+                        Enable expense allocation
+                    </label>
+                    <label class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950">
+                        <input type="checkbox" id="expense_auto_allocate" @checked($expenseAllocationConfig['auto_allocate']) class="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
+                        Enable auto allocation
+                    </label>
+                </div>
+            </div>
+
+            <div class="w-full space-y-4 lg:max-w-2xl">
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between gap-3">
+                        <label class="text-xs font-black text-slate-700">Linked expense categories</label>
+                        <button type="button" onclick="selectAllExpenseAllocationCategories()" class="text-[11px] font-bold text-amber-700 hover:underline">Select all expenses</button>
+                    </div>
+                    <div class="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+                        @forelse($expenseEntrySettings as $setting)
+                            <label class="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-800 hover:border-amber-300">
+                                <input type="checkbox" name="expense_allocation_category_ids[]" value="{{ $setting->id }}" @checked(in_array((int) $setting->id, $expenseAllocationCategoryIds, true)) class="expense-allocation-category rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+                                <span class="truncate">{{ $setting->displayName() }}</span>
+                            </label>
+                        @empty
+                            <p class="col-span-full p-3 text-center text-xs font-bold text-slate-500">No enabled expense categories are configured for this shop.</p>
+                        @endforelse
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label for="expense_allocation_default_category_id" class="text-xs font-black text-slate-700">Default uncategorized expense</label>
+                    <select id="expense_allocation_default_category_id" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 focus:border-amber-500 focus:ring-amber-500">
+                        <option value="">No default category</option>
+                        @foreach($expenseEntrySettings as $setting)
+                            <option value="{{ $setting->id }}" @selected((int) $expenseAllocationDefaultCategoryId === (int) $setting->id)>
+                                {{ in_array($setting->entryType?->code, ['other_expense', 'others'], true) ? 'Uncategorized Expense — ' : '' }}{{ $setting->displayName() }}
+                            </option>
+                        @endforeach
+                    </select>
+                    <p class="text-[11px] font-medium text-slate-500">Other Expense is selected automatically when no saved allocation configuration exists.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {{-- LIVE FORMULA PREVIEW BANNER --}}
     <div class="rounded-3xl border border-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 p-6 text-white shadow-md">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -364,6 +422,12 @@ function selectAllPayableExpenseCategories() {
     });
 }
 
+function selectAllExpenseAllocationCategories() {
+    document.querySelectorAll('.expense-allocation-category').forEach(cb => {
+        cb.checked = true;
+    });
+}
+
 async function savePaymentsSettings(e) {
     e.preventDefault();
     const btn = document.getElementById('save-payments-settings-btn');
@@ -378,6 +442,7 @@ async function savePaymentsSettings(e) {
     const payableCategoryIds = Array.from(document.querySelectorAll('input[name="payable_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
     const salesDirectCategoryIds = Array.from(document.querySelectorAll('input[name="sales_direct_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
     const salesCashCategoryIds = Array.from(document.querySelectorAll('input[name="sales_cash_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
+    const expenseAllocationCategoryIds = Array.from(document.querySelectorAll('input[name="expense_allocation_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
 
     const payableSettlementId = document.getElementById('payable_settlement_id')?.value || null;
     const salesSettlementId = document.getElementById('sales_settlement_id')?.value || null;
@@ -398,7 +463,13 @@ async function savePaymentsSettings(e) {
         },
         sales_collections: salesPayload,
         direct_to_company: salesPayload,
-        paid: salesPayload
+        paid: salesPayload,
+        expense_allocation: {
+            enabled: document.getElementById('expense_allocation_enabled')?.checked || false,
+            auto_allocate: document.getElementById('expense_auto_allocate')?.checked || false,
+            category_ids: expenseAllocationCategoryIds,
+            default_category_id: document.getElementById('expense_allocation_default_category_id')?.value || null
+        }
     };
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';

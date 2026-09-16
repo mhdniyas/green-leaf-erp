@@ -351,4 +351,104 @@ class LoadoutSaveIdempotencyTest extends TestCase
         $this->assertSame(10.0, (float) $item->fresh()->loaded_qty, 'Failed validation must not change loaded_qty');
         $this->assertSame(1, $this->stockOutCount($order), 'No additional stock movement on failed request');
     }
+    // ──────────────────────────────────────────────────────────────────────────
+    // Regression Tests: Zero / Blank Loadout Behavior
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Submitting a blank string/null quantity ignores the item update and does not soft-delete or reverse stock.
+     */
+    public function test_submitting_blank_quantity_ignores_update_and_preserves_item(): void
+    {
+        [$order, $item] = $this->orderWithItem(20.0);
+
+        // Load 15.0 first
+        $this->saveLoadout($order, [$this->product->id => 15.0]);
+        $this->assertSame(15.0, (float) $item->fresh()->loaded_qty);
+
+        // Submit blank string payload
+        $this->saveLoadout($order->fresh(), [$this->product->id => '']);
+
+        $item->refresh();
+        $this->assertSame(15.0, (float) $item->loaded_qty, 'Blank quantity input must be safely ignored');
+        $this->assertNull($item->deleted_at, 'Item must not be soft-deleted on blank payload');
+        $this->assertSame(0, $this->stockReversalCount($order), 'No stock reversal on blank payload');
+    }
+
+    /**
+     * Confirmed zero loadout reverses stock, sets loaded_qty to 0, preserves ShopOrderItem, and keeps item in API.
+     */
+    public function test_zero_loadout_reverses_stock_preserves_order_item_and_keeps_in_api(): void
+    {
+        [$order, $item] = $this->orderWithItem(20.0);
+
+        // Load 15.0 first
+        $this->saveLoadout($order, [$this->product->id => 15.0]);
+        $this->assertSame(15.0, (float) $item->fresh()->loaded_qty);
+
+        // Submit explicit 0 quantity
+        $this->saveLoadout($order->fresh(), [$this->product->id => 0]);
+
+        $item->refresh();
+        $this->assertSame(0.0, (float) $item->loaded_qty);
+        $this->assertSame('allocated', $item->sorting_status);
+        $this->assertNull($item->deleted_at, 'ShopOrderItem must not be soft-deleted on zero loadout');
+
+        // Verify stock reversal created exactly once
+        $this->assertSame(1, $this->stockReversalCount($order));
+        $this->assertSame(15.0, $this->totalStockReversal($order));
+
+        // Verify API show endpoint returns item in product_groups
+        $response = $this->getJson("/api/v1/warehouse/loadout/{$order->order_number}");
+        $response->assertSuccessful();
+
+        $groups = collect($response->json('product_groups'));
+        $group = $groups->firstWhere('product_id', $this->product->id);
+        $this->assertNotNull($group, 'Product must remain present in product_groups');
+        $this->assertSame(0.0, (float) $group['total_loaded']);
+        $this->assertSame(20.0, (float) $group['total_approved']);
+        $this->assertSame('allocated', $group['sorting_status']);
+    }
+
+    /**
+     * Retrying zero loadout is idempotent and does not create duplicate reversals.
+     */
+    public function test_retrying_zero_loadout_is_idempotent(): void
+    {
+        [$order, $item] = $this->orderWithItem(20.0);
+
+        // First load 15, then unload to 0
+        $this->saveLoadout($order, [$this->product->id => 15.0]);
+        $this->saveLoadout($order->fresh(), [$this->product->id => 0]);
+
+        $this->assertSame(1, $this->stockReversalCount($order));
+        $this->assertSame(15.0, $this->totalStockReversal($order));
+
+        // Retry zero loadout
+        $this->saveLoadout($order->fresh(), [$this->product->id => 0]);
+
+        $item->refresh();
+        $this->assertSame(0.0, (float) $item->loaded_qty);
+        $this->assertNull($item->deleted_at);
+        $this->assertSame(1, $this->stockReversalCount($order), 'Retry zero loadout must not duplicate reversal');
+        $this->assertSame(15.0, $this->totalStockReversal($order));
+    }
+
+    /**
+     * Warehouse scoping remains enforced for unauthorized users.
+     */
+    public function test_warehouse_scoping_remains_enforced(): void
+    {
+        [$order, $item] = $this->orderWithItem(20.0);
+
+        // Create restricted user without warehouse permissions
+        $unauthorizedUser = User::factory()->create();
+        Sanctum::actingAs($unauthorizedUser);
+
+        $this->getJson(route('warehouse.loadout.show', $order))
+            ->assertForbidden();
+
+        $this->postJson(route('warehouse.loadout.save', $order), ['items' => [$this->product->id => 10]])
+            ->assertForbidden();
+    }
 }

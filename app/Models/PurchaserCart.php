@@ -14,6 +14,7 @@ class PurchaserCart extends Model
         'user_id',
         'supplier_id',
         'destination_shop_id',
+        'business_day_id',
         'business_date',
         'status',
         'purchase_source',
@@ -143,6 +144,11 @@ class PurchaserCart extends Model
         return Attribute::make(
             get: fn (): string => (string) str($this->workflow_status)->replace('_', ' ')->title(),
         );
+    }
+
+    public function businessDay(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseBusinessDay::class, 'business_day_id');
     }
 
     public static function generateCartNumber(Carbon|string $date): string

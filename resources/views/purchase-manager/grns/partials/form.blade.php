@@ -32,8 +32,23 @@
 
             <div>
                 <label for="notes" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Receipt Notes</label>
-                <textarea id="notes" name="notes" rows="3" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">{{ old('notes', $grn?->notes) }}</textarea>
+                <textarea id="notes" name="notes" rows="2" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">{{ old('notes', $grn?->notes) }}</textarea>
             </div>
+
+            @if (isset($openBusinessDays) && $openBusinessDays->isNotEmpty())
+                <div>
+                    <label for="business_day_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Business Day Assignment</label>
+                    <select id="business_day_id" name="business_day_id" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                        <option value="">Auto-assign active business day</option>
+                        @foreach ($openBusinessDays as $obd)
+                            <option value="{{ $obd->id }}" @selected((int) old('business_day_id', $selectedBusinessDayId ?? $grn?->business_day_id ?? $sourceOrder?->business_day_id) === (int) $obd->id)>
+                                {{ $obd->warehouse?->name ?? 'Warehouse' }} — {{ $obd->business_date->format('d M Y') }} ({{ strtoupper($obd->status) }})
+                            </option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-xs text-slate-400">Select which open or reopened business day this bill belongs to (e.g. late fruit bill arriving next morning).</p>
+                </div>
+            @endif
 
             <div class="space-y-4 border-t border-slate-200 pt-6">
                 @foreach ($sourceOrder->items as $index => $item)

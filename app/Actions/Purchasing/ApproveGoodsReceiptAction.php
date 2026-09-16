@@ -18,6 +18,7 @@ use App\Models\Warehouse;
 use App\Repositories\Inventory\StockBatchRepository;
 use App\Services\Finance\JournalService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Purchasing\DailyInventoryComparisonService;
 use App\Services\Purchasing\VendorPriceService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -205,6 +206,9 @@ class ApproveGoodsReceiptAction
                 ->performedOn($grn)
                 ->causedBy(User::query()->find($userId))
                 ->log('goods_received.approved');
+
+            // Automatically run same-day auto matching for affected products
+            app(DailyInventoryComparisonService::class)->autoMatchForGrn($grn, $userId);
 
             return $grn->fresh(['items.product', 'purchaseOrder']);
         });

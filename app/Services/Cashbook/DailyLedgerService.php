@@ -7,8 +7,11 @@ namespace App\Services\Cashbook;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
+use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Shop;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
@@ -31,7 +34,14 @@ class DailyLedgerService
 
     public function recordEntry(array $input): array
     {
-        $this->assertDayOpen($input['shop_id'], $input['business_date']);
+        $entryTypeCode = $input['entry_type_code'] ?? null;
+        $entryTypeId = isset($input['entry_type_id']) ? (int) $input['entry_type_id'] : null;
+        if (! $entryTypeId && $entryTypeCode) {
+            $entryType = LedgerEntryType::where('code', $entryTypeCode)->first();
+            $entryTypeId = $entryType?->id;
+        }
+
+        $this->assertEditAllowed((int) $input['shop_id'], (string) $input['business_date'], $entryTypeId);
 
         $transaction = $this->generator->record($input);
         $snapshot = $this->calculator->recalculate($input['shop_id'], $input['business_date']);
@@ -42,7 +52,7 @@ class DailyLedgerService
     public function updateEntry(int $transactionId, float $newAmount, ?string $fundingSource = null, ?string $notes = null, ?int $updatedBy = null): array
     {
         $transaction = ShopLedgerTransaction::findOrFail($transactionId);
-        $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
+        $this->assertEditAllowed((int) $transaction->shop_id, $transaction->business_date->toDateString(), (int) $transaction->entry_type_id);
 
         if ($transaction->isReconciled()) {
             throw new RuntimeException('Reconciled transactions cannot be modified.');
@@ -62,7 +72,7 @@ class DailyLedgerService
     public function voidEntry(int $transactionId, int $voidedBy, string $reason): array
     {
         $transaction = ShopLedgerTransaction::findOrFail($transactionId);
-        $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
+        $this->assertEditAllowed((int) $transaction->shop_id, $transaction->business_date->toDateString(), (int) $transaction->entry_type_id);
 
         if ($transaction->isReconciled()) {
             throw new RuntimeException('Reconciled transactions cannot be voided.');
@@ -77,7 +87,7 @@ class DailyLedgerService
     public function deleteEntry(int $transactionId): array
     {
         $transaction = ShopLedgerTransaction::findOrFail($transactionId);
-        $this->assertDayOpen($transaction->shop_id, $transaction->business_date->toDateString());
+        $this->assertEditAllowed((int) $transaction->shop_id, $transaction->business_date->toDateString(), (int) $transaction->entry_type_id);
 
         if ($transaction->isReconciled()) {
             throw new RuntimeException('Reconciled transactions cannot be deleted.');
@@ -265,6 +275,27 @@ class DailyLedgerService
         return $snapshot->fresh();
     }
 
+    public function resolveActiveBusinessDate(int|Shop $shop, ?string $requestedDate = null): string
+    {
+        $shopId = $shop instanceof Shop ? (int) $shop->id : $shop;
+
+        if ($requestedDate !== null && trim($requestedDate) !== '') {
+            return Carbon::parse($requestedDate)->toDateString();
+        }
+
+        $latestOpenSnapshot = ShopDailyLedgerSnapshot::query()
+            ->where('shop_id', $shopId)
+            ->whereIn('status', ['open', 'reopened'])
+            ->orderByDesc('business_date')
+            ->first();
+
+        if ($latestOpenSnapshot) {
+            return $latestOpenSnapshot->business_date->toDateString();
+        }
+
+        return today()->toDateString();
+    }
+
     public function assertDayOpen(int $shopId, string $businessDate): void
     {
         $snapshot = ShopDailyLedgerSnapshot::where('shop_id', $shopId)
@@ -275,6 +306,29 @@ class DailyLedgerService
             throw new RuntimeException(
                 "Business date {$businessDate} is closed for shop {$shopId}. Reopen the day or post a dated adjustment referencing it."
             );
+        }
+    }
+
+    public function assertEditAllowed(int $shopId, string $businessDate, ?int $entryTypeId = null): void
+    {
+        $this->assertDayOpen($shopId, $businessDate);
+
+        if ($entryTypeId !== null) {
+            $setting = null;
+            try {
+                $setting = $this->ruleResolver->resolve($shopId, $entryTypeId, $businessDate);
+            } catch (Throwable) {
+                // If setting cannot be resolved, allow fallback to assertDayOpen
+            }
+
+            if ($setting !== null && $setting->isTodayOnly()) {
+                $activeDate = $this->resolveActiveBusinessDate($shopId);
+                if ($businessDate !== $activeDate) {
+                    throw new RuntimeException(
+                        "Entry category '{$setting->displayName()}' is restricted to today's active business day ({$activeDate}) and cannot be modified for {$businessDate}."
+                    );
+                }
+            }
         }
     }
 }

@@ -105,6 +105,8 @@ class CompanySettingsController extends Controller
             ->limit(8)
             ->get();
 
+        $businessDayWarehouseSettings = app(PurchaserBusinessDayService::class)->getAllWarehouseSettings();
+
         return view('admin.company-settings.edit', compact(
             'companyDetails',
             'purchaserUsers',
@@ -114,7 +116,8 @@ class CompanySettingsController extends Controller
             'allActiveWarehouses',
             'warehouseSalesConfig',
             'operationalDate',
-            'autoLoadAllRuns'
+            'autoLoadAllRuns',
+            'businessDayWarehouseSettings'
         ));
     }
 
@@ -144,6 +147,8 @@ class CompanySettingsController extends Controller
             'warehouse_sales_allowed_user_ids' => ['nullable', 'array'],
             'warehouse_sales_allowed_user_ids.*' => ['integer', 'exists:users,id'],
             'warehouse_sales_user_warehouses' => ['nullable', 'array'],
+            'business_day_warehouse_settings' => ['nullable', 'array'],
+            'purchaser_business_day_warehouse_settings' => ['nullable', 'array'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
@@ -172,6 +177,28 @@ class CompanySettingsController extends Controller
             'allowed_user_ids' => $allowedUserIds,
             'user_warehouses' => $userWarehouses,
         ]);
+
+        // Save Purchaser Business Day per-warehouse settings
+        $businessDayService = app(PurchaserBusinessDayService::class);
+        $pbdSettingsRaw = $request->input('business_day_warehouse_settings', $request->input('purchaser_business_day_warehouse_settings', []));
+        $activeWarehouses = Warehouse::query()->active()->get();
+
+        foreach ($activeWarehouses as $wh) {
+            $whId = (int) $wh->id;
+            $whSettings = is_array($pbdSettingsRaw) && isset($pbdSettingsRaw[$whId]) && is_array($pbdSettingsRaw[$whId])
+                ? $pbdSettingsRaw[$whId]
+                : [];
+
+            $businessDayService->updateWarehouseSettings($whId, [
+                'enabled' => ! empty($whSettings['enabled']),
+                'purchasers_can_close' => ! empty($whSettings['purchasers_can_close']),
+                'purchasers_can_reopen' => ! empty($whSettings['purchasers_can_reopen']),
+                'reopen_requires_reason' => true,
+                'allow_close_with_pending' => ! empty($whSettings['allow_close_with_pending']),
+                'require_digital_verification' => ! empty($whSettings['require_digital_verification']),
+                'admin_override_reopen' => ! empty($whSettings['admin_override_reopen']),
+            ]);
+        }
 
         return redirect()
             ->route('admin.company-settings.edit')

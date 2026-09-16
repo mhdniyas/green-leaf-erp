@@ -19,6 +19,7 @@ class AdvanceReceiveMatch extends Model
     protected $table = 'advance_receive_matches';
 
     protected $fillable = [
+        'business_day_id',
         'advance_goods_received_id',
         'advance_goods_received_item_id',
         'advance_stock_batch_id',
@@ -58,6 +59,11 @@ class AdvanceReceiveMatch extends Model
     }
 
     // Relationships
+    public function businessDay(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseBusinessDay::class, 'business_day_id');
+    }
+
     public function advanceGoodsReceived(): BelongsTo
     {
         return $this->belongsTo(GoodsReceived::class, 'advance_goods_received_id');

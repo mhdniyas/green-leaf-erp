@@ -16,7 +16,7 @@ class ShopLedgerEntrySetting extends Model
 
     protected $fillable = [
         'shop_id', 'entry_type_id', 'display_name', 'header_group_id', 'header_display_order', 'company_account_id', 'version', 'effective_from', 'effective_to',
-        'enabled', 'show_in_summary', 'note_enabled', 'is_readonly', 'default_funding_source', 'allowed_funding_sources',
+        'enabled', 'show_in_summary', 'note_enabled', 'is_readonly', 'edit_policy', 'default_funding_source', 'allowed_funding_sources',
         'include_in_sales', 'include_in_income', 'include_in_expense', 'include_in_pl',
         'include_in_payable', 'payable_direction',
         'settlement_behavior', 'petty_behavior', 'company_pending_behavior',
@@ -116,5 +116,15 @@ class ShopLedgerEntrySetting extends Model
         }
 
         return $this->entryType?->name ?? 'Entry #'.$this->id;
+    }
+
+    public function isTodayOnly(): bool
+    {
+        return strtolower((string) ($this->edit_policy ?? 'past_days_allowed')) === 'today_only';
+    }
+
+    public function isPastDaysAllowed(): bool
+    {
+        return ! $this->isTodayOnly();
     }
 }

@@ -15,6 +15,8 @@ use App\Services\Cashbook\ShopSettlementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class CashbookSettlementController extends Controller
@@ -265,8 +267,10 @@ class CashbookSettlementController extends Controller
             ->with(['entryType', 'companyAccount', 'headerGroup'])
             ->orderBy('display_order')
             ->get();
+        $expenseEntrySettings = $entrySettings->filter(fn ($setting): bool => (bool) $setting->include_in_expense || $setting->entryType?->category === 'expense')->values();
 
         $paymentConfig = $currentShop->getPaymentConfiguration();
+        $paymentConfig['expense_allocation'] = $this->settlements->expenseAllocationConfiguration($currentShop);
 
         $startDate = now()->startOfMonth()->toDateString();
         $endDate = now()->endOfMonth()->toDateString();
@@ -278,6 +282,7 @@ class CashbookSettlementController extends Controller
             'shopKey' => $shopKey,
             'relations' => $relations,
             'entrySettings' => $entrySettings,
+            'expenseEntrySettings' => $expenseEntrySettings,
             'paymentConfig' => $paymentConfig,
             'paymentsSummary' => $paymentsSummary,
         ]);
@@ -310,7 +315,48 @@ class CashbookSettlementController extends Controller
             'paid.category_ids' => ['nullable', 'array'],
             'paid.category_ids.*' => ['integer'],
             'paid.settlement_id' => ['nullable'],
+            'expense_allocation' => ['sometimes', 'array:enabled,auto_allocate,category_ids,default_category_id'],
+            'expense_allocation.enabled' => ['required_with:expense_allocation', 'boolean'],
+            'expense_allocation.auto_allocate' => ['required_with:expense_allocation', 'boolean'],
+            'expense_allocation.category_ids' => ['required_with:expense_allocation', 'array'],
+            'expense_allocation.category_ids.*' => [
+                'integer',
+                Rule::exists('shop_ledger_entry_settings', 'id')->where(fn ($query) => $query
+                    ->where('shop_id', $currentShop->shop_id)
+                    ->where('enabled', true)),
+            ],
+            'expense_allocation.default_category_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('shop_ledger_entry_settings', 'id')->where(fn ($query) => $query
+                    ->where('shop_id', $currentShop->shop_id)
+                    ->where('enabled', true)),
+            ],
         ]);
+
+        $allowedExpenseIds = $currentShop->entrySettings()
+            ->where('enabled', true)
+            ->where(function ($query): void {
+                $query->where('include_in_expense', true)
+                    ->orWhereHas('entryType', fn ($typeQuery) => $typeQuery->where('category', 'expense'));
+            })
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+        $submittedExpenseIds = array_map('intval', (array) ($validated['expense_allocation']['category_ids'] ?? []));
+
+        if (array_diff($submittedExpenseIds, $allowedExpenseIds) !== []) {
+            throw ValidationException::withMessages([
+                'expense_allocation.category_ids' => 'Only enabled expense categories belonging to this shop may be allocated.',
+            ]);
+        }
+
+        if (! empty($validated['expense_allocation']['default_category_id'])
+            && ! in_array((int) $validated['expense_allocation']['default_category_id'], array_map('intval', $validated['expense_allocation']['category_ids']), true)) {
+            throw ValidationException::withMessages([
+                'expense_allocation.default_category_id' => 'The default expense category must also be selected for allocation.',
+            ]);
+        }
 
         if (! isset($validated['direct_to_company']) && isset($validated['paid'])) {
             $validated['direct_to_company'] = $validated['paid'];

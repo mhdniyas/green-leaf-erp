@@ -1295,7 +1295,7 @@ class ShopCashbookPaymentAllocationTest extends TestCase
             ->assertSee('Total Allocated')
             ->assertSee('Total Unallocated')
             ->assertSee('Eligible Unallocated')
-            ->assertSee('Settlement Outstanding')
+            ->assertSee('Expense Outstanding')
             ->assertSee('Auto Allocate All');
 
         $summary = $response->viewData('shopPaymentSummary');
@@ -1726,7 +1726,7 @@ class ShopCashbookPaymentAllocationTest extends TestCase
         $this->assertSame(150.00, $summary['unallocated']);
         $this->assertSame(150.00, $summary['eligible_unallocated']);
 
-        $response->assertSee('All eligible settlements cleared');
+        $response->assertSee('All configured expenses cleared');
     }
 
     public function test_bulk_allocation_older_settlements_appear_in_preview_and_receive_allocation(): void
@@ -2281,8 +2281,8 @@ class ShopCashbookPaymentAllocationTest extends TestCase
         $settlementOutstanding = $response->viewData('settlementOutstanding');
         $this->assertSame(100.00, (float) $settlementOutstanding);
 
-        // The view must render Settlement Outstanding text.
-        $response->assertSee('Settlement Outstanding');
+        // The view must render Expense Outstanding text.
+        $response->assertSee('Expense Outstanding');
         $response->assertSee('All available money allocated');
     }
 
@@ -2410,7 +2410,7 @@ class ShopCashbookPaymentAllocationTest extends TestCase
         $this->assertSame(0.00, (float) $settlementOutstanding);
 
         // Fully settled banner is allowed.
-        $response->assertSee('Fully settled — all money allocated and all settlements cleared.');
+        $response->assertSee('Fully settled — all money allocated and all configured expenses cleared.');
     }
 
     public function test_shop_paid_company_plus_allocation_does_not_cause_double_deduction(): void

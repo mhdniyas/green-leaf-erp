@@ -13,6 +13,7 @@ use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use App\Services\Cashbook\ShopSettlementService;
 use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
 use Database\Seeders\Cashbook\ShopConfigPresetSeeder;
@@ -328,11 +329,146 @@ class CashbookSettlementSettingsTest extends TestCase
         $this->assertSame(0, $otherNetBalances);
     }
 
+    public function test_payments_settings_default_allocation_links_all_shop_expenses_and_uses_other_expense(): void
+    {
+        $expenseSettings = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('enabled', true)
+            ->where('include_in_expense', true)
+            ->get();
+        $otherExpense = $expenseSettings->first(fn (ShopLedgerEntrySetting $setting): bool => in_array($setting->entryType?->code, ['other_expense', 'others'], true));
+
+        $configuration = app(ShopSettlementService::class)->expenseAllocationConfiguration($this->profile);
+
+        $this->assertTrue($configuration['enabled']);
+        $this->assertTrue($configuration['auto_allocate']);
+        $this->assertEqualsCanonicalizing($expenseSettings->pluck('id')->all(), $configuration['category_ids']);
+        $this->assertSame($otherExpense?->id, $configuration['default_category_id']);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.settings.shop.payments.index', $this->profile->slug))
+            ->assertOk()
+            ->assertSee('EXPENSE ALLOCATION')
+            ->assertSee('Default uncategorized expense');
+    }
+
+    public function test_admin_can_save_shop_scoped_expense_allocation_configuration(): void
+    {
+        $expense = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('include_in_expense', true)
+            ->firstOrFail();
+
+        $this->actingAs($this->admin)
+            ->postJson(route('admin.cashbook.settings.shop.payments-configuration.save', $this->profile->slug), [
+                'expense_allocation' => [
+                    'enabled' => true,
+                    'auto_allocate' => false,
+                    'category_ids' => [$expense->id],
+                    'default_category_id' => $expense->id,
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('configuration.expense_allocation.category_ids.0', $expense->id)
+            ->assertJsonPath('configuration.expense_allocation.auto_allocate', false);
+
+        $this->profile->refresh();
+        $this->assertSame([$expense->id], $this->profile->payment_configuration['expense_allocation']['category_ids']);
+    }
+
+    public function test_payment_allocation_only_returns_configured_expense_categories(): void
+    {
+        $included = $this->expenseCategory('allocation_included');
+        $excluded = $this->expenseCategory('allocation_excluded');
+        $this->profile->update([
+            'payment_configuration' => [
+                'expense_allocation' => [
+                    'enabled' => true,
+                    'auto_allocate' => true,
+                    'category_ids' => [$included->id],
+                    'default_category_id' => $included->id,
+                ],
+            ],
+        ]);
+
+        foreach ([$included, $excluded] as $setting) {
+            ShopLedgerTransaction::create([
+                'shop_id' => $this->shop->id,
+                'entry_type_id' => $setting->entry_type_id,
+                'business_date' => '2026-08-10',
+                'amount' => 100,
+                'direction' => 'expense',
+                'funding_source' => 'sales',
+                'status' => 'approved',
+                'settlement_delta' => 100,
+            ]);
+        }
+
+        $open = app(ShopPaymentLedgerReconciliationService::class)->getOpenDailySettlements($this->shop->id, '2026-08');
+
+        $this->assertCount(1, $open);
+        $this->assertSame($included->entry_type_id, $open->first()['entry_setting_id']);
+    }
+
+    public function test_expense_allocation_configuration_rejects_categories_from_another_shop(): void
+    {
+        $otherShop = Shop::factory()->create();
+        $foreignExpense = $this->expenseCategory('foreign_allocation');
+        $foreignExpense->update(['shop_id' => $otherShop->id]);
+
+        $this->actingAs($this->admin)
+            ->postJson(route('admin.cashbook.settings.shop.payments-configuration.save', $this->profile->slug), [
+                'expense_allocation' => [
+                    'enabled' => true,
+                    'auto_allocate' => true,
+                    'category_ids' => [$foreignExpense->id],
+                    'default_category_id' => $foreignExpense->id,
+                ],
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'expense_allocation.category_ids.0',
+                'expense_allocation.default_category_id',
+            ]);
+    }
+
+    public function test_bulk_auto_allocation_stops_when_disabled_for_shop(): void
+    {
+        $this->profile->update([
+            'payment_configuration' => [
+                'expense_allocation' => [
+                    'enabled' => true,
+                    'auto_allocate' => false,
+                    'category_ids' => [],
+                    'default_category_id' => null,
+                ],
+            ],
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.cashbook.shop.allocate-payments.bulk', $this->profile->slug), ['month' => '2026-08'])
+            ->assertRedirect()
+            ->assertSessionHas('error', 'Auto allocation is disabled in this shop’s Payments Settings.');
+    }
+
     private function category(string $code): ShopLedgerEntrySetting
     {
         $type = LedgerEntryType::create(['code' => 'test_'.$code, 'name' => 'Category '.strtoupper($code), 'category' => 'income', 'active' => true]);
 
         return ShopLedgerEntrySetting::create(['shop_id' => $this->shop->id, 'entry_type_id' => $type->id, 'effective_from' => '2026-01-01', 'enabled' => true]);
+    }
+
+    private function expenseCategory(string $code): ShopLedgerEntrySetting
+    {
+        $type = LedgerEntryType::create(['code' => 'test_'.$code, 'name' => 'Category '.strtoupper($code), 'category' => 'expense', 'active' => true]);
+
+        return ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $type->id,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'include_in_expense' => true,
+        ]);
     }
 
     private function transaction(ShopLedgerEntrySetting $setting, string $date, float $amount, string $status): void

@@ -33,6 +33,7 @@ class GoodsReceived extends Model
         'purchase_order_id',
         'destination_shop_id',
         'warehouse_id',
+        'business_day_id',
         'purchaser_cart_id',
         'grn_number',
         'status',
@@ -62,7 +63,7 @@ class GoodsReceived extends Model
     ];
 
     protected $casts = [
-        'received_at' => 'date',
+        'received_at' => 'datetime',
         'approved_at' => 'datetime',
         'matched_at' => 'datetime',
         'transport_cost' => 'decimal:2',
@@ -140,6 +141,11 @@ class GoodsReceived extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class, 'warehouse_id');
+    }
+
+    public function businessDay(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseBusinessDay::class, 'business_day_id');
     }
 
     public function receivedBy(): BelongsTo

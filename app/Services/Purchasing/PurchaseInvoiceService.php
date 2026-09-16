@@ -21,6 +21,7 @@ class PurchaseInvoiceService
     public function __construct(
         private readonly PurchaseInvoiceRepository $repository,
         private readonly JournalService $journalService,
+        private readonly ShopPurchaserDailyVerificationService $verificationService,
     ) {}
 
     public function paginate(int $perPage = 15): LengthAwarePaginator
@@ -40,6 +41,16 @@ class PurchaseInvoiceService
                 ->findOrFail($data->goodsReceivedId);
 
             $invoiceData = $data->toArray();
+
+            $businessDayId = $grn->business_day_id
+                ?? $grn->purchaseOrder?->business_day_id
+                ?? $grn->purchaseOrder?->purchaserCart?->business_day_id
+                ?? ($grn->warehouse_id ? app(PurchaserBusinessDayService::class)->getActiveForWarehouse($grn->warehouse_id)?->id : null);
+
+            app(PurchaserBusinessDayService::class)->assertBusinessDayNotClosed($businessDayId);
+            if ($businessDayId !== null) {
+                $invoiceData['business_day_id'] = $businessDayId;
+            }
 
             if ($grn->purchaseOrder?->purchaserCart?->isGreenLeafDirectPurchase()) {
                 $invoiceData['purchaser_cart_id'] = $grn->purchaseOrder->purchaserCart->id;
@@ -71,6 +82,8 @@ class PurchaseInvoiceService
     public function updateStatus(PurchaseInvoice $invoice, string $status): PurchaseInvoice
     {
         return DB::transaction(function () use ($invoice, $status): PurchaseInvoice {
+            $this->verificationService->assertScopeNotFinalizedForInvoice($invoice);
+
             $invoice->update(['status' => $status]);
 
             return $invoice->fresh();
@@ -83,6 +96,8 @@ class PurchaseInvoiceService
     public function updatePayment(PurchaseInvoice $invoice, array $payload): PurchaseInvoice
     {
         return DB::transaction(function () use ($invoice, $payload): PurchaseInvoice {
+            $this->verificationService->assertScopeNotFinalizedForInvoice($invoice);
+
             $invoice->loadMissing(['supplier', 'purchaserCart']);
             $previousPaidAmount = round((float) ($invoice->paid_amount ?? 0), 2);
             $previousDiscountAmount = round((float) ($invoice->discount_amount ?? 0), 2);
@@ -254,6 +269,8 @@ class PurchaseInvoiceService
     public function fixCalculationError(PurchaseInvoice $invoice): array
     {
         return DB::transaction(function () use ($invoice): array {
+            $this->verificationService->assertScopeNotFinalizedForInvoice($invoice);
+
             $invoice->loadMissing(['supplier', 'purchaserCart.items', 'goodsReceived.items']);
 
             // ── Capture BEFORE state for audit trail ─────────────────────

@@ -139,8 +139,8 @@
         $isIncome = ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
         $isExpense = ($cat === 'expense' || $s->include_in_expense) && ! $isSalesDeduction;
         $code = strtolower((string) ($s->entryType?->code ?? ''));
-        $name = strtolower((string) ($s->entryType?->name ?? ''));
-        $isCashPurchase = str_contains($code, 'cash_purchase') || str_contains($name, 'cash purchase');
+        $name = (string) ($s->entryType?->name ?? '');
+        $isCashPurchase = $code === 'cash_purchase';
 
         $resolver = app(\App\Services\Cashbook\CashFlowResolutionService::class);
         $fundingSource = $resolver->resolveFundingSource($s);
@@ -166,6 +166,8 @@
             'is_sales_deduction' => $isSalesDeduction,
             'payable_direction' => $s->payable_direction ?? ($isSalesDeduction ? 'minus' : ($isIncome ? 'plus' : 'minus')),
             'is_cash_purchase' => $isCashPurchase,
+            'edit_policy' => (string) ($s->edit_policy ?? 'past_days_allowed'),
+            'is_today_only' => $s->isTodayOnly(),
             'requires_note' => $requiresNote,
             'note_enabled' => $noteEnabled,
             'show_note_field' => $showNoteField,
@@ -341,6 +343,9 @@
 @include('shop-owner.cashbook.partials.modals.out-header')
 @include('shop-owner.cashbook.partials.modals.header-entry')
 @include('shop-owner.cashbook.partials.modals.product-search')
+@if($shop->isPurchasingEnabled())
+    @include('shop-owner.cashbook.partials.modals.vendor-purchase')
+@endif
 
 @push('scripts')
     @include('shop-owner.cashbook.partials.scripts')

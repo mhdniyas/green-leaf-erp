@@ -169,34 +169,57 @@
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         @foreach($shops as $shop)
-            <div class="space-y-2"><a href="{{ route('admin.cashbook.settings.shop', $shop->slug ?: $shop->shop_id) }}"
-               class="block group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-emerald-300 hover:shadow-md">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                        <h2 class="truncate text-base font-black text-slate-950 group-hover:text-emerald-700">{{ $shop->name }}</h2>
-                        <p class="mt-1 font-mono text-xs font-bold text-slate-400">{{ $shop->code ?: 'SHOP-'.$shop->shop_id }}</p>
+            @php
+                $erpShop = $shop->shop;
+                $isPurchasingEnabled = (bool) ($erpShop?->shop_purchasing_enabled ?? false);
+            @endphp
+            <div class="space-y-2">
+                <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-emerald-300 hover:shadow-md">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <h2 class="truncate text-base font-black text-slate-950">{{ $shop->name }}</h2>
+                            <p class="mt-1 font-mono text-xs font-bold text-slate-400">{{ $shop->code ?: 'SHOP-'.$shop->shop_id }}</p>
+                        </div>
+                        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                            <i data-lucide="store" class="h-5 w-5"></i>
+                        </span>
                     </div>
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-                        <i data-lucide="store" class="h-5 w-5"></i>
-                    </span>
-                </div>
 
-                <div class="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
-                    <span class="text-xs font-bold text-slate-500">Income, Expense, Transfer, Collection</span>
-                    <span class="inline-flex items-center gap-1 text-xs font-black text-emerald-700">
-                        Open Settings
-                        <i data-lucide="arrow-right" class="h-3.5 w-3.5"></i>
-                    </span>
+                    {{-- Purchasing Toggle Row --}}
+                    <div class="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-slate-700">Enable Shop Purchasing</span>
+                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black {{ $isPurchasingEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600' }}">
+                                {{ $isPurchasingEnabled ? 'ON' : 'OFF' }}
+                            </span>
+                        </div>
+                        <form action="{{ route('admin.cashbook.settings.shop.toggle-purchasing', $shop->slug ?: $shop->shop_id) }}" method="POST">
+                            @csrf
+                            <button type="submit" class="inline-flex items-center gap-1 rounded-lg border {{ $isPurchasingEnabled ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' }} px-2.5 py-1 text-xs font-bold transition">
+                                {{ $isPurchasingEnabled ? 'Turn OFF' : 'Turn ON' }}
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                        <span class="text-xs font-bold text-slate-500">Categories &amp; Rules</span>
+                        <a href="{{ route('admin.cashbook.settings.shop', $shop->slug ?: $shop->shop_id) }}" class="inline-flex items-center gap-1 text-xs font-black text-emerald-700 hover:text-emerald-800">
+                            Open Settings
+                            <i data-lucide="arrow-right" class="h-3.5 w-3.5"></i>
+                        </a>
+                    </div>
                 </div>
-            </a>
-            <div class="grid grid-cols-2 gap-2">
-                <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-center text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition">
-                    Settlements
-                </a>
-                <a href="{{ route('admin.cashbook.settings.shop.payments.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-center text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition">
-                    Payments
-                </a>
-            </div>
+                <div class="grid grid-cols-3 gap-2">
+                    <a href="{{ route('admin.cashbook.settings.shop.vendors.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2.5 text-center text-xs font-bold text-amber-800 hover:bg-amber-100 transition">
+                        Vendors
+                    </a>
+                    <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-2.5 text-center text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition">
+                        Settlements
+                    </a>
+                    <a href="{{ route('admin.cashbook.settings.shop.payments.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2.5 text-center text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition">
+                        Payments
+                    </a>
+                </div>
             </div>
         @endforeach
     </div>

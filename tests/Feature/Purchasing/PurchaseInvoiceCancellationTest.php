@@ -83,8 +83,8 @@ class PurchaseInvoiceCancellationTest extends TestCase
         $this->assertNotNull($invoice->cancelled_at);
         $this->assertDatabaseHas('purchase_invoices', ['id' => $invoice->id]);
         $this->assertDatabaseHas('goods_received_items', ['goods_received_id' => $goodsReceived->id]);
-        $this->assertSame('cancelled', $goodsReceived->bill_status);
-        $this->assertSame('cancelled', $goodsReceived->status);
+        $this->assertSame('bill_pending', $goodsReceived->bill_status);
+        $this->assertSame('approved', $goodsReceived->status);
         $this->assertNull($goodsReceived->matched_by);
         $this->assertNull($goodsReceived->matched_at);
         $this->assertSame('50.000', (string) $batch->total_kg);

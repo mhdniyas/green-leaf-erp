@@ -36,6 +36,7 @@
                 <div class="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2" role="tablist" aria-label="Company settings sections">
                     <button type="button" data-settings-tab="company" role="tab" aria-selected="true" class="settings-tab shrink-0 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white">Company</button>
                     <button type="button" data-settings-tab="operations" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Operations</button>
+                    <button type="button" data-settings-tab="purchaser-business-day" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Purchaser Business Day</button>
                     <button type="button" data-settings-tab="warehouse-sales" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Warehouse Sales</button>
                     <button type="button" data-settings-tab="auto-load" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Auto Load All</button>
                     <button type="button" data-settings-tab="history" role="tab" aria-selected="false" class="settings-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-white">Trigger History</button>
@@ -154,6 +155,158 @@
                                 <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, unlocked invoices from past business dates can be repriced. Finalized invoices stay frozen.</span>
                             </span>
                         </label>
+                        </div>
+                    </section>
+
+                    <section data-settings-panel="purchaser-business-day" role="tabpanel" class="settings-panel hidden max-w-4xl space-y-6">
+                        <div>
+                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600">Purchaser Business Day Configuration</p>
+                            <p class="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
+                                Configure daily operational boundaries and close/reopen permissions per warehouse. When enabled, purchasing and receiving operations group strictly by business day.
+                            </p>
+                        </div>
+
+                        <div class="space-y-6">
+                            @foreach($businessDayWarehouseSettings as $whSetting)
+                                @php
+                                    $whId = $whSetting['warehouse_id'];
+                                    $whName = $whSetting['warehouse_name'];
+                                    $whCode = $whSetting['warehouse_code'];
+                                    $prefix = "business_day_warehouse_settings.{$whId}";
+                                @endphp
+                                <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-5">
+                                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                                        <div>
+                                            <h3 class="text-base font-black text-slate-900">{{ $whName }}</h3>
+                                            <p class="text-xs font-semibold text-slate-400 font-mono">Code: {{ $whCode }}</p>
+                                        </div>
+                                        <div class="flex items-center gap-3">
+                                            <input type="hidden" name="{{ $prefix }}[enabled]" value="0">
+                                            <label class="relative inline-flex cursor-pointer items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    name="{{ $prefix }}[enabled]"
+                                                    value="1"
+                                                    {{ old("{$prefix}.enabled", $whSetting['enabled']) ? 'checked' : '' }}
+                                                    class="peer sr-only"
+                                                >
+                                                <div class="peer h-6 w-11 rounded-full bg-slate-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-teal-600 peer-checked:after:translate-x-full peer-focus:outline-none"></div>
+                                                <span class="ml-3 text-xs font-black uppercase tracking-wider text-slate-700">Workflow Enabled</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="grid gap-4 sm:grid-cols-2">
+                                        <!-- Purchasers can Close Day -->
+                                        <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                                            <label class="flex cursor-pointer items-start gap-3">
+                                                <input type="hidden" name="{{ $prefix }}[purchasers_can_close]" value="0">
+                                                <input
+                                                    type="checkbox"
+                                                    name="{{ $prefix }}[purchasers_can_close]"
+                                                    value="1"
+                                                    {{ old("{$prefix}.purchasers_can_close", $whSetting['purchasers_can_close']) ? 'checked' : '' }}
+                                                    class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                                >
+                                                <span>
+                                                    <span class="block text-xs font-black text-slate-900">Purchasers can Close Day</span>
+                                                    <span class="mt-0.5 block text-[11px] font-semibold text-slate-500">Allow assigned purchasers to run verification and close their active day.</span>
+                                                </span>
+                                            </label>
+                                        </div>
+
+                                        <!-- Purchasers can Reopen Day -->
+                                        <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                                            <label class="flex cursor-pointer items-start gap-3">
+                                                <input type="hidden" name="{{ $prefix }}[purchasers_can_reopen]" value="0">
+                                                <input
+                                                    type="checkbox"
+                                                    name="{{ $prefix }}[purchasers_can_reopen]"
+                                                    value="1"
+                                                    {{ old("{$prefix}.purchasers_can_reopen", $whSetting['purchasers_can_reopen']) ? 'checked' : '' }}
+                                                    class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                                >
+                                                <span>
+                                                    <span class="block text-xs font-black text-slate-900">Purchasers can Reopen Day</span>
+                                                    <span class="mt-0.5 block text-[11px] font-semibold text-slate-500">Allow purchasers to reopen closed business days for adjustments.</span>
+                                                </span>
+                                            </label>
+                                        </div>
+
+                                        <!-- Reopen requires reason -->
+                                        <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                                            <label class="flex cursor-pointer items-start gap-3">
+                                                <input type="hidden" name="{{ $prefix }}[reopen_requires_reason]" value="0">
+                                                <input
+                                                    type="checkbox"
+                                                    name="{{ $prefix }}[reopen_requires_reason]"
+                                                    value="1"
+                                                    {{ old("{$prefix}.reopen_requires_reason", $whSetting['reopen_requires_reason']) ? 'checked' : '' }}
+                                                    class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                                >
+                                                <span>
+                                                    <span class="block text-xs font-black text-slate-900">Reopen requires Reason</span>
+                                                    <span class="mt-0.5 block text-[11px] font-semibold text-slate-500">Mandatory audit explanation before any closed day is reopened.</span>
+                                                </span>
+                                            </label>
+                                        </div>
+
+                                        <!-- Allow Close With Pending -->
+                                        <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                                            <label class="flex cursor-pointer items-start gap-3">
+                                                <input type="hidden" name="{{ $prefix }}[allow_close_with_pending]" value="0">
+                                                <input
+                                                    type="checkbox"
+                                                    name="{{ $prefix }}[allow_close_with_pending]"
+                                                    value="1"
+                                                    {{ old("{$prefix}.allow_close_with_pending", $whSetting['allow_close_with_pending']) ? 'checked' : '' }}
+                                                    class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                                >
+                                                <span>
+                                                    <span class="block text-xs font-black text-slate-900">Allow Close With Pending</span>
+                                                    <span class="mt-0.5 block text-[11px] font-semibold text-slate-500">Allow day closure even when unmatched bills or pending items exist.</span>
+                                                </span>
+                                            </label>
+                                        </div>
+
+                                        <!-- Require Digital Verification -->
+                                        <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                                            <label class="flex cursor-pointer items-start gap-3">
+                                                <input type="hidden" name="{{ $prefix }}[require_digital_verification]" value="0">
+                                                <input
+                                                    type="checkbox"
+                                                    name="{{ $prefix }}[require_digital_verification]"
+                                                    value="1"
+                                                    {{ old("{$prefix}.require_digital_verification", $whSetting['require_digital_verification']) ? 'checked' : '' }}
+                                                    class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                                >
+                                                <span>
+                                                    <span class="block text-xs font-black text-slate-900">Require Digital Verification</span>
+                                                    <span class="mt-0.5 block text-[11px] font-semibold text-slate-500">Requires reviewing checklist metrics before closing.</span>
+                                                </span>
+                                            </label>
+                                        </div>
+
+                                        <!-- Admin can override/reopen -->
+                                        <div class="rounded-xl border border-slate-100 bg-slate-50/70 p-3.5">
+                                            <label class="flex cursor-pointer items-start gap-3">
+                                                <input type="hidden" name="{{ $prefix }}[admin_override_reopen]" value="0">
+                                                <input
+                                                    type="checkbox"
+                                                    name="{{ $prefix }}[admin_override_reopen]"
+                                                    value="1"
+                                                    {{ old("{$prefix}.admin_override_reopen", $whSetting['admin_override_reopen']) ? 'checked' : '' }}
+                                                    class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                                >
+                                                <span>
+                                                    <span class="block text-xs font-black text-slate-900">Admin can Override / Reopen</span>
+                                                    <span class="mt-0.5 block text-[11px] font-semibold text-slate-500">Allows administrators to force-reopen or modify restricted days.</span>
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
                         </div>
                     </section>
 

@@ -564,7 +564,7 @@ final class CashbookController extends Controller
             ->limit(25)
             ->get(['id', 'company_account_id', 'transaction_date', 'amount', 'reference', 'narration']);
 
-        $openSettlementTransactions = $this->shopPaymentLedgerReconciliationService->getOpenDailySettlements($shopId);
+        $openSettlementTransactions = $this->shopPaymentLedgerReconciliationService->getOpenDailySettlements($shopId, $month);
         $shopPaymentSummary = $this->shopPaymentSummary($shopId, $monthStart, $monthEnd);
         $bulkEligiblePayments = $this->bulkEligibleShopPayments($shopId, $monthStart, $monthEnd);
 
@@ -2462,6 +2462,13 @@ final class CashbookController extends Controller
         $currentShop = $this->resolveShop($shop);
         $shopId = (int) $currentShop->shop_id;
 
+        if (! app(ShopSettlementService::class)->expenseAllocationConfiguration($currentShop)['auto_allocate']) {
+            return redirect()->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'month' => $request->input('month', now()->format('Y-m')),
+            ])->with('error', 'Auto allocation is disabled in this shop’s Payments Settings.');
+        }
+
         $validated = $request->validate([
             'month' => ['required', 'date_format:Y-m'],
             'expected_total' => ['required', 'numeric', 'min:0.01'],
@@ -2510,7 +2517,7 @@ final class CashbookController extends Controller
             // Use the same eligible-payments and settlements query for both preview and execution.
             $eligiblePayments = collect($this->bulkEligibleShopPayments($shopId, $monthStart, $monthEnd));
             $openSettlements = $this->shopPaymentLedgerReconciliationService
-                ->getOpenDailySettlements($shopId)
+                ->getOpenDailySettlements($shopId, Carbon::parse($monthStart)->format('Y-m'))
                 ->filter(fn (array $settlement): bool => (float) $settlement['remaining_due'] > 0)
                 ->sortBy([['business_date', 'asc'], ['id', 'asc']])
                 ->values()
@@ -2698,6 +2705,25 @@ final class CashbookController extends Controller
 
         return redirect()->route('admin.cashbook.settings')
             ->with('success', 'Staff salary & advance settings updated successfully.');
+    }
+
+    public function toggleShopPurchasing(Request $request, int|string $shop): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $profile = $this->resolveShop($shop);
+        $erpShop = Shop::query()->findOrFail($profile->shop_id);
+
+        $newState = ! $erpShop->isPurchasingEnabled();
+        $erpShop->update(['shop_purchasing_enabled' => $newState]);
+
+        if ($newState) {
+            $this->shopSyncService->ensureVendorPurchaseForShop((int) $erpShop->id);
+        }
+
+        $statusStr = $newState ? 'enabled' : 'disabled';
+
+        return redirect()->back(fallback: route('admin.cashbook.settings'))
+            ->with('success', "Shop Purchasing has been {$statusStr} for {$erpShop->name}.");
     }
 
     public function shopSettingsPage(Request $request, int|string $shop): View
@@ -8469,6 +8495,7 @@ final class CashbookController extends Controller
             'enabled' => ['required', 'boolean'],
             'note_enabled' => ['nullable', 'boolean'],
             'is_readonly' => ['nullable', 'boolean'],
+            'edit_policy' => ['nullable', 'string', 'in:today_only,past_days_allowed'],
             'default_funding_source' => ['required', 'string', 'in:none,sales,petty,company,company_later,bank'],
             'include_in_sales' => ['required', 'boolean'],
             'include_in_income' => ['required', 'boolean'],
@@ -8495,6 +8522,7 @@ final class CashbookController extends Controller
                 'enabled' => (bool) $validated['enabled'],
                 'note_enabled' => (bool) ($validated['note_enabled'] ?? false),
                 'is_readonly' => (bool) ($validated['is_readonly'] ?? false),
+                'edit_policy' => $validated['edit_policy'] ?? ($setting->edit_policy ?? 'past_days_allowed'),
                 'header_group_id' => array_key_exists('header_group_id', $validated) && $validated['header_group_id'] ? (int) $validated['header_group_id'] : null,
                 'company_account_id' => ! empty($validated['company_account_id']) ? (int) $validated['company_account_id'] : null,
                 'default_funding_source' => $validated['default_funding_source'],

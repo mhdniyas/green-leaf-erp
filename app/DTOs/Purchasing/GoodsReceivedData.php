@@ -27,6 +27,8 @@ final readonly class GoodsReceivedData
         public array $advanceMatches = [],
         public ?string $receiptType = null,
         public bool $autoAdvanceClear = false,
+        public ?int $businessDayId = null,
+        public ?string $carryForwardUuid = null,
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -70,6 +72,8 @@ final readonly class GoodsReceivedData
         $destShopId = $request->filled('destination_shop_id') ? (int) $request->input('destination_shop_id') : null;
         $whId = $request->filled('warehouse_id') ? (int) $request->input('warehouse_id') : null;
         $clientSubId = $request->filled('client_submission_id') ? (string) $request->input('client_submission_id') : null;
+        $businessDayId = $request->filled('business_day_id') ? (int) $request->input('business_day_id') : null;
+        $carryForwardUuid = $request->filled('carry_forward_uuid') ? (string) $request->input('carry_forward_uuid') : null;
 
         return new self(
             purchaseOrderId: $poId,
@@ -85,6 +89,8 @@ final readonly class GoodsReceivedData
             clientSubmissionId: $clientSubId,
             advanceMatches: $advanceMatches,
             receiptType: $request->filled('receipt_type') ? (string) $request->input('receipt_type') : null,
+            businessDayId: $businessDayId,
+            carryForwardUuid: $carryForwardUuid,
         );
     }
 

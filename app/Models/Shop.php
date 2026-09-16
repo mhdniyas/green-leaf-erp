@@ -36,6 +36,8 @@ class Shop extends Model
         'contact_name',
         'contact_phone',
         'allow_grade_b_purchase',
+        'shop_purchasing_enabled',
+        'allow_vendor_creation',
     ];
 
     protected function casts(): array
@@ -44,6 +46,8 @@ class Shop extends Model
             'approved_at' => 'datetime',
             'accounting_enabled' => 'boolean',
             'allow_grade_b_purchase' => 'boolean',
+            'shop_purchasing_enabled' => 'boolean',
+            'allow_vendor_creation' => 'boolean',
             'reserve_amount' => 'decimal:2',
             'default_petty_cash_amount' => 'decimal:2',
         ];
@@ -243,6 +247,33 @@ class Shop extends Model
     {
         return (bool) $this->accounting_enabled
             && ((string) $this->accounting_mode === 'owned' || $this->client_id !== null);
+    }
+
+    public function isPurchasingEnabled(): bool
+    {
+        return (bool) $this->shop_purchasing_enabled;
+    }
+
+    public function isVendorCreationAllowed(): bool
+    {
+        return (bool) $this->allow_vendor_creation;
+    }
+
+    public function suppliers(): BelongsToMany
+    {
+        return $this->belongsToMany(Supplier::class, 'shop_suppliers')
+            ->withPivot(['is_active', 'credit_approved'])
+            ->withTimestamps();
+    }
+
+    public function vendorPayables(): HasMany
+    {
+        return $this->hasMany(ShopVendorPayable::class);
+    }
+
+    public function purchaseInvoices(): HasMany
+    {
+        return $this->hasMany(PurchaseInvoice::class);
     }
 
     public function isClientShop(): bool

@@ -34,6 +34,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\ShopStaffPayment;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Cashbook\BalanceCalculator;
 use App\Services\Cashbook\CashbookShopSyncService;
@@ -1336,6 +1337,23 @@ class ShopOwnerController extends Controller
             ->where('business_date', $date)
             ->get();
 
+        $linkedVendors = $shop->isPurchasingEnabled()
+            ? $shop->suppliers()
+                ->wherePivot('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->map(fn (Supplier $s): object => (object) [
+                    'id' => $s->id,
+                    'name' => $s->name,
+                    'mobile_number' => $s->mobile_number,
+                    'credit_approved' => (bool) ($s->pivot?->credit_approved ?? $s->credit_approved ?? false),
+                ])
+            : collect();
+
+        $purchasableProducts = $shop->isPurchasingEnabled()
+            ? Product::query()->active()->with(['category:id,name', 'orderUnits'])->orderBy('name')->get(['id', 'category_id', 'name', 'sku', 'unit'])
+            : collect();
+
         return view('shop-owner.cashbook.index', [
             'shop' => $shop,
             'selectedDate' => Carbon::parse($date),
@@ -1350,6 +1368,9 @@ class ShopOwnerController extends Controller
             'snapshot' => $snapshot,
             'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
             'openModal' => $open === 'line',
+            'openVendorPurchase' => $open === 'vendor_purchase' || $open === 'purchase',
+            'linkedVendors' => $linkedVendors,
+            'purchasableProducts' => $purchasableProducts,
             'timeframe' => $timeframe,
             'startDate' => $startDate,
             'endDate' => $endDate,
@@ -1906,6 +1927,19 @@ class ShopOwnerController extends Controller
                             'entries' => ["Manual entry for {$entryType->name} is not allowed from Cashbook."],
                         ],
                     ], 422);
+                }
+
+                if ($setting?->isTodayOnly()) {
+                    $activeDate = app(DailyLedgerService::class)->resolveActiveBusinessDate((int) $shop->id);
+                    if ($validated['business_date'] !== $activeDate) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Category '{$entryType->name}' is restricted to today's active business day ({$activeDate}) and cannot be modified for {$validated['business_date']}.",
+                            'errors' => [
+                                'entries' => ["Category '{$entryType->name}' cannot be modified for past business dates."],
+                            ],
+                        ], 422);
+                    }
                 }
             }
         }

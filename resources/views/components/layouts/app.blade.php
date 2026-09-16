@@ -463,7 +463,7 @@
                 </x-nav-item>
             @elseif(auth()->user()->hasRole('purchaser'))
                 @php
-                    $isPurchaserActive = request()->routeIs('purchaser.*');
+                    $isPurchaserActive = request()->routeIs('purchaser.*') || request()->routeIs('purchasing.business-days.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -482,6 +482,15 @@
                         </svg>
                     </button>
                     <div class="sidebar-group-items ml-6 space-y-3 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isPurchaserActive ? '' : 'hidden' }}">
+                        <div class="space-y-1">
+                            <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Business Day</p>
+                            <x-nav-item href="{{ route('purchasing.business-days.index') }}" :active="request()->routeIs('purchasing.business-days.show') || (request()->routeIs('purchasing.business-days.*') && ! request()->filled('view') && ! request()->boolean('history') && ! request()->filled('month'))" :sub="true">
+                                Today
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchasing.business-days.index', ['view' => 'history']) }}" :active="request()->routeIs('purchasing.business-days.index') && (request()->input('view') === 'history' || request()->boolean('history') || request()->filled('month'))" :sub="true">
+                                Business Days
+                            </x-nav-item>
+                        </div>
                         <div class="space-y-1">
                             <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Today</p>
                             <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
