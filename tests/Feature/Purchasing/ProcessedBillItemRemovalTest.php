@@ -6,6 +6,7 @@ namespace Tests\Feature\Purchasing;
 
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseInvoicePayment;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\Supplier;
@@ -63,7 +64,12 @@ class ProcessedBillItemRemovalTest extends TestCase
     public function test_processed_bill_removal_is_rejected_when_recorded_payment_exceeds_remaining_total(): void
     {
         [$cart, $firstItem, $secondItem, $invoice] = $this->processedCart();
-        $invoice->update(['paid_amount' => 1200]);
+        PurchaseInvoicePayment::query()->create([
+            'purchase_invoice_id' => $invoice->id,
+            'amount' => 1200,
+            'payment_date' => today(),
+            'created_by' => $this->purchaser->id,
+        ]);
 
         $response = $this->actingAs($this->purchaser)->delete(route('purchaser.cart-items.destroy', $firstItem));
 
