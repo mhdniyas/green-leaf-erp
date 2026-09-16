@@ -587,11 +587,21 @@
                         <div class="text-[10px] font-bold text-slate-500">
                             Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}
                         </div>
-                        @if ($cart->purchaseInvoice)
-                            <a href="{{ route('purchaser.invoices.show', $cart->purchaseInvoice) }}" class="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-teal-50 px-3 text-[10px] font-black text-teal-700 hover:bg-teal-100">
-                                View Full Bill
-                            </a>
-                        @endif
+                        <div class="flex flex-wrap gap-2">
+                            @if ($cart->purchaseInvoice)
+                                <a href="{{ route('purchaser.invoices.show', $cart->purchaseInvoice) }}" class="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-teal-50 px-3 text-[10px] font-black text-teal-700 hover:bg-teal-100">
+                                    View Full Bill
+                                </a>
+                                <form action="{{ route('purchaser.invoices.destroy', $cart->purchaseInvoice) }}" method="POST" onsubmit="return confirm('Revert this cart to Pending? The bill will be cancelled (with full audit trail) so you can re-process it.');">
+                                    @csrf
+                                    @method('DELETE')
+                                    <input type="hidden" name="cancellation_note" value="Reverted to pending by purchaser from completed view.">
+                                    <button type="submit" class="inline-flex h-8 items-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-[10px] font-black text-amber-700 hover:bg-amber-100">
+                                        ↩ Revert to Pending
+                                    </button>
+                                </form>
+                            @endif
+                        </div>
                     </div>
                 </article>
             @empty
