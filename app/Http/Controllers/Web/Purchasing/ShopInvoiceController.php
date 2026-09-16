@@ -122,7 +122,7 @@ class ShopInvoiceController extends Controller
         $canEdit = $canOverride || (
             $canApprove
             && ! $isFinalized
-            && ($invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval')
+            && ($invoice->delivery_status === 'awaiting_review' || in_array((string) $invoice->order?->delivery_status, ['pending_approval', 'delivered'], true))
         );
         $canFinalize = $canApprove && ! $isFinalized && $invoice->order !== null;
 

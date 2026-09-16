@@ -550,17 +550,22 @@ class ShopOwnerController extends Controller
                 ]);
 
                 $lockedOrder->update([
-                    'delivery_status' => 'pending_approval',
+                    'delivery_status' => 'delivered',
                     'delivery_review_status' => 'pending',
                     'shop_checked_by' => $request->user()?->id,
                     'shop_checked_at' => now(),
                     'admin_reviewed_by' => null,
                     'admin_reviewed_at' => null,
                     'admin_review_note' => null,
-                    'is_delivered' => false,
-                    'delivered_at' => null,
+                    'is_delivered' => true,
+                    'delivered_at' => now(),
                     'delivered_by' => $request->user()?->id,
                 ]);
+
+                activity()
+                    ->performedOn($lockedOrder)
+                    ->causedBy($request->user())
+                    ->log('shop_order.delivery_confirmed');
             }
 
             return [
@@ -590,6 +595,30 @@ class ShopOwnerController extends Controller
         });
 
         return response()->json($result);
+    }
+
+    public function verifyInvoiceChanges(Request $request, string $orderNumber): RedirectResponse
+    {
+        $activeShop = $this->currentShop($request);
+
+        $order = ShopOrder::query()
+            ->where('order_number', $orderNumber)
+            ->where('shop_id', $activeShop->id)
+            ->with(['invoice'])
+            ->firstOrFail();
+
+        $invoice = $order->invoice;
+        if (! $invoice) {
+            return redirect()->back()->withErrors(['invoice' => 'No invoice found for this order.']);
+        }
+
+        activity('shop_invoice')
+            ->performedOn($invoice)
+            ->causedBy($request->user())
+            ->withProperties(['source' => 'shop_changes_verified'])
+            ->log('shop_changes_verified');
+
+        return redirect()->back()->with('success', 'Invoice changes verified successfully.');
     }
 
     public function financeIndex(Request $request): View

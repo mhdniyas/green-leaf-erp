@@ -349,7 +349,7 @@ class ShopOrder extends Model
 
     public function hasPendingDeliveryReview(): bool
     {
-        return $this->delivery_status === 'pending_approval'
+        return in_array((string) $this->delivery_status, ['pending_approval', 'delivered'], true)
             && $this->delivery_review_status === 'pending';
     }
 

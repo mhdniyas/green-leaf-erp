@@ -26,6 +26,10 @@ class DeliveryVerificationEligibility
             return $this->blocked('order_not_approved', 'This order has not been approved.');
         }
 
+        if ($order->is_delivered || $order->delivery_review_status === 'pending' || $order->delivery_status === 'delivered') {
+            return $this->blocked('already_submitted', 'This delivery has already been submitted or completed.');
+        }
+
         if (! in_array((string) $order->delivery_status, ['in_transit', 'ready_for_dispatch'], true)) {
             return $this->blocked('not_out_for_delivery', 'This order is not out for delivery.');
         }
@@ -35,10 +39,6 @@ class DeliveryVerificationEligibility
 
         if (! $order->is_allocation_completed && ! $hasLoadedItems) {
             return $this->blocked('not_dispatched', 'This order has not been dispatched from the warehouse.');
-        }
-
-        if ($order->is_delivered || $order->delivery_review_status === 'pending') {
-            return $this->blocked('already_submitted', 'This delivery has already been submitted or completed.');
         }
 
         $priceReadiness = $this->deliveryPriceReadinessService->forOrder($order);

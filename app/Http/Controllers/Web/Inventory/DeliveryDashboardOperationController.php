@@ -42,7 +42,7 @@ class DeliveryDashboardOperationController extends Controller
         }
 
         try {
-            if ($shopOrder->delivery_status === 'pending_approval' && $shopOrder->delivery_review_status === 'pending') {
+            if (in_array((string) $shopOrder->delivery_status, ['pending_approval', 'delivered'], true) && $shopOrder->delivery_review_status === 'pending') {
                 $this->resolveDeliveryReviewAction->approve(
                     $shopOrder,
                     $this->approvedDeliveredQuantities($shopOrder),

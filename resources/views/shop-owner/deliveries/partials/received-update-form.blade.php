@@ -199,7 +199,7 @@
                     </button>
                 </div>
 
-                @if(! $canSubmitVerification)
+                @if(! $canSubmitVerification && ! $order->is_delivered && ! $isPendingApproval)
                     <p class="text-[11px] font-semibold text-amber-700">
                         @if(! $eligibilityAllowed)
                             {{ (string) ($eligibility['message'] ?? 'Delivery verification is currently unavailable.') }}

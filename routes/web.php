@@ -252,6 +252,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
         Route::get('/deliveries/{order_number}/pdf', [ShopOwnerController::class, 'deliveriesPdf'])->name('deliveries.pdf');
         Route::post('/deliveries/{order_number}/items/{item}/verify', [ShopOwnerController::class, 'verifyDeliveryItem'])->name('deliveries.items.verify');
+        Route::post('/deliveries/{order_number}/verify-changes', [ShopOwnerController::class, 'verifyInvoiceChanges'])->name('deliveries.verify-changes');
         Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
         Route::get('/accounting/cashbook/pdf', [ShopOwnerController::class, 'accountingCashbookPdf'])->name('accounting.cashbook.pdf');
         Route::get('/accounting/daily-report', [ShopOwnerController::class, 'accountingDailyReport'])->name('accounting.daily-report');

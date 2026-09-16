@@ -94,7 +94,7 @@ class ResolveDeliveryReviewAction
             ]);
 
             $lockedOrder->update([
-                'delivery_status' => 'pending_approval',
+                'delivery_status' => 'delivered',
                 'delivery_review_status' => 'pending',
                 'delivery_notes' => $deliveryNote,
                 'shop_checked_by' => $userId,
@@ -102,8 +102,8 @@ class ResolveDeliveryReviewAction
                 'admin_reviewed_by' => null,
                 'admin_reviewed_at' => null,
                 'admin_review_note' => null,
-                'is_delivered' => false,
-                'delivered_at' => null,
+                'is_delivered' => true,
+                'delivered_at' => now(),
                 'delivered_by' => $userId,
             ]);
 
@@ -152,7 +152,7 @@ class ResolveDeliveryReviewAction
                 return $lockedOrder;
             }
 
-            $this->assertCurrentState($lockedOrder, ['pending_approval'], ['pending']);
+            $this->assertCurrentState($lockedOrder, ['pending_approval', 'delivered'], ['pending']);
 
             $invoice = $lockedOrder->invoice;
 
@@ -441,7 +441,7 @@ class ResolveDeliveryReviewAction
                 ->lockForUpdate()
                 ->findOrFail($order->id);
 
-            $this->assertCurrentState($lockedOrder, ['pending_approval'], ['pending']);
+            $this->assertCurrentState($lockedOrder, ['pending_approval', 'delivered'], ['pending']);
 
             foreach ($lockedOrder->items as $item) {
                 $item->update([
