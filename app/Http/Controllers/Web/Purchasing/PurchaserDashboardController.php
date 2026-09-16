@@ -1646,8 +1646,11 @@ class PurchaserDashboardController extends Controller
                 );
 
                 $ownedInvoice->delete();
+                // Keep status as 'submitted' — pendingCarts is filtered from submittedCarts.
+                // With the GRN now cancelled, isWarehouseConfirmed() returns false,
+                // which places this cart in the pending tab automatically.
                 $ownedInvoice->purchaserCart()->update([
-                    'status' => 'pending',
+                    'status' => 'submitted',
                     'bill_number' => null,
                 ]);
             }, attempts: 3);
