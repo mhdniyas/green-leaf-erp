@@ -50,73 +50,122 @@
                             $isReadonlyCategory = (bool) ($s->is_readonly || in_array($code, ['salary', 'staff_advance', 'advance'], true));
                         @endphp
 
-                        <div class="p-2 sm:p-2.5 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200/80 transition space-y-1" data-entry-row="{{ $s->id }}">
-                            <div class="flex items-center justify-between gap-2">
-                                <div class="min-w-0 flex-1 flex items-center gap-2">
-                                    <div class="w-6 h-6 rounded-full {{ $isMinus ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-white text-slate-800 border-slate-200/60' }} border shadow-2xs flex items-center justify-center font-black text-[11px] uppercase shrink-0">
-                                        {{ $firstLetter }}
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex items-center gap-1.5 flex-wrap">
-                                            <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black {{ $isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }} shrink-0">
-                                                {{ $signPrefix }}
-                                            </span>
-                                            <span class="text-xs font-bold text-slate-900 truncate leading-none">{{ $displayName }}</span>
-                                            @if($isReadonlyCategory)
-                                                <span class="rounded bg-amber-100 border border-amber-200 text-amber-800 text-[9px] font-extrabold px-1.5 py-0.5 shrink-0">Readonly</span>
-                                            @endif
+                        @if($s->is_vendor_purchase)
+                            @php
+                                $vpSum = ($vendorPurchaseSummaries ?? [])[$s->id] ?? [
+                                    'total_amount' => 0.0,
+                                    'cash_amount' => 0.0,
+                                    'credit_amount' => 0.0,
+                                    'count' => 0,
+                                ];
+                            @endphp
+                            <div class="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2" data-entry-row="{{ $s->id }}">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0 flex-1 flex items-start gap-2">
+                                        <div class="w-6 h-6 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs flex items-center justify-center font-black text-[11px] uppercase shrink-0 mt-0.5">
+                                            <i data-lucide="shopping-bag" class="h-3 w-3"></i>
                                         </div>
-                                        <span class="text-[10px] font-medium text-slate-400 block truncate leading-none mt-0.5 ml-5">{{ $displaySub }}</span>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="text-xs font-black text-slate-900 truncate leading-none">{{ $displayName }}</span>
+                                                <span class="rounded bg-slate-200/80 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 shrink-0">Vendor Purchase</span>
+                                                @if($s->vendorSettlementRelation)
+                                                    <span class="rounded bg-slate-100 border border-slate-200 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 shrink-0">{{ $s->vendorSettlementRelation->name }}</span>
+                                                @endif
+                                            </div>
+                                            <div class="text-[11px] font-bold text-slate-600 mt-1">
+                                                Cash ₹{{ number_format($vpSum['cash_amount'], 2) }} &middot; Credit ₹{{ number_format($vpSum['credit_amount'], 2) }}
+                                            </div>
+                                            <div class="text-[10px] font-medium text-slate-400 mt-0.5">
+                                                {{ $vpSum['count'] }} {{ \Illuminate\Support\Str::plural('purchase', $vpSum['count']) }}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="text-right shrink-0">
+                                        <span class="font-mono text-xs font-black text-slate-950">
+                                            ₹{{ number_format($vpSum['total_amount'], 2) }}
+                                        </span>
                                     </div>
                                 </div>
-
-                                {{-- Amount Input (Compact h-8 / 32px height) --}}
-                                <div class="relative shrink-0 w-32 sm:w-36">
-                                    <span class="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none {{ $isMinus ? 'text-rose-500 font-black' : 'text-slate-400 font-bold' }} text-xs">{{ $isMinus ? '− ₹' : '+ ₹' }}</span>
-                                    <input type="number"
-                                           inputmode="decimal"
-                                           min="0"
-                                           step="0.01"
-                                           id="input-s-{{ $s->id }}"
-                                           data-setting-id="{{ $s->id }}"
-                                           @if($isReadonlyCategory) disabled readonly @else oninput="onOwnerInputChange(this)" onblur="formatInputOnBlur(this)" @endif
-                                           placeholder="0.00"
-                                           class="h-8 w-full rounded-lg border {{ $isMinus ? 'border-rose-200 text-rose-700' : 'border-slate-200 text-slate-950' }} {{ $isReadonlyCategory ? 'bg-slate-100 cursor-not-allowed opacity-75' : 'bg-white focus:border-emerald-500 focus:ring-emerald-500/20 focus:ring-1' }} pl-7 pr-2 text-right text-sm font-black font-mono focus:outline-none shadow-2xs transition">
+                                <div class="pt-1.5 border-t border-slate-200/60 flex items-center justify-between">
+                                    <span class="text-[10px] font-medium text-slate-400">Managed on dedicated page</span>
+                                    <a href="{{ route('shop-owner.cashbook.vendor-purchases', ['category_id' => $s->id, 'date' => $selectedDate->toDateString()]) }}"
+                                       class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-2xs transition">
+                                        <span>View Vendor Purchases</span>
+                                        <i data-lucide="arrow-right" class="h-3 w-3"></i>
+                                    </a>
                                 </div>
                             </div>
+                        @else
+                            <div class="p-2 sm:p-2.5 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200/80 transition space-y-1" data-entry-row="{{ $s->id }}">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div class="min-w-0 flex-1 flex items-center gap-2">
+                                        <div class="w-6 h-6 rounded-full {{ $isMinus ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-white text-slate-800 border-slate-200/60' }} border shadow-2xs flex items-center justify-center font-black text-[11px] uppercase shrink-0">
+                                            {{ $firstLetter }}
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-xs text-[9px] font-black {{ $isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700' }} shrink-0">
+                                                    {{ $signPrefix }}
+                                                </span>
+                                                <span class="text-xs font-bold text-slate-900 truncate leading-none">{{ $displayName }}</span>
+                                                @if($isReadonlyCategory)
+                                                    <span class="rounded bg-amber-100 border border-amber-200 text-amber-800 text-[9px] font-extrabold px-1.5 py-0.5 shrink-0">Readonly</span>
+                                                @endif
+                                            </div>
+                                            <span class="text-[10px] font-medium text-slate-400 block truncate leading-none mt-0.5 ml-5">{{ $displaySub }}</span>
+                                        </div>
+                                    </div>
 
-                            {{-- Optional or Required Note --}}
-                            @if($showNote)
-                                <div class="pt-0.5">
-                                    @if($requiresNote)
-                                        <div>
-                                            <input type="text"
-                                                   id="input-note-{{ $s->id }}"
-                                                   data-setting-id="{{ $s->id }}"
-                                                   oninput="onOwnerNoteInputChange(this, {{ $s->id }})"
-                                                   placeholder="Note (Required for this entry)..."
-                                                   class="h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none transition">
-                                            <span id="note-error-{{ $s->id }}" class="text-[10px] font-bold text-rose-600 hidden mt-0.5 block">Note required for this entry</span>
-                                        </div>
-                                    @else
-                                        <div id="note-wrapper-{{ $s->id }}" class="hidden">
-                                            <input type="text"
-                                                   id="input-note-{{ $s->id }}"
-                                                   data-setting-id="{{ $s->id }}"
-                                                   oninput="onOwnerNoteInputChange(this, {{ $s->id }})"
-                                                   placeholder="Add optional note..."
-                                                   class="h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none transition">
-                                        </div>
-                                        <button type="button"
-                                                onclick="toggleNoteInput({{ $s->id }})"
-                                                id="note-toggle-btn-{{ $s->id }}"
-                                                class="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-0.5 cursor-pointer">
-                                            <i data-lucide="plus" class="h-2.5 w-2.5"></i> Add Note
-                                        </button>
-                                    @endif
+                                    {{-- Amount Input (Compact h-8 / 32px height) --}}
+                                    <div class="relative shrink-0 w-32 sm:w-36">
+                                        <span class="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none {{ $isMinus ? 'text-rose-500 font-black' : 'text-slate-400 font-bold' }} text-xs">{{ $isMinus ? '− ₹' : '+ ₹' }}</span>
+                                        <input type="number"
+                                               inputmode="decimal"
+                                               min="0"
+                                               step="0.01"
+                                               id="input-s-{{ $s->id }}"
+                                               data-setting-id="{{ $s->id }}"
+                                               @if($isReadonlyCategory) disabled readonly @else oninput="onOwnerInputChange(this)" onblur="formatInputOnBlur(this)" @endif
+                                               placeholder="0.00"
+                                               class="h-8 w-full rounded-lg border {{ $isMinus ? 'border-rose-200 text-rose-700' : 'border-slate-200 text-slate-950' }} {{ $isReadonlyCategory ? 'bg-slate-100 cursor-not-allowed opacity-75' : 'bg-white focus:border-emerald-500 focus:ring-emerald-500/20 focus:ring-1' }} pl-7 pr-2 text-right text-sm font-black font-mono focus:outline-none shadow-2xs transition">
+                                    </div>
                                 </div>
-                            @endif
-                        </div>
+
+                                {{-- Optional or Required Note --}}
+                                @if($showNote)
+                                    <div class="pt-0.5">
+                                        @if($requiresNote)
+                                            <div>
+                                                <input type="text"
+                                                       id="input-note-{{ $s->id }}"
+                                                       data-setting-id="{{ $s->id }}"
+                                                       oninput="onOwnerNoteInputChange(this, {{ $s->id }})"
+                                                       placeholder="Note (Required for this entry)..."
+                                                       class="h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none transition">
+                                                <span id="note-error-{{ $s->id }}" class="text-[10px] font-bold text-rose-600 hidden mt-0.5 block">Note required for this entry</span>
+                                            </div>
+                                        @else
+                                            <div id="note-wrapper-{{ $s->id }}" class="hidden">
+                                                <input type="text"
+                                                       id="input-note-{{ $s->id }}"
+                                                       data-setting-id="{{ $s->id }}"
+                                                       oninput="onOwnerNoteInputChange(this, {{ $s->id }})"
+                                                       placeholder="Add optional note..."
+                                                       class="h-7 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none transition">
+                                            </div>
+                                            <button type="button"
+                                                    onclick="toggleNoteInput({{ $s->id }})"
+                                                    id="note-toggle-btn-{{ $s->id }}"
+                                                    class="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-0.5 cursor-pointer">
+                                                <i data-lucide="plus" class="h-2.5 w-2.5"></i> Add Note
+                                            </button>
+                                        @endif
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
                     @endforeach
 
                     {{-- Product Tagged Rows (If enabled for this Header) --}}

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,7 @@ class PurchaserCart extends Model
         'user_id',
         'supplier_id',
         'destination_shop_id',
+        'shop_ledger_entry_setting_id',
         'business_day_id',
         'business_date',
         'status',
@@ -43,6 +45,7 @@ class PurchaserCart extends Model
     ];
 
     protected $casts = [
+        'shop_ledger_entry_setting_id' => 'integer',
         'business_date' => 'date',
         'discount_amount' => 'decimal:2',
         'paid_amount' => 'decimal:2',
@@ -54,6 +57,11 @@ class PurchaserCart extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    public function shopLedgerEntrySetting(): BelongsTo
+    {
+        return $this->belongsTo(ShopLedgerEntrySetting::class, 'shop_ledger_entry_setting_id');
+    }
 
     public function isGreenLeafDirectPurchase(): bool
     {

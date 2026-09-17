@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\Purchasing\InvoiceStatus;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use Database\Factories\PurchaseInvoiceFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -30,6 +31,7 @@ class PurchaseInvoice extends Model
         'goods_received_id',
         'supplier_id',
         'shop_id',
+        'shop_ledger_entry_setting_id',
         'purchaser_cart_id',
         'business_day_id',
         'purchase_source',
@@ -58,6 +60,7 @@ class PurchaseInvoice extends Model
     ];
 
     protected $casts = [
+        'shop_ledger_entry_setting_id' => 'integer',
         'amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'paid_amount' => 'decimal:2',
@@ -94,6 +97,10 @@ class PurchaseInvoice extends Model
 
         if ($field !== 'invoice_number') {
             $query->orWhere('invoice_number', $value);
+        }
+
+        if (is_numeric($value)) {
+            $query->orWhere($this->getKeyName(), (int) $value);
         }
 
         return $query->first();
@@ -174,6 +181,11 @@ class PurchaseInvoice extends Model
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class, 'shop_id');
+    }
+
+    public function shopLedgerEntrySetting(): BelongsTo
+    {
+        return $this->belongsTo(ShopLedgerEntrySetting::class, 'shop_ledger_entry_setting_id');
     }
 
     public function shopVendorPayable(): HasOne

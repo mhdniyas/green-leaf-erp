@@ -72,6 +72,7 @@ use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
+use App\Models\ShopSupplier;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\VendorAdvance;
@@ -110,6 +111,7 @@ use App\Services\Purchasing\PurchasePriceReportingService;
 use App\Services\Purchasing\PurchaseReportingService;
 use App\Services\Purchasing\PurchaserExpenseReportService;
 use App\Services\Purchasing\PurchaserVendorSummaryService;
+use App\Services\Purchasing\ShopVendorPurchaseReportService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -447,7 +449,7 @@ final class CashbookController extends Controller
         return $this->renderApp('simulator', $resolved->shop_id);
     }
 
-    public function showShop(Request $request, int|string $shop): View
+    public function showShop(Request $request, int|string $shop, ShopVendorPurchaseReportService $vendorPurchaseReportService): View
     {
         $this->ensureMainAdmin($request);
 
@@ -461,6 +463,12 @@ final class CashbookController extends Controller
         $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
         $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
         $shopId = (int) $currentShop->shop_id;
+
+        $vendorPurchaseSummary = $vendorPurchaseReportService->summaryForShopPeriod(
+            $shopId,
+            $isDayDetail ? $businessDate : $monthStart,
+            $isDayDetail ? $businessDate : $monthEnd
+        );
 
         $monthlyData = $this->moneyPositionService->getShopMonthlyDailySummaries($shopId, $month);
         $dailySettlement = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $businessDate);
@@ -753,7 +761,113 @@ final class CashbookController extends Controller
             'bankingTotals',
             'bankingPagination',
             'allShopPaymentsFormattedList',
+            'vendorPurchaseSummary',
         ));
+    }
+
+    /**
+     * Dedicated read-only Vendor Purchases report for a shop.
+     */
+    public function shopVendorPurchasesReport(
+        Request $request,
+        int|string $shop,
+        ShopVendorPurchaseReportService $reportService,
+    ): View {
+        $this->ensureMainAdmin($request);
+
+        $resolved = $this->resolveShop($shop);
+        $resolved->load('client', 'preset', 'shop');
+        $shopModel = $resolved->shop ?: Shop::findOrFail($resolved->shop_id);
+        $shopId = (int) $resolved->shop_id;
+
+        $filters = $this->vendorPurchaseReportFilters($request);
+        $reportData = $reportService->report($shopId, $filters);
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+
+        return view('admin.cashbook.shops.vendor-purchases.index', [
+            'currentShop' => $resolved,
+            'shop' => $shopModel,
+            'shops' => $shops,
+            'report' => $reportData,
+            'filters' => $filters,
+        ]);
+    }
+
+    /**
+     * Parse and validate filters for shop vendor purchases report.
+     *
+     * @return array<string, mixed>
+     */
+    private function vendorPurchaseReportFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'period' => ['nullable', 'in:today,yesterday,month,custom,all'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'month' => ['nullable', 'date_format:Y-m'],
+            'date' => ['nullable', 'date'],
+            'vendor_id' => ['nullable', 'integer'],
+            'category_id' => ['nullable', 'integer'],
+            'payment' => ['nullable', 'in:all,cash,credit'],
+            'search' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $today = now('Asia/Kolkata')->startOfDay();
+        $period = $validated['period'] ?? null;
+
+        if (! $period) {
+            if (! empty($validated['date'])) {
+                $period = 'custom';
+                $startDate = Carbon::parse($validated['date'])->startOfDay();
+                $endDate = $startDate->copy();
+            } elseif (! empty($validated['month'])) {
+                $period = 'month';
+                $monthCarbon = Carbon::createFromFormat('Y-m', $validated['month']);
+                $startDate = $monthCarbon->copy()->startOfMonth();
+                $endDate = $monthCarbon->copy()->endOfMonth();
+            } elseif (! empty($validated['start_date']) || ! empty($validated['end_date'])) {
+                $period = 'custom';
+                $startDate = Carbon::parse($validated['start_date'] ?? $today)->startOfDay();
+                $endDate = Carbon::parse($validated['end_date'] ?? $validated['start_date'] ?? $today)->startOfDay();
+            } else {
+                $period = 'month';
+                $startDate = $today->copy()->startOfMonth();
+                $endDate = $today->copy()->endOfMonth();
+            }
+        } else {
+            [$startDate, $endDate] = match ($period) {
+                'today' => [$today, $today],
+                'yesterday' => [$today->copy()->subDay(), $today->copy()->subDay()],
+                'month' => [
+                    ! empty($validated['month'])
+                        ? Carbon::createFromFormat('Y-m', $validated['month'])->startOfMonth()
+                        : $today->copy()->startOfMonth(),
+                    ! empty($validated['month'])
+                        ? Carbon::createFromFormat('Y-m', $validated['month'])->endOfMonth()
+                        : $today->copy()->endOfMonth(),
+                ],
+                'custom' => [
+                    Carbon::parse($validated['start_date'] ?? $today)->startOfDay(),
+                    Carbon::parse($validated['end_date'] ?? $validated['start_date'] ?? $today)->startOfDay(),
+                ],
+                default => [$today->copy()->startOfMonth(), $today->copy()->endOfMonth()],
+            };
+        }
+
+        if ($startDate->greaterThan($endDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        return [
+            'period' => $period,
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'month' => $validated['month'] ?? $startDate->format('Y-m'),
+            'vendor_id' => isset($validated['vendor_id']) ? (int) $validated['vendor_id'] : null,
+            'category_id' => isset($validated['category_id']) ? (int) $validated['category_id'] : null,
+            'payment' => $validated['payment'] ?? 'all',
+            'search' => $validated['search'] ?? null,
+        ];
     }
 
     /**
@@ -2739,7 +2853,7 @@ final class CashbookController extends Controller
         $this->ensureShopSettings($currentShop);
 
         $settings = ShopLedgerEntrySetting::query()
-            ->with('entryType')
+            ->with(['entryType', 'vendorSettlementRelation', 'definedShopSuppliers.supplier'])
             ->where('shop_id', $currentShop->shop_id)
             ->get()
             ->sortBy(fn (ShopLedgerEntrySetting $setting): int => (int) ($setting->entryType?->display_order ?? $setting->display_order))
@@ -2770,8 +2884,15 @@ final class CashbookController extends Controller
 
         $allEntryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
 
+        $shopSuppliers = ShopSupplier::query()
+            ->with('supplier')
+            ->where('shop_id', $currentShop->shop_id)
+            ->get()
+            ->sortBy(fn (ShopSupplier $ss): string => strtolower((string) ($ss->supplier?->name ?? '')))
+            ->values();
+
         return view('admin.cashbook.settings.shop', compact(
-            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup', 'bankAdjustmentRules', 'headerGroups', 'relations', 'allEntryTypes'
+            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup', 'bankAdjustmentRules', 'headerGroups', 'relations', 'allEntryTypes', 'shopSuppliers'
         ));
     }
 
@@ -8493,6 +8614,7 @@ final class CashbookController extends Controller
             'header_group_id' => ['nullable', 'integer', 'exists:shop_ledger_header_groups,id'],
             'company_account_id' => ['nullable', 'integer', 'exists:cashbook_company_accounts,id'],
             'enabled' => ['required', 'boolean'],
+            'show_in_summary' => ['nullable', 'boolean'],
             'note_enabled' => ['nullable', 'boolean'],
             'is_readonly' => ['nullable', 'boolean'],
             'edit_policy' => ['nullable', 'string', 'in:today_only,past_days_allowed'],
@@ -8510,43 +8632,119 @@ final class CashbookController extends Controller
             'secondary_entry_type_id' => ['nullable', 'integer', 'exists:ledger_entry_types,id'],
             'secondary_amount_mode' => ['required', 'string', 'in:same_amount,percentage'],
             'secondary_amount_value' => ['nullable', 'numeric', 'min:0'],
+            'is_vendor_purchase' => ['nullable', 'boolean'],
+            'mirror_to_cashbook' => ['nullable', 'boolean'],
+            'vendor_access_mode' => ['nullable', 'string', 'in:linked_create,linked_only,defined_only'],
+            'vendor_settlement_relation_id' => ['nullable', 'integer', 'exists:shop_cashbook_relations,id'],
+            'defined_shop_supplier_ids' => ['nullable', 'array'],
+            'defined_shop_supplier_ids.*' => ['integer', 'exists:shop_suppliers,id'],
         ]);
 
         try {
             $setting = ShopLedgerEntrySetting::query()->findOrFail((int) $validated['setting_id']);
+            $isVendorPurchase = array_key_exists('is_vendor_purchase', $validated) ? (bool) $validated['is_vendor_purchase'] : (bool) $setting->is_vendor_purchase;
+            $mirrorToCashbook = array_key_exists('mirror_to_cashbook', $validated) ? (bool) $validated['mirror_to_cashbook'] : (bool) ($setting->mirror_to_cashbook ?? true);
+            $vendorAccessMode = $isVendorPurchase
+                ? ($validated['vendor_access_mode'] ?? ($setting->vendor_access_mode ?? 'linked_create'))
+                : ($setting->vendor_access_mode ?? 'linked_create');
+            $vendorSettlementRelationId = array_key_exists('vendor_settlement_relation_id', $validated) && ! empty($validated['vendor_settlement_relation_id'])
+                ? (int) $validated['vendor_settlement_relation_id']
+                : (array_key_exists('vendor_settlement_relation_id', $validated) ? null : $setting->vendor_settlement_relation_id);
+
+            if (! empty($validated['header_group_id'])) {
+                $headerBelongsToShop = ShopLedgerHeaderGroup::query()
+                    ->where('id', (int) $validated['header_group_id'])
+                    ->where('shop_id', $setting->shop_id)
+                    ->exists();
+
+                if (! $headerBelongsToShop) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The selected header group does not belong to this shop.',
+                    ], 422);
+                }
+            }
+
+            if ($vendorSettlementRelationId !== null) {
+                $relationBelongsToShop = ShopCashbookRelation::query()
+                    ->where('id', $vendorSettlementRelationId)
+                    ->where('shop_id', $setting->shop_id)
+                    ->exists();
+
+                if (! $relationBelongsToShop) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The selected settlement does not belong to this shop.',
+                    ], 422);
+                }
+            }
+
+            $hasDefinedSuppliersPayload = array_key_exists('defined_shop_supplier_ids', $validated);
+            $definedSupplierIds = [];
+            if ($hasDefinedSuppliersPayload) {
+                $rawIds = (array) ($validated['defined_shop_supplier_ids'] ?? []);
+                if (! empty($rawIds)) {
+                    $uniqueRawIds = array_values(array_unique(array_map('intval', $rawIds)));
+                    $validCount = ShopSupplier::query()
+                        ->where('shop_id', $setting->shop_id)
+                        ->whereIn('id', $uniqueRawIds)
+                        ->count();
+
+                    if ($validCount !== count($uniqueRawIds)) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'One or more selected vendors do not belong to this shop.',
+                        ], 422);
+                    }
+                    $definedSupplierIds = $uniqueRawIds;
+                }
+            }
+
             $createsChild = (bool) $validated['generates_secondary_entry'];
-            $setting->update([
-                'display_name' => array_key_exists('display_name', $validated)
-                    ? (filled($validated['display_name']) ? trim((string) $validated['display_name']) : null)
-                    : $setting->display_name,
-                'enabled' => (bool) $validated['enabled'],
-                'note_enabled' => (bool) ($validated['note_enabled'] ?? false),
-                'is_readonly' => (bool) ($validated['is_readonly'] ?? false),
-                'edit_policy' => $validated['edit_policy'] ?? ($setting->edit_policy ?? 'past_days_allowed'),
-                'header_group_id' => array_key_exists('header_group_id', $validated) && $validated['header_group_id'] ? (int) $validated['header_group_id'] : null,
-                'company_account_id' => ! empty($validated['company_account_id']) ? (int) $validated['company_account_id'] : null,
-                'default_funding_source' => $validated['default_funding_source'],
-                'include_in_sales' => (bool) $validated['include_in_sales'],
-                'include_in_income' => (bool) $validated['include_in_income'],
-                'include_in_expense' => (bool) $validated['include_in_expense'],
-                'include_in_pl' => (bool) $validated['include_in_pl'],
-                'include_in_payable' => (bool) $validated['include_in_payable'],
-                'payable_direction' => $validated['payable_direction'] ?? null,
-                'settlement_behavior' => $validated['settlement_behavior'] ?? 'none',
-                'petty_behavior' => $validated['petty_behavior'] ?? 'none',
-                'company_pending_behavior' => $validated['company_pending_behavior'] ?? 'none',
-                'generates_secondary_entry' => $createsChild,
-                'secondary_entry_type_id' => $createsChild ? ($validated['secondary_entry_type_id'] ?? null) : null,
-                'secondary_amount_mode' => $validated['secondary_amount_mode'],
-                'secondary_amount_value' => $validated['secondary_amount_mode'] === 'percentage'
-                    ? ($validated['secondary_amount_value'] ?? null)
-                    : null,
-            ]);
+
+            DB::transaction(function () use ($setting, $validated, $createsChild, $isVendorPurchase, $mirrorToCashbook, $vendorAccessMode, $vendorSettlementRelationId, $hasDefinedSuppliersPayload, $definedSupplierIds): void {
+                $setting->update([
+                    'display_name' => array_key_exists('display_name', $validated)
+                        ? (filled($validated['display_name']) ? trim((string) $validated['display_name']) : null)
+                        : $setting->display_name,
+                    'enabled' => (bool) $validated['enabled'],
+                    'show_in_summary' => array_key_exists('show_in_summary', $validated) ? (bool) $validated['show_in_summary'] : $setting->show_in_summary,
+                    'note_enabled' => (bool) ($validated['note_enabled'] ?? false),
+                    'is_readonly' => (bool) ($validated['is_readonly'] ?? false),
+                    'edit_policy' => $validated['edit_policy'] ?? ($setting->edit_policy ?? 'past_days_allowed'),
+                    'header_group_id' => array_key_exists('header_group_id', $validated) && $validated['header_group_id'] ? (int) $validated['header_group_id'] : null,
+                    'company_account_id' => ! empty($validated['company_account_id']) ? (int) $validated['company_account_id'] : null,
+                    'default_funding_source' => $validated['default_funding_source'],
+                    'include_in_sales' => (bool) $validated['include_in_sales'],
+                    'include_in_income' => (bool) $validated['include_in_income'],
+                    'include_in_expense' => (bool) $validated['include_in_expense'],
+                    'include_in_pl' => (bool) $validated['include_in_pl'],
+                    'include_in_payable' => (bool) $validated['include_in_payable'],
+                    'payable_direction' => $validated['payable_direction'] ?? null,
+                    'settlement_behavior' => $validated['settlement_behavior'] ?? 'none',
+                    'petty_behavior' => $validated['petty_behavior'] ?? 'none',
+                    'company_pending_behavior' => $validated['company_pending_behavior'] ?? 'none',
+                    'generates_secondary_entry' => $createsChild,
+                    'secondary_entry_type_id' => $createsChild ? ($validated['secondary_entry_type_id'] ?? null) : null,
+                    'secondary_amount_mode' => $validated['secondary_amount_mode'],
+                    'secondary_amount_value' => $validated['secondary_amount_mode'] === 'percentage'
+                        ? ($validated['secondary_amount_value'] ?? null)
+                        : null,
+                    'is_vendor_purchase' => $isVendorPurchase,
+                    'mirror_to_cashbook' => $mirrorToCashbook,
+                    'vendor_access_mode' => $vendorAccessMode,
+                    'vendor_settlement_relation_id' => $vendorSettlementRelationId,
+                ]);
+
+                if ($hasDefinedSuppliersPayload) {
+                    $setting->definedShopSuppliers()->sync($definedSupplierIds);
+                }
+            });
 
             return response()->json([
                 'success' => true,
                 'message' => 'Shop setting saved.',
-                'setting' => $setting->fresh('entryType'),
+                'setting' => $setting->fresh(['entryType', 'vendorSettlementRelation', 'definedShopSuppliers']),
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);

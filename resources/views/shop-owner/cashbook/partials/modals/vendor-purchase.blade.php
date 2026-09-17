@@ -11,10 +11,14 @@
                     <i data-lucide="shopping-bag" class="h-4 w-4"></i>
                 </div>
                 <div class="min-w-0">
-                    <h3 class="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 truncate">
-                        VENDOR PURCHASE
-                    </h3>
-                    <p class="text-[11px] font-bold text-slate-400 truncate">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <h3 class="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 truncate" id="vp-modal-title">
+                            VENDOR PURCHASE
+                        </h3>
+                        <span id="vp-category-badge" class="hidden rounded bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 border border-emerald-200"></span>
+                        <span id="vp-settlement-badge" class="hidden rounded bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 border border-slate-200"></span>
+                    </div>
+                    <p class="text-[11px] font-bold text-slate-400 truncate mt-0.5">
                         {{ $shop->name }} &bull; <span id="vp-date-display">{{ $selectedDate->format('d M Y') }}</span>
                     </p>
                 </div>
@@ -27,6 +31,9 @@
 
         {{-- Scrollable Form Body --}}
         <form id="vendor-purchase-form" onsubmit="event.preventDefault(); submitVendorPurchase();" class="flex-1 overflow-y-auto pt-3.5 pb-2 space-y-3.5 pr-0.5">
+            {{-- Category Context Hidden Field --}}
+            <input type="hidden" id="vp-category-id" name="shop_ledger_entry_setting_id" value="">
+
             {{-- Validation / Server Error Container --}}
             <div id="vp-error-alert" class="rounded-xl border border-rose-200 bg-rose-50/90 p-3 text-xs font-bold text-rose-800 hidden space-y-1">
                 <div class="flex items-center gap-1.5 font-black text-rose-900">
@@ -44,11 +51,13 @@
                     </label>
                     <div class="flex items-center gap-2">
                         @if($shop->isVendorCreationAllowed())
-                            <button type="button" onclick="openShopOwnerCreateVendorModal()"
-                                    class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer">
-                                <i data-lucide="plus-circle" class="h-3 w-3"></i>
-                                <span>+ New Vendor</span>
-                            </button>
+                            <div id="vp-new-vendor-btn-container">
+                                <button type="button" onclick="openShopOwnerCreateVendorModal()"
+                                        class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer">
+                                    <i data-lucide="plus-circle" class="h-3 w-3"></i>
+                                    <span>+ New Vendor</span>
+                                </button>
+                            </div>
                         @endif
                         <a href="{{ route('shop-owner.cashbook.vendors') }}" class="text-[10px] font-extrabold text-slate-500 hover:underline">
                             Settings &rarr; Vendors
@@ -59,8 +68,8 @@
                 <div id="vp-no-vendors-warning" class="{{ $linkedVendors->isEmpty() ? '' : 'hidden' }} rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800 flex items-start gap-2">
                     <i data-lucide="alert-triangle" class="h-4 w-4 shrink-0 text-amber-600 mt-0.5"></i>
                     <div>
-                        <p class="font-bold text-amber-900">No active vendors linked to this shop</p>
-                        <p class="text-[11px] text-amber-700 mt-0.5">
+                        <p class="font-bold text-amber-900" id="vp-no-vendors-title">No active vendors linked to this shop</p>
+                        <p class="text-[11px] text-amber-700 mt-0.5" id="vp-no-vendors-desc">
                             @if($shop->isVendorCreationAllowed())
                                 Click <button type="button" onclick="openShopOwnerCreateVendorModal()" class="font-black underline text-amber-900 cursor-pointer">+ New Vendor</button> above or link vendors in <a href="{{ route('shop-owner.cashbook.vendors') }}" class="font-black underline text-amber-900">Cashbook Settings &rarr; Vendors</a>.
                             @else

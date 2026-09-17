@@ -24,6 +24,7 @@ use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
 use App\Models\Product;
+use App\Models\PurchaseInvoice;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
@@ -1265,7 +1266,7 @@ class ShopOwnerController extends Controller
             ->with('success', 'Daily cashbook report moved to the new dashboard.');
     }
 
-    public function cashbookShow(Request $request): View
+    public function cashbookShow(Request $request): View|RedirectResponse
     {
         $shop = $this->ownedAccountingShop($request);
         $tab = (string) $request->input('tab', 'cashbook');
@@ -1275,6 +1276,18 @@ class ShopOwnerController extends Controller
         $startDate = (string) $request->input('start_date', $date);
         $endDate = (string) $request->input('end_date', $date);
         $month = (string) $request->input('month', substr($date, 0, 7));
+
+        if ($open === 'vendor_purchase' || $open === 'purchase') {
+            $redirectParams = [
+                'date' => $date,
+                'open' => 'new',
+            ];
+            if ($request->filled('category_id')) {
+                $redirectParams['category_id'] = $request->input('category_id');
+            }
+
+            return redirect()->route('shop-owner.cashbook.vendor-purchases', $redirectParams);
+        }
 
         if ($tab === 'reports') {
             if ($timeframe === 'monthly') {
@@ -1295,7 +1308,7 @@ class ShopOwnerController extends Controller
         $this->cashbookShopSyncService->syncAndGetProfiles();
 
         $settings = ShopLedgerEntrySetting::query()
-            ->with(['entryType:id,name,code,category', 'companyAccount:id,name,bank_name,account_number', 'headerGroup:id,name,type,cash_flow_mode,company_account_id,note_enabled,show_both_sides,product_tagging_enabled'])
+            ->with(['entryType:id,name,code,category', 'companyAccount:id,name,bank_name,account_number', 'headerGroup:id,name,type,cash_flow_mode,company_account_id,note_enabled,show_both_sides,product_tagging_enabled', 'vendorSettlementRelation:id,name', 'definedShopSuppliers.supplier'])
             ->where('shop_id', (int) $shop->id)
             ->where('enabled', true)
             ->orderBy('display_order')
@@ -1391,6 +1404,8 @@ class ShopOwnerController extends Controller
                 ])
             : collect();
 
+        $vendorPurchaseSummaries = $this->getVendorPurchaseSummaries($shop, $date, $settings);
+
         return view('shop-owner.cashbook.index', [
             'shop' => $shop,
             'selectedDate' => Carbon::parse($date),
@@ -1405,9 +1420,10 @@ class ShopOwnerController extends Controller
             'snapshot' => $snapshot,
             'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
             'openModal' => $open === 'line',
-            'openVendorPurchase' => $open === 'vendor_purchase' || $open === 'purchase',
+            'openVendorPurchase' => false,
             'linkedVendors' => $linkedVendors,
             'purchasableProducts' => $purchasableProducts,
+            'vendorPurchaseSummaries' => $vendorPurchaseSummaries,
             'timeframe' => $timeframe,
             'startDate' => $startDate,
             'endDate' => $endDate,
@@ -1672,6 +1688,7 @@ class ShopOwnerController extends Controller
             ->where('business_date', $date)
             ->get();
         $productRowsMap = $this->formatProductRowsByHeader($productEntries);
+        $vendorPurchaseSummaries = $this->getVendorPurchaseSummaries($shop, $date, $settings);
 
         return response()->json([
             'success' => true,
@@ -1679,6 +1696,7 @@ class ShopOwnerController extends Controller
             'transactions' => $transactions,
             'month_transactions' => $monthTransactions,
             'settings' => $settings,
+            'vendor_purchase_summaries' => $vendorPurchaseSummaries,
             'collection_groups' => $collectionGroups,
             'collection_summaries' => $collectionSummaries,
             'company_pending_entries' => $companyPendingEntries,
@@ -1694,10 +1712,69 @@ class ShopOwnerController extends Controller
             'payable_received_total' => $effectiveReceived,
             'payable_balance' => $payableBalance,
             'payable_by_category' => $payableByCategory,
+            'vendor_purchase_summaries' => $this->getVendorPurchaseSummaries($shop, $date, $settings),
             'product_rows' => $productRowsMap,
             'productRows' => $productRowsMap,
             'timeframe' => $timeframe,
         ]);
+    }
+
+    /**
+     * @param  Collection<int, ShopLedgerEntrySetting>  $settings
+     * @return array<int, array{setting_id: int, name: string, total_amount: float, cash_amount: float, credit_amount: float, count: int}>
+     */
+    private function getVendorPurchaseSummaries(Shop $shop, string $date, Collection $settings): array
+    {
+        $vpSettings = $settings->where('is_vendor_purchase', true);
+        if ($vpSettings->isEmpty()) {
+            return [];
+        }
+
+        $invoices = PurchaseInvoice::query()
+            ->where(function ($q) use ($shop): void {
+                $q->where('shop_id', $shop->id)
+                    ->orWhereHas('purchaserCart', fn ($cq) => $cq->where('destination_shop_id', $shop->id));
+            })
+            ->where('purchase_source', 'shop')
+            ->notCancelled()
+            ->where(function ($dq) use ($date): void {
+                $dq->where('original_business_date', $date)
+                    ->orWhere(function ($sub) use ($date): void {
+                        $sub->whereNull('original_business_date')
+                            ->whereHas('purchaserCart', fn ($pq) => $pq->where('business_date', $date));
+                    });
+            })
+            ->get();
+
+        $summaries = [];
+        foreach ($vpSettings as $vpSetting) {
+            $invoicesForSetting = $invoices->filter(function (PurchaseInvoice $inv) use ($vpSetting, $vpSettings): bool {
+                if ($inv->shop_ledger_entry_setting_id) {
+                    return (int) $inv->shop_ledger_entry_setting_id === (int) $vpSetting->id;
+                }
+
+                return $vpSettings->count() === 1;
+            });
+
+            $cashAmt = (float) $invoicesForSetting
+                ->filter(fn (PurchaseInvoice $inv): bool => strcasecmp((string) $inv->payment_method, 'Cash') === 0)
+                ->sum(fn (PurchaseInvoice $inv): float => (float) ($inv->amount - $inv->discount_amount));
+
+            $creditAmt = (float) $invoicesForSetting
+                ->filter(fn (PurchaseInvoice $inv): bool => strcasecmp((string) $inv->payment_method, 'Credit') === 0)
+                ->sum(fn (PurchaseInvoice $inv): float => (float) ($inv->amount - $inv->discount_amount));
+
+            $summaries[(int) $vpSetting->id] = [
+                'setting_id' => (int) $vpSetting->id,
+                'name' => $vpSetting->displayName(),
+                'total_amount' => round($cashAmt + $creditAmt, 2),
+                'cash_amount' => round($cashAmt, 2),
+                'credit_amount' => round($creditAmt, 2),
+                'count' => $invoicesForSetting->count(),
+            ];
+        }
+
+        return $summaries;
     }
 
     /**

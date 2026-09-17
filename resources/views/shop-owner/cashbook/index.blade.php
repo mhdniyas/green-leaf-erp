@@ -3,6 +3,13 @@
 @section('title', 'Daily Cashbook — '.$shop->name)
 @section('page_title', 'Daily Cashbook')
 @section('page_description', 'Record daily collections, store expenses, settlements, and closing cash balance.')
+@section('page_actions')
+    <a href="{{ route('shop-owner.cashbook.vendor-purchases') }}"
+       class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-800 shadow-xs hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 transition cursor-pointer">
+        <i data-lucide="shopping-bag" class="h-3.5 w-3.5 text-emerald-600"></i>
+        <span>Vendor Purchases</span>
+    </a>
+@endsection
 
 @section('content')
 @php
@@ -177,6 +184,20 @@
             'funding_source' => $fundingSource,
             'destination_label' => $resolver->resolveDestinationLabel($s),
             'is_readonly' => (bool) ($s->is_readonly || in_array($code, ['salary', 'staff_advance', 'advance'], true)),
+            'is_vendor_purchase' => (bool) ($s->is_vendor_purchase ?? false),
+            'mirror_to_cashbook' => (bool) ($s->mirror_to_cashbook ?? true),
+            'vendor_purchase_summary' => ($vendorPurchaseSummaries ?? [])[$s->id] ?? [
+                'setting_id' => (int) $s->id,
+                'name' => $s->displayName(),
+                'total_amount' => 0.0,
+                'cash_amount' => 0.0,
+                'credit_amount' => 0.0,
+                'count' => 0,
+            ],
+            'vendor_access_mode' => (string) ($s->vendor_access_mode ?? 'linked_create'),
+            'vendor_settlement_relation_id' => $s->vendor_settlement_relation_id ? (int) $s->vendor_settlement_relation_id : null,
+            'vendor_settlement_name' => $s->vendorSettlementRelation?->name,
+            'defined_supplier_ids' => $s->definedShopSuppliers->pluck('supplier_id')->map(fn ($id) => (int) $id)->values()->all(),
         ];
     })->values()->all();
 
@@ -343,9 +364,6 @@
 @include('shop-owner.cashbook.partials.modals.out-header')
 @include('shop-owner.cashbook.partials.modals.header-entry')
 @include('shop-owner.cashbook.partials.modals.product-search')
-@if($shop->isPurchasingEnabled())
-    @include('shop-owner.cashbook.partials.modals.vendor-purchase')
-@endif
 
 @push('scripts')
     @include('shop-owner.cashbook.partials.scripts')

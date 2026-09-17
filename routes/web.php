@@ -268,6 +268,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/cashbook/create', [ShopOwnerController::class, 'cashbookCreate'])->name('cashbook.create');
         Route::get('/cashbook/settings', [ShopOwnerController::class, 'cashbookSettings'])->name('cashbook.settings');
         Route::get('/cashbook/vendors', [CashbookVendorController::class, 'shopOwnerIndex'])->name('cashbook.vendors');
+        Route::get('/cashbook/vendor-purchases', [ShopPurchaseController::class, 'vendorPurchasesPage'])->name('cashbook.vendor-purchases');
+        Route::get('/cashbook/vendor-purchases/{invoice}', [ShopPurchaseController::class, 'showPurchase'])->name('cashbook.vendor-purchases.show');
+        Route::put('/cashbook/vendor-purchases/{invoice}', [ShopPurchaseController::class, 'updatePurchase'])->name('cashbook.vendor-purchases.update');
+        Route::delete('/cashbook/vendor-purchases/{invoice}', [ShopPurchaseController::class, 'destroyPurchase'])->name('cashbook.vendor-purchases.destroy');
         Route::get('/cashbook/reports', [ShopOwnerController::class, 'cashbookReports'])->name('cashbook.reports');
         Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
             Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
@@ -934,6 +938,7 @@ Route::middleware('auth')->group(function () {
             Route::get('post-entry', [CashbookController::class, 'postEntryPage'])->name('post-entry');
             Route::get('post-entry/{shop}', [CashbookController::class, 'postEntryPageForShop'])->name('post-entry.shop');
             Route::get('shops/{shop}', [CashbookController::class, 'showShop'])->name('shop.show');
+            Route::get('shops/{shop}/purchases/vendors', [CashbookController::class, 'shopVendorPurchasesReport'])->name('shop.purchases.vendors');
             Route::post('shops/{shop}/day/accept-selected', [CashbookController::class, 'acceptSelectedDayEntries'])->name('shop.day.accept-selected');
             Route::post('shops/{shop}/day/verify-selected', [CashbookController::class, 'verifySelectedDayEntries'])->name('shop.day.verify-selected');
             Route::post('shops/{shop}/day/adjustments', [CashbookController::class, 'storeDayAdjustment'])->name('shop.day.adjustments.store');

@@ -93,6 +93,41 @@
                 </div>
             @endif
         </div>
+
+        @if($setting->is_vendor_purchase)
+            <div class="mt-2.5 rounded-xl border border-violet-200 bg-violet-50/70 p-2 text-[11px] font-bold text-violet-900 space-y-0.5 ml-5">
+                <div class="flex items-center gap-1.5 font-black text-violet-950">
+                    <i data-lucide="store" class="h-3 w-3 text-violet-600 shrink-0"></i>
+                    <span>Vendor Purchase</span>
+                </div>
+                @if($setting->vendorSettlementRelation)
+                    <div class="flex items-center gap-1 text-[10px] text-violet-700 truncate">
+                        <span class="text-violet-500 font-semibold">Settlement:</span>
+                        <span class="truncate">{{ $setting->vendorSettlementRelation->name }}</span>
+                    </div>
+                @endif
+                <div class="flex items-center gap-1 text-[10px] text-violet-700">
+                    <span class="text-violet-500 font-semibold">Mirror to Cashbook:</span>
+                    <span class="{{ ($setting->mirror_to_cashbook ?? true) ? 'text-emerald-700' : 'text-slate-500' }}">
+                        {{ ($setting->mirror_to_cashbook ?? true) ? 'ON' : 'OFF' }}
+                    </span>
+                </div>
+                <div class="flex items-center gap-1 text-[10px] text-violet-700">
+                    <span class="text-violet-500 font-semibold">Vendors:</span>
+                    <span>
+                        @if($setting->vendor_access_mode === 'linked_create')
+                            Linked + Create
+                        @elseif($setting->vendor_access_mode === 'linked_only')
+                            Linked Only
+                        @elseif($setting->vendor_access_mode === 'defined_only')
+                            {{ $setting->definedShopSuppliers->count() }} Defined
+                        @else
+                            Linked + Create
+                        @endif
+                    </span>
+                </div>
+            </div>
+        @endif
     </div>
 
     <div class="card-footer mt-4 flex items-center justify-between border-t border-slate-100 pt-2 text-xs font-extrabold transition {{ $isEnabled ? 'text-slate-500 group-hover:text-slate-950' : 'text-slate-400' }}">

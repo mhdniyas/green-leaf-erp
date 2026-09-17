@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models\Cashbook;
 
+use App\Models\ShopSupplier;
 use App\Services\Cashbook\CashFlowResolutionService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShopLedgerEntrySetting extends Model
@@ -22,15 +24,19 @@ class ShopLedgerEntrySetting extends Model
         'settlement_behavior', 'petty_behavior', 'company_pending_behavior',
         'generates_secondary_entry', 'secondary_entry_type_id',
         'secondary_amount_mode', 'secondary_amount_value', 'display_order',
+        'is_vendor_purchase', 'mirror_to_cashbook', 'vendor_access_mode', 'vendor_settlement_relation_id',
     ];
 
     protected $casts = [
         'header_group_id' => 'integer',
         'header_display_order' => 'integer',
         'company_account_id' => 'integer',
+        'vendor_settlement_relation_id' => 'integer',
         'effective_from' => 'date',
         'effective_to' => 'date',
         'enabled' => 'boolean',
+        'is_vendor_purchase' => 'boolean',
+        'mirror_to_cashbook' => 'boolean',
         'show_in_summary' => 'boolean',
         'note_enabled' => 'boolean',
         'is_readonly' => 'boolean',
@@ -57,6 +63,26 @@ class ShopLedgerEntrySetting extends Model
     public function companyAccount(): BelongsTo
     {
         return $this->belongsTo(CompanyAccount::class, 'company_account_id');
+    }
+
+    public function vendorSettlementRelation(): BelongsTo
+    {
+        return $this->belongsTo(ShopCashbookRelation::class, 'vendor_settlement_relation_id');
+    }
+
+    public function categoryVendorMappings(): HasMany
+    {
+        return $this->hasMany(CategoryVendorMapping::class, 'shop_ledger_entry_setting_id');
+    }
+
+    public function definedShopSuppliers(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            ShopSupplier::class,
+            'category_vendor_mappings',
+            'shop_ledger_entry_setting_id',
+            'shop_supplier_id'
+        )->withTimestamps();
     }
 
     public function secondaryEntryType(): BelongsTo

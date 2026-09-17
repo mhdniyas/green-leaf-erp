@@ -27,13 +27,3 @@
         </a>
     </div>
 </div>
-
-@if ($shop->isPurchasingEnabled())
-    <div class="pt-0.5">
-        <button type="button" onclick="openVendorPurchaseModal()"
-                class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 px-4 text-xs font-black uppercase tracking-wider text-white shadow-xs active:scale-[0.99] transition cursor-pointer">
-            <i data-lucide="plus-circle" class="h-4 w-4"></i>
-            <span>+ Vendor Purchase</span>
-        </button>
-    </div>
-@endif

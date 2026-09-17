@@ -926,6 +926,126 @@
                         <p class="mt-1 text-[11px] font-semibold text-slate-500">Controls whether shop users can record/edit entries on past open business days.</p>
                     </div>
 
+                    <!-- Vendor Purchase Capability Section -->
+                    <div class="rounded-2xl border border-violet-200 bg-violet-50/50 p-4 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-xs font-extrabold text-violet-950 flex items-center gap-1.5">
+                                    <i data-lucide="store" class="h-4 w-4 text-violet-600"></i>
+                                    <span>Vendor Purchase Capability</span>
+                                </div>
+                                <div class="text-[11px] font-semibold text-violet-700/80">Allow shop owners to record vendor item purchases under this category.</div>
+                            </div>
+                            <input type="hidden" name="is_vendor_purchase" value="0">
+                            <label class="relative inline-flex cursor-pointer items-center">
+                                <input type="checkbox"
+                                       name="is_vendor_purchase"
+                                       value="1"
+                                       id="is-vendor-purchase-{{ $setting->id }}"
+                                       @checked($setting->is_vendor_purchase)
+                                       onchange="toggleVendorPurchaseFields({{ $setting->id }})"
+                                       class="sr-only peer">
+                                <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-600"></div>
+                            </label>
+                        </div>
+
+                        <div id="vendor-purchase-fields-{{ $setting->id }}" class="{{ $setting->is_vendor_purchase ? '' : 'hidden' }} space-y-4 pt-2 border-t border-violet-200/60">
+                            <!-- Mirror to Cashbook -->
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <label class="block text-xs font-extrabold text-slate-900">Mirror to Cashbook</label>
+                                    <p class="text-[11px] font-semibold text-slate-500">Show mirrored Vendor Purchase totals in Shop Cashbook under the assigned Header.</p>
+                                </div>
+                                <input type="hidden" name="mirror_to_cashbook" value="0">
+                                <label class="relative inline-flex cursor-pointer items-center">
+                                    <input type="checkbox"
+                                           name="mirror_to_cashbook"
+                                           value="1"
+                                           id="mirror-to-cashbook-{{ $setting->id }}"
+                                           @checked($setting->mirror_to_cashbook ?? true)
+                                           class="sr-only peer">
+                                    <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-600"></div>
+                                </label>
+                            </div>
+
+                            <!-- Settlement Selection -->
+                            <div>
+                                <label class="block text-xs font-extrabold text-slate-900 mb-1">Settlement Relation</label>
+                                <select name="vendor_settlement_relation_id" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-violet-500 focus:outline-none">
+                                    <option value="">None / Unassigned</option>
+                                    @foreach($relations as $rel)
+                                        <option value="{{ $rel->id }}" @selected((int) $setting->vendor_settlement_relation_id === (int) $rel->id)>
+                                             {{ $rel->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <p class="mt-1 text-[11px] font-semibold text-slate-500">Maps vendor purchases in this category to an existing shop settlement.</p>
+                            </div>
+
+                            <!-- Vendor Access Mode -->
+                            <div>
+                                <label class="block text-xs font-extrabold text-slate-900 mb-1">Vendor Access Mode</label>
+                                <select name="vendor_access_mode"
+                                        id="vendor-access-mode-{{ $setting->id }}"
+                                        onchange="toggleDefinedVendorsSection({{ $setting->id }})"
+                                        class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:border-violet-500 focus:outline-none">
+                                    <option value="linked_create" @selected(($setting->vendor_access_mode ?? 'linked_create') === 'linked_create')>Linked Vendors + Create</option>
+                                    <option value="linked_only" @selected(($setting->vendor_access_mode ?? 'linked_create') === 'linked_only')>Linked Vendors Only</option>
+                                    <option value="defined_only" @selected(($setting->vendor_access_mode ?? 'linked_create') === 'defined_only')>Defined Vendors Only</option>
+                                </select>
+                                <p class="mt-1 text-[11px] font-semibold text-slate-500">Controls which vendors are usable and whether vendor creation is allowed.</p>
+                            </div>
+
+                            <!-- Defined Vendors Checklist (When defined_only is active) -->
+                            <div id="defined-vendors-section-{{ $setting->id }}" class="{{ ($setting->vendor_access_mode === 'defined_only') ? '' : 'hidden' }} space-y-2">
+                                <label class="block text-xs font-extrabold text-slate-900">Allowed Vendors</label>
+                                @php
+                                    $definedVendorPivotIds = $setting->definedShopSuppliers->pluck('id')->all();
+                                @endphp
+                                @if(isset($shopSuppliers) && $shopSuppliers->isNotEmpty())
+                                    <div class="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2.5 space-y-1.5 divide-y divide-slate-100">
+                                        @foreach($shopSuppliers as $shopSup)
+                                            @php
+                                                $sup = $shopSup->supplier;
+                                                $isAssigned = in_array((int) $shopSup->id, $definedVendorPivotIds, true);
+                                            @endphp
+                                            <label class="flex items-center justify-between gap-2 p-1.5 hover:bg-slate-50 rounded-lg cursor-pointer pt-2 first:pt-1">
+                                                <div class="flex items-center gap-2 min-w-0">
+                                                    <input type="checkbox"
+                                                           name="defined_shop_supplier_ids[]"
+                                                           value="{{ $shopSup->id }}"
+                                                           @checked($isAssigned)
+                                                           class="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500">
+                                                    <div class="min-w-0">
+                                                        <div class="text-xs font-bold text-slate-900 truncate">{{ $sup?->name ?? 'Vendor #'.$shopSup->supplier_id }}</div>
+                                                        <div class="text-[10px] font-semibold text-slate-400 truncate">{{ $sup?->mobile_number ?: ($sup?->contact ?: 'No phone') }}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="flex items-center gap-1.5 shrink-0">
+                                                    @if($shopSup->is_active)
+                                                        <span class="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">Active</span>
+                                                    @else
+                                                        <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 border border-slate-200">Disabled</span>
+                                                    @endif
+
+                                                    @if($shopSup->credit_approved)
+                                                        <span class="rounded-md bg-sky-50 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 border border-sky-200">Credit Approved</span>
+                                                    @else
+                                                        <span class="rounded-md bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 border border-amber-200">Cash Only</span>
+                                                    @endif
+                                                </div>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                @else
+                                    <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs font-semibold text-slate-500">
+                                        No vendors linked to this shop yet. Link vendors in <a href="{{ route('admin.cashbook.settings.shop.vendors.index', ['shop' => $currentShop->slug ?: $currentShop->shop_id]) }}" class="text-violet-600 underline font-bold" target="_blank">Vendor Settings</a>.
+                                    </div>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Bank Adjustment Rules Button -->
                     @php
                         $rulesForThisSetting = isset($bankAdjustmentRules) ? ($bankAdjustmentRules->get($setting->entry_type_id) ?? collect()) : collect();
@@ -2511,11 +2631,52 @@ function setPayableChoice(settingId, choice) {
     }
 }
 
+function toggleVendorPurchaseFields(settingId) {
+    const isChecked = document.getElementById('is-vendor-purchase-' + settingId)?.checked;
+    const fieldsContainer = document.getElementById('vendor-purchase-fields-' + settingId);
+    if (fieldsContainer) {
+        if (isChecked) {
+            fieldsContainer.classList.remove('hidden');
+        } else {
+            fieldsContainer.classList.add('hidden');
+        }
+    }
+}
+
+function toggleDefinedVendorsSection(settingId) {
+    const mode = document.getElementById('vendor-access-mode-' + settingId)?.value;
+    const definedContainer = document.getElementById('defined-vendors-section-' + settingId);
+    if (definedContainer) {
+        if (mode === 'defined_only') {
+            definedContainer.classList.remove('hidden');
+        } else {
+            definedContainer.classList.add('hidden');
+        }
+    }
+}
+
 async function saveShopSetting(event, settingId) {
     event.preventDefault();
     const form = event.target;
     const button = form.querySelector('button[type="submit"]');
-    const payload = Object.fromEntries(new FormData(form).entries());
+    const formData = new FormData(form);
+    const payload = {};
+
+    for (const [key, value] of formData.entries()) {
+        if (key.endsWith('[]')) {
+            const cleanKey = key.slice(0, -2);
+            if (!payload[cleanKey]) {
+                payload[cleanKey] = formData.getAll(key);
+            }
+        } else {
+            payload[key] = value;
+        }
+    }
+
+    if (!payload.defined_shop_supplier_ids && form.querySelector('input[name="defined_shop_supplier_ids[]"]')) {
+        payload.defined_shop_supplier_ids = [];
+    }
+
     payload.setting_id = settingId;
 
     if (button) {

@@ -107,10 +107,10 @@ class ShopCashbookVendorPurchaseUiTest extends TestCase
 
     public function test_vendor_purchase_button_is_visible_when_purchasing_is_enabled(): void
     {
-        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show'));
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.vendor-purchases'));
 
         $response->assertOk();
-        $response->assertSee('+ Vendor Purchase');
+        $response->assertSee('New Vendor Purchase');
         $response->assertSee('VENDOR PURCHASE');
         $response->assertSee('Kisan Organic Supplies');
         $response->assertSee('Cash Only Mandi');
@@ -330,30 +330,32 @@ class ShopCashbookVendorPurchaseUiTest extends TestCase
         $responseDisabled->assertDontSee('+ Vendor Purchase');
         $responseDisabled->assertDontSee('id="vendor-purchase-modal"', false);
 
-        // 2. When enabled
+        // 2. Dedicated page when enabled
         $this->shop->update(['shop_purchasing_enabled' => true]);
-        $responseEnabled = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show'));
+        $responseEnabled = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.vendor-purchases'));
         $responseEnabled->assertOk();
-        $responseEnabled->assertSee('+ Vendor Purchase');
+        $responseEnabled->assertSee('New Vendor Purchase');
         $responseEnabled->assertSee('id="vendor-purchase-modal"', false);
         $responseEnabled->assertSee($this->activeVendorWithCredit->name);
     }
 
-    public function test_shop_owner_cashbook_shows_new_vendor_button_only_when_vendor_creation_is_allowed(): void
+    public function test_shop_owner_vendor_purchases_hides_new_vendor_button_when_vendor_creation_is_disabled(): void
     {
-        // 1. When vendor creation is OFF
         $this->shop->update(['shop_purchasing_enabled' => true, 'allow_vendor_creation' => false]);
-        $responseOff = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show'));
-        $responseOff->assertOk();
-        $responseOff->assertDontSee('+ New Vendor');
-        $responseOff->assertDontSee('id="vp-new-vendor-modal"', false);
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.vendor-purchases'));
+        $response->assertOk();
+        $response->assertDontSee('id="vp-new-vendor-btn-container"', false);
+        $response->assertDontSee('id="vp-new-vendor-modal"', false);
+    }
 
-        // 2. When vendor creation is ON
+    public function test_shop_owner_vendor_purchases_shows_new_vendor_button_when_vendor_creation_is_enabled(): void
+    {
         $this->shop->update(['shop_purchasing_enabled' => true, 'allow_vendor_creation' => true]);
-        $responseOn = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show'));
-        $responseOn->assertOk();
-        $responseOn->assertSee('+ New Vendor');
-        $responseOn->assertSee('id="vp-new-vendor-modal"', false);
+        $user = User::find($this->shopUser->id);
+        $response = $this->actingAs($user)->get(route('shop-owner.cashbook.vendor-purchases'));
+        $response->assertOk();
+        $response->assertSee('id="vp-new-vendor-btn-container"', false);
+        $response->assertSee('id="vp-new-vendor-modal"', false);
     }
 
     public function test_shop_owner_creates_vendor_via_purchasing_endpoint_and_records_cash_purchase(): void
@@ -517,7 +519,7 @@ class ShopCashbookVendorPurchaseUiTest extends TestCase
     {
         $this->shop->update(['shop_purchasing_enabled' => true]);
 
-        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show', ['date' => '2026-09-15']));
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.vendor-purchases', ['date' => '2026-09-15']));
         $response->assertOk();
 
         $response->assertSee('toggleVpProductDropdown', false);
@@ -538,7 +540,7 @@ class ShopCashbookVendorPurchaseUiTest extends TestCase
     {
         $this->shop->update(['shop_purchasing_enabled' => true]);
 
-        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show', ['date' => '2026-09-15']));
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.vendor-purchases', ['date' => '2026-09-15']));
         $response->assertOk();
 
         // Custom vendor dropdown markup

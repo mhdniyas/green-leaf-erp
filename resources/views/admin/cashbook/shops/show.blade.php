@@ -349,7 +349,7 @@
         </div>
 
         <!-- ── CUMULATIVE SETTLEMENT & PAYMENT NET POSITION CARDS ─────────── -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <!-- Settlement Obligations Card -->
             <div class="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -426,6 +426,38 @@
                        :class="netPositionDirection === 'shop_owes_company' ? 'text-amber-400' : (netPositionDirection === 'company_owes_shop' ? 'text-sky-400' : 'text-emerald-400')">
                         ₹<span x-text="formatCurrency(netPositionAmount)">{{ number_format($netPositionAmount, 2) }}</span>
                     </p>
+                </div>
+            </div>
+
+            <!-- Vendor Purchases Card -->
+            <div class="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2 flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                            <i data-lucide="store" class="w-3.5 h-3.5 text-emerald-600"></i>
+                            Vendor Purchases
+                        </span>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono">
+                            {{ $isDayDetail ? \Illuminate\Support\Carbon::parse($businessDate)->format('d M') : \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('M Y') }}
+                        </span>
+                    </div>
+                    <div class="pt-2">
+                        <div class="text-2xl font-black font-mono text-slate-900">
+                            ₹{{ number_format($vendorPurchaseSummary['total_purchase'] ?? 0, 2) }}
+                        </div>
+                        <div class="text-[11px] text-slate-500 font-medium pt-1">
+                            Cash <strong class="text-slate-800 font-mono font-bold">₹{{ number_format($vendorPurchaseSummary['cash_purchase'] ?? 0, 2) }}</strong>
+                            &middot;
+                            Credit <strong class="text-slate-800 font-mono font-bold">₹{{ number_format($vendorPurchaseSummary['credit_purchase'] ?? 0, 2) }}</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="pt-2 border-t border-slate-100 flex justify-end">
+                    <a href="{{ route('admin.cashbook.shop.purchases.vendors', [$currentShop->slug ?: $currentShop->shop_id, 'month' => $month, 'date' => $isDayDetail ? $businessDate : null, 'period' => $isDayDetail ? 'custom' : 'month', 'start_date' => $isDayDetail ? $businessDate : $monthStart, 'end_date' => $isDayDetail ? $businessDate : $monthEnd]) }}"
+                       class="inline-flex items-center gap-1 text-xs font-black text-emerald-700 hover:text-emerald-800 transition">
+                        <span>View Vendor Purchases</span>
+                        <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                    </a>
                 </div>
             </div>
         </div>
@@ -1079,8 +1111,8 @@
                 </div>
             </div>
 
-            <!-- Supporting Secondary 3 Metrics Grid -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 text-xs">
+            <!-- Supporting Secondary Metrics Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-100 text-xs">
                 <div class="p-3 rounded-xl bg-slate-50/50 border border-slate-100 flex items-center justify-between">
                     <span class="font-extrabold text-slate-500">Still With Shop (Cash)</span>
                     <span class="font-mono font-black text-slate-800">₹{{ number_format($cashWithShopAmount, 2) }}</span>
@@ -1092,6 +1124,19 @@
                 <div class="p-3 rounded-xl bg-amber-50/50 border border-amber-100 flex items-center justify-between">
                     <span class="font-extrabold text-amber-800">Pending Review</span>
                     <span class="font-mono font-black text-amber-900">₹{{ number_format($pendingAcceptanceAmount, 2) }}</span>
+                </div>
+                <div class="p-3 rounded-xl bg-emerald-50/50 border border-emerald-100 flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="font-extrabold text-emerald-800">Vendor Purchases</span>
+                        <span class="text-[10px] text-slate-500 font-medium">
+                            Cash ₹{{ number_format($vendorPurchaseSummary['cash_purchase'] ?? 0, 2) }} &middot; Credit ₹{{ number_format($vendorPurchaseSummary['credit_purchase'] ?? 0, 2) }}
+                        </span>
+                    </div>
+                    <div class="flex flex-col items-end">
+                        <span class="font-mono font-black text-slate-900">₹{{ number_format($vendorPurchaseSummary['total_purchase'] ?? 0, 2) }}</span>
+                        <a href="{{ route('admin.cashbook.shop.purchases.vendors', [$currentShop->slug ?: $currentShop->shop_id, 'date' => $businessDate, 'period' => 'custom', 'start_date' => $businessDate, 'end_date' => $businessDate]) }}"
+                           class="text-[10px] font-bold text-emerald-700 hover:underline">View Vendor Purchases &rarr;</a>
+                    </div>
                 </div>
             </div>
         </div>
