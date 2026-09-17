@@ -40,6 +40,7 @@ use App\Models\Cashbook\ShopBankSettlementAdjustmentRule;
 use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopConfigPreset;
+use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerCollectionGroup;
 use App\Models\Cashbook\ShopLedgerCollectionGroupEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
@@ -511,6 +512,39 @@ final class CashbookController extends Controller
             ->latest('id')
             ->limit(5)
             ->get();
+        $periodStart = $isDayDetail ? $businessDate : $monthStart;
+        $periodEnd = $isDayDetail ? $businessDate : $monthEnd;
+
+        $pettyConfig = $currentShop->getPaymentConfiguration()['petty'] ?? [
+            'configured' => false,
+            'enabled' => true,
+            'allow_company_to_petty' => false,
+            'shop_owner_view_petty' => true,
+            'allow_expenses_from_petty' => true,
+        ];
+
+        $currentPettyBalance = (float) (ShopDailyLedgerSnapshot::query()
+            ->where('shop_id', $shopId)
+            ->where('business_date', '<=', $periodEnd)
+            ->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->value('closing_petty') ?? 0.0);
+
+        $companyFundedPeriod = (float) ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$periodStart, $periodEnd])
+            ->where('petty_delta', '>', 0)
+            ->whereHas('entryType', fn (Builder $q): Builder => $q->where('code', 'company_to_petty'))
+            ->active()
+            ->sum('petty_delta');
+
+        $pettyUsedPeriod = abs((float) ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$periodStart, $periodEnd])
+            ->where('petty_delta', '<', 0)
+            ->active()
+            ->sum('petty_delta'));
+
         $recentPettyActivity = ShopLedgerTransaction::query()
             ->with('entryType')
             ->where('shop_id', $shopId)
@@ -520,6 +554,27 @@ final class CashbookController extends Controller
             ->latest('id')
             ->limit(3)
             ->get();
+
+        $pettyHistory = ShopLedgerTransaction::query()
+            ->with(['entryType', 'enteredBy', 'approvedBy', 'companyAccount'])
+            ->where('shop_id', $shopId)
+            ->whereBetween('business_date', [$periodStart, $periodEnd])
+            ->where(function (Builder $q): void {
+                $q->where('petty_delta', '!=', 0)
+                    ->orWhereHas('entryType', fn (Builder $eq): Builder => $eq->where('code', 'company_to_petty'));
+            })
+            ->latest('business_date')
+            ->latest('id')
+            ->limit(50)
+            ->get();
+
+        $pettyFundingCompanyAccounts = CompanyAccount::query()
+            ->where('enabled', true)
+            ->whereIn('account_type', ['cash', 'bank'])
+            ->orderBy('is_default', 'desc')
+            ->orderBy('name')
+            ->get();
+
         $openLedgerItems = ShopLedgerTransaction::query()
             ->where('shop_id', $shopId)
             ->where('settlement_delta', '!=', 0)
@@ -762,6 +817,14 @@ final class CashbookController extends Controller
             'bankingPagination',
             'allShopPaymentsFormattedList',
             'vendorPurchaseSummary',
+            'periodStart',
+            'periodEnd',
+            'pettyConfig',
+            'currentPettyBalance',
+            'companyFundedPeriod',
+            'pettyUsedPeriod',
+            'pettyHistory',
+            'pettyFundingCompanyAccounts',
         ));
     }
 
@@ -8470,6 +8533,94 @@ final class CashbookController extends Controller
     }
 
     /**
+     * Dedicated endpoint for Company -> Shop Petty funding.
+     */
+    public function fundShopPetty(FundShopPettyRequest $request, int|string $shop): JsonResponse|RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+        $pettyConfig = $currentShop->getPaymentConfiguration()['petty'] ?? [
+            'configured' => false,
+            'enabled' => true,
+            'allow_company_to_petty' => false,
+        ];
+
+        if (! $pettyConfig['enabled'] || ! $pettyConfig['allow_company_to_petty']) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Company to Petty funding is disabled for this shop in payment settings.',
+                ], 422);
+            }
+
+            return back()->with('error', 'Company to Petty funding is disabled for this shop in payment settings.');
+        }
+
+        $validated = $request->validated();
+        $erpShop = $currentShop->shop ?? Shop::query()->findOrFail((int) $currentShop->shop_id);
+
+        $companyAccount = CompanyAccount::query()
+            ->where('enabled', true)
+            ->whereIn('account_type', ['cash', 'bank'])
+            ->where(function (Builder $query) use ($validated): void {
+                if (! empty($validated['company_account_id'])) {
+                    $query->where('id', (int) $validated['company_account_id']);
+                } elseif (! empty($validated['company_account_uuid'])) {
+                    $query->where('public_uuid', $validated['company_account_uuid']);
+                }
+            })
+            ->first();
+
+        if (! $companyAccount) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The selected company funding account is invalid or inactive.',
+                ], 422);
+            }
+
+            return back()->with('error', 'The selected company funding account is invalid or inactive.');
+        }
+
+        $amount = (float) $validated['amount'];
+        $businessDate = $validated['business_date'];
+        $requestUuid = $validated['request_uuid'] ?? (string) Str::uuid();
+
+        try {
+            $statement = $this->shopPettyFundingService->fund($erpShop, [
+                'business_date' => $businessDate,
+                'amount' => $amount,
+                'company_account' => $companyAccount,
+                'request_uuid' => $requestUuid,
+                'reference' => $validated['reference'] ?? null,
+                'notes' => $validated['notes'] ?? null,
+            ], (int) $request->user()->id);
+
+            $message = '₹'.number_format($amount, 2).' petty funding recorded successfully for '.$erpShop->name.'.';
+
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $message,
+                    'movement_uuid' => $statement->public_uuid,
+                    'reconciliation_status' => $statement->status,
+                ]);
+            }
+
+            return back()->with('success', $message);
+        } catch (Throwable $e) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                ], 422);
+            }
+
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
      * API: Company reimburses / pays a shop (validated via PayShopRequest).
      */
     public function payShop(FundShopPettyRequest $request): JsonResponse
@@ -8479,14 +8630,21 @@ final class CashbookController extends Controller
         try {
             $shop = Shop::query()->where('public_uuid', $validated['shop_uuid'])->firstOrFail();
             $companyAccount = CompanyAccount::query()
-                ->where('public_uuid', $validated['company_account_uuid'])
                 ->where('enabled', true)
+                ->whereIn('account_type', ['cash', 'bank'])
+                ->where(function (Builder $query) use ($validated): void {
+                    if (! empty($validated['company_account_id'])) {
+                        $query->where('id', (int) $validated['company_account_id']);
+                    } elseif (! empty($validated['company_account_uuid'])) {
+                        $query->where('public_uuid', $validated['company_account_uuid']);
+                    }
+                })
                 ->firstOrFail();
             $statement = $this->shopPettyFundingService->fund($shop, [
                 'business_date' => $validated['business_date'],
                 'amount' => (float) $validated['amount'],
                 'company_account' => $companyAccount,
-                'request_uuid' => $validated['request_uuid'],
+                'request_uuid' => $validated['request_uuid'] ?? (string) Str::uuid(),
                 'reference' => $validated['reference'] ?? null,
                 'notes' => $validated['notes'] ?? null,
             ], (int) $request->user()->id);

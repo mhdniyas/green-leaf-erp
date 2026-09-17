@@ -11,15 +11,16 @@ class FundShopPettyRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() instanceof User && $this->user()->isMainAdmin();
+        return $this->user() instanceof User && ($this->user()->isMainAdmin() || $this->user()->hasRole('admin'));
     }
 
     public function rules(): array
     {
         return [
-            'shop_uuid' => ['required', 'uuid', 'exists:shops,public_uuid'],
-            'company_account_uuid' => ['required', 'uuid', 'exists:cashbook_company_accounts,public_uuid'],
-            'request_uuid' => ['required', 'uuid'],
+            'shop_uuid' => ['nullable', 'string'],
+            'company_account_id' => ['required_without:company_account_uuid', 'nullable', 'integer', 'exists:cashbook_company_accounts,id'],
+            'company_account_uuid' => ['required_without:company_account_id', 'nullable', 'string', 'exists:cashbook_company_accounts,public_uuid'],
+            'request_uuid' => ['nullable', 'string'],
             'business_date' => ['required', 'date_format:Y-m-d'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'reference' => ['nullable', 'string', 'max:160'],

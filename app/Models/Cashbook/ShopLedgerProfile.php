@@ -68,6 +68,9 @@ class ShopLedgerProfile extends Model
             'settlement_id' => $salesSettlementId,
         ];
 
+        $hasPettyConfig = is_array($config) && array_key_exists('petty', $config) && is_array($config['petty']);
+        $petty = $hasPettyConfig ? $config['petty'] : [];
+
         return [
             'payment_settlement_id' => $paymentSettlementId,
             'payable' => [
@@ -83,6 +86,13 @@ class ShopLedgerProfile extends Model
                 'auto_allocate' => (bool) ($expenseAllocation['auto_allocate'] ?? true),
                 'category_ids' => array_values(array_map('intval', (array) ($expenseAllocation['category_ids'] ?? []))),
                 'default_category_id' => ! empty($expenseAllocation['default_category_id']) ? (int) $expenseAllocation['default_category_id'] : null,
+            ],
+            'petty' => [
+                'configured' => $hasPettyConfig,
+                'enabled' => $hasPettyConfig ? (bool) ($petty['enabled'] ?? false) : false,
+                'allow_company_to_petty' => $hasPettyConfig ? (bool) ($petty['allow_company_to_petty'] ?? false) : false,
+                'shop_owner_view_petty' => $hasPettyConfig ? (bool) ($petty['shop_owner_view_petty'] ?? true) : true,
+                'allow_expenses_from_petty' => $hasPettyConfig ? (bool) ($petty['allow_expenses_from_petty'] ?? true) : true,
             ],
         ];
     }

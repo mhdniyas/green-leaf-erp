@@ -332,6 +332,11 @@ class CashbookSettlementController extends Controller
                     ->where('shop_id', $currentShop->shop_id)
                     ->where('enabled', true)),
             ],
+            'petty' => ['sometimes', 'array:enabled,allow_company_to_petty,shop_owner_view_petty,allow_expenses_from_petty'],
+            'petty.enabled' => ['required_with:petty', 'boolean'],
+            'petty.allow_company_to_petty' => ['required_with:petty', 'boolean'],
+            'petty.shop_owner_view_petty' => ['required_with:petty', 'boolean'],
+            'petty.allow_expenses_from_petty' => ['required_with:petty', 'boolean'],
         ]);
 
         $allowedExpenseIds = $currentShop->entrySettings()

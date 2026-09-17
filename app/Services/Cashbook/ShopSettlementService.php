@@ -934,6 +934,17 @@ class ShopSettlementService
                 ],
             ];
 
+            if (isset($config['petty']) && is_array($config['petty'])) {
+                $cleanConfig['petty'] = [
+                    'enabled' => (bool) ($config['petty']['enabled'] ?? false),
+                    'allow_company_to_petty' => (bool) ($config['petty']['allow_company_to_petty'] ?? false),
+                    'shop_owner_view_petty' => (bool) ($config['petty']['shop_owner_view_petty'] ?? false),
+                    'allow_expenses_from_petty' => (bool) ($config['petty']['allow_expenses_from_petty'] ?? false),
+                ];
+            } elseif (is_array($profile->payment_configuration) && array_key_exists('petty', $profile->payment_configuration)) {
+                $cleanConfig['petty'] = $profile->payment_configuration['petty'];
+            }
+
             $profile->update(['payment_configuration' => $cleanConfig]);
 
             // Sync is_payment_payable flag on relations

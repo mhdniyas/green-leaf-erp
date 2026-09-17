@@ -18,6 +18,12 @@
     $expenseAllocationConfig = $paymentConfig['expense_allocation'];
     $expenseAllocationCategoryIds = array_map('intval', (array) $expenseAllocationConfig['category_ids']);
     $expenseAllocationDefaultCategoryId = $expenseAllocationConfig['default_category_id'];
+    $pettyConfig = $paymentConfig['petty'] ?? [
+        'enabled' => false,
+        'allow_company_to_petty' => false,
+        'shop_owner_view_petty' => true,
+        'allow_expenses_from_petty' => true,
+    ];
 @endphp
 
 <div class="mx-auto max-w-6xl space-y-6">
@@ -370,6 +376,61 @@
         </div>
     </div>
 
+    {{-- PILLAR 4: PETTY CASH SETTINGS --}}
+    <div class="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-5">
+        <div class="space-y-4">
+            <div class="flex items-start justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-3">
+                    <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs shrink-0">
+                        <i data-lucide="coins" class="h-5 w-5"></i>
+                    </span>
+                    <div>
+                        <span class="text-[10px] font-black uppercase tracking-wider text-purple-700">Shop Petty Cash</span>
+                        <h2 class="text-base font-black text-slate-950">PETTY SETTINGS</h2>
+                        <p class="text-xs text-slate-500 mt-0.5">Control petty cash funding, view permissions, and expense spending rules for this shop.</p>
+                    </div>
+                </div>
+                <span class="rounded-lg bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-extrabold text-purple-700 shrink-0">
+                    Petty Cash
+                </span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
+                    <input type="checkbox" id="petty_enabled" @checked($pettyConfig['enabled']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
+                    <div>
+                        <span class="block text-xs font-black text-slate-900">Enable Petty</span>
+                        <span class="block text-[11px] text-slate-500 font-medium">Master toggle for shop petty cash features</span>
+                    </div>
+                </label>
+
+                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
+                    <input type="checkbox" id="petty_allow_company_to_petty" @checked($pettyConfig['allow_company_to_petty']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
+                    <div>
+                        <span class="block text-xs font-black text-slate-900">Allow Company → Petty</span>
+                        <span class="block text-[11px] text-slate-500 font-medium">Allow admin to fund petty from company accounts</span>
+                    </div>
+                </label>
+
+                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
+                    <input type="checkbox" id="petty_shop_owner_view_petty" @checked($pettyConfig['shop_owner_view_petty']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
+                    <div>
+                        <span class="block text-xs font-black text-slate-900">Shop Owner Can View Petty</span>
+                        <span class="block text-[11px] text-slate-500 font-medium">Display petty balance on shop owner dashboard</span>
+                    </div>
+                </label>
+
+                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
+                    <input type="checkbox" id="petty_allow_expenses_from_petty" @checked($pettyConfig['allow_expenses_from_petty']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
+                    <div>
+                        <span class="block text-xs font-black text-slate-900">Allow Expenses From Petty</span>
+                        <span class="block text-[11px] text-slate-500 font-medium">Permit cashbook expenses paid from petty cash</span>
+                    </div>
+                </label>
+            </div>
+        </div>
+    </div>
+
     {{-- LIVE FORMULA PREVIEW BANNER --}}
     <div class="rounded-3xl border border-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 p-6 text-white shadow-md">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -469,6 +530,12 @@ async function savePaymentsSettings(e) {
             auto_allocate: document.getElementById('expense_auto_allocate')?.checked || false,
             category_ids: expenseAllocationCategoryIds,
             default_category_id: document.getElementById('expense_allocation_default_category_id')?.value || null
+        },
+        petty: {
+            enabled: document.getElementById('petty_enabled')?.checked || false,
+            allow_company_to_petty: document.getElementById('petty_allow_company_to_petty')?.checked || false,
+            shop_owner_view_petty: document.getElementById('petty_shop_owner_view_petty')?.checked || false,
+            allow_expenses_from_petty: document.getElementById('petty_allow_expenses_from_petty')?.checked || false
         }
     };
 

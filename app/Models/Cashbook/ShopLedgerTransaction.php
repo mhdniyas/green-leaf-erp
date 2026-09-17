@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Models\Cashbook;
 
+use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -105,6 +107,17 @@ class ShopLedgerTransaction extends Model
             ->where('source_id', $this->id)
             ->where('is_finalized', true)
             ->exists();
+    }
+
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereNotIn('status', [
+            TransactionStatus::Void->value,
+            TransactionStatus::Reversed->value,
+            'void',
+            'voided',
+            'reversed',
+        ]);
     }
 
     public function secureRouteKey(): string

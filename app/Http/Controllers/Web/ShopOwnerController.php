@@ -18,6 +18,7 @@ use App\Models\Cashbook\ShopDailyProductPrice;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProductEntry;
+use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use App\Models\Category;
@@ -1579,16 +1580,24 @@ class ShopOwnerController extends Controller
 
         $dailySnapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $date);
 
+        $profile = ShopLedgerProfile::query()->where('shop_id', (int) $shop->id)->first();
+        $pettyConfig = $profile?->getPaymentConfiguration()['petty'] ?? [
+            'configured' => false,
+            'enabled' => true,
+            'shop_owner_view_petty' => true,
+        ];
+        $canViewPetty = ! ($pettyConfig['configured'] ?? false) || (($pettyConfig['enabled'] ?? true) && ($pettyConfig['shop_owner_view_petty'] ?? true));
+
         $snapshot = [
             'total_sales' => $totalSales,
             'total_expense' => $totalExpense,
             'closing_shop_position' => $timeframe === 'daily'
                 ? ((float) ($dailySnapshot->closing_shop_position ?? ($totalSales - $totalExpense)))
                 : ($totalSales - $totalExpense),
-            'closing_petty' => (float) ($dailySnapshot->closing_petty ?? 0),
-            'opening_petty' => (float) ($dailySnapshot->opening_petty ?? 0),
-            'petty_in' => (float) ($dailySnapshot->petty_in ?? 0),
-            'petty_out' => (float) ($dailySnapshot->petty_out ?? 0),
+            'closing_petty' => $canViewPetty ? (float) ($dailySnapshot->closing_petty ?? 0) : null,
+            'opening_petty' => $canViewPetty ? (float) ($dailySnapshot->opening_petty ?? 0) : null,
+            'petty_in' => $canViewPetty ? (float) ($dailySnapshot->petty_in ?? 0) : null,
+            'petty_out' => $canViewPetty ? (float) ($dailySnapshot->petty_out ?? 0) : null,
             'closing_company_pending' => (float) ($dailySnapshot->closing_company_pending ?? 0),
         ];
 
@@ -2005,6 +2014,9 @@ class ShopOwnerController extends Controller
         $userId = (int) ($request->user()?->id ?? 1);
 
         $entries = $validated['entries'] ?? [];
+        foreach ($entries as $checkItem) {
+            $this->ensurePettyExpensesAllowed((int) $shop->id, $checkItem['funding_source'] ?? null);
+        }
         if (! empty($entries)) {
             $submittedCodes = array_column($entries, 'entry_type_code');
             $entryTypes = LedgerEntryType::query()
@@ -2228,6 +2240,8 @@ class ShopOwnerController extends Controller
                 ]);
             }
 
+            $this->ensurePettyExpensesAllowed((int) $shop->id, $validated['funding_source'] ?? null);
+
             $payload = [
                 'shop_id' => (int) $shop->id,
                 'business_date' => $validated['business_date'],
@@ -2287,6 +2301,8 @@ class ShopOwnerController extends Controller
 
             $fundingSource = array_key_exists('funding_source', $validated) ? $validated['funding_source'] : null;
             $notes = array_key_exists('notes', $validated) ? $validated['notes'] : null;
+
+            $this->ensurePettyExpensesAllowed((int) $shop->id, $fundingSource);
 
             $result = $this->dailyLedgerService->updateEntry(
                 (int) $transaction->id,
@@ -3070,5 +3086,25 @@ class ShopOwnerController extends Controller
         }
 
         return [$startDate, $endDate];
+    }
+
+    private function ensurePettyExpensesAllowed(int $shopId, ?string $fundingSource): void
+    {
+        if ($fundingSource !== 'petty') {
+            return;
+        }
+
+        $profile = ShopLedgerProfile::query()->where('shop_id', $shopId)->first();
+        $pettyConfig = $profile?->getPaymentConfiguration()['petty'] ?? [
+            'configured' => false,
+            'enabled' => true,
+            'allow_expenses_from_petty' => true,
+        ];
+
+        if (! empty($pettyConfig['configured']) && (! ($pettyConfig['enabled'] ?? true) || ! ($pettyConfig['allow_expenses_from_petty'] ?? true))) {
+            throw ValidationException::withMessages([
+                'funding_source' => 'Petty cash expenses are disabled for this shop in payment settings.',
+            ]);
+        }
     }
 }

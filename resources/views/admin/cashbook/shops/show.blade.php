@@ -70,6 +70,7 @@
         showAddAdjustmentModal: false,
         showReverseModal: false,
         showReceivePaymentModal: false,
+        showFundPettyModal: false,
         showAllocateModal: false,
         showBulkAllocateModal: false,
         showPaymentDetailsModal: false,
@@ -976,6 +977,9 @@
             @endif
         </div>
 
+        <!-- ── 8. SHOP PETTY CASH & FLOATING FUND (MONTHLY VIEW) ────────── -->
+        @include('admin.cashbook.shops.partials.petty-section')
+
     @else
         @include('admin.cashbook.settings.settlements.summary')
         <!-- ══════════════════════════════════════════════════════════════════ -->
@@ -1813,6 +1817,9 @@
             </div>
 
         </div>
+
+        <!-- ── 10. SHOP PETTY CASH & FLOATING FUND (DAY DETAIL VIEW) ─────── -->
+        @include('admin.cashbook.shops.partials.petty-section')
 
         <!-- ══════════════════════════════════════════════════════════════════ -->
         <!-- ── CALENDAR NAVIGATION MODAL / DRAWER ────────────────────────── -->
@@ -3152,6 +3159,9 @@
             </template>
         </div>
     </div>
+
+    <!-- 7. FUND SHOP PETTY CASH MODAL -->
+    @include('admin.cashbook.shops.partials.fund-petty-modal')
 
 </div>
 @endsection
