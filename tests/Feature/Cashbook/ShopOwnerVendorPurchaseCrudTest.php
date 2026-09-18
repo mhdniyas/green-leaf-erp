@@ -1346,6 +1346,11 @@ class ShopOwnerVendorPurchaseCrudTest extends TestCase
             $invoice = $this->createPurchaseOnDate('2026-09-16', 'Cash');
             $this->assertSame('2026-09-16', $invoice->purchaserCart?->business_date?->format('Y-m-d'));
 
+            // Show purchase details for edit modal - verify business date returned is 2026-09-16
+            $showRes = $this->actingAs($this->shopOwner)->getJson(route('shop-owner.cashbook.vendor-purchases.show', $invoice));
+            $showRes->assertOk();
+            $this->assertSame('2026-09-16', $showRes->json('purchase.business_date'));
+
             // Edit the purchase on 2026-09-18
             $editRes = $this->actingAs($this->shopOwner)->putJson(route('shop-owner.cashbook.vendor-purchases.update', $invoice), [
                 'supplier_id' => $this->vendorA->id,
@@ -1367,6 +1372,172 @@ class ShopOwnerVendorPurchaseCrudTest extends TestCase
             if ($cashbookTx) {
                 $this->assertSame('2026-09-16', $cashbookTx->business_date?->format('Y-m-d'));
             }
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_vendor_purchase_explicit_date_selection_workflow(): void
+    {
+        // 3-day edit window
+        BusinessSetting::updateOrCreate(['key' => 'vendor_purchase_edit_window_value'], ['value' => '3']);
+        BusinessSetting::updateOrCreate(['key' => 'vendor_purchase_edit_window_unit'], ['value' => 'days']);
+
+        $now = Carbon::parse('2026-09-18 11:00:00', 'Asia/Kolkata');
+        Carbon::setTestNow($now);
+
+        try {
+            // 1. Direct page without date defaults to current business date (18 Sep 2026)
+            $directPage = $this->actingAs($this->shopOwner)->get(route('shop-owner.cashbook.vendor-purchases'));
+            $directPage->assertOk();
+            $this->assertSame('2026-09-18', $directPage->viewData('selectedDate')->format('Y-m-d'));
+            $directPage->assertSee('Business Date:');
+            $directPage->assertSee('18 Sep 2026');
+            $directPage->assertSee('name="business_date"', false);
+            $directPage->assertSee('value="2026-09-18"', false);
+
+            // 2. Query param ?date=2026-09-17 selects 17 Sep 2026
+            $filteredPage = $this->actingAs($this->shopOwner)->get(route('shop-owner.cashbook.vendor-purchases', ['date' => '2026-09-17']));
+            $filteredPage->assertOk();
+            $this->assertSame('2026-09-17', $filteredPage->viewData('selectedDate')->format('Y-m-d'));
+            $filteredPage->assertSee('Business Date:');
+            $filteredPage->assertSee('17 Sep 2026');
+
+            // 3. New modal defaults to page-selected date (2026-09-17)
+            $filteredPage->assertSee('id="vp-business-date"', false);
+            $filteredPage->assertSee('value="2026-09-17"', false);
+            $filteredPage->assertSee('17 Sep 2026');
+
+            // 4 & 5 & 6. User changes modal date to another allowed date (2026-09-16), submitted date is saved and not today
+            $storeRes = $this->actingAs($this->shopOwner)->postJson(route('shop-owner.purchasing.store'), [
+                'shop_ledger_entry_setting_id' => $this->vendorCategory->id,
+                'supplier_id' => $this->vendorA->id,
+                'payment_method' => 'Cash',
+                'business_date' => '2026-09-16',
+                'bill_number' => 'BILL-CUSTOM-DATE',
+                'items' => [
+                    ['product_id' => $this->mango->id, 'quantity' => 5, 'unit_price' => 20],
+                ],
+            ]);
+            $storeRes->assertOk();
+            $invoiceId = (int) $storeRes->json('invoice.id');
+            $invoice = PurchaseInvoice::query()->with(['purchaserCart', 'shopVendorPayable'])->find($invoiceId);
+            $this->assertNotNull($invoice);
+
+            $this->assertSame('2026-09-16', $invoice->original_business_date?->format('Y-m-d'));
+            $this->assertSame('2026-09-16', $invoice->purchaserCart?->business_date?->format('Y-m-d'));
+            $this->assertNotSame('2026-09-18', $invoice->original_business_date?->format('Y-m-d'));
+            // created_at remains current time (18 Sep)
+            $this->assertSame('2026-09-18 11:00:00', $invoice->created_at->format('Y-m-d H:i:s'));
+
+            // 7. Mirrored Cashbook entry uses same business_date (2026-09-16)
+            $cashbookTx = ShopLedgerTransaction::query()
+                ->where('shop_id', $this->shop->id)
+                ->where('business_date', '2026-09-16')
+                ->where('amount', 100.00)
+                ->first();
+            $this->assertNotNull($cashbookTx);
+            $this->assertSame('2026-09-16', $cashbookTx->business_date?->format('Y-m-d'));
+
+            // 8. Vendor payable for credit purchase uses same business_date
+            $creditStoreRes = $this->actingAs($this->shopOwner)->postJson(route('shop-owner.purchasing.store'), [
+                'shop_ledger_entry_setting_id' => $this->vendorCategory->id,
+                'supplier_id' => $this->vendorA->id,
+                'payment_method' => 'Credit',
+                'business_date' => '2026-09-16',
+                'bill_number' => 'BILL-CREDIT-16',
+                'items' => [
+                    ['product_id' => $this->mango->id, 'quantity' => 2, 'unit_price' => 50],
+                ],
+            ]);
+            $creditStoreRes->assertOk();
+            $creditInvoice = PurchaseInvoice::query()->with('shopVendorPayable')->find((int) $creditStoreRes->json('invoice.id'));
+            $this->assertNotNull($creditInvoice->shopVendorPayable);
+            $this->assertSame('2026-09-16', $creditInvoice->shopVendorPayable->business_date?->format('Y-m-d'));
+
+            // 9. Expired date outside edit window (e.g. 2026-09-14 with 3-day window) is rejected by backend
+            $expiredStoreRes = $this->actingAs($this->shopOwner)->postJson(route('shop-owner.purchasing.store'), [
+                'shop_ledger_entry_setting_id' => $this->vendorCategory->id,
+                'supplier_id' => $this->vendorA->id,
+                'payment_method' => 'Cash',
+                'business_date' => '2026-09-14',
+                'bill_number' => 'BILL-EXPIRED',
+                'items' => [
+                    ['product_id' => $this->mango->id, 'quantity' => 1, 'unit_price' => 10],
+                ],
+            ]);
+            $expiredStoreRes->assertStatus(422);
+            $expiredStoreRes->assertJsonValidationErrors(['business_date']);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_shop_owner_vendor_purchase_popup_does_not_contain_settings_vendors_link_and_keeps_new_vendor(): void
+    {
+        $this->shop->update(['allow_vendor_creation' => true]);
+
+        $response = $this->actingAs($this->shopOwner)->get(route('shop-owner.cashbook.vendor-purchases'));
+        $response->assertOk();
+
+        // Must NOT contain link to Admin settings in popup header
+        $response->assertDontSee('Settings &rarr; Vendors', false);
+        $response->assertDontSee('Settings → Vendors', false);
+
+        // + New Vendor button must remain visible when allow_vendor_creation is true
+        $response->assertSee('+ New Vendor');
+    }
+
+    public function test_per_shop_vendor_purchase_edit_window_is_enforced_and_isolated(): void
+    {
+        // Configure Shop 1 with 1 Day edit window, Shop 2 with 5 Days edit window
+        $this->shop->update([
+            'vendor_purchase_edit_window_value' => 1,
+            'vendor_purchase_edit_window_unit' => 'days',
+        ]);
+
+        $this->otherShop->update([
+            'vendor_purchase_edit_window_value' => 5,
+            'vendor_purchase_edit_window_unit' => 'days',
+        ]);
+
+        // Link vendor to otherShop
+        ShopSupplier::query()->create([
+            'shop_id' => $this->otherShop->id,
+            'supplier_id' => $this->vendorA->id,
+            'is_active' => true,
+            'credit_approved' => true,
+        ]);
+
+        $now = Carbon::parse('2026-09-18 10:00:00', 'Asia/Kolkata');
+        Carbon::setTestNow($now);
+
+        try {
+            // 2026-09-16 is 2 days old.
+            // For Shop 1 (1 day window), 2026-09-16 should be REJECTED.
+            $shop1Res = $this->actingAs($this->shopOwner)->postJson(route('shop-owner.purchasing.store'), [
+                'supplier_id' => $this->vendorA->id,
+                'payment_method' => 'Cash',
+                'business_date' => '2026-09-16',
+                'bill_number' => 'BILL-SHOP1-OLD',
+                'items' => [
+                    ['product_id' => $this->mango->id, 'quantity' => 1, 'unit_price' => 10],
+                ],
+            ]);
+            $shop1Res->assertStatus(422);
+            $shop1Res->assertJsonValidationErrors(['business_date']);
+
+            // For Other Shop (5 days window), 2026-09-16 should be ALLOWED.
+            $shop2Res = $this->actingAs($this->otherShopOwner)->postJson(route('shop-owner.purchasing.store'), [
+                'supplier_id' => $this->vendorA->id,
+                'payment_method' => 'Cash',
+                'business_date' => '2026-09-16',
+                'bill_number' => 'BILL-SHOP2-OLD',
+                'items' => [
+                    ['product_id' => $this->mango->id, 'quantity' => 1, 'unit_price' => 10],
+                ],
+            ]);
+            $shop2Res->assertOk();
         } finally {
             Carbon::setTestNow();
         }

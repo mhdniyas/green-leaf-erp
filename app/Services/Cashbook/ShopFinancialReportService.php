@@ -300,10 +300,7 @@ final class ShopFinancialReportService
 
         $totalAllocated = round((float) ShopPaymentLedgerAllocation::query()
             ->where('shop_id', $shopId)
-            ->where(function (Builder $query) use ($startDate, $endDate): void {
-                $query->whereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59'])
-                    ->orWhereHas('ledgerTransaction', fn ($q) => $q->whereBetween('business_date', [$startDate, $endDate]));
-            })
+            ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->whereBetween('business_date', [$startDate, $endDate]))
             ->sum('amount'), 2);
 
         $paymentsSum = round((float) ($paymentRequests->where('status', 'approved')->sum('approved_amount') ?: $paymentRequests->sum('requested_amount')), 2);
@@ -713,10 +710,7 @@ final class ShopFinancialReportService
         $allocationRecords = ShopPaymentLedgerAllocation::query()
             ->with(['paymentRequest', 'ledgerTransaction.entryType', 'reconciledBy'])
             ->where('shop_id', $shopId)
-            ->where(function (Builder $query) use ($startDate, $endDate): void {
-                $query->whereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59'])
-                    ->orWhereHas('ledgerTransaction', fn ($q) => $q->whereBetween('business_date', [$startDate, $endDate]));
-            })
+            ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->whereBetween('business_date', [$startDate, $endDate]))
             ->orderBy('created_at', 'desc')
             ->orderBy('id', 'desc')
             ->get();

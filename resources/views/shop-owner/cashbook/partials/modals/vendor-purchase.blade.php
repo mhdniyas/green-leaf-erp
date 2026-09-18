@@ -43,7 +43,26 @@
                 <div id="vp-error-message" class="text-[11px] font-medium leading-relaxed pl-5"></div>
             </div>
 
-            {{-- 1. Vendor Section --}}
+            {{-- 1. Business Date Section --}}
+            <div class="space-y-1.5">
+                <div class="flex items-center justify-between">
+                    <label for="vp-business-date" class="block text-[11px] font-black uppercase tracking-wider text-slate-700">
+                        Business Date <span class="text-rose-500">*</span>
+                    </label>
+                    <span class="text-[10px] font-semibold text-slate-400">
+                        Allowed window: {{ $editWindowDisplayText ?? '3 Days' }}
+                    </span>
+                </div>
+                <div class="relative">
+                    <input type="date" id="vp-business-date" name="business_date" required
+                           value="{{ isset($selectedDate) ? ($selectedDate instanceof \Carbon\CarbonInterface ? $selectedDate->format('Y-m-d') : \Carbon\Carbon::parse($selectedDate)->format('Y-m-d')) : today('Asia/Kolkata')->toDateString() }}"
+                           @if(!empty($cutoffDate)) min="{{ $cutoffDate }}" @endif
+                           onchange="onVpBusinessDateChange(this.value)"
+                           class="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:outline-none transition cursor-pointer">
+                </div>
+            </div>
+
+            {{-- 2. Vendor Section --}}
             <div class="space-y-1.5">
                 <div class="flex items-center justify-between">
                     <label for="vp-vendor-select" class="block text-[11px] font-black uppercase tracking-wider text-slate-700">
@@ -59,9 +78,6 @@
                                 </button>
                             </div>
                         @endif
-                        <a href="{{ route('shop-owner.cashbook.vendors') }}" class="text-[10px] font-extrabold text-slate-500 hover:underline">
-                            Settings &rarr; Vendors
-                        </a>
                     </div>
                 </div>
 
@@ -71,9 +87,9 @@
                         <p class="font-bold text-amber-900" id="vp-no-vendors-title">No active vendors linked to this shop</p>
                         <p class="text-[11px] text-amber-700 mt-0.5" id="vp-no-vendors-desc">
                             @if($shop->isVendorCreationAllowed())
-                                Click <button type="button" onclick="openShopOwnerCreateVendorModal()" class="font-black underline text-amber-900 cursor-pointer">+ New Vendor</button> above or link vendors in <a href="{{ route('shop-owner.cashbook.vendors') }}" class="font-black underline text-amber-900">Cashbook Settings &rarr; Vendors</a>.
+                                Click <button type="button" onclick="openShopOwnerCreateVendorModal()" class="font-black underline text-amber-900 cursor-pointer">+ New Vendor</button> above to add a new vendor.
                             @else
-                                Link active vendors in <a href="{{ route('shop-owner.cashbook.vendors') }}" class="font-black underline text-amber-900">Cashbook Settings &rarr; Vendors</a> before recording purchases.
+                                Contact your administrator to link active vendors to this store before recording purchases.
                             @endif
                         </p>
                     </div>

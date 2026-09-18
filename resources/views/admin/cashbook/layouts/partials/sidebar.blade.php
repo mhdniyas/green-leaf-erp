@@ -230,6 +230,10 @@
                     <i data-lucide="layout-grid" class="w-4 h-4"></i>
                     <span>All Shops Overview</span>
                 </a>
+                <a href="{{ route('admin.cashbook.monthly-closing-summary.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.monthly-closing-summary*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="calendar-check" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Monthly Closing Summary</span>
+                </a>
                 <a href="{{ route('admin.cashbook.shop.show', isset($currentShop) ? ($currentShop->slug ?: $currentShop->shop_id) : ($cashbookSidebarShops->first()?->slug ?? 1)) }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.shop.show') ? 'active-sidebar' : '' }}">
                     <i data-lucide="store" class="w-4 h-4"></i>
                     <span>Single Shop Ledger</span>

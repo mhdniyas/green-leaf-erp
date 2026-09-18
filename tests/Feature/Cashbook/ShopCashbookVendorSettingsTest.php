@@ -415,4 +415,53 @@ class ShopCashbookVendorSettingsTest extends TestCase
         $pivot = $this->shop1->suppliers()->where('supplier_id', $supplier->id)->firstOrFail()->pivot;
         $this->assertTrue((bool) $pivot->credit_approved);
     }
+
+    public function test_vendor_settings_page_contains_vendor_purchase_edit_window_section(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.settings.shop.vendors.index', ['shop' => $this->shop1->id]));
+
+        $response->assertOk();
+        $response->assertSee('VENDOR PURCHASE SETTINGS');
+        $response->assertSee('Vendor Purchase Edit Window');
+        $response->assertSee('name="vendor_purchase_edit_window_value"', false);
+        $response->assertSee('name="vendor_purchase_edit_window_unit"', false);
+    }
+
+    public function test_admin_can_update_vendor_purchase_edit_window_per_shop(): void
+    {
+        // 1. Initially both shops have null and fallback to 3 Days
+        $this->assertNull($this->shop1->vendor_purchase_edit_window_value);
+        $this->assertNull($this->shop2->vendor_purchase_edit_window_value);
+
+        // 2. Admin sets Shop 1 to 24 Hours
+        $response1 = $this->actingAs($this->admin)->post(
+            route('admin.cashbook.settings.shop.vendors.update-purchase-settings', ['shop' => $this->shop1->id]),
+            [
+                'vendor_purchase_edit_window_value' => 24,
+                'vendor_purchase_edit_window_unit' => 'hours',
+            ]
+        );
+        $response1->assertRedirect();
+        $this->shop1->refresh();
+        $this->assertSame(24, $this->shop1->vendor_purchase_edit_window_value);
+        $this->assertSame('hours', $this->shop1->vendor_purchase_edit_window_unit);
+
+        // 3. Shop 2 remains unchanged (isolated)
+        $this->shop2->refresh();
+        $this->assertNull($this->shop2->vendor_purchase_edit_window_value);
+        $this->assertNull($this->shop2->vendor_purchase_edit_window_unit);
+
+        // 4. Admin sets Shop 2 to 5 Days
+        $response2 = $this->actingAs($this->admin)->post(
+            route('admin.cashbook.settings.shop.vendors.update-purchase-settings', ['shop' => $this->shop2->id]),
+            [
+                'vendor_purchase_edit_window_value' => 5,
+                'vendor_purchase_edit_window_unit' => 'days',
+            ]
+        );
+        $response2->assertRedirect();
+        $this->shop2->refresh();
+        $this->assertSame(5, $this->shop2->vendor_purchase_edit_window_value);
+        $this->assertSame('days', $this->shop2->vendor_purchase_edit_window_unit);
+    }
 }

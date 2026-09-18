@@ -4,7 +4,35 @@
     const vpIsVendorCreationAllowed = @json($shop->isVendorCreationAllowed());
     const vpStorePurchaseUrl = @json(route('shop-owner.purchasing.store'));
     const vpCreateVendorUrl = @json(route('shop-owner.purchasing.vendors.store'));
-    const vpActiveBusinessDate = @json(isset($selectedDate) ? ($selectedDate instanceof \Carbon\CarbonInterface ? $selectedDate->toDateString() : (string) $selectedDate) : today()->toDateString());
+    let vpActiveBusinessDate = @json(isset($selectedDate) ? ($selectedDate instanceof \Carbon\CarbonInterface ? $selectedDate->format('Y-m-d') : \Carbon\Carbon::parse($selectedDate)->format('Y-m-d')) : today('Asia/Kolkata')->toDateString());
+    const vpCutoffDate = @json($cutoffDate ?? null);
+    const vpEditWindowText = @json($editWindowDisplayText ?? '3 Days');
+
+    function formatVpDisplayDate(dateStr) {
+        if (!dateStr) return '';
+        try {
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                const day = parseInt(parts[2], 10);
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                if (month >= 0 && month < 12) {
+                    return `${String(day).padStart(2, '0')} ${months[month]} ${year}`;
+                }
+            }
+        } catch (e) {}
+        return dateStr;
+    }
+
+    function onVpBusinessDateChange(newDate) {
+        if (!newDate) return;
+        vpActiveBusinessDate = newDate;
+        const displayEl = document.getElementById('vp-date-display');
+        if (displayEl) {
+            displayEl.textContent = formatVpDisplayDate(newDate);
+        }
+    }
     const vpSettingsList = @json($categories ?? []);
 
     let vpRowIndex = 0;
@@ -263,12 +291,12 @@
             if (noVendorsWarning) {
                 if (currentSetting && currentSetting.vendor_access_mode === 'defined_only') {
                     if (noVendorsTitle) noVendorsTitle.textContent = 'No vendors mapped to this category';
-                    if (noVendorsDesc) noVendorsDesc.textContent = 'Configure mapped vendors for this category in Admin Cashbook Settings.';
+                    if (noVendorsDesc) noVendorsDesc.textContent = 'Contact your administrator to configure mapped vendors for this category.';
                 } else {
                     if (noVendorsTitle) noVendorsTitle.textContent = 'No active vendors linked to this shop';
                     if (noVendorsDesc) noVendorsDesc.textContent = vpIsVendorCreationAllowed
-                        ? 'Add new vendors or link existing vendors in Cashbook Settings.'
-                        : 'Link active vendors in Cashbook Settings before recording purchases.';
+                        ? 'Click + New Vendor above to add a new vendor.'
+                        : 'Contact your administrator to link active vendors before recording purchases.';
                 }
                 noVendorsWarning.classList.remove('hidden');
             }
@@ -279,6 +307,15 @@
         }
 
         selectVpVendor('');
+
+        const dateInput = document.getElementById('vp-business-date');
+        if (dateInput && dateInput.value) {
+            vpActiveBusinessDate = dateInput.value;
+            const displayEl = document.getElementById('vp-date-display');
+            if (displayEl) {
+                displayEl.textContent = formatVpDisplayDate(dateInput.value);
+            }
+        }
 
         const billInput = document.getElementById('vp-bill-number');
         if (billInput) billInput.value = '';
@@ -736,12 +773,24 @@
         const billNumber = document.getElementById('vp-bill-number')?.value?.trim() || '';
         const notes = document.getElementById('vp-notes')?.value?.trim() || '';
         const catId = document.getElementById('vp-category-id')?.value;
+        const dateInput = document.getElementById('vp-business-date');
+        const selectedBusinessDate = (dateInput && dateInput.value) ? dateInput.value.trim() : vpActiveBusinessDate;
+
+        if (!selectedBusinessDate) {
+            showVendorPurchaseError('Please select a valid business date.');
+            return;
+        }
+
+        if (vpCutoffDate && selectedBusinessDate < vpCutoffDate) {
+            showVendorPurchaseError(`This business date (${selectedBusinessDate}) is outside the allowed Vendor Purchase edit window.`);
+            return;
+        }
 
         const payload = {
             shop_ledger_entry_setting_id: catId ? parseInt(catId, 10) : null,
             supplier_id: parseInt(supplierId, 10),
             payment_method: paymentMethod,
-            business_date: vpActiveBusinessDate,
+            business_date: selectedBusinessDate,
             bill_number: billNumber,
             notes: notes,
             items: items

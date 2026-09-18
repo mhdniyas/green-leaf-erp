@@ -136,6 +136,38 @@
         </form>
     </div>
 
+    {{-- Vendor Purchase Settings Card --}}
+    <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div class="flex items-start sm:items-center gap-3.5">
+            <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                <i data-lucide="clock" class="h-5 w-5"></i>
+            </span>
+            <div>
+                <span class="text-[10px] font-black uppercase tracking-widest text-amber-700">VENDOR PURCHASE SETTINGS</span>
+                <h3 class="text-sm font-black text-slate-950 mt-0.5">Vendor Purchase Edit Window</h3>
+                <p class="text-xs text-slate-500 font-medium">Controls how far back the Shop Owner can create, edit, or cancel Vendor Purchases for {{ $shop->name }}.</p>
+            </div>
+        </div>
+
+        <form action="{{ route('admin.cashbook.settings.shop.vendors.update-purchase-settings', ['shop' => $shopKey]) }}" method="POST" class="shrink-0 flex items-center gap-2">
+            @csrf
+            <div class="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
+                <input type="number" min="1" max="720" name="vendor_purchase_edit_window_value"
+                       value="{{ old('vendor_purchase_edit_window_value', $vendorPurchaseEditWindow['value'] ?? 3) }}"
+                       class="w-16 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900 text-center focus:border-amber-500 focus:outline-none">
+                <select name="vendor_purchase_edit_window_unit"
+                        class="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900 focus:border-amber-500 focus:outline-none">
+                    <option value="hours" {{ old('vendor_purchase_edit_window_unit', $vendorPurchaseEditWindow['unit'] ?? 'days') === 'hours' ? 'selected' : '' }}>Hours</option>
+                    <option value="days" {{ old('vendor_purchase_edit_window_unit', $vendorPurchaseEditWindow['unit'] ?? 'days') === 'days' ? 'selected' : '' }}>Days</option>
+                </select>
+                <button type="submit"
+                        class="rounded-xl bg-slate-900 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-slate-800 transition cursor-pointer">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+
     {{-- Stats & Filter Bar --}}
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div class="flex items-center gap-3">

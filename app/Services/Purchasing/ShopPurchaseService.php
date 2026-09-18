@@ -777,14 +777,22 @@ class ShopPurchaseService
     /**
      * @return array{value: int, unit: string, display: string}
      */
-    public function getEditWindowConfig(): array
+    public function getEditWindowConfig(?Shop $shop = null): array
     {
-        $value = (int) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_value')->value('value') ?? 3);
+        $value = $shop?->vendor_purchase_edit_window_value;
+        if ($value === null || (int) $value <= 0) {
+            $value = (int) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_value')->value('value') ?? 3);
+        }
+        $value = (int) $value;
         if ($value <= 0) {
             $value = 3;
         }
 
-        $unit = strtolower((string) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_unit')->value('value') ?? 'days'));
+        $unit = $shop?->vendor_purchase_edit_window_unit;
+        if (! $unit) {
+            $unit = (string) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_unit')->value('value') ?? 'days');
+        }
+        $unit = strtolower((string) $unit);
         if (! in_array($unit, ['hours', 'days'], true)) {
             $unit = 'days';
         }
@@ -798,14 +806,14 @@ class ShopPurchaseService
         ];
     }
 
-    public function getEditWindowDisplayText(): string
+    public function getEditWindowDisplayText(?Shop $shop = null): string
     {
-        return $this->getEditWindowConfig()['display'];
+        return $this->getEditWindowConfig($shop)['display'];
     }
 
-    public function getCutoffDateTime(): Carbon
+    public function getCutoffDateTime(?Shop $shop = null): Carbon
     {
-        $config = $this->getEditWindowConfig();
+        $config = $this->getEditWindowConfig($shop);
         $now = now('Asia/Kolkata');
 
         if ($config['unit'] === 'hours') {
@@ -815,27 +823,27 @@ class ShopPurchaseService
         return $now->copy()->startOfDay()->subDays($config['value']);
     }
 
-    public function getCutoffDateString(): string
+    public function getCutoffDateString(?Shop $shop = null): string
     {
-        return $this->getCutoffDateTime()->toDateString();
+        return $this->getCutoffDateTime($shop)->toDateString();
     }
 
-    public function isDateActionAllowed(string|Carbon $businessDate, ?User $user): bool
+    public function isDateActionAllowed(string|Carbon $businessDate, ?User $user, ?Shop $shop = null): bool
     {
         if ($this->isAdminUser($user)) {
             return true;
         }
 
         $date = $businessDate instanceof Carbon ? $businessDate : Carbon::parse($businessDate);
-        $config = $this->getEditWindowConfig();
+        $config = $this->getEditWindowConfig($shop);
 
         if ($config['unit'] === 'hours') {
-            $cutoff = $this->getCutoffDateTime();
+            $cutoff = $this->getCutoffDateTime($shop);
 
             return $date->copy()->endOfDay()->greaterThanOrEqualTo($cutoff);
         }
 
-        $cutoffDateStr = $this->getCutoffDateString();
+        $cutoffDateStr = $this->getCutoffDateString($shop);
 
         return $date->toDateString() >= $cutoffDateStr;
     }
@@ -850,7 +858,10 @@ class ShopPurchaseService
             ?? $invoice->original_business_date?->format('Y-m-d')
             ?? $invoice->created_at->format('Y-m-d');
 
-        if (! $this->isDateActionAllowed($dateStr, $user)) {
+        /** @var Shop|null $shop */
+        $shop = $invoice->shop ?? ($invoice->shop_id ? Shop::query()->find($invoice->shop_id) : null);
+
+        if (! $this->isDateActionAllowed($dateStr, $user, $shop)) {
             return false;
         }
 

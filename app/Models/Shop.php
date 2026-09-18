@@ -38,6 +38,8 @@ class Shop extends Model
         'allow_grade_b_purchase',
         'shop_purchasing_enabled',
         'allow_vendor_creation',
+        'vendor_purchase_edit_window_value',
+        'vendor_purchase_edit_window_unit',
     ];
 
     protected function casts(): array
@@ -48,6 +50,8 @@ class Shop extends Model
             'allow_grade_b_purchase' => 'boolean',
             'shop_purchasing_enabled' => 'boolean',
             'allow_vendor_creation' => 'boolean',
+            'vendor_purchase_edit_window_value' => 'integer',
+            'vendor_purchase_edit_window_unit' => 'string',
             'reserve_amount' => 'decimal:2',
             'default_petty_cash_amount' => 'decimal:2',
         ];

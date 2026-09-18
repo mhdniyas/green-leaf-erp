@@ -9,6 +9,7 @@ use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Shop;
 use App\Models\Supplier;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Purchasing\ShopPurchaseService;
 use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -20,6 +21,7 @@ class CashbookVendorController extends Controller
     public function __construct(
         private readonly CashbookShopSyncService $shopSync,
         private readonly ActiveShopResolver $activeShopResolver,
+        private readonly ShopPurchaseService $purchaseService,
     ) {}
 
     public function index(Request $request, string $shop): View
@@ -61,7 +63,39 @@ class CashbookVendorController extends Controller
             'status' => $status,
             'totalVendorsCount' => $shopModel->suppliers()->count(),
             'activeVendorsCount' => $shopModel->suppliers()->wherePivot('is_active', true)->count(),
+            'vendorPurchaseEditWindow' => $this->purchaseService->getEditWindowConfig($shopModel),
         ]);
+    }
+
+    public function updatePurchaseSettings(Request $request, string $shop): RedirectResponse|JsonResponse
+    {
+        $shopModel = $this->resolveAuthorizedShop($request, $shop);
+
+        $validated = $request->validate([
+            'vendor_purchase_edit_window_value' => ['required', 'integer', 'min:1', 'max:720'],
+            'vendor_purchase_edit_window_unit' => ['required', 'string', 'in:hours,days,Hours,Days'],
+        ]);
+
+        $unit = strtolower((string) $validated['vendor_purchase_edit_window_unit']);
+        $value = (int) $validated['vendor_purchase_edit_window_value'];
+
+        $shopModel->update([
+            'vendor_purchase_edit_window_value' => $value,
+            'vendor_purchase_edit_window_unit' => $unit,
+        ]);
+
+        $displayUnit = $unit === 'hours' ? ($value === 1 ? 'Hour' : 'Hours') : ($value === 1 ? 'Day' : 'Days');
+        $message = "Vendor purchase edit window updated to {$value} {$displayUnit} for {$shopModel->name}.";
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'shop' => $shopModel,
+            ]);
+        }
+
+        return redirect()->back()->with('success', $message);
     }
 
     public function link(Request $request, string $shop): RedirectResponse|JsonResponse

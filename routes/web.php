@@ -25,6 +25,7 @@ use App\Http\Controllers\Web\Admin\EmptyInventoryController;
 use App\Http\Controllers\Web\Admin\EnquiryController;
 use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
+use App\Http\Controllers\Web\Admin\MonthlyClosingSummaryController;
 use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserAccessController;
@@ -767,6 +768,8 @@ Route::middleware('auth')->group(function () {
             Route::get('cash-flow-tree/drilldown', [CashFlowTreeController::class, 'drilldown'])->name('cash-flow-tree.drilldown');
             Route::get('cash-flow-tree/edge-drilldown', [CashFlowTreeController::class, 'edgeDrilldown'])->name('cash-flow-tree.edge-drilldown');
             Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
+            Route::get('monthly-closing-summary', [MonthlyClosingSummaryController::class, 'index'])->name('monthly-closing-summary.index');
+            Route::get('monthly-closing-summary/shop/{shop}', [MonthlyClosingSummaryController::class, 'show'])->name('monthly-closing-summary.show');
             Route::get('overview-cards', [AdminCashbookReportsController::class, 'hub'])->name('reports.hub');
             Route::get('reports', [CashbookController::class, 'reports'])->name('reports');
             Route::get('reports/shop/{shop}', [AdminCashbookReportsController::class, 'detail'])->name('reports.shop');
@@ -988,6 +991,7 @@ Route::middleware('auth')->group(function () {
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
             Route::post('settings/shops/{shop}/toggle-purchasing', [CashbookController::class, 'toggleShopPurchasing'])->name('settings.shop.toggle-purchasing');
             Route::get('settings/shops/{shop}/vendors', [CashbookVendorController::class, 'index'])->name('settings.shop.vendors.index');
+            Route::post('settings/shops/{shop}/vendors/purchase-settings', [CashbookVendorController::class, 'updatePurchaseSettings'])->name('settings.shop.vendors.update-purchase-settings');
             Route::post('settings/shops/{shop}/vendors/toggle-creation-permission', [CashbookVendorController::class, 'toggleCreationPermission'])->name('settings.shop.vendors.toggle-creation-permission');
             Route::post('settings/shops/{shop}/vendors/link', [CashbookVendorController::class, 'link'])->name('settings.shop.vendors.link');
             Route::post('settings/shops/{shop}/vendors/create', [CashbookVendorController::class, 'storeNew'])->name('settings.shop.vendors.create');

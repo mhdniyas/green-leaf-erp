@@ -10,7 +10,7 @@
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 pb-4">
         <div class="space-y-1">
             <div class="flex items-center gap-2">
-                <a href="{{ route('shop-owner.cashbook.show') }}" class="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-emerald-700 transition">
+                <a href="{{ route('shop-owner.cashbook.show', ['date' => $selectedDate->format('Y-m-d')]) }}" class="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-emerald-700 transition">
                     <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
                     <span>Cashbook</span>
                 </a>
@@ -19,13 +19,29 @@
                     {{ $shop->name }}
                 </span>
             </div>
-            <h1 class="text-xl sm:text-2xl font-black tracking-tight text-slate-950 uppercase flex items-center gap-2">
-                <i data-lucide="shopping-bag" class="h-6 w-6 text-emerald-600"></i>
-                <span>Vendor Purchases</span>
-            </h1>
+            <div class="flex flex-wrap items-center gap-3">
+                <h1 class="text-xl sm:text-2xl font-black tracking-tight text-slate-950 uppercase flex items-center gap-2">
+                    <i data-lucide="shopping-bag" class="h-6 w-6 text-emerald-600"></i>
+                    <span>Vendor Purchases</span>
+                </h1>
+                <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800">
+                    <span class="text-emerald-600 font-semibold">Business Date:</span>
+                    <span class="text-emerald-950 font-black">{{ $selectedDate->format('d M Y') }}</span>
+                </div>
+            </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center flex-wrap gap-2.5">
+            {{-- Compact Business Date Picker --}}
+            <form method="GET" action="{{ route('shop-owner.cashbook.vendor-purchases') }}" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-800 shadow-xs hover:border-emerald-300 transition">
+                <i data-lucide="calendar" class="w-4 h-4 text-emerald-600 shrink-0"></i>
+                <label for="page-business-date" class="text-[11px] font-black uppercase tracking-wider text-slate-500 whitespace-nowrap cursor-pointer">Business Date:</label>
+                <input type="date" id="page-business-date" name="date" value="{{ $selectedDate->format('Y-m-d') }}"
+                       @if($cutoffDate) min="{{ $cutoffDate }}" @endif
+                       onchange="this.form.submit()"
+                       class="font-mono text-xs font-black text-slate-900 bg-transparent border-0 p-0 focus:outline-none focus:ring-0 cursor-pointer">
+            </form>
+
             <button type="button" onclick="openNewVendorPurchaseModal()"
                     class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-emerald-700 active:scale-98 transition cursor-pointer">
                 <i data-lucide="plus" class="h-4 w-4"></i>
@@ -379,6 +395,16 @@
 
             <div id="edit-error-alert" class="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800 hidden"></div>
 
+            {{-- Business Date (Readonly in Edit mode) --}}
+            <div class="space-y-1">
+                <div class="flex items-center justify-between">
+                    <label class="block text-[11px] font-black uppercase tracking-wider text-slate-700">Business Date</label>
+                    <span class="text-[10px] font-semibold text-slate-400">Locked to original bill date</span>
+                </div>
+                <input type="date" id="edit-business-date" readonly disabled
+                       class="h-10 w-full rounded-xl border border-slate-200 bg-slate-100 px-3 text-xs font-bold text-slate-700 cursor-not-allowed">
+            </div>
+
             {{-- Vendor Selection --}}
             <div class="space-y-1">
                 <label class="block text-[11px] font-black uppercase tracking-wider text-slate-700">Vendor *</label>
@@ -571,6 +597,8 @@
             const p = data.purchase;
             document.getElementById('edit-purchase-id').value = p.id;
             document.getElementById('edit-modal-subtitle').textContent = `Bill #${p.invoice_number} • ${p.business_date}`;
+            const editDateEl = document.getElementById('edit-business-date');
+            if (editDateEl) editDateEl.value = p.business_date || '';
             document.getElementById('edit-bill-number').value = p.invoice_number || '';
             document.getElementById('edit-notes').value = p.notes || '';
             document.getElementById('edit-vendor-select').value = p.supplier_id || '';

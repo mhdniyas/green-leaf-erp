@@ -193,9 +193,9 @@ class ShopPurchaseController extends Controller
             'purchasableProducts' => $products,
             'period' => $period,
             'isAdmin' => $this->isAdminUser($request->user()),
-            'cutoffDate' => $this->purchaseService->getCutoffDateString(),
-            'editWindow' => $this->purchaseService->getEditWindowConfig(),
-            'editWindowDisplayText' => $this->purchaseService->getEditWindowDisplayText(),
+            'cutoffDate' => $this->purchaseService->getCutoffDateString($shop),
+            'editWindow' => $this->purchaseService->getEditWindowConfig($shop),
+            'editWindowDisplayText' => $this->purchaseService->getEditWindowDisplayText($shop),
         ]);
     }
 
@@ -332,8 +332,8 @@ class ShopPurchaseController extends Controller
             $validated['business_date'] = $businessDateStr;
         }
 
-        if (! $this->purchaseService->isDateActionAllowed($businessDateStr, $request->user())) {
-            $windowText = $this->purchaseService->getEditWindowDisplayText();
+        if (! $this->purchaseService->isDateActionAllowed($businessDateStr, $request->user(), $shop)) {
+            $windowText = $this->purchaseService->getEditWindowDisplayText($shop);
             $msg = "Purchases for date {$businessDateStr} cannot be created because it is outside the allowed edit window ({$windowText}).";
             if ($request->wantsJson()) {
                 return response()->json([
@@ -401,7 +401,7 @@ class ShopPurchaseController extends Controller
         }
 
         if (! $this->isActionAllowedForUser($invoice, $request->user())) {
-            $windowText = $this->purchaseService->getEditWindowDisplayText();
+            $windowText = $this->purchaseService->getEditWindowDisplayText($shop);
             $msg = "Actions on vendor purchases older than {$windowText} are restricted to administrators.";
             if ($request->wantsJson()) {
                 return response()->json([
@@ -496,7 +496,7 @@ class ShopPurchaseController extends Controller
         }
 
         if (! $this->isActionAllowedForUser($invoice, $request->user())) {
-            $windowText = $this->purchaseService->getEditWindowDisplayText();
+            $windowText = $this->purchaseService->getEditWindowDisplayText($shop);
             $msg = "Actions on vendor purchases older than {$windowText} are restricted to administrators.";
             if ($request->wantsJson()) {
                 return response()->json([
