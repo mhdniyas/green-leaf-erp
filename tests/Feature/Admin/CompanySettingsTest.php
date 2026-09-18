@@ -4,6 +4,8 @@ namespace Tests\Feature\Admin;
 
 use App\Models\BusinessSetting;
 use App\Models\User;
+use App\Models\Warehouse;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Role;
@@ -94,5 +96,74 @@ class CompanySettingsTest extends TestCase
         $this->assertSame('automatic', $activity->properties->get('trigger_mode'));
         $this->assertSame('completed', $activity->properties->get('status'));
         $this->assertSame('No eligible orders found.', $activity->properties->get('notes'));
+    }
+
+    public function test_company_settings_does_not_render_old_purchaser_business_day_close_reopen_controls(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.company-settings.edit'));
+
+        $response->assertOk()
+            ->assertSee('Purchaser Business Day Verification')
+            ->assertDontSee('Purchasers can Close Day')
+            ->assertDontSee('Purchasers can Reopen Day')
+            ->assertDontSee('Reopen requires Reason')
+            ->assertDontSee('Allow Close With Pending')
+            ->assertDontSee('Require Digital Verification')
+            ->assertDontSee('Admin can Override / Reopen');
+    }
+
+    public function test_company_settings_can_update_purchaser_business_day_verification_settings(): void
+    {
+        $warehouse = Warehouse::factory()->create(['name' => 'Main Hub', 'is_active' => true]);
+
+        $purchaserUser = User::factory()->create();
+        $purchaserUser->assignRole('purchaser');
+
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.company-settings.update'), [
+                'company_name' => 'Green Leaf Fresh',
+                'default_purchaser_user_id' => $purchaserUser->id,
+                'business_day_warehouse_settings' => [
+                    $warehouse->id => [
+                        'enabled' => '1',
+                        'require_daily_submission' => '1',
+                    ],
+                ],
+            ]);
+
+        $response->assertRedirect(route('admin.company-settings.edit'))
+            ->assertSessionHas('success');
+
+        $service = app(PurchaserBusinessDayService::class);
+        $settings = $service->getWarehouseSettings($warehouse->id);
+
+        $this->assertTrue($settings['enabled']);
+        $this->assertTrue($settings['require_daily_submission']);
+    }
+
+    public function test_company_settings_can_update_global_purchaser_business_day_settings(): void
+    {
+        $warehouse = Warehouse::factory()->create(['name' => 'Global Hub', 'is_active' => true]);
+
+        $purchaserUser = User::factory()->create();
+        $purchaserUser->assignRole('purchaser');
+
+        $response = $this->actingAs($this->admin)
+            ->patch(route('admin.company-settings.update'), [
+                'company_name' => 'Green Leaf Global',
+                'default_purchaser_user_id' => $purchaserUser->id,
+                'purchaser_business_day_verification_enabled' => '1',
+                'purchaser_business_day_require_daily_submission' => '1',
+            ]);
+
+        $response->assertRedirect(route('admin.company-settings.edit'))
+            ->assertSessionHas('success');
+
+        $this->assertEquals('1', BusinessSetting::where('key', 'purchaser_business_day_verification_enabled')->value('value'));
+        $this->assertEquals('1', BusinessSetting::where('key', 'purchaser_business_day_require_daily_submission')->value('value'));
+
+        $service = app(PurchaserBusinessDayService::class);
+        $this->assertTrue($service->isWarehouseEnabled($warehouse->id));
     }
 }

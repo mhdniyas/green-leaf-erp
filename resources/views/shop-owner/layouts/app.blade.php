@@ -53,6 +53,20 @@
 
     <x-page-jump-controls bottom-class="bottom-24 lg:bottom-6" />
 
+    <!-- Global Floating Page Refresh Button -->
+    <button
+        type="button"
+        onclick="window.location.reload();"
+        title="Refresh Page"
+        aria-label="Refresh Page"
+        class="fixed top-20 right-3 sm:right-6 z-40 inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-slate-200/90 bg-white/90 text-slate-700 shadow-md shadow-slate-900/5 backdrop-blur-md transition-all hover:bg-white hover:text-emerald-700 hover:border-emerald-300 hover:shadow-lg hover:rotate-45 active:scale-95 cursor-pointer"
+    >
+        <svg class="h-4 w-4 sm:h-4.5 sm:w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+        <span class="sr-only">Refresh Page</span>
+    </button>
+
     @include('shop-owner.partials.mobile-nav')
     <button
         type="button"

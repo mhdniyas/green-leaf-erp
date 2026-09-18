@@ -286,18 +286,26 @@ class PurchasingBusinessDayController extends Controller
             ->get();
 
         // Query open carry-forward tasks from older Business Days for the same warehouse
-        $openCarryForwards = PurchaseBusinessDayCarryForward::query()
+        $openCarryRecords = PurchaseBusinessDayCarryForward::query()
             ->with(['originBusinessDay', 'product'])
             ->where('warehouse_id', $day->warehouse_id)
             ->where('origin_business_day_id', '!=', $day->id)
             ->where('status', PurchaseBusinessDayCarryForward::STATUS_OPEN)
-            ->get()
-            ->map(function (PurchaseBusinessDayCarryForward $carry): array {
+            ->get();
+
+        $uniqueOriginDays = $openCarryRecords->pluck('originBusinessDay')->filter()->unique('id');
+        $originRowsByDayId = [];
+        foreach ($uniqueOriginDays as $oDay) {
+            $originRowsByDayId[$oDay->id] = $this->comparisonService->buildComparisonRows(
+                $oDay->business_date->toDateString(),
+                (int) $day->warehouse_id
+            );
+        }
+
+        $openCarryForwards = $openCarryRecords
+            ->map(function (PurchaseBusinessDayCarryForward $carry) use ($originRowsByDayId): array {
                 $originDay = $carry->originBusinessDay;
-                $canonicalRows = $this->comparisonService->buildComparisonRows(
-                    $originDay->business_date->toDateString(),
-                    (int) $carry->warehouse_id
-                );
+                $canonicalRows = $originRowsByDayId[$carry->origin_business_day_id] ?? collect();
                 $row = $canonicalRows->firstWhere('product_id', $carry->product_id);
                 $adv = $row ? (float) ($row['advance_qty'] ?? 0) : 0.0;
                 $matched = $row ? (float) ($row['matched_bill_qty'] ?? 0) : 0.0;
@@ -308,8 +316,8 @@ class PurchasingBusinessDayController extends Controller
                     'id' => $carry->id,
                     'uuid' => $carry->uuid,
                     'origin_business_day_id' => $carry->origin_business_day_id,
-                    'origin_day_uuid' => $originDay->uuid,
-                    'origin_date_formatted' => $originDay->business_date->format('d M'),
+                    'origin_day_uuid' => $originDay?->uuid ?? '',
+                    'origin_date_formatted' => $originDay?->business_date?->format('d M') ?? '',
                     'product_id' => $carry->product_id,
                     'product_name' => $carry->product?->name ?? 'Product',
                     'sku' => $carry->product?->sku ?? '',
@@ -326,12 +334,8 @@ class PurchasingBusinessDayController extends Controller
             ->with('product')
             ->where('origin_business_day_id', $day->id)
             ->get()
-            ->map(function (PurchaseBusinessDayCarryForward $carry) use ($day): array {
-                $canonicalRows = $this->comparisonService->buildComparisonRows(
-                    $day->business_date->toDateString(),
-                    (int) $day->warehouse_id
-                );
-                $row = $canonicalRows->firstWhere('product_id', $carry->product_id);
+            ->map(function (PurchaseBusinessDayCarryForward $carry) use ($comparisonRows): array {
+                $row = $comparisonRows->firstWhere('product_id', $carry->product_id);
                 $adv = $row ? (float) ($row['advance_qty'] ?? 0) : 0.0;
                 $matched = $row ? (float) ($row['matched_bill_qty'] ?? 0) : 0.0;
                 $pending = max(0.0, $adv - $matched);

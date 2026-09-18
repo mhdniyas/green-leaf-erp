@@ -95,6 +95,7 @@ use App\Services\Cashbook\HistoricalBankCollectionFetchService;
 use App\Services\Cashbook\ReconciliationAutoMatchSuggestionService;
 use App\Services\Cashbook\ReconciliationTransactionQuery;
 use App\Services\Cashbook\ShopCollectionAutoMatchService;
+use App\Services\Cashbook\ShopFinancialReportService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use App\Services\Cashbook\ShopPettyFundingService;
 use App\Services\Cashbook\ShopSettlementService;
@@ -450,31 +451,96 @@ final class CashbookController extends Controller
         return $this->renderApp('simulator', $resolved->shop_id);
     }
 
-    public function showShop(Request $request, int|string $shop, ShopVendorPurchaseReportService $vendorPurchaseReportService): View
-    {
+    public function showShop(
+        Request $request,
+        int|string $shop,
+        ShopVendorPurchaseReportService $vendorPurchaseReportService,
+        ShopFinancialReportService $financialReportService
+    ): View {
         $this->ensureMainAdmin($request);
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $company = config('greenleaf');
         $currentShop = $this->resolveShop($shop);
         $currentShop->load('client', 'preset', 'shop');
-        $isDayDetail = $request->filled('date');
-        $businessDate = $request->input('date') ? (string) $request->input('date') : today()->toDateString();
-        $month = Carbon::parse((string) $request->input('month', $businessDate))->format('Y-m');
+        $shopId = (int) $currentShop->shop_id;
+
+        // ── Period Mode Resolution (Month, Day, Custom) ──────────────────────
+        $monthInput = (string) $request->input('month', '');
+        $periodMode = (string) $request->input('period_mode', '');
+
+        if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
+            $month = $monthInput;
+        } elseif ($request->filled('date')) {
+            $month = Carbon::parse((string) $request->input('date'))->format('Y-m');
+        } elseif ($request->filled('from')) {
+            $month = Carbon::parse((string) $request->input('from'))->format('Y-m');
+        } else {
+            $month = today()->format('Y-m');
+        }
+
         $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
         $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
-        $shopId = (int) $currentShop->shop_id;
+
+        if ($periodMode === 'day' || ($periodMode === '' && ($request->filled('date') || $request->filled('day')))) {
+            $periodMode = 'day';
+            $rawDate = (string) ($request->input('date') ?: $request->input('day') ?: $monthStart);
+            $parsedDate = Carbon::parse($rawDate)->toDateString();
+            if ($parsedDate < $monthStart || $parsedDate > $monthEnd) {
+                $parsedDate = $monthStart;
+            }
+            $periodStart = $parsedDate;
+            $periodEnd = $parsedDate;
+            $businessDate = $parsedDate;
+            $isDayDetail = true;
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && ($request->filled('from') || $request->filled('custom_from') || $request->filled('to') || $request->filled('custom_to')))) {
+            $periodMode = 'custom';
+            $rawFrom = (string) ($request->input('from') ?: $request->input('custom_from') ?: $monthStart);
+            $rawTo = (string) ($request->input('to') ?: $request->input('custom_to') ?: $monthEnd);
+            $parsedFrom = Carbon::parse($rawFrom)->toDateString();
+            $parsedTo = Carbon::parse($rawTo)->toDateString();
+            if ($parsedFrom < $monthStart) {
+                $parsedFrom = $monthStart;
+            }
+            if ($parsedFrom > $monthEnd) {
+                $parsedFrom = $monthEnd;
+            }
+            if ($parsedTo < $parsedFrom) {
+                $parsedTo = $parsedFrom;
+            }
+            if ($parsedTo > $monthEnd) {
+                $parsedTo = $monthEnd;
+            }
+            $periodStart = $parsedFrom;
+            $periodEnd = $parsedTo;
+            $businessDate = $parsedFrom;
+            $isDayDetail = ($periodStart === $periodEnd);
+        } else {
+            $periodMode = 'month';
+            $periodStart = $monthStart;
+            $periodEnd = $monthEnd;
+            $businessDate = ($month === today()->format('Y-m')) ? today()->toDateString() : $monthStart;
+            $isDayDetail = false;
+        }
+
+        $financialReport = $financialReportService->generate(
+            $currentShop,
+            $periodStart,
+            $periodEnd,
+            $periodMode,
+            $month
+        );
 
         $vendorPurchaseSummary = $vendorPurchaseReportService->summaryForShopPeriod(
             $shopId,
-            $isDayDetail ? $businessDate : $monthStart,
-            $isDayDetail ? $businessDate : $monthEnd
+            $periodStart,
+            $periodEnd
         );
 
         $monthlyData = $this->moneyPositionService->getShopMonthlyDailySummaries($shopId, $month);
         $dailySettlement = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $businessDate);
-        $position = $this->ledgerService->dailySummary($shopId, $monthEnd);
-        $paymentCard = $this->shopPaymentCard($currentShop, $monthStart, $monthEnd);
+        $position = $this->ledgerService->dailySummary($shopId, $periodEnd);
+        $paymentCard = $this->shopPaymentCard($currentShop, $periodStart, $periodEnd);
 
         $paymentSubmitted = (float) $paymentCard['received_amount'];
         $cashBankReceived = (float) $paymentCard['approved_amount'];
@@ -487,7 +553,7 @@ final class CashbookController extends Controller
             ->sum('balance_amount');
         $ledgerSettled = (float) ShopPaymentLedgerAllocation::query()
             ->whereHas('paymentRequest', fn (Builder $query): Builder => $query->where('shop_id', $shopId))
-            ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59'])
+            ->whereBetween('created_at', [$periodStart.' 00:00:00', $periodEnd.' 23:59:59'])
             ->sum('amount');
 
         $recentPayments = ShopInvoicePaymentRequest::query()
@@ -495,9 +561,9 @@ final class CashbookController extends Controller
             ->withExists('ledgerAllocations')
             ->withSum('ledgerAllocations as settled_amount', 'amount')
             ->where('shop_id', $shopId)
-            ->where(function (Builder $query) use ($monthStart, $monthEnd): void {
-                $query->whereBetween('payment_date', [$monthStart, $monthEnd])
-                    ->orWhereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+            ->where(function (Builder $query) use ($periodStart, $periodEnd): void {
+                $query->whereBetween('payment_date', [$periodStart, $periodEnd])
+                    ->orWhereBetween('created_at', [$periodStart.' 00:00:00', $periodEnd.' 23:59:59']);
             })
             ->latest('payment_date')
             ->latest('id')
@@ -512,8 +578,6 @@ final class CashbookController extends Controller
             ->latest('id')
             ->limit(5)
             ->get();
-        $periodStart = $isDayDetail ? $businessDate : $monthStart;
-        $periodEnd = $isDayDetail ? $businessDate : $monthEnd;
 
         $pettyConfig = $currentShop->getPaymentConfiguration()['petty'] ?? [
             'configured' => false,
@@ -565,7 +629,36 @@ final class CashbookController extends Controller
             })
             ->latest('business_date')
             ->latest('id')
-            ->limit(50)
+            ->limit(5)
+            ->get();
+
+        $recentAllocations = ShopPaymentLedgerAllocation::query()
+            ->with(['paymentRequest', 'ledgerTransaction.entryType', 'reconciledBy'])
+            ->where('shop_id', $shopId)
+            ->latest('id')
+            ->limit(5)
+            ->get();
+
+        $recentCheques = ShopInvoicePaymentRequest::query()
+            ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'requestedBy'])
+            ->where('shop_id', $shopId)
+            ->where('payment_method', 'cheque')
+            ->latest('payment_date')
+            ->latest('id')
+            ->limit(5)
+            ->get();
+
+        $recentAdjustments = ShopLedgerTransaction::query()
+            ->with(['entryType', 'enteredBy', 'approvedBy'])
+            ->where('shop_id', $shopId)
+            ->where(function (Builder $q): void {
+                $q->where('reference_type', ShopLedgerTransaction::class)
+                    ->orWhereHas('entryType', fn (Builder $eq): Builder => $eq->whereIn('code', ['other_income', 'other_expense']));
+            })
+            ->whereNotIn('status', ['void', 'voided'])
+            ->latest('business_date')
+            ->latest('id')
+            ->limit(5)
             ->get();
 
         $pettyFundingCompanyAccounts = CompanyAccount::query()
@@ -776,6 +869,8 @@ final class CashbookController extends Controller
             'month',
             'monthStart',
             'monthEnd',
+            'periodMode',
+            'financialReport',
             'prevDate',
             'nextDate',
             'todayDate',
@@ -825,7 +920,396 @@ final class CashbookController extends Controller
             'pettyUsedPeriod',
             'pettyHistory',
             'pettyFundingCompanyAccounts',
+            'recentAllocations',
+            'recentCheques',
+            'recentAdjustments',
         ));
+    }
+
+    /**
+     * Dedicated Settlement Details page explaining authoritative Period Due,
+     * obligations, payments, and allocation breakdown.
+     */
+    public function showSettlementDetails(
+        Request $request,
+        int|string $shop,
+        ShopFinancialReportService $financialReportService
+    ): View {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+
+        // ── Period Mode Resolution (Month, Day, Custom) ──────────────────────
+        $monthInput = (string) $request->input('month', '');
+        $periodMode = (string) ($request->input('period_mode') ?: $request->input('view') ?: '');
+
+        if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
+            $month = $monthInput;
+        } elseif ($request->filled('date') || $request->filled('day')) {
+            $month = Carbon::parse((string) ($request->input('date') ?: $request->input('day')))->format('Y-m');
+        } elseif ($request->filled('from') || $request->filled('custom_from')) {
+            $month = Carbon::parse((string) ($request->input('from') ?: $request->input('custom_from')))->format('Y-m');
+        } else {
+            $month = today()->format('Y-m');
+        }
+
+        $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+        $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+
+        if ($periodMode === 'day' || ($periodMode === '' && ($request->filled('date') || $request->filled('day')))) {
+            $periodMode = 'day';
+            $rawDate = (string) ($request->input('date') ?: $request->input('day') ?: $monthStart);
+            $parsedDate = Carbon::parse($rawDate)->toDateString();
+            if ($parsedDate < $monthStart || $parsedDate > $monthEnd) {
+                $parsedDate = $monthStart;
+            }
+            $periodStart = $parsedDate;
+            $periodEnd = $parsedDate;
+            $businessDate = $parsedDate;
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && ($request->filled('from') || $request->filled('custom_from') || $request->filled('to') || $request->filled('custom_to')))) {
+            $periodMode = 'custom';
+            $rawFrom = (string) ($request->input('from') ?: $request->input('custom_from') ?: $monthStart);
+            $rawTo = (string) ($request->input('to') ?: $request->input('custom_to') ?: $monthEnd);
+            $parsedFrom = Carbon::parse($rawFrom)->toDateString();
+            $parsedTo = Carbon::parse($rawTo)->toDateString();
+            if ($parsedFrom < $monthStart) {
+                $parsedFrom = $monthStart;
+            }
+            if ($parsedFrom > $monthEnd) {
+                $parsedFrom = $monthEnd;
+            }
+            if ($parsedTo < $parsedFrom) {
+                $parsedTo = $parsedFrom;
+            }
+            if ($parsedTo > $monthEnd) {
+                $parsedTo = $monthEnd;
+            }
+            $periodStart = $parsedFrom;
+            $periodEnd = $parsedTo;
+            $businessDate = $parsedFrom;
+        } else {
+            $periodMode = 'month';
+            $periodStart = $monthStart;
+            $periodEnd = $monthEnd;
+            $businessDate = ($month === today()->format('Y-m')) ? today()->toDateString() : $monthStart;
+        }
+
+        $settlementDetails = $financialReportService->getSettlementDetailsReport(
+            $currentShop,
+            $periodStart,
+            $periodEnd,
+            $periodMode,
+            $month
+        );
+
+        $financialReport = $financialReportService->generate(
+            $currentShop,
+            $periodStart,
+            $periodEnd,
+            $periodMode,
+            $month
+        );
+
+        return view('admin.cashbook.shops.settlement-details', compact(
+            'shops',
+            'currentShop',
+            'financialReport',
+            'settlementDetails',
+            'month',
+            'periodMode',
+            'periodStart',
+            'periodEnd',
+            'businessDate',
+        ));
+    }
+
+    /**
+     * Dedicated full-history page for Shop Payments.
+     */
+    public function shopPaymentsHistory(Request $request, int|string $shop): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopId = (int) $currentShop->shop_id;
+        $companyAccounts = CompanyAccount::query()->where('enabled', true)->orderBy('name')->get();
+
+        $month = $request->input('month');
+        $search = $request->input('search');
+        $paymentMethod = $request->input('payment_method');
+
+        $query = ShopInvoicePaymentRequest::query()
+            ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'ledgerAllocations.ledgerTransaction.entryType', 'requestedBy'])
+            ->where('shop_id', $shopId);
+
+        if ($month) {
+            $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+            $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+            $query->whereBetween('payment_date', [$monthStart, $monthEnd]);
+        }
+
+        if ($paymentMethod) {
+            $query->where('payment_method', $paymentMethod);
+        }
+
+        if ($search) {
+            $query->where(function (Builder $q) use ($search): void {
+                $q->where('payment_reference', 'like', "%{$search}%")
+                    ->orWhere('shop_note', 'like', "%{$search}%")
+                    ->orWhere('admin_note', 'like', "%{$search}%");
+            });
+        }
+
+        $payments = $query->latest('payment_date')->latest('id')->paginate(20)->withQueryString();
+        $payments->through(fn (ShopInvoicePaymentRequest $payment): ShopInvoicePaymentRequest => $this->enrichShopPaymentModel($payment, $shopId));
+
+        return view('admin.cashbook.shops.history.payments', compact('shops', 'currentShop', 'payments', 'companyAccounts', 'month', 'search', 'paymentMethod'));
+    }
+
+    /**
+     * Dedicated full-history page for Payment Allocations.
+     */
+    public function shopAllocationsHistory(Request $request, int|string $shop): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopId = (int) $currentShop->shop_id;
+
+        $month = $request->input('month');
+        $search = $request->input('search');
+
+        $query = ShopPaymentLedgerAllocation::query()
+            ->with(['paymentRequest', 'ledgerTransaction.entryType', 'reconciledBy'])
+            ->where('shop_id', $shopId);
+
+        if ($month) {
+            $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+            $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+            $query->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+        }
+
+        if ($search) {
+            $query->whereHas('paymentRequest', function (Builder $q) use ($search): void {
+                $q->where('payment_reference', 'like', "%{$search}%");
+            });
+        }
+
+        $allocations = $query->latest('id')->paginate(20)->withQueryString();
+
+        return view('admin.cashbook.shops.history.allocations', compact('shops', 'currentShop', 'allocations', 'month', 'search'));
+    }
+
+    /**
+     * Dedicated full-history page for Shop Cheques.
+     */
+    public function shopChequesHistory(Request $request, int|string $shop): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopId = (int) $currentShop->shop_id;
+
+        $status = $request->input('status');
+        $search = $request->input('search');
+
+        $query = ShopInvoicePaymentRequest::query()
+            ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'requestedBy'])
+            ->where('shop_id', $shopId)
+            ->where('payment_method', 'cheque');
+
+        if ($status === 'pending' || $status === 'floating') {
+            $query->where('cheque_status', 'pending');
+        } elseif ($status === 'cleared') {
+            $query->where('cheque_status', 'cleared');
+        } elseif ($status === 'rejected') {
+            $query->where('cheque_status', 'rejected');
+        }
+
+        if ($search) {
+            $query->where(function (Builder $q) use ($search): void {
+                $q->where('payment_reference', 'like', "%{$search}%")
+                    ->orWhere('cheque_bank_name', 'like', "%{$search}%");
+            });
+        }
+
+        $cheques = $query->latest('payment_date')->latest('id')->paginate(20)->withQueryString();
+        $cheques->through(fn (ShopInvoicePaymentRequest $payment): ShopInvoicePaymentRequest => $this->enrichShopPaymentModel($payment, $shopId));
+
+        return view('admin.cashbook.shops.history.cheques', compact('shops', 'currentShop', 'cheques', 'status', 'search'));
+    }
+
+    /**
+     * Dedicated full-history page for Shop Petty Cash.
+     */
+    public function shopPettyHistory(Request $request, int|string $shop): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopId = (int) $currentShop->shop_id;
+
+        $month = $request->input('month');
+        $search = $request->input('search');
+
+        $query = ShopLedgerTransaction::query()
+            ->with(['entryType', 'enteredBy', 'approvedBy', 'companyAccount'])
+            ->where('shop_id', $shopId)
+            ->where(function (Builder $q): void {
+                $q->where('petty_delta', '!=', 0)
+                    ->orWhereHas('entryType', fn (Builder $eq): Builder => $eq->where('code', 'company_to_petty'));
+            });
+
+        if ($month) {
+            $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+            $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+            $query->whereBetween('business_date', [$monthStart, $monthEnd]);
+        }
+
+        if ($search) {
+            $query->where(function (Builder $q) use ($search): void {
+                $q->where('notes', 'like', "%{$search}%")
+                    ->orWhere('reference_id', 'like', "%{$search}%");
+            });
+        }
+
+        $pettyTransactions = $query->latest('business_date')->latest('id')->paginate(25)->withQueryString();
+        $pettyFundingCompanyAccounts = CompanyAccount::query()
+            ->where('enabled', true)
+            ->whereIn('account_type', ['cash', 'bank'])
+            ->orderBy('is_default', 'desc')
+            ->orderBy('name')
+            ->get();
+
+        return view('admin.cashbook.shops.history.petty', compact('shops', 'currentShop', 'pettyTransactions', 'pettyFundingCompanyAccounts', 'month', 'search'));
+    }
+
+    /**
+     * Dedicated full-history page for Daily Adjustments.
+     */
+    public function shopAdjustmentsHistory(Request $request, int|string $shop): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopId = (int) $currentShop->shop_id;
+
+        $month = $request->input('month');
+        $search = $request->input('search');
+
+        $query = ShopLedgerTransaction::query()
+            ->with(['entryType', 'enteredBy', 'approvedBy'])
+            ->where('shop_id', $shopId)
+            ->where(function (Builder $q): void {
+                $q->where('reference_type', ShopLedgerTransaction::class)
+                    ->orWhereHas('entryType', fn (Builder $eq): Builder => $eq->whereIn('code', ['other_income', 'other_expense']));
+            })
+            ->whereNotIn('status', ['void', 'voided']);
+
+        if ($month) {
+            $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+            $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+            $query->whereBetween('business_date', [$monthStart, $monthEnd]);
+        }
+
+        if ($search) {
+            $query->where(function (Builder $q) use ($search): void {
+                $q->where('notes', 'like', "%{$search}%")
+                    ->orWhere('reference_id', 'like', "%{$search}%");
+            });
+        }
+
+        $adjustments = $query->latest('business_date')->latest('id')->paginate(25)->withQueryString();
+
+        return view('admin.cashbook.shops.history.adjustments', compact('shops', 'currentShop', 'adjustments', 'month', 'search'));
+    }
+
+    /**
+     * Dedicated full-history page for Monthly Banking Verification.
+     */
+    public function shopBankingHistory(Request $request, int|string $shop): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+        $shopId = (int) $currentShop->shop_id;
+
+        $connectedBankAccounts = CompanyAccount::query()
+            ->whereIn('id', function ($query) use ($shopId) {
+                $query->select('company_account_id')
+                    ->from('shop_ledger_entry_settings')
+                    ->where('shop_id', $shopId)
+                    ->where('enabled', true)
+                    ->whereNotNull('company_account_id');
+            })
+            ->where('enabled', true)
+            ->orderBy('name')
+            ->get();
+
+        $selectedBankId = $request->filled('bank_account_id')
+            ? (int) $request->input('bank_account_id')
+            : ($connectedBankAccounts->first()?->id ?? null);
+
+        $selectedBankAccount = $connectedBankAccounts->firstWhere('id', $selectedBankId);
+        $bankingStatusFilter = (string) $request->input('banking_status', 'all');
+        $month = $request->input('month');
+
+        $mappedEntryTypeIds = $selectedBankId ? ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopId)
+            ->where('enabled', true)
+            ->where('company_account_id', $selectedBankId)
+            ->pluck('entry_type_id')
+            ->all() : [];
+
+        $query = ShopLedgerTransaction::query()
+            ->with(['entryType', 'shop', 'enteredBy', 'approvedBy', 'statementEntries.reconciledBy', 'statementEntries.companyAccount'])
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['void', 'voided', 'reversed'])
+            ->where(function (Builder $q): void {
+                $q->where('direction', 'income')
+                    ->orWhere('affects_income', true)
+                    ->orWhere('affects_sales', true);
+            });
+
+        if ($selectedBankId) {
+            $query->where(function (Builder $q) use ($mappedEntryTypeIds, $selectedBankId) {
+                $q->where('company_account_id', $selectedBankId);
+                if (! empty($mappedEntryTypeIds)) {
+                    $q->orWhereIn('entry_type_id', $mappedEntryTypeIds);
+                }
+            });
+        }
+
+        if ($month) {
+            $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+            $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+            $query->whereBetween('business_date', [$monthStart, $monthEnd]);
+        }
+
+        if ($bankingStatusFilter === 'verified') {
+            $query->whereHas('statementEntries', fn ($q) => $q->where('is_finalized', true)->where('status', 'reconciled'));
+        } elseif ($bankingStatusFilter === 'pending') {
+            $query->whereIn('status', [TransactionStatus::Approved->value, 'approved'])
+                ->whereDoesntHave('statementEntries', fn ($q) => $q->where('is_finalized', true)->where('status', 'reconciled'));
+        }
+
+        $bankingTransactions = $query->latest('business_date')->latest('id')->paginate(25)->withQueryString();
+
+        return view('admin.cashbook.shops.history.banking', compact('shops', 'currentShop', 'connectedBankAccounts', 'selectedBankId', 'selectedBankAccount', 'bankingStatusFilter', 'bankingTransactions', 'month'));
     }
 
     /**
@@ -2824,10 +3308,37 @@ final class CashbookController extends Controller
         $salaryCategory = ShopAccountingCategory::query()->whereNull('shop_id')->where('purpose', 'staff_salary')->first();
         $advanceCategory = ShopAccountingCategory::query()->whereNull('shop_id')->where('purpose', 'staff_advance')->first();
 
+        $vendorPurchaseEditWindow = [
+            'value' => (int) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_value')->value('value') ?? 3),
+            'unit' => strtolower((string) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_unit')->value('value') ?? 'days')),
+        ];
+
         return view('admin.cashbook.settings.index', compact(
             'shops', 'clients', 'entryTypes', 'companyAccounts', 'company', 'currentShop',
-            'advanceRule', 'salaryCategory', 'advanceCategory'
+            'advanceRule', 'salaryCategory', 'advanceCategory', 'vendorPurchaseEditWindow'
         ));
+    }
+
+    public function updateVendorPurchaseEditWindow(Request $request): RedirectResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'vendor_purchase_edit_window_value' => ['required', 'integer', 'min:1', 'max:365'],
+            'vendor_purchase_edit_window_unit' => ['required', 'string', 'in:hours,days,Hours,Days'],
+        ]);
+
+        BusinessSetting::query()->updateOrCreate(
+            ['key' => 'vendor_purchase_edit_window_value'],
+            ['value' => (int) $validated['vendor_purchase_edit_window_value']]
+        );
+
+        BusinessSetting::query()->updateOrCreate(
+            ['key' => 'vendor_purchase_edit_window_unit'],
+            ['value' => strtolower((string) $validated['vendor_purchase_edit_window_unit'])]
+        );
+
+        return redirect()->back()->with('success', 'Vendor Purchase edit window updated successfully.');
     }
 
     public function updateStaffSettings(Request $request): RedirectResponse
@@ -4722,6 +5233,12 @@ final class CashbookController extends Controller
         $this->ensureMainAdmin($request);
 
         $validated = $request->validate([
+            'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
+            'period_mode' => ['nullable', 'in:month,day,custom'],
+            'date' => ['nullable', 'date'],
+            'day' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
             'period' => ['nullable', 'in:today,yesterday,month,this_month,custom,between,range'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
@@ -4729,10 +5246,75 @@ final class CashbookController extends Controller
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
+        $monthInput = (string) ($validated['month'] ?? '');
+        $periodMode = (string) ($validated['period_mode'] ?? '');
+
+        if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
+            $month = $monthInput;
+        } elseif (! empty($validated['date'])) {
+            $month = Carbon::parse((string) $validated['date'])->format('Y-m');
+        } elseif (! empty($validated['from'])) {
+            $month = Carbon::parse((string) $validated['from'])->format('Y-m');
+        } elseif (! empty($validated['start_date']) && in_array($validated['period'] ?? '', ['custom', 'between', 'range'], true)) {
+            $month = Carbon::parse((string) $validated['start_date'])->format('Y-m');
+        } else {
+            $month = today('Asia/Kolkata')->format('Y-m');
+        }
+
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+        $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+        $monthTitle = $monthCarbon->format('F Y');
+
+        $periodParam = $validated['period'] ?? null;
+
+        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+            $periodMode = 'day';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'yesterday') {
+                $rawDate = $today->copy()->subDay()->toDateString();
+            } elseif ($periodParam === 'today') {
+                $rawDate = $today->toDateString();
+            } else {
+                $rawDate = (string) ($validated['date'] ?? $validated['day'] ?? $monthStart);
+            }
+            $startDate = Carbon::parse($rawDate)->startOfDay();
+            $endDate = $startDate->copy();
+            $period = 'custom';
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range'], true)))) {
+            $periodMode = 'custom';
+            $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $monthStart);
+            $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $monthEnd);
+            $startDate = Carbon::parse($rawFrom)->startOfDay();
+            $endDate = Carbon::parse($rawTo)->startOfDay();
+            $period = 'custom';
+        } else {
+            $periodMode = 'month';
+            $startDate = $monthCarbon->copy()->startOfMonth();
+            $endDate = $monthCarbon->copy()->endOfMonth();
+            $period = 'custom';
+        }
+
+        if ($startDate->greaterThan($endDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
         $filters = [
-            'period' => $validated['period'] ?? 'month',
-            'start_date' => $validated['start_date'] ?? null,
-            'end_date' => $validated['end_date'] ?? null,
+            'period' => $period,
+            'period_mode' => $periodMode,
+            'month' => $month,
+            'month_start' => $monthStart,
+            'month_end' => $monthEnd,
+            'prev_month' => $prevMonth,
+            'next_month' => $nextMonth,
+            'month_title' => $monthTitle,
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'date' => $startDate->toDateString(),
+            'from' => $startDate->toDateString(),
+            'to' => $endDate->toDateString(),
             'warehouse_id' => isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null,
             'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
         ];
@@ -4761,7 +5343,7 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $filters = $request->all();
+        $filters = $this->normalizePurchaserExpenseFilters($request);
         $reportData = $reportService->getReportData($filters, 25);
 
         $purchaserIds = PurchaserCart::query()->distinct()->pluck('user_id')->filter()->all();
@@ -4796,7 +5378,7 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $filters = $request->all();
+        $filters = $this->normalizePurchaserExpenseFilters($request);
         $reportData = $reportService->getReportData($filters, null);
 
         $purchaserName = 'All Purchasers';
@@ -4833,7 +5415,7 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $filters = $request->all();
+        $filters = $this->normalizePurchaserExpenseFilters($request);
         $reportData = $reportService->getReportData($filters, null);
         $rows = $reportData['rows'];
 
@@ -4876,7 +5458,7 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $filters = $request->all();
+        $filters = $this->normalizePurchaserExpenseFilters($request);
         $reportData = $reportService->getReportData($filters, null);
 
         $filename = 'purchaser-expense-report-'.now()->format('Y-m-d').'.xlsx';
@@ -4885,6 +5467,85 @@ final class CashbookController extends Controller
             new PurchaserExpenseReportExport($reportData),
             $filename
         );
+    }
+
+    /** @return array<string, mixed> */
+    private function normalizePurchaserExpenseFilters(Request $request): array
+    {
+        $filters = $request->all();
+
+        $monthInput = (string) ($filters['month'] ?? '');
+        $periodMode = (string) ($filters['period_mode'] ?? '');
+
+        if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
+            $month = $monthInput;
+        } elseif (! empty($filters['date'])) {
+            $month = Carbon::parse((string) $filters['date'])->format('Y-m');
+        } elseif (! empty($filters['date_from'])) {
+            $month = Carbon::parse((string) $filters['date_from'])->format('Y-m');
+        } elseif (! empty($filters['from'])) {
+            $month = Carbon::parse((string) $filters['from'])->format('Y-m');
+        } else {
+            $month = today('Asia/Kolkata')->format('Y-m');
+        }
+
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+        $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+        $monthTitle = $monthCarbon->format('F Y');
+
+        $quickFilter = (string) ($filters['quick_filter'] ?? $filters['chip'] ?? '');
+
+        if ($periodMode === 'day' || ($periodMode === '' && (! empty($filters['date']) || ! empty($filters['day']) || in_array($quickFilter, ['today', 'yesterday'], true)))) {
+            $periodMode = 'day';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($quickFilter === 'yesterday') {
+                $rawDate = $today->copy()->subDay()->toDateString();
+            } elseif ($quickFilter === 'today') {
+                $rawDate = $today->toDateString();
+            } else {
+                $rawDate = (string) ($filters['date'] ?? $filters['day'] ?? $filters['date_from'] ?? $monthStart);
+            }
+            $filters['date_from'] = $rawDate;
+            $filters['date_to'] = $rawDate;
+            $filters['date'] = $rawDate;
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($filters['from']) || ! empty($filters['to']) || (filled($filters['date_from'] ?? null) && filled($filters['date_to'] ?? null))))) {
+            $periodMode = 'custom';
+            $filters['date_from'] = (string) ($filters['from'] ?? $filters['date_from'] ?? $monthStart);
+            $filters['date_to'] = (string) ($filters['to'] ?? $filters['date_to'] ?? $monthEnd);
+            $filters['from'] = $filters['date_from'];
+            $filters['to'] = $filters['date_to'];
+        } elseif ($quickFilter === 'last_month') {
+            $periodMode = 'month';
+            $lastMonthCarbon = $monthCarbon->copy()->subMonth();
+            $month = $lastMonthCarbon->format('Y-m');
+            $monthCarbon = $lastMonthCarbon;
+            $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+            $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+            $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+            $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+            $monthTitle = $monthCarbon->format('F Y');
+            $filters['month'] = $month;
+            unset($filters['date_from'], $filters['date_to']);
+        } else {
+            $periodMode = 'month';
+            $filters['month'] = $month;
+            if (empty($filters['date_from']) || empty($filters['date_to'])) {
+                unset($filters['date_from'], $filters['date_to']);
+            }
+        }
+
+        $filters['period_mode'] = $periodMode;
+        $filters['month'] = $month;
+        $filters['month_start'] = $monthStart;
+        $filters['month_end'] = $monthEnd;
+        $filters['prev_month'] = $prevMonth;
+        $filters['next_month'] = $nextMonth;
+        $filters['month_title'] = $monthTitle;
+
+        return $filters;
     }
 
     public function companyFinancePurchasePriceReport(PurchasePriceReportRequest $request, PurchasePriceReportingService $priceReportingService): View
@@ -5081,10 +5742,10 @@ final class CashbookController extends Controller
         }
 
         $detail = $purchaseReportingService->purchaserDetail((int) $purchaser->id, $filters, $tab);
-        $vendorSummaryRows = ($tab === 'overview')
+        $vendorSummaryRows = in_array($tab, ['overview', 'vendors'], true)
             ? $purchaserVendorSummaryService->getVendorRows($purchaser, $filters)
             : collect();
-        $vendorSummaryKpi = ($tab === 'overview')
+        $vendorSummaryKpi = in_array($tab, ['overview', 'vendors'], true)
             ? $purchaserVendorSummaryService->getSummaryFromRows($vendorSummaryRows)
             : $purchaserVendorSummaryService->emptySummary();
         $financeSummary = $purchaserFinanceService->summaryFor((int) $purchaser->id);
@@ -11919,11 +12580,17 @@ PY;
         return [$rangeStart->toDateString(), $rangeEnd->toDateString()];
     }
 
-    /** @return array{period:string,start_date:string,end_date:string,purchaser_id:?int,vendor_id:?int,payment:string,warehouse_code:?string,category_ids:array<int, int>,batch_ids:array<int, int>,grade:?string,search:string} */
+    /** @return array{period:string,period_mode:string,month:string,month_start:string,month_end:string,prev_month:string,next_month:string,month_title:string,start_date:string,end_date:string,formatted_range:string,purchaser_id:?int,vendor_id:?int,payment:string,product_filter:?string,purchase_product_filter_id:?int,category_ids:array<int, int>,batch_ids:array<int, int>,grade:?string,search:string} */
     private function purchaseReportFilters(Request $request, string $defaultPeriod = 'today'): array
     {
         $validated = $request->validate([
-            'period' => ['nullable', 'in:today,yesterday,week,month,custom,between,range'],
+            'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
+            'period_mode' => ['nullable', 'in:month,day,custom'],
+            'date' => ['nullable', 'date'],
+            'day' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'period' => ['nullable', 'in:today,yesterday,week,month,this_month,custom,between,range'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
             'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
@@ -11937,18 +12604,63 @@ PY;
             'search' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $period = $validated['period'] ?? $defaultPeriod;
-        $today = now('Asia/Kolkata')->startOfDay();
-        [$startDate, $endDate] = match ($period) {
-            'yesterday' => [$today->copy()->subDay(), $today->copy()->subDay()],
-            'week' => [$today->copy()->startOfWeek(), $today],
-            'month' => [$today->copy()->startOfMonth(), $today],
-            'custom', 'between', 'range' => [
-                Carbon::parse($validated['start_date'] ?? $today)->startOfDay(),
-                Carbon::parse($validated['end_date'] ?? $validated['start_date'] ?? $today)->startOfDay(),
-            ],
-            default => [$today, $today],
-        };
+        $monthInput = (string) ($validated['month'] ?? '');
+        $periodMode = (string) ($validated['period_mode'] ?? '');
+
+        if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
+            $month = $monthInput;
+        } elseif (! empty($validated['date'])) {
+            $month = Carbon::parse((string) $validated['date'])->format('Y-m');
+        } elseif (! empty($validated['from'])) {
+            $month = Carbon::parse((string) $validated['from'])->format('Y-m');
+        } elseif (! empty($validated['start_date'])) {
+            $month = Carbon::parse((string) $validated['start_date'])->format('Y-m');
+        } else {
+            $month = today('Asia/Kolkata')->format('Y-m');
+        }
+
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+        $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+        $monthTitle = $monthCarbon->format('F Y');
+
+        $periodParam = $validated['period'] ?? null;
+        if ($periodParam === null && $periodMode === '' && $monthInput === '' && empty($validated['date']) && empty($validated['day']) && empty($validated['from']) && empty($validated['to']) && empty($validated['start_date']) && empty($validated['end_date'])) {
+            $periodParam = $defaultPeriod;
+        }
+
+        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+            $periodMode = 'day';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'yesterday') {
+                $rawDate = $today->copy()->subDay()->toDateString();
+            } elseif ($periodParam === 'today') {
+                $rawDate = $today->toDateString();
+            } else {
+                $rawDate = (string) ($validated['date'] ?? $validated['day'] ?? $monthStart);
+            }
+            $startDate = Carbon::parse($rawDate)->startOfDay();
+            $endDate = $startDate->copy();
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range'], true) || $periodParam === 'week'))) {
+            $periodMode = 'custom';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'week') {
+                $startDate = $today->copy()->startOfWeek();
+                $endDate = $today->copy();
+            } else {
+                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $monthStart);
+                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $monthEnd);
+                $startDate = Carbon::parse($rawFrom)->startOfDay();
+                $endDate = Carbon::parse($rawTo)->startOfDay();
+            }
+        } else {
+            $periodMode = 'month';
+            $startDate = $monthCarbon->copy()->startOfMonth();
+            $endDate = $monthCarbon->copy()->endOfMonth();
+        }
+
         if ($startDate->greaterThan($endDate)) {
             [$startDate, $endDate] = [$endDate, $startDate];
         }
@@ -11958,10 +12670,22 @@ PY;
             ? PurchaseProductFilter::query()->where('uuid', $productFilterUuid)->firstOrFail()
             : null;
 
+        $legacyPeriod = $periodParam ?: ($periodMode === 'day' ? 'today' : ($periodMode === 'custom' ? 'custom' : 'month'));
+
         return [
-            'period' => $period,
+            'period' => $legacyPeriod,
+            'period_mode' => $periodMode,
+            'month' => $month,
+            'month_start' => $monthStart,
+            'month_end' => $monthEnd,
+            'prev_month' => $prevMonth,
+            'next_month' => $nextMonth,
+            'month_title' => $monthTitle,
             'start_date' => $startDate->toDateString(),
             'end_date' => $endDate->toDateString(),
+            'formatted_range' => $startDate->toDateString() === $endDate->toDateString()
+                ? $startDate->format('d M Y')
+                : $startDate->format('d M Y').' – '.$endDate->format('d M Y'),
             'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
             'vendor_id' => isset($validated['vendor_id']) ? (int) $validated['vendor_id'] : null,
             'payment' => $validated['payment'] ?? 'all',
@@ -11977,46 +12701,118 @@ PY;
     private function purchaseDashboardFilters(Request $request): array
     {
         $validated = $request->validate([
+            'month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
+            'period_mode' => ['nullable', 'in:month,day,custom'],
+            'date' => ['nullable', 'date'],
+            'day' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
             'period' => ['nullable', 'in:today,yesterday,week,month,custom,between,range'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
             'product_filter' => ['nullable', 'string', 'exists:purchase_product_filters,uuid,deleted_at,NULL'],
+            'purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
+            'vendor_id' => ['nullable', 'integer', 'exists:suppliers,id'],
+            'payment' => ['nullable', 'in:all,cash,credit'],
+            'category_ids' => ['nullable', 'array'],
+            'category_ids.*' => ['integer', 'exists:categories,id'],
+            'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'grade' => ['nullable', 'in:A,B'],
+            'search' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $period = $validated['period'] ?? 'today';
-        $today = now('Asia/Kolkata')->startOfDay();
-        [$startDate, $endDate] = match ($period) {
-            'yesterday' => [$today->copy()->subDay(), $today->copy()->subDay()],
-            'week' => [$today->copy()->startOfWeek(), $today],
-            'month' => [$today->copy()->startOfMonth(), $today],
-            'custom', 'between', 'range' => [
-                Carbon::parse($validated['start_date'] ?? $today)->startOfDay(),
-                Carbon::parse($validated['end_date'] ?? $validated['start_date'] ?? $today)->startOfDay(),
-            ],
-            default => [$today, $today],
-        };
-        if ($startDate->greaterThan($endDate)) {
-            [$startDate, $endDate] = [$endDate, $startDate];
+        $monthInput = (string) ($validated['month'] ?? '');
+        $periodMode = (string) ($validated['period_mode'] ?? '');
+
+        if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
+            $month = $monthInput;
+        } elseif (! empty($validated['date'])) {
+            $month = Carbon::parse((string) $validated['date'])->format('Y-m');
+        } elseif (! empty($validated['from'])) {
+            $month = Carbon::parse((string) $validated['from'])->format('Y-m');
+        } elseif (! empty($validated['start_date'])) {
+            $month = Carbon::parse((string) $validated['start_date'])->format('Y-m');
+        } else {
+            $month = today('Asia/Kolkata')->format('Y-m');
         }
+
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+        $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+        $monthTitle = $monthCarbon->format('F Y');
+
+        $periodParam = $validated['period'] ?? null;
+
+        if ($periodMode === 'day' || ($periodMode === '' && (! empty($validated['date']) || ! empty($validated['day']) || in_array($periodParam, ['today', 'yesterday'], true)))) {
+            $periodMode = 'day';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'yesterday') {
+                $rawDate = $today->copy()->subDay()->toDateString();
+            } elseif ($periodParam === 'today') {
+                $rawDate = $today->toDateString();
+            } else {
+                $rawDate = (string) ($validated['date'] ?? $validated['day'] ?? $monthStart);
+            }
+            $parsedDate = Carbon::parse($rawDate)->toDateString();
+            $periodStart = $parsedDate;
+            $periodEnd = $parsedDate;
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && (! empty($validated['from']) || ! empty($validated['to']) || in_array($periodParam, ['custom', 'between', 'range'], true) || $periodParam === 'week'))) {
+            $periodMode = 'custom';
+            $today = now('Asia/Kolkata')->startOfDay();
+            if ($periodParam === 'week') {
+                $parsedFrom = $today->copy()->startOfWeek()->toDateString();
+                $parsedTo = $today->toDateString();
+            } else {
+                $rawFrom = (string) ($validated['from'] ?? $validated['start_date'] ?? $monthStart);
+                $rawTo = (string) ($validated['to'] ?? $validated['end_date'] ?? $monthEnd);
+                $parsedFrom = Carbon::parse($rawFrom)->toDateString();
+                $parsedTo = Carbon::parse($rawTo)->toDateString();
+            }
+            if ($parsedFrom > $parsedTo) {
+                [$parsedFrom, $parsedTo] = [$parsedTo, $parsedFrom];
+            }
+            $periodStart = $parsedFrom;
+            $periodEnd = $parsedTo;
+        } else {
+            $periodMode = 'month';
+            $periodStart = $monthStart;
+            $periodEnd = $monthEnd;
+        }
+
+        $formattedRange = $periodStart === $periodEnd
+            ? Carbon::parse($periodStart)->format('d M Y')
+            : Carbon::parse($periodStart)->format('d M Y').' – '.Carbon::parse($periodEnd)->format('d M Y');
 
         $productFilterUuid = $validated['product_filter'] ?? null;
         $purchaseProductFilter = $productFilterUuid
-            ? PurchaseProductFilter::query()->where('uuid', $productFilterUuid)->firstOrFail()
+            ? PurchaseProductFilter::query()->where('uuid', $productFilterUuid)->first()
             : null;
 
+        $legacyPeriod = $periodParam ?: ($periodMode === 'day' ? 'today' : ($periodMode === 'custom' ? 'custom' : 'month'));
+
         return [
-            'period' => $period,
-            'start_date' => $startDate->toDateString(),
-            'end_date' => $endDate->toDateString(),
-            'purchaser_id' => null,
-            'vendor_id' => null,
-            'payment' => 'all',
+            'period' => $legacyPeriod,
+            'period_mode' => $periodMode,
+            'month' => $month,
+            'month_start' => $monthStart,
+            'month_end' => $monthEnd,
+            'prev_month' => $prevMonth,
+            'next_month' => $nextMonth,
+            'month_title' => $monthTitle,
+            'formatted_range' => $formattedRange,
+            'start_date' => $periodStart,
+            'end_date' => $periodEnd,
+            'purchaser_id' => isset($validated['purchaser_id']) ? (int) $validated['purchaser_id'] : null,
+            'vendor_id' => isset($validated['vendor_id']) ? (int) $validated['vendor_id'] : null,
+            'payment' => $validated['payment'] ?? 'all',
             'product_filter' => $productFilterUuid,
             'purchase_product_filter_id' => $purchaseProductFilter?->id,
-            'category_ids' => [],
+            'category_ids' => isset($validated['category_id']) ? [(int) $validated['category_id']] : array_map('intval', $validated['category_ids'] ?? []),
             'batch_ids' => [],
-            'grade' => null,
-            'search' => '',
+            'grade' => $validated['grade'] ?? null,
+            'search' => trim((string) ($validated['search'] ?? '')),
         ];
     }
 

@@ -52,114 +52,88 @@
     </div>
 
     <!-- Filters & Export Header -->
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-        <form method="GET" action="{{ route('admin.cashbook.finance.purchase.purchaser-expenses') }}" class="space-y-4">
-            <!-- Quick Filter Chips -->
-            <div class="flex flex-wrap items-center gap-2">
-                <span class="text-xs font-bold text-slate-500 mr-1">Quick Filters:</span>
-                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', array_merge(request()->except(['quick_filter', 'date_from', 'date_to', 'month']), ['quick_filter' => 'today'])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ ($summary['active_quick_filter'] ?? '') === 'today' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    Today
-                </a>
-                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', array_merge(request()->except(['quick_filter', 'date_from', 'date_to', 'month']), ['quick_filter' => 'yesterday'])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ ($summary['active_quick_filter'] ?? '') === 'yesterday' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    Yesterday
-                </a>
-                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', array_merge(request()->except(['quick_filter', 'date_from', 'date_to', 'month']), ['quick_filter' => 'this_month'])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ ($summary['active_quick_filter'] ?? '') === 'this_month' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    This Month
-                </a>
-                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses', array_merge(request()->except(['quick_filter', 'date_from', 'date_to', 'month']), ['quick_filter' => 'last_month'])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ ($summary['active_quick_filter'] ?? '') === 'last_month' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    Last Month
+    @component('admin.cashbook.finance.purchase.partials._period-filter', [
+        'action' => route('admin.cashbook.finance.purchase.purchaser-expenses'),
+        'filters' => $filters,
+        'extraParams' => array_filter([
+            'purchaser' => request('purchaser', $filters['purchaser'] ?? null),
+            'purchaser_id' => request('purchaser_id', $filters['purchaser_id'] ?? null),
+            'supplier_id' => request('supplier_id', $filters['supplier_id'] ?? null),
+            'expense_type' => request('expense_type', $filters['expense_type'] ?? null),
+            'search' => request('search', $filters['search'] ?? null),
+        ], fn ($v) => $v !== null && $v !== ''),
+    ])
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 items-end">
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Purchaser</label>
+                <select name="purchaser" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                    <option value="">All Purchasers</option>
+                    @foreach($purchasers as $p)
+                        <option value="{{ $p->public_uuid }}" {{ request('purchaser') == $p->public_uuid || request('purchaser_id') == $p->id ? 'selected' : '' }}>
+                            {{ $p->name }}
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Supplier</label>
+                <select name="supplier_id" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                    <option value="">All Suppliers</option>
+                    @foreach($suppliers as $s)
+                        <option value="{{ $s->id }}" {{ request('supplier_id') == $s->id ? 'selected' : '' }}>
+                            {{ $s->name }}
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Expense Type</label>
+                <select name="expense_type" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                    <option value="">All Types / Purchases</option>
+                    @foreach($expenseTypes as $key => $label)
+                        <option value="{{ $key }}" {{ request('expense_type') == $key ? 'selected' : '' }}>
+                            {{ $label }}
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Search</label>
+                <input type="text" name="search" value="{{ request('search') }}" placeholder="Ref, item, note..."
+                       class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500" />
+            </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3 border-t border-slate-100">
+            <div class="flex items-center gap-2">
+                <button type="submit" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-emerald-700 px-4 text-xs font-black text-white hover:bg-emerald-800 shadow-xs cursor-pointer">
+                    <i data-lucide="filter" class="h-3.5 w-3.5"></i> Apply
+                </button>
+                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses') }}" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition">
+                    <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>
                 </a>
             </div>
 
-            <!-- Filter Controls -->
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Date From</label>
-                    <input type="date" name="date_from" value="{{ request('date_from', $summary['date_from']) }}"
-                           class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-medium focus:border-emerald-500 focus:ring-emerald-500" />
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Date To</label>
-                    <input type="date" name="date_to" value="{{ request('date_to', $summary['date_to']) }}"
-                           class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-medium focus:border-emerald-500 focus:ring-emerald-500" />
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Purchaser</label>
-                    <select name="purchaser" class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-medium focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">All Purchasers</option>
-                        @foreach($purchasers as $p)
-                            <option value="{{ $p->public_uuid }}" {{ request('purchaser') == $p->public_uuid || request('purchaser_id') == $p->id ? 'selected' : '' }}>
-                                {{ $p->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Supplier</label>
-                    <select name="supplier_id" class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-medium focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">All Suppliers</option>
-                        @foreach($suppliers as $s)
-                            <option value="{{ $s->id }}" {{ request('supplier_id') == $s->id ? 'selected' : '' }}>
-                                {{ $s->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Expense Type</label>
-                    <select name="expense_type" class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-medium focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">All Types / Purchases</option>
-                        @foreach($expenseTypes as $key => $label)
-                            <option value="{{ $key }}" {{ request('expense_type') == $key ? 'selected' : '' }}>
-                                {{ $label }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Search</label>
-                    <input type="text" name="search" value="{{ request('search') }}" placeholder="Ref, item, note..."
-                           class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-medium focus:border-emerald-500 focus:ring-emerald-500" />
-                </div>
+            <!-- Export Buttons -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses.export.pdf', request()->query()) }}" target="_blank"
+                   class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700 hover:bg-rose-100 shadow-xs transition">
+                    <i data-lucide="file-text" class="h-3.5 w-3.5"></i> PDF
+                </a>
+                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses.export.csv', request()->query()) }}"
+                   class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 hover:bg-slate-100 shadow-xs transition">
+                    <i data-lucide="download" class="h-3.5 w-3.5"></i> CSV
+                </a>
+                <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses.export.excel', request()->query()) }}"
+                   class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-black text-emerald-800 hover:bg-emerald-100 shadow-xs transition">
+                    <i data-lucide="sheet" class="h-3.5 w-3.5"></i> Excel
+                </a>
             </div>
-
-            <div class="flex items-center justify-between pt-2">
-                <div class="flex items-center gap-2">
-                    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800 shadow-sm">
-                        <i data-lucide="filter" class="h-4 w-4"></i> Filter
-                    </button>
-                    <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses') }}" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">
-                        Reset
-                    </a>
-                </div>
-
-                <!-- Export Buttons -->
-                <div class="flex items-center gap-2">
-                    <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses.export.pdf', request()->query()) }}" target="_blank"
-                       class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 shadow-sm">
-                        <i data-lucide="file-text" class="h-4 w-4"></i> PDF
-                    </a>
-                    <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses.export.csv', request()->query()) }}"
-                       class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 shadow-sm">
-                        <i data-lucide="download" class="h-4 w-4"></i> CSV
-                    </a>
-                    <a href="{{ route('admin.cashbook.finance.purchase.purchaser-expenses.export.excel', request()->query()) }}"
-                       class="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 shadow-sm">
-                        <i data-lucide="sheet" class="h-4 w-4"></i> Excel
-                    </a>
-                </div>
-            </div>
-        </form>
-    </div>
+        </div>
+    @endcomponent
 
     <!-- Data Table -->
     <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">

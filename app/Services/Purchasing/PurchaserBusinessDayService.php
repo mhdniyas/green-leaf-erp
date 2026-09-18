@@ -37,11 +37,22 @@ class PurchaserBusinessDayService
 
     private ?bool $cachedAutoApproveShopOrders = null;
 
+    /** @var array<int, array<string, bool>> */
+    private array $warehouseSettingsCache = [];
+
     /**
      * Check if the new Purchaser Business Day module is enabled for a given warehouse.
      */
     public function isWarehouseEnabled(int $warehouseId): bool
     {
+        $globalSetting = BusinessSetting::query()
+            ->where('key', 'purchaser_business_day_verification_enabled')
+            ->value('value');
+
+        if ($globalSetting !== null && $globalSetting !== '') {
+            return filter_var($globalSetting, FILTER_VALIDATE_BOOLEAN);
+        }
+
         $settings = $this->getWarehouseSettings($warehouseId);
 
         return (bool) ($settings['enabled'] ?? false);
@@ -72,12 +83,17 @@ class PurchaserBusinessDayService
      */
     public function getWarehouseSettings(int $warehouseId): array
     {
+        if (isset($this->warehouseSettingsCache[$warehouseId])) {
+            return $this->warehouseSettingsCache[$warehouseId];
+        }
+
         $settingJson = BusinessSetting::query()
             ->where('key', "purchaser_business_day_config_{$warehouseId}")
             ->value('value');
 
         $defaults = [
             'enabled' => false,
+            'require_daily_submission' => true,
             'purchasers_can_close' => true,
             'purchasers_can_reopen' => true,
             'reopen_requires_reason' => true,
@@ -90,7 +106,10 @@ class PurchaserBusinessDayService
         if ($settingJson !== null && $settingJson !== '') {
             $decoded = json_decode((string) $settingJson, true);
             if (is_array($decoded)) {
-                return array_merge($defaults, $decoded);
+                $res = array_merge($defaults, $decoded);
+                $this->warehouseSettingsCache[$warehouseId] = $res;
+
+                return $res;
             }
         }
 
@@ -102,6 +121,8 @@ class PurchaserBusinessDayService
         if ($legacyEnabled !== null) {
             $defaults['enabled'] = filter_var($legacyEnabled, FILTER_VALIDATE_BOOLEAN);
         }
+
+        $this->warehouseSettingsCache[$warehouseId] = $defaults;
 
         return $defaults;
     }
@@ -117,6 +138,7 @@ class PurchaserBusinessDayService
 
         $merged = [
             'enabled' => filter_var($settings['enabled'] ?? $current['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'require_daily_submission' => filter_var($settings['require_daily_submission'] ?? $current['require_daily_submission'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'purchasers_can_close' => filter_var($settings['purchasers_can_close'] ?? $current['purchasers_can_close'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'purchasers_can_reopen' => filter_var($settings['purchasers_can_reopen'] ?? $current['purchasers_can_reopen'] ?? true, FILTER_VALIDATE_BOOLEAN),
             'reopen_requires_reason' => true, // strictly required
@@ -136,6 +158,8 @@ class PurchaserBusinessDayService
             ['key' => "purchaser_business_day_enabled_{$warehouseId}"],
             ['value' => $merged['enabled'] ? '1' : '0'],
         );
+
+        $this->warehouseSettingsCache[$warehouseId] = $merged;
     }
 
     /**
@@ -159,6 +183,7 @@ class PurchaserBusinessDayService
                     'warehouse' => $wh,
                     'settings' => $settings,
                     'enabled' => (bool) ($settings['enabled'] ?? false),
+                    'require_daily_submission' => (bool) ($settings['require_daily_submission'] ?? true),
                     'purchasers_can_close' => (bool) ($settings['purchasers_can_close'] ?? true),
                     'purchasers_can_reopen' => (bool) ($settings['purchasers_can_reopen'] ?? true),
                     'reopen_requires_reason' => (bool) ($settings['reopen_requires_reason'] ?? true),

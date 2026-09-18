@@ -49,6 +49,7 @@
         <div {{ $labelAttributes->class('ml-6 mt-1 space-y-1 border-l border-slate-200 py-1 pl-4') }}>
             @foreach ($item['children'] as $child)
                 @php
+                    $childActive = (bool) ($child['active'] ?? false);
                     $childBadge = $child['badge'] ?? null;
                     $childBadgeTone = $child['badge_tone'] ?? 'warning';
                     $childBadgeClasses = [
@@ -57,24 +58,68 @@
                         'danger' => 'bg-rose-100 text-rose-800 ring-rose-200',
                         'neutral' => 'bg-slate-100 text-slate-700 ring-slate-200',
                     ][$childBadgeTone] ?? 'bg-orange-100 text-orange-800 ring-orange-200';
+                    $hasSubChildren = ! empty($child['children']);
                 @endphp
-                <a
-                    href="{{ $child['href'] }}"
-                    @if (! empty($child['target'])) target="{{ $child['target'] }}" @endif
-                    @class([
-                        'flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-black transition-all',
-                        'bg-white text-slate-950 shadow-sm ring-1 ring-slate-200/80' => $child['active'] ?? false,
-                        'text-slate-500 hover:bg-white/70 hover:text-slate-950' => ! ($child['active'] ?? false),
-                    ])
-                >
-                    <span class="min-w-0 flex-1 truncate">{{ $child['label'] }}</span>
+                <div>
+                    <a
+                        href="{{ $child['href'] }}"
+                        @if (! empty($child['target'])) target="{{ $child['target'] }}" @endif
+                        @class([
+                            'flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-black transition-all',
+                            'bg-white text-slate-950 shadow-sm ring-1 ring-slate-200/80' => $childActive,
+                            'text-slate-500 hover:bg-white/70 hover:text-slate-950' => ! $childActive,
+                        ])
+                    >
+                        <span class="min-w-0 flex-1 truncate">{{ $child['label'] }}</span>
 
-                    @if (filled($childBadge) && (int) $childBadge > 0)
-                        <span class="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-black ring-1 {{ $childBadgeClasses }}">
-                            {{ $childBadge }}
-                        </span>
+                        @if ($hasSubChildren)
+                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 {{ $childActive ? 'rotate-90 text-slate-700' : '' }} transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                            </svg>
+                        @endif
+
+                        @if (filled($childBadge) && (int) $childBadge > 0)
+                            <span class="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-black ring-1 {{ $childBadgeClasses }}">
+                                {{ $childBadge }}
+                            </span>
+                        @endif
+                    </a>
+
+                    @if ($hasSubChildren && $childActive)
+                        <div class="ml-4 mt-1 space-y-1 border-l border-slate-200 py-1 pl-3">
+                            @foreach ($child['children'] as $subChild)
+                                @php
+                                    $subChildActive = (bool) ($subChild['active'] ?? false);
+                                    $subChildBadge = $subChild['badge'] ?? null;
+                                    $subChildBadgeTone = $subChild['badge_tone'] ?? 'warning';
+                                    $subChildBadgeClasses = [
+                                        'success' => 'bg-emerald-100 text-emerald-800 ring-emerald-200',
+                                        'warning' => 'bg-orange-100 text-orange-800 ring-orange-200',
+                                        'danger' => 'bg-rose-100 text-rose-800 ring-rose-200',
+                                        'neutral' => 'bg-slate-100 text-slate-700 ring-slate-200',
+                                    ][$subChildBadgeTone] ?? 'bg-orange-100 text-orange-800 ring-orange-200';
+                                @endphp
+                                <a
+                                    href="{{ $subChild['href'] }}"
+                                    @if (! empty($subChild['target'])) target="{{ $subChild['target'] }}" @endif
+                                    @class([
+                                        'flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] font-bold transition-all',
+                                        'bg-white text-slate-950 shadow-xs ring-1 ring-slate-200/80' => $subChildActive,
+                                        'text-slate-400 hover:bg-white/60 hover:text-slate-900' => ! $subChildActive,
+                                    ])
+                                >
+                                    <span class="min-w-0 flex-1 truncate">{{ $subChild['label'] }}</span>
+
+                                    @if (filled($subChildBadge) && (int) $subChildBadge > 0)
+                                        <span class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1.5 text-[9px] font-black ring-1 {{ $subChildBadgeClasses }}">
+                                            {{ $subChildBadge }}
+                                        </span>
+                                    @endif
+                                </a>
+                            @endforeach
+                        </div>
                     @endif
-                </a>
+                </div>
             @endforeach
         </div>
     @endif

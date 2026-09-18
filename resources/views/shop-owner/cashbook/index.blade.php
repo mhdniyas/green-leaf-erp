@@ -4,7 +4,7 @@
 @section('page_title', 'Daily Cashbook')
 @section('page_description', 'Record daily collections, store expenses, settlements, and closing cash balance.')
 @section('page_actions')
-    <a href="{{ route('shop-owner.cashbook.vendor-purchases') }}"
+    <a href="{{ route('shop-owner.cashbook.vendor-purchases', ['date' => $selectedDate->format('Y-m-d')]) }}"
        class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-800 shadow-xs hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 transition cursor-pointer">
         <i data-lucide="shopping-bag" class="h-3.5 w-3.5 text-emerald-600"></i>
         <span>Vendor Purchases</span>

@@ -167,40 +167,62 @@ class ShopInvoice extends Model
         $activities = Activity::query()
             ->where('subject_type', self::class)
             ->where('subject_id', $this->id)
-            ->latest('id')
+            ->oldest('id')
             ->get()
             ->filter(fn ($a): bool => data_get($a->properties, 'source') === 'admin_item_adjustment');
 
-        $itemAdjustments = $activities
-            ->keyBy(fn ($a): int => (int) (data_get($a->properties, 'after.product_id') ?: data_get($a->properties, 'before.product_id')));
+        $productAdjustmentGroups = $activities->groupBy(
+            fn ($a): int => (int) (data_get($a->properties, 'after.product_id') ?: data_get($a->properties, 'before.product_id'))
+        );
 
         $itemsByProductId = ($this->relationLoaded('items') ? $this->items : $this->items()->with('product')->get())->keyBy('product_id');
 
         $rows = collect();
         $netDifference = 0.0;
 
-        foreach ($itemAdjustments as $productId => $adj) {
-            $beforeQty = (float) data_get($adj->properties, 'before.qty');
-            $afterQty = (float) data_get($adj->properties, 'after.qty');
-            $beforePrice = (float) (data_get($adj->properties, 'before.price') ?: 0);
-            $afterPrice = (float) (data_get($adj->properties, 'after.price') ?: $beforePrice);
+        foreach ($productAdjustmentGroups as $productId => $group) {
+            $firstAdj = $group->first();
+            $lastAdj = $group->last();
 
             $item = $itemsByProductId->get($productId);
-            if ($beforePrice <= 0.0 && $item) {
-                $beforePrice = (float) $item->unit_price;
+
+            $beforeQty = (float) data_get($firstAdj->properties, 'before.qty');
+            $beforePrice = (float) (data_get($firstAdj->properties, 'before.price') ?: 0);
+            $beforeAmount = (float) (data_get($firstAdj->properties, 'before.amount') ?: round($beforeQty * $beforePrice, 2));
+
+            if ($item) {
+                $afterQty = (float) ($item->delivered_qty ?? $item->approved_qty ?? 0);
+                $afterPrice = (float) $item->unit_price;
+                $afterAmount = round((float) ($item->final_line_total ?? ($item->delivered_price_quantity * $item->unit_price) ?? ($afterQty * $afterPrice)), 2);
+            } else {
+                $afterQty = (float) (data_get($lastAdj->properties, 'after.qty') ?? 0);
+                $afterPrice = (float) (data_get($lastAdj->properties, 'after.price') ?: $beforePrice);
+                $afterAmount = (float) (data_get($lastAdj->properties, 'after.amount') ?: round($afterQty * $afterPrice, 2));
+            }
+
+            if ($beforePrice <= 0.0) {
+                $beforePrice = $afterPrice;
+                $beforeAmount = round($beforeQty * $beforePrice, 2);
             }
             if ($afterPrice <= 0.0) {
                 $afterPrice = $beforePrice;
+                $afterAmount = round($afterQty * $afterPrice, 2);
             }
 
-            $rate = $afterPrice ?: $beforePrice;
-            $beforeAmount = round($beforeQty * $rate, 2);
-            $afterAmount = round($afterQty * $rate, 2);
+            $rate = $afterPrice > 0 ? $afterPrice : $beforePrice;
             $difference = round($afterAmount - $beforeAmount, 2);
+
+            $qtyChanged = abs($afterQty - $beforeQty) > 0.0001;
+            $priceChanged = abs($afterPrice - $beforePrice) > 0.001;
+            $amountChanged = abs($difference) >= 0.01;
+
+            if (! $qtyChanged && ! $priceChanged && ! $amountChanged) {
+                continue;
+            }
 
             $netDifference += $difference;
 
-            $productName = (string) ($item?->product?->name ?? $item?->product_name ?? data_get($adj->properties, 'after.product_name') ?? data_get($adj->properties, 'before.product_name') ?? 'Unknown Product');
+            $productName = (string) ($item?->product?->name ?? $item?->product_name ?? data_get($lastAdj->properties, 'after.product_name') ?? data_get($firstAdj->properties, 'before.product_name') ?? 'Unknown Product');
             $unit = ProductUnit::normalizeUnit($item?->price_unit ?: $item?->unit ?: 'kg');
 
             $rows->push([
@@ -220,6 +242,8 @@ class ShopInvoice extends Model
         $netDifference = round($netDifference, 2);
         $previousInvoiceTotal = round($revisedInvoiceTotal - $netDifference, 2);
 
+        $hasChanges = $rows->isNotEmpty();
+
         $latestVerification = Activity::query()
             ->where('subject_type', self::class)
             ->where('subject_id', $this->id)
@@ -230,13 +254,25 @@ class ShopInvoice extends Model
             ->latest('id')
             ->first();
 
-        $isVerified = $latestVerification !== null;
-        $verifiedByName = $latestVerification?->causer?->name ?? ($isVerified ? 'Shop Manager' : null);
-        $verifiedAt = $latestVerification?->created_at;
+        $latestAdjustment = $activities->last();
+
+        $isVerified = false;
+        $verifiedByName = null;
+        $verifiedAt = null;
+
+        if (! $hasChanges) {
+            $isVerified = true;
+        } elseif ($latestVerification !== null) {
+            if ($latestAdjustment === null || $latestVerification->id >= $latestAdjustment->id) {
+                $isVerified = true;
+                $verifiedByName = $latestVerification->causer?->name ?? 'Shop Manager';
+                $verifiedAt = $latestVerification->created_at;
+            }
+        }
 
         return [
             'rows' => $rows,
-            'has_changes' => $rows->isNotEmpty(),
+            'has_changes' => $hasChanges,
             'previous_invoice_total' => $previousInvoiceTotal,
             'revised_invoice_total' => $revisedInvoiceTotal,
             'net_difference' => $netDifference,

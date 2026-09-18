@@ -89,12 +89,17 @@
 
             <!-- Verified Payments Section -->
             @if(!empty($payments))
-                <div class="rounded-2xl border border-emerald-100 bg-white p-5 space-y-3">
-                    <div class="flex items-center justify-between">
+                <div class="rounded-2xl border border-emerald-100 bg-white p-5 space-y-3" x-data="{ expanded: true }">
+                    <div class="flex items-center justify-between cursor-pointer select-none" @click="expanded = !expanded">
                         <span class="text-xs font-black uppercase tracking-wider text-emerald-900">Verified Payments Received Under Payments Header</span>
-                        <span class="text-xs font-bold font-mono text-emerald-800">Total Received: ₹{{ number_format($paymentsTotal, 2) }}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold font-mono text-emerald-800">Total Received: ₹{{ number_format($paymentsTotal, 2) }}</span>
+                            <button type="button" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 transition cursor-pointer" title="Toggle section">
+                                <i data-lucide="chevron-down" class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': expanded }"></i>
+                            </button>
+                        </div>
                     </div>
-                    <div class="overflow-x-auto">
+                    <div x-show="expanded" class="overflow-x-auto">
                         <table class="w-full text-left text-xs">
                             <thead>
                                 <tr class="border-b border-slate-100 text-[10px] font-extrabold uppercase text-slate-400">

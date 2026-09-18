@@ -292,7 +292,10 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    @forelse($vendorSummaryRows as $row)
+                    @php
+                        $vendorRowsToDisplay = isset($detail['vendors']) && count($detail['vendors']) > 0 ? $detail['vendors'] : $vendorSummaryRows;
+                    @endphp
+                    @forelse($vendorRowsToDisplay as $row)
                         @php
                             $vendorDetailUrl = route('admin.cashbook.finance.purchase.purchasers.vendors.show', ['purchaser' => $record->public_uuid, 'supplier' => $row->supplier_public_uuid] + $detailContext);
                         @endphp
@@ -302,14 +305,27 @@
                                     <span>{{ $row->supplier_name }}</span>
                                     <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 text-slate-400"></i>
                                 </a>
+                                @if(!empty($row->category_tags))
+                                    <div class="mt-1 flex flex-wrap gap-1">
+                                        @foreach(explode(',', (string) $row->category_tags) as $tag)
+                                            @php
+                                                $parts = explode('|', $tag);
+                                                $catName = $parts[1] ?? $parts[0] ?? '';
+                                            @endphp
+                                            @if($catName)
+                                                <span class="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-600">{{ $catName }}</span>
+                                            @endif
+                                        @endforeach
+                                    </div>
+                                @endif
                             </td>
-                            <td class="p-3 text-right font-mono font-medium text-slate-700">₹{{ number_format((float) $row->cash_purchase, 2) }}</td>
-                            <td class="p-3 text-right font-mono font-medium text-amber-700">₹{{ number_format((float) $row->credit_purchase, 2) }}</td>
-                            <td class="p-3 text-right font-mono font-medium text-blue-700">₹{{ number_format((float) $row->paid_by_company, 2) }}</td>
-                            <td class="p-3 text-right font-mono font-medium {{ (float) $row->credit_outstanding > 0 ? 'text-rose-700 font-bold' : 'text-slate-500' }}">₹{{ number_format((float) $row->credit_outstanding, 2) }}</td>
-                            <td class="p-3 text-right font-mono font-medium text-purple-700">₹{{ number_format((float) $row->other_modes_purchase, 2) }}</td>
-                            <td class="p-3 text-right font-mono font-bold text-slate-950">₹{{ number_format((float) $row->total_purchase, 2) }}</td>
-                            <td class="p-3 text-right font-mono text-slate-600">{{ number_format((int) $row->bills_count) }}</td>
+                            <td class="p-3 text-right font-mono font-medium text-slate-700">₹{{ number_format((float) ($row->cash_purchase ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium text-amber-700">₹{{ number_format((float) ($row->credit_purchase ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium text-blue-700">₹{{ number_format((float) ($row->paid_by_company ?? $row->credit_paid ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium {{ (float) ($row->credit_outstanding ?? $row->outstanding ?? 0) > 0 ? 'text-rose-700 font-bold' : 'text-slate-500' }}">₹{{ number_format((float) ($row->credit_outstanding ?? $row->outstanding ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono font-medium text-purple-700">₹{{ number_format((float) ($row->other_modes_purchase ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono font-bold text-slate-950">₹{{ number_format((float) ($row->total_purchase ?? 0), 2) }}</td>
+                            <td class="p-3 text-right font-mono text-slate-600">{{ number_format((int) ($row->bills_count ?? $row->invoice_count ?? 0)) }}</td>
                         </tr>
                     @empty
                         <tr>

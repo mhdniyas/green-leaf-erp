@@ -9,6 +9,7 @@ use App\Http\Controllers\Web\Admin\AdminAutoLoadAllController;
 use App\Http\Controllers\Web\Admin\AdminCashbookReportsController;
 use App\Http\Controllers\Web\Admin\AdminDailyAutoMatchController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
+use App\Http\Controllers\Web\Admin\AdminProductPurchaserAllotmentController;
 use App\Http\Controllers\Web\Admin\AdminPurchaserBusinessDayController;
 use App\Http\Controllers\Web\Admin\AdminShopPurchasingVerificationController;
 use App\Http\Controllers\Web\Admin\CashbookController;
@@ -60,6 +61,7 @@ use App\Http\Controllers\Web\Purchasing\PurchaseGradePriceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\PurchaserBusinessDayCloseController;
+use App\Http\Controllers\Web\Purchasing\PurchaserBusinessDaySubmissionController;
 use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
 use App\Http\Controllers\Web\Purchasing\PurchaserReportController;
 use App\Http\Controllers\Web\Purchasing\PurchasingBusinessDayController;
@@ -571,6 +573,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/requisitions', [RequisitionController::class, 'store'])->name('requisitions.store');
 
     // ── Purchaser Dashboard ────────────────────────────────────────────────
+    Route::get('/purchaser/business-day', [PurchaserBusinessDaySubmissionController::class, 'show'])->name('purchaser.business-day.show');
+    Route::post('/purchaser/business-day/submit', [PurchaserBusinessDaySubmissionController::class, 'store'])->name('purchaser.business-day.submit');
     Route::get('/purchaser/dashboard', [PurchaserDashboardController::class, 'index'])->name('purchaser.dashboard');
     Route::get('/purchaser/daily', [PurchaserDashboardController::class, 'daily'])->name('purchaser.daily');
     Route::get('/purchaser/b-grade', [PurchaserDashboardController::class, 'bGrade'])->name('purchaser.b-grade');
@@ -777,6 +781,9 @@ Route::middleware('auth')->group(function () {
                 Route::get('/', [AdminPurchaserBusinessDayController::class, 'index'])->name('index');
                 Route::get('reports', [AdminPurchaserBusinessDayController::class, 'reports'])->name('reports');
                 Route::get('reports/pending-export/pdf', [AdminPurchaserBusinessDayController::class, 'exportPendingPdf'])->name('reports.pending-pdf');
+                Route::post('allotments/preview', [AdminPurchaserBusinessDayController::class, 'previewAllotment'])->name('allotments.preview');
+                Route::post('allotments/assign', [AdminPurchaserBusinessDayController::class, 'assignAllotment'])->name('allotments.assign');
+                Route::get('allotments/{product}/history', [AdminPurchaserBusinessDayController::class, 'productHistory'])->name('allotments.history');
                 Route::get('{uuid}', [AdminPurchaserBusinessDayController::class, 'show'])->name('show');
                 Route::post('{uuid}/reopen', [AdminPurchaserBusinessDayController::class, 'reopen'])->name('reopen');
             });
@@ -864,6 +871,9 @@ Route::middleware('auth')->group(function () {
             Route::get('finance/purchase/product-filters/{productFilter:uuid}/edit', [PurchaseProductFilterController::class, 'edit'])->name('finance.purchase.product-filters.edit');
             Route::put('finance/purchase/product-filters/{productFilter:uuid}', [PurchaseProductFilterController::class, 'update'])->name('finance.purchase.product-filters.update');
             Route::delete('finance/purchase/product-filters/{productFilter:uuid}', [PurchaseProductFilterController::class, 'destroy'])->name('finance.purchase.product-filters.destroy');
+            Route::get('finance/purchase/product-allotments', [AdminProductPurchaserAllotmentController::class, 'index'])->name('finance.purchase.product-allotments.index');
+            Route::post('finance/purchase/product-allotments', [AdminProductPurchaserAllotmentController::class, 'store'])->name('finance.purchase.product-allotments.store');
+            Route::get('finance/purchase/product-allotments/{product}/history', [AdminProductPurchaserAllotmentController::class, 'history'])->name('finance.purchase.product-allotments.history');
             Route::get('finance/purchase', [CashbookController::class, 'companyFinancePurchaseDashboard'])->name('finance.purchase');
             Route::get('finance/purchase/purchasers', [CashbookController::class, 'companyFinancePurchaseSection'])->defaults('section', 'purchasers')->name('finance.purchase.purchasers');
             Route::get('finance/purchase/purchasers/{purchaser:public_uuid}', [CashbookController::class, 'companyFinancePurchasePurchaser'])->name('finance.purchase.purchasers.show');
@@ -938,7 +948,16 @@ Route::middleware('auth')->group(function () {
             Route::get('post-entry', [CashbookController::class, 'postEntryPage'])->name('post-entry');
             Route::get('post-entry/{shop}', [CashbookController::class, 'postEntryPageForShop'])->name('post-entry.shop');
             Route::get('shops/{shop}', [CashbookController::class, 'showShop'])->name('shop.show');
+            Route::get('shops/{shop}/settlement-details', [CashbookController::class, 'showSettlementDetails'])->name('shop.settlement-details');
             Route::get('shops/{shop}/purchases/vendors', [CashbookController::class, 'shopVendorPurchasesReport'])->name('shop.purchases.vendors');
+            Route::prefix('shops/{shop}/history')->name('shop.history.')->group(function () {
+                Route::get('payments', [CashbookController::class, 'shopPaymentsHistory'])->name('payments');
+                Route::get('allocations', [CashbookController::class, 'shopAllocationsHistory'])->name('allocations');
+                Route::get('cheques', [CashbookController::class, 'shopChequesHistory'])->name('cheques');
+                Route::get('petty', [CashbookController::class, 'shopPettyHistory'])->name('petty');
+                Route::get('adjustments', [CashbookController::class, 'shopAdjustmentsHistory'])->name('adjustments');
+                Route::get('banking', [CashbookController::class, 'shopBankingHistory'])->name('banking');
+            });
             Route::post('shops/{shop}/day/accept-selected', [CashbookController::class, 'acceptSelectedDayEntries'])->name('shop.day.accept-selected');
             Route::post('shops/{shop}/day/verify-selected', [CashbookController::class, 'verifySelectedDayEntries'])->name('shop.day.verify-selected');
             Route::post('shops/{shop}/day/adjustments', [CashbookController::class, 'storeDayAdjustment'])->name('shop.day.adjustments.store');
@@ -965,6 +984,7 @@ Route::middleware('auth')->group(function () {
             Route::get('rules-config', [CashbookController::class, 'rulesPage'])->name('rules-config');
             Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');
             Route::post('settings/staff', [CashbookController::class, 'updateStaffSettings'])->name('settings.staff');
+            Route::post('settings/vendor-purchase-edit-window', [CashbookController::class, 'updateVendorPurchaseEditWindow'])->name('settings.vendor-purchase-edit-window');
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
             Route::post('settings/shops/{shop}/toggle-purchasing', [CashbookController::class, 'toggleShopPurchasing'])->name('settings.shop.toggle-purchasing');
             Route::get('settings/shops/{shop}/vendors', [CashbookVendorController::class, 'index'])->name('settings.shop.vendors.index');

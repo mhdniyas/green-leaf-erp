@@ -59,7 +59,7 @@
                     </label>
                     <input type="date"
                            name="business_date"
-                           value="{{ $isDayDetail ? $businessDate : today()->toDateString() }}"
+                           value="{{ (!empty($isDayDetail) && !empty($businessDate)) ? $businessDate : today()->toDateString() }}"
                            required
                            class="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none">
                 </div>

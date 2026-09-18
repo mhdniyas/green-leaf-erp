@@ -677,7 +677,7 @@
         const paymentMethod = (paymentCash && paymentCash.checked) ? 'Cash' : 'Credit';
 
         const rows = document.querySelectorAll('#vp-products-list > div');
-        const items = [];
+        const itemsMap = {};
 
         for (const row of rows) {
             const productInput = row.querySelector('.vp-item-product');
@@ -698,17 +698,35 @@
                     showVendorPurchaseError('Total price must be greater than 0 for all selected products.');
                     return;
                 }
-                const derivedRate = Math.round((totalPrice / qty) * 10000) / 10000;
-                items.push({
-                    product_id: productId,
-                    quantity: qty,
-                    total_price: totalPrice,
-                    unit_price: derivedRate,
-                    unit: unit,
-                    grade: 'A'
-                });
+
+                const grade = 'A';
+                const key = `${productId}-${grade}`;
+                if (!itemsMap[key]) {
+                    itemsMap[key] = {
+                        product_id: productId,
+                        quantity: qty,
+                        total_price: totalPrice,
+                        unit: unit,
+                        grade: grade
+                    };
+                } else {
+                    itemsMap[key].quantity += qty;
+                    itemsMap[key].total_price += totalPrice;
+                }
             }
         }
+
+        const items = Object.values(itemsMap).map(item => {
+            const derivedRate = item.quantity > 0 ? Math.round((item.total_price / item.quantity) * 10000) / 10000 : 0;
+            return {
+                product_id: item.product_id,
+                quantity: item.quantity,
+                total_price: item.total_price,
+                unit_price: derivedRate,
+                unit: item.unit,
+                grade: item.grade
+            };
+        });
 
         if (items.length === 0) {
             showVendorPurchaseError('Please select at least one product with quantity and total price.');

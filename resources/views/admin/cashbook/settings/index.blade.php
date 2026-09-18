@@ -156,6 +156,58 @@
         });
     </script>
 
+    {{-- Vendor Purchase Edit Window Configuration --}}
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold tracking-tight text-slate-950">Vendor Purchase Edit Window</h2>
+                <p class="text-xs font-medium text-slate-500 mt-0.5">Configure how long Shop Owners can create, edit, or cancel historical vendor purchases.</p>
+            </div>
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+                <i data-lucide="clock" class="h-3.5 w-3.5"></i>
+                Controls Historical Purchases
+            </span>
+        </div>
+
+        <form action="{{ route('admin.cashbook.settings.vendor-purchase-edit-window') }}" method="POST" id="vendor-purchase-window-form" class="space-y-6">
+            @csrf
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-xl">
+                <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-2">
+                    <label for="vendor_purchase_edit_window_value" class="block text-xs font-black uppercase tracking-wider text-slate-700">Window Value</label>
+                    <input type="number" min="1" max="720" name="vendor_purchase_edit_window_value" id="vendor_purchase_edit_window_value"
+                           value="{{ old('vendor_purchase_edit_window_value', $vendorPurchaseEditWindow['value'] ?? 3) }}"
+                           class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 {{ $errors->has('vendor_purchase_edit_window_value') ? 'border-rose-400' : '' }}"
+                           required>
+                    @error('vendor_purchase_edit_window_value')
+                        <p class="text-xs font-semibold text-rose-600">{{ $message }}</p>
+                    @enderror
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-2">
+                    <label for="vendor_purchase_edit_window_unit" class="block text-xs font-black uppercase tracking-wider text-slate-700">Window Unit</label>
+                    <select name="vendor_purchase_edit_window_unit" id="vendor_purchase_edit_window_unit"
+                            class="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 {{ $errors->has('vendor_purchase_edit_window_unit') ? 'border-rose-400' : '' }}">
+                        <option value="hours" {{ old('vendor_purchase_edit_window_unit', $vendorPurchaseEditWindow['unit'] ?? 'days') === 'hours' ? 'selected' : '' }}>Hours</option>
+                        <option value="days" {{ old('vendor_purchase_edit_window_unit', $vendorPurchaseEditWindow['unit'] ?? 'days') === 'days' ? 'selected' : '' }}>Days</option>
+                    </select>
+                    @error('vendor_purchase_edit_window_unit')
+                        <p class="text-xs font-semibold text-rose-600">{{ $message }}</p>
+                    @enderror
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+                <p class="text-xs font-semibold text-slate-500">Purchases older than this window become Read Only for Shop Owners. Admin remains unrestricted.</p>
+                <button type="submit" id="vendor-purchase-window-submit-btn"
+                        class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i data-lucide="save" class="h-4 w-4"></i>
+                    <span>Save Window Setting</span>
+                </button>
+            </div>
+        </form>
+    </div>
+
     {{-- Existing Shop Settings List --}}
     <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">

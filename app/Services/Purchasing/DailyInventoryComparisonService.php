@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -23,6 +24,43 @@ use Illuminate\Support\Facades\DB;
 
 class DailyInventoryComparisonService
 {
+    /**
+     * Get cached item from current active HTTP route request if available.
+     */
+    private function getRequestCache(string $key): mixed
+    {
+        if (app()->bound('request')) {
+            $req = app('request');
+            if ($req instanceof Request && $req->route() !== null) {
+                return $req->attributes->get($key);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Set cached item on current active HTTP route request if available.
+     */
+    private function setRequestCache(string $key, mixed $value): void
+    {
+        if (app()->bound('request')) {
+            $req = app('request');
+            if ($req instanceof Request && $req->route() !== null) {
+                $req->attributes->set($key, $value);
+            }
+        }
+    }
+
+    /**
+     * Clear in-memory request cache.
+     */
+    public function clearRequestCache(): void
+    {
+        $this->comparisonRowsCache = [];
+        $this->managerSummaryCache = [];
+    }
+
     /**
      * Build day-wise comparison rows between Advance receipts and Purchase Bills for a given date.
      *
@@ -35,6 +73,12 @@ class DailyInventoryComparisonService
      */
     public function buildComparisonRows(string $date, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds = null): Collection
     {
+        $cacheKey = 'comp_rows_'.$date.'_'.($selectedWarehouseId ?? 'null').'_'.($authorizedWarehouseIds ? implode(',', $authorizedWarehouseIds) : 'null');
+
+        $cached = $this->getRequestCache($cacheKey);
+        if ($cached instanceof Collection) {
+            return $cached;
+        }
         // 1. Query all Advance received items for the selected date (filtered by goods_received.warehouse_id)
         $advanceItems = GoodsReceivedItem::query()
             ->whereHas('goodsReceived', function (Builder $q) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
@@ -369,11 +413,15 @@ class DailyInventoryComparisonService
             }
         }
 
-        return collect($rows)->sortBy(function (array $row): string {
+        $rowsCollection = collect($rows)->sortBy(function (array $row): string {
             $sku = (string) ($row['product_code'] ?: ($row['sku'] ?? ''));
 
             return Product::sortableSku($sku);
         })->values();
+
+        $this->setRequestCache($cacheKey, $rowsCollection);
+
+        return $rowsCollection;
     }
 
     /**
@@ -1088,6 +1136,12 @@ class DailyInventoryComparisonService
      */
     public function getDailyManagerSummary(string $date, ?int $selectedWarehouseId, ?array $authorizedWarehouseIds = null): array
     {
+        $cacheKey = 'mgr_sum_'.$date.'_'.($selectedWarehouseId ?? 'null').'_'.($authorizedWarehouseIds ? implode(',', $authorizedWarehouseIds) : 'null');
+
+        $cached = $this->getRequestCache($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
         // 1. Query all Advance received items (exact dataset used for comparison table)
         $advanceItems = GoodsReceivedItem::query()
             ->whereHas('goodsReceived', function (Builder $q) use ($date, $selectedWarehouseId, $authorizedWarehouseIds): void {
@@ -1260,7 +1314,7 @@ class DailyInventoryComparisonService
             ])->all(),
         ];
 
-        return [
+        $result = [
             'date' => $date,
             'warehouse_id' => $selectedWarehouseId,
             'purchase_bills' => $purchaseBillsSummary,
@@ -1269,5 +1323,9 @@ class DailyInventoryComparisonService
             'unit_fix_required' => $unitFixSummary,
             'summary' => $summary,
         ];
+
+        $this->setRequestCache($cacheKey, $result);
+
+        return $result;
     }
 }

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -97,6 +98,22 @@ class Product extends Model implements AuditableContract
     public function dailyPrices(): HasMany
     {
         return $this->hasMany(DailyProductPrice::class);
+    }
+
+    public function purchaserAllotments(): HasMany
+    {
+        return $this->hasMany(ProductPurchaserAllotment::class)->orderByDesc('effective_from');
+    }
+
+    public function currentPurchaserAllotment(): HasOne
+    {
+        return $this->hasOne(ProductPurchaserAllotment::class)
+            ->where('effective_from', '<=', now()->toDateString())
+            ->where(function (Builder $q): void {
+                $q->whereNull('effective_to')
+                    ->orWhere('effective_to', '>=', now()->toDateString());
+            })
+            ->latestOfMany('effective_from');
     }
 
     public function shopDailyProductPrices(): HasMany

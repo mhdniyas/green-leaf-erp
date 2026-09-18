@@ -16,6 +16,7 @@ use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Purchasing\ShopPurchaseService;
 use App\Services\Purchasing\ShopVendorReportService;
 use App\Support\ShopOwner\ActiveShopResolver;
+use Carbon\Carbon;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -46,7 +47,13 @@ class ShopPurchaseController extends Controller
         $this->ensurePurchasingEnabled($shop);
 
         $now = now('Asia/Kolkata');
-        $period = $request->string('period', 'today')->toString();
+        $requestedDate = $request->string('date', '')->toString();
+        $selectedDate = Carbon::parse($this->dailyLedgerService->resolveActiveBusinessDate($shop, $requestedDate ?: null));
+
+        $period = $request->string('period', '')->toString();
+        if ($period === '') {
+            $period = $requestedDate !== '' ? 'custom' : 'today';
+        }
         if (! in_array($period, ['today', 'yesterday', 'month', 'custom', 'all'], true)) {
             $period = 'today';
         }
@@ -64,7 +71,7 @@ class ShopPurchaseController extends Controller
             $startDate = $now->copy()->startOfMonth()->toDateString();
             $endDate = $now->copy()->endOfMonth()->toDateString();
         } elseif ($period === 'custom') {
-            $startDate = $request->string('start_date', '')->toString() ?: ($request->string('date', '')->toString() ?: $now->toDateString());
+            $startDate = $request->string('start_date', '')->toString() ?: ($requestedDate ?: $selectedDate->toDateString());
             $endDate = $request->string('end_date', '')->toString() ?: $startDate;
         }
 
@@ -132,18 +139,29 @@ class ShopPurchaseController extends Controller
             ->paginate(25)
             ->withQueryString();
 
-        $suppliers = $shop->suppliers()->where('is_active', true)->orderBy('name')->get();
-        if ($suppliers->isEmpty()) {
-            $suppliers = Supplier::query()->orderBy('name')->limit(50)->get();
-        }
+        $suppliers = $shop->suppliers()
+            ->wherePivot('is_active', true)
+            ->orderBy('suppliers.name')
+            ->get();
 
         $categories = ShopLedgerEntrySetting::query()
-            ->with('headerGroup')
+            ->with(['headerGroup', 'definedShopSuppliers.supplier'])
             ->where('shop_id', (int) $shop->id)
             ->where('is_vendor_purchase', true)
             ->where('enabled', true)
             ->orderBy('display_order')
-            ->get();
+            ->get()
+            ->each(function (ShopLedgerEntrySetting $setting) {
+                $setting->setAttribute(
+                    'defined_supplier_ids',
+                    $setting->definedShopSuppliers
+                        ->filter(fn ($ss) => (bool) $ss->is_active && $ss->supplier)
+                        ->pluck('supplier_id')
+                        ->map(fn ($id) => (int) $id)
+                        ->values()
+                        ->all()
+                );
+            });
 
         $products = Product::query()
             ->active()
@@ -169,13 +187,15 @@ class ShopPurchaseController extends Controller
             'filters' => $filters,
             'suppliers' => $suppliers,
             'linkedVendors' => $suppliers,
-            'selectedDate' => $now,
+            'selectedDate' => $selectedDate,
             'categories' => $categories,
             'products' => $products,
             'purchasableProducts' => $products,
             'period' => $period,
             'isAdmin' => $this->isAdminUser($request->user()),
-            'cutoffDate' => now('Asia/Kolkata')->startOfDay()->subDays(3)->toDateString(),
+            'cutoffDate' => $this->purchaseService->getCutoffDateString(),
+            'editWindow' => $this->purchaseService->getEditWindowConfig(),
+            'editWindowDisplayText' => $this->purchaseService->getEditWindowDisplayText(),
         ]);
     }
 
@@ -192,10 +212,10 @@ class ShopPurchaseController extends Controller
             ->orderBy('name')
             ->get(['id', 'category_id', 'name', 'sku', 'unit']);
 
-        $suppliers = $shop->suppliers()->where('is_active', true)->orderBy('name')->get();
-        if ($suppliers->isEmpty()) {
-            $suppliers = Supplier::query()->orderBy('name')->limit(50)->get();
-        }
+        $suppliers = $shop->suppliers()
+            ->wherePivot('is_active', true)
+            ->orderBy('suppliers.name')
+            ->get();
 
         return view('shop-owner.purchasing.create', [
             'activeShop' => $shop,
@@ -306,6 +326,26 @@ class ShopPurchaseController extends Controller
             'items.*.grade' => ['nullable', 'string', 'in:A,B,a,b'],
         ]);
 
+        $businessDateStr = $validated['business_date'] ?? null;
+        if (! $businessDateStr) {
+            $businessDateStr = $this->dailyLedgerService->resolveActiveBusinessDate($shop)->toDateString();
+            $validated['business_date'] = $businessDateStr;
+        }
+
+        if (! $this->purchaseService->isDateActionAllowed($businessDateStr, $request->user())) {
+            $windowText = $this->purchaseService->getEditWindowDisplayText();
+            $msg = "Purchases for date {$businessDateStr} cannot be created because it is outside the allowed edit window ({$windowText}).";
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $msg,
+                    'errors' => ['business_date' => [$msg]],
+                ], 422);
+            }
+
+            return back()->withInput()->withErrors(['business_date' => $msg]);
+        }
+
         if (empty($validated['supplier_id']) && empty($validated['new_supplier_name'])) {
             if ($request->wantsJson()) {
                 return response()->json([
@@ -361,14 +401,16 @@ class ShopPurchaseController extends Controller
         }
 
         if (! $this->isActionAllowedForUser($invoice, $request->user())) {
+            $windowText = $this->purchaseService->getEditWindowDisplayText();
+            $msg = "Actions on vendor purchases older than {$windowText} are restricted to administrators.";
             if ($request->wantsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Actions on vendor purchases older than 3 days are restricted to administrators.',
+                    'message' => $msg,
                 ], 403);
             }
 
-            return back()->withErrors(['error' => 'Actions on vendor purchases older than 3 days are restricted to administrators.']);
+            return back()->withErrors(['error' => $msg]);
         }
 
         $this->normalizeItemInputs($request);
@@ -435,7 +477,7 @@ class ShopPurchaseController extends Controller
                 ]);
             }
 
-            return redirect()->route('shop-owner.cashbook.vendor-purchases')
+            return redirect()->route('shop-owner.cashbook.vendor-purchases', ['date' => $invoice->purchaserCart?->business_date?->format('Y-m-d')])
                 ->with('success', "Purchase {$updated->invoice_number} updated successfully.");
         } catch (Throwable $e) {
             if ($request->wantsJson()) {
@@ -454,14 +496,16 @@ class ShopPurchaseController extends Controller
         }
 
         if (! $this->isActionAllowedForUser($invoice, $request->user())) {
+            $windowText = $this->purchaseService->getEditWindowDisplayText();
+            $msg = "Actions on vendor purchases older than {$windowText} are restricted to administrators.";
             if ($request->wantsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Actions on vendor purchases older than 3 days are restricted to administrators.',
+                    'message' => $msg,
                 ], 403);
             }
 
-            return back()->withErrors(['error' => 'Actions on vendor purchases older than 3 days are restricted to administrators.']);
+            return back()->withErrors(['error' => $msg]);
         }
 
         try {
@@ -475,7 +519,7 @@ class ShopPurchaseController extends Controller
                 ]);
             }
 
-            return redirect()->route('shop-owner.cashbook.vendor-purchases')
+            return redirect()->route('shop-owner.cashbook.vendor-purchases', ['date' => $invoice->purchaserCart?->business_date?->format('Y-m-d')])
                 ->with('success', "Purchase {$invoice->invoice_number} cancelled successfully.");
         } catch (Throwable $e) {
             if ($request->wantsJson()) {
@@ -630,19 +674,32 @@ class ShopPurchaseController extends Controller
         ]);
     }
 
+    public function searchVendors(Request $request): JsonResponse
+    {
+        return $this->suppliers($request);
+    }
+
     public function suppliers(Request $request): JsonResponse
     {
         $shop = $this->resolveShop($request);
         $this->ensurePurchasingEnabled($shop);
 
-        $search = trim((string) $request->input('q', ''));
-        $suppliers = Supplier::query()
-            ->when($search !== '', fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('mobile_number', 'like', "%{$search}%"))
-            ->orderBy('name')
+        $search = trim((string) ($request->input('q') ?? $request->input('search') ?? ''));
+        $suppliers = $shop->suppliers()
+            ->wherePivot('is_active', true)
+            ->when($search !== '', fn ($q) => $q->where(function ($sub) use ($search) {
+                $sub->where('suppliers.name', 'like', "%{$search}%")
+                    ->orWhere('suppliers.mobile_number', 'like', "%{$search}%");
+            }))
+            ->orderBy('suppliers.name')
             ->limit(30)
-            ->get(['id', 'name', 'mobile_number', 'contact']);
+            ->get(['suppliers.id', 'suppliers.name', 'suppliers.mobile_number', 'suppliers.contact']);
 
-        return response()->json(['suppliers' => $suppliers]);
+        return response()->json([
+            'success' => true,
+            'suppliers' => $suppliers,
+            'vendors' => $suppliers,
+        ]);
     }
 
     private function normalizeItemInputs(Request $request): void
@@ -806,25 +863,11 @@ class ShopPurchaseController extends Controller
 
     private function isAdminUser(?User $user): bool
     {
-        if (! $user) {
-            return false;
-        }
-
-        return $user->hasRole('admin') || $user->hasRole('main_admin') || $user->hasRole('super_admin') || $user->isMainAdmin();
+        return $this->purchaseService->isAdminUser($user);
     }
 
     private function isActionAllowedForUser(PurchaseInvoice $invoice, ?User $user): bool
     {
-        if ($this->isAdminUser($user)) {
-            return true;
-        }
-
-        $invoiceDateStr = $invoice->purchaserCart?->business_date?->format('Y-m-d')
-            ?? $invoice->original_business_date?->format('Y-m-d')
-            ?? $invoice->created_at->format('Y-m-d');
-
-        $cutoffDate = now('Asia/Kolkata')->startOfDay()->subDays(3)->toDateString();
-
-        return $invoiceDateStr >= $cutoffDate;
+        return $this->purchaseService->isInvoiceActionAllowed($invoice, $user);
     }
 }

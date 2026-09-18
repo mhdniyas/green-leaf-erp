@@ -6,6 +6,7 @@ namespace App\Services\Purchasing;
 
 use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
+use App\Models\BusinessSetting;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
@@ -60,7 +61,7 @@ class ShopPurchaseService
             throw new RuntimeException("Shop Purchasing is disabled for {$shop->name}.");
         }
 
-        $items = $payload['items'] ?? [];
+        $items = $this->consolidateItems($payload['items'] ?? []);
         if (empty($items)) {
             throw new RuntimeException('Purchase must contain at least one item.');
         }
@@ -127,9 +128,9 @@ class ShopPurchaseService
 
             foreach ($items as $itemData) {
                 $productId = (int) $itemData['product_id'];
-                $quantity = max(0.0, (float) $itemData['quantity']);
-                $unitPrice = max(0.0, (float) $itemData['unit_price']);
-                $lineTotal = round($quantity * $unitPrice, 2);
+                $quantity = (float) $itemData['quantity'];
+                $unitPrice = (float) $itemData['unit_price'];
+                $lineTotal = (float) $itemData['line_total'];
                 $grossSubtotal += $lineTotal;
                 $productIds[] = $productId;
 
@@ -350,6 +351,11 @@ class ShopPurchaseService
             $productIds = [];
 
             if (isset($payload['items']) && is_array($payload['items']) && ! empty($payload['items'])) {
+                $consolidatedItems = $this->consolidateItems($payload['items']);
+                if (empty($consolidatedItems)) {
+                    throw new RuntimeException('Purchase must contain at least one valid item with quantity greater than 0.');
+                }
+
                 // Remove old items
                 if ($cart) {
                     $cart->items()->delete();
@@ -361,11 +367,11 @@ class ShopPurchaseService
                     $grn->items()->delete();
                 }
 
-                foreach ($payload['items'] as $itemData) {
+                foreach ($consolidatedItems as $itemData) {
                     $productId = (int) $itemData['product_id'];
-                    $quantity = max(0.0, (float) $itemData['quantity']);
-                    $unitPrice = max(0.0, (float) $itemData['unit_price']);
-                    $lineTotal = round($quantity * $unitPrice, 2);
+                    $quantity = (float) $itemData['quantity'];
+                    $unitPrice = (float) $itemData['unit_price'];
+                    $lineTotal = (float) $itemData['line_total'];
                     $grossSubtotal += $lineTotal;
                     $productIds[] = $productId;
 
@@ -693,5 +699,170 @@ class ShopPurchaseService
                 'entered_by' => $userId,
             ]);
         }
+    }
+
+    /**
+     * Consolidate incoming items by product_id and grade.
+     * Combines quantities and line totals, calculating a blended unit price.
+     *
+     * @param  array<int, array{product_id: int|string, quantity?: float|int|string, qty?: float|int|string, unit_price?: float|int|string, total_price?: float|int|string, line_total?: float|int|string, unit?: ?string, grade?: ?string}>  $items
+     * @return array<int, array{product_id: int, grade: string, unit: string, quantity: float, unit_price: float, line_total: float}>
+     */
+    public function consolidateItems(array $items): array
+    {
+        $consolidated = [];
+
+        foreach ($items as $itemData) {
+            $productId = (int) ($itemData['product_id'] ?? 0);
+            if ($productId <= 0) {
+                continue;
+            }
+
+            $rawGrade = strtoupper(trim((string) ($itemData['grade'] ?? 'A')));
+            $grade = in_array($rawGrade, ['A', 'B'], true) ? $rawGrade : 'A';
+
+            $quantity = isset($itemData['quantity']) ? (float) $itemData['quantity'] : (isset($itemData['qty']) ? (float) $itemData['qty'] : 0.0);
+            if ($quantity <= 0.0) {
+                continue;
+            }
+
+            $lineTotal = 0.0;
+            if (isset($itemData['total_price']) && (float) $itemData['total_price'] > 0) {
+                $lineTotal = round((float) $itemData['total_price'], 2);
+            } elseif (isset($itemData['unit_price'])) {
+                $lineTotal = round($quantity * (float) $itemData['unit_price'], 2);
+            } elseif (isset($itemData['line_total'])) {
+                $lineTotal = round((float) $itemData['line_total'], 2);
+            }
+
+            $unit = trim((string) ($itemData['unit'] ?? 'kg')) ?: 'kg';
+            $key = $productId.'-'.$grade;
+
+            if (! isset($consolidated[$key])) {
+                $consolidated[$key] = [
+                    'product_id' => $productId,
+                    'grade' => $grade,
+                    'unit' => $unit,
+                    'quantity' => $quantity,
+                    'line_total' => $lineTotal,
+                ];
+            } else {
+                $consolidated[$key]['quantity'] += $quantity;
+                $consolidated[$key]['line_total'] += $lineTotal;
+                if ($unit !== 'kg' && $consolidated[$key]['unit'] === 'kg') {
+                    $consolidated[$key]['unit'] = $unit;
+                }
+            }
+        }
+
+        $result = [];
+        foreach ($consolidated as $entry) {
+            $qty = round($entry['quantity'], 4);
+            $total = round($entry['line_total'], 2);
+            $unitPrice = $qty > 0 ? round($total / $qty, 4) : 0.0;
+
+            $result[] = [
+                'product_id' => $entry['product_id'],
+                'grade' => $entry['grade'],
+                'unit' => $entry['unit'],
+                'quantity' => $qty,
+                'unit_price' => $unitPrice,
+                'line_total' => $total,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array{value: int, unit: string, display: string}
+     */
+    public function getEditWindowConfig(): array
+    {
+        $value = (int) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_value')->value('value') ?? 3);
+        if ($value <= 0) {
+            $value = 3;
+        }
+
+        $unit = strtolower((string) (BusinessSetting::query()->where('key', 'vendor_purchase_edit_window_unit')->value('value') ?? 'days'));
+        if (! in_array($unit, ['hours', 'days'], true)) {
+            $unit = 'days';
+        }
+
+        $displayUnit = $unit === 'hours' ? ($value === 1 ? 'Hour' : 'Hours') : ($value === 1 ? 'Day' : 'Days');
+
+        return [
+            'value' => $value,
+            'unit' => $unit,
+            'display' => "{$value} {$displayUnit}",
+        ];
+    }
+
+    public function getEditWindowDisplayText(): string
+    {
+        return $this->getEditWindowConfig()['display'];
+    }
+
+    public function getCutoffDateTime(): Carbon
+    {
+        $config = $this->getEditWindowConfig();
+        $now = now('Asia/Kolkata');
+
+        if ($config['unit'] === 'hours') {
+            return $now->copy()->subHours($config['value']);
+        }
+
+        return $now->copy()->startOfDay()->subDays($config['value']);
+    }
+
+    public function getCutoffDateString(): string
+    {
+        return $this->getCutoffDateTime()->toDateString();
+    }
+
+    public function isDateActionAllowed(string|Carbon $businessDate, ?User $user): bool
+    {
+        if ($this->isAdminUser($user)) {
+            return true;
+        }
+
+        $date = $businessDate instanceof Carbon ? $businessDate : Carbon::parse($businessDate);
+        $config = $this->getEditWindowConfig();
+
+        if ($config['unit'] === 'hours') {
+            $cutoff = $this->getCutoffDateTime();
+
+            return $date->copy()->endOfDay()->greaterThanOrEqualTo($cutoff);
+        }
+
+        $cutoffDateStr = $this->getCutoffDateString();
+
+        return $date->toDateString() >= $cutoffDateStr;
+    }
+
+    public function isInvoiceActionAllowed(PurchaseInvoice $invoice, ?User $user): bool
+    {
+        if ($this->isAdminUser($user)) {
+            return true;
+        }
+
+        $dateStr = $invoice->purchaserCart?->business_date?->format('Y-m-d')
+            ?? $invoice->original_business_date?->format('Y-m-d')
+            ?? $invoice->created_at->format('Y-m-d');
+
+        if (! $this->isDateActionAllowed($dateStr, $user)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function isAdminUser(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        return $user->hasRole('admin') || $user->hasRole('main_admin') || $user->hasRole('super_admin') || (method_exists($user, 'isMainAdmin') && $user->isMainAdmin());
     }
 }

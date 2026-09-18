@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Category;
+use App\Models\Product;
 use App\Models\PurchaseBusinessDay;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Purchasing\DailyInventoryComparisonService;
+use App\Services\Purchasing\PurchaserAllotmentService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -24,6 +28,7 @@ class AdminPurchaserBusinessDayController extends Controller
     public function __construct(
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly DailyInventoryComparisonService $comparisonService,
+        private readonly PurchaserAllotmentService $allotmentService,
     ) {}
 
     /**
@@ -105,6 +110,24 @@ class AdminPurchaserBusinessDayController extends Controller
         // Monthly oversight metrics summary
         $monthlySummary = $this->businessDayService->getMonthlyOversightSummary($monthInput, $selectedWarehouseId);
 
+        // Product Allotment Data for Admin UI
+        $categories = Category::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $allProducts = Product::query()
+            ->where('is_active', true)
+            ->with(['category:id,name', 'currentPurchaserAllotment.purchaser:id,name'])
+            ->orderBy('name')
+            ->get(['id', 'name', 'sku', 'category_id']);
+
+        $allotmentSearch = $request->filled('allotment_search') ? trim((string) $request->input('allotment_search')) : null;
+        $allotmentCategoryId = $request->filled('allotment_category_id') ? $request->integer('allotment_category_id') : null;
+        $allotmentPurchaserId = $request->filled('allotment_purchaser_id') ? $request->integer('allotment_purchaser_id') : null;
+
+        $allotmentsPaginated = $this->allotmentService->getOverviewPaginated(
+            $allotmentSearch,
+            $allotmentCategoryId,
+            $allotmentPurchaserId
+        );
+
         return view('admin.cashbook.purchaser-business-days.index', [
             'warehouses' => $warehouses,
             'purchasers' => $purchasers,
@@ -116,6 +139,94 @@ class AdminPurchaserBusinessDayController extends Controller
             'reopenedOnly' => $reopenedOnly,
             'daysData' => $daysData,
             'monthlySummary' => $monthlySummary,
+            'categories' => $categories,
+            'allProducts' => $allProducts,
+            'allotmentsPaginated' => $allotmentsPaginated,
+            'allotmentSearch' => $allotmentSearch,
+            'allotmentCategoryId' => $allotmentCategoryId,
+            'allotmentPurchaserId' => $allotmentPurchaserId,
+        ]);
+    }
+
+    /**
+     * Preview bulk product allotment.
+     */
+    public function previewAllotment(Request $request): JsonResponse
+    {
+        $this->authorizeAllotmentAdmin();
+
+        $validated = $request->validate([
+            'product_ids' => ['required', 'array', 'min:1'],
+            'product_ids.*' => ['integer', 'exists:products,id'],
+            'purchaser_user_id' => ['required', 'integer', 'exists:users,id'],
+            'effective_from' => ['required', 'date'],
+        ]);
+
+        $preview = $this->allotmentService->previewBulkAssign(
+            $validated['product_ids'],
+            (int) $validated['purchaser_user_id'],
+            (string) $validated['effective_from']
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'total_selected' => $preview['total_selected'],
+                'already_assigned_count' => $preview['already_assigned_count'],
+                'changing_purchaser_count' => $preview['changing_purchaser_count'],
+                'previously_unassigned_count' => $preview['previously_unassigned_count'],
+                'effective_from' => $preview['effective_from'],
+                'purchaser_name' => $preview['purchaser']?->name ?? 'Selected Purchaser',
+            ],
+        ]);
+    }
+
+    /**
+     * Assign bulk product allotments.
+     */
+    public function assignAllotment(Request $request): RedirectResponse
+    {
+        $this->authorizeAllotmentAdmin();
+
+        $validated = $request->validate([
+            'product_ids' => ['required', 'array', 'min:1'],
+            'product_ids.*' => ['integer', 'exists:products,id'],
+            'purchaser_user_id' => ['required', 'integer', 'exists:users,id'],
+            'effective_from' => ['required', 'date'],
+        ]);
+
+        try {
+            $result = $this->allotmentService->bulkAssignPurchaser(
+                $validated['product_ids'],
+                (int) $validated['purchaser_user_id'],
+                (string) $validated['effective_from'],
+                $request->user()?->id
+            );
+
+            $msg = "Assigned {$result['assigned_count']} product(s) to purchaser effective from {$validated['effective_from']}.";
+            if ($result['skipped_count'] > 0) {
+                $msg .= " ({$result['skipped_count']} product(s) skipped as already assigned to same purchaser).";
+            }
+
+            return redirect()->back()->with('success', $msg);
+        } catch (ValidationException $e) {
+            return redirect()->back()->withErrors($e->errors())->withInput();
+        }
+    }
+
+    /**
+     * Product Allotment History.
+     */
+    public function productHistory(Request $request, Product $product): View
+    {
+        $this->authorizeAllotmentAdmin();
+
+        $history = $this->allotmentService->getAllotmentHistory($product->id);
+        $product->load(['category', 'currentPurchaserAllotment.purchaser']);
+
+        return view('admin.cashbook.finance.purchase.product_allotments.history', [
+            'product' => $product,
+            'history' => $history,
         ]);
     }
 
@@ -413,5 +524,19 @@ class AdminPurchaserBusinessDayController extends Controller
         }
 
         abort(403, 'Unauthorized access to Admin Cashbook Purchaser Business Days.');
+    }
+
+    private function authorizeAllotmentAdmin(): void
+    {
+        $user = auth()->user();
+        if (! $user) {
+            abort(401);
+        }
+
+        if ($user->hasRole('admin') || $user->isMainAdmin() || (property_exists($user, 'is_admin') && $user->is_admin)) {
+            return;
+        }
+
+        abort(403, 'Unauthorized access to Product Purchaser Allotments.');
     }
 }

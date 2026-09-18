@@ -1,4 +1,99 @@
-@php($cashbookSidebarShops = $shops ?? collect())
+@php
+    $cashbookSidebarShops = $shops ?? collect();
+
+    $isPurchaseActive = request()->routeIs('admin.cashbook.finance.purchase*')
+        || request()->routeIs('admin.cashbook.finance.purchasers*')
+        || request()->routeIs('admin.cashbook.purchaser-business-days.*');
+
+    $isReportsActive = request()->routeIs('admin.cashbook.finance.purchase.reports*')
+        || request()->routeIs('admin.cashbook.finance.purchase.purchaser-expenses*');
+
+    $purchaseSidebarItem = [
+        'label' => 'Purchase',
+        'href' => route('admin.cashbook.finance.purchase'),
+        'active' => $isPurchaseActive,
+        'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>',
+        'children' => [
+            [
+                'label' => 'Dashboard',
+                'href' => route('admin.cashbook.finance.purchase'),
+                'active' => request()->routeIs('admin.cashbook.finance.purchase') && !request()->routeIs('admin.cashbook.finance.purchase.*'),
+            ],
+            [
+                'label' => 'Reports',
+                'href' => route('admin.cashbook.finance.purchase.reports'),
+                'active' => $isReportsActive,
+                'children' => [
+                    [
+                        'label' => 'Credit Purchases',
+                        'href' => route('admin.cashbook.finance.purchase.reports.credit-purchases'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.reports.credit-purchases'),
+                    ],
+                    [
+                        'label' => 'Daily Purchases',
+                        'href' => route('admin.cashbook.finance.purchase.reports.daily'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.reports.daily'),
+                    ],
+                    [
+                        'label' => 'Purchaser Expenses',
+                        'href' => route('admin.cashbook.finance.purchase.purchaser-expenses'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.purchaser-expenses*'),
+                    ],
+                    [
+                        'label' => 'Purchaser Overview',
+                        'href' => route('admin.cashbook.finance.purchase.reports.purchasers'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.reports.purchasers'),
+                    ],
+                    [
+                        'label' => 'Price Report',
+                        'href' => route('admin.cashbook.finance.purchase.reports.prices'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.reports.prices*'),
+                    ],
+                    [
+                        'label' => 'Changed Items',
+                        'href' => route('admin.cashbook.finance.purchase.reports.changed-items'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.reports.changed-items*'),
+                    ],
+                    [
+                        'label' => 'Purchaser Prices',
+                        'href' => route('admin.cashbook.finance.purchase.reports.purchaser-prices'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.reports.purchaser-prices*'),
+                    ],
+                    [
+                        'label' => 'Product Allotments',
+                        'href' => route('admin.cashbook.finance.purchase.product-allotments.index'),
+                        'active' => request()->routeIs('admin.cashbook.finance.purchase.product-allotments.*'),
+                    ],
+                    [
+                        'label' => 'Purchaser Business Days',
+                        'href' => route('admin.cashbook.purchaser-business-days.index'),
+                        'active' => request()->routeIs('admin.cashbook.purchaser-business-days.*'),
+                    ],
+                ],
+            ],
+            [
+                'label' => 'Purchasers',
+                'href' => route('admin.cashbook.finance.purchase.purchasers'),
+                'active' => (request()->routeIs('admin.cashbook.finance.purchase.purchasers*') || request()->routeIs('admin.cashbook.finance.purchasers*')) && !request()->routeIs('admin.cashbook.finance.purchase.reports*'),
+            ],
+            [
+                'label' => 'Vendors',
+                'href' => route('admin.cashbook.finance.purchase.vendors'),
+                'active' => request()->routeIs('admin.cashbook.finance.purchase.vendors*'),
+            ],
+            [
+                'label' => 'Invoices',
+                'href' => route('admin.cashbook.finance.purchase.invoices'),
+                'active' => request()->routeIs('admin.cashbook.finance.purchase.invoices*'),
+            ],
+            [
+                'label' => 'Categories',
+                'href' => route('admin.cashbook.finance.purchase.categories'),
+                'active' => request()->routeIs('admin.cashbook.finance.purchase.categories*'),
+            ],
+        ],
+    ];
+@endphp
 
 <!-- Mobile Overlay Backdrop -->
 <div id="sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-30 hidden md:hidden transition-opacity"></div>
@@ -82,6 +177,9 @@
                 </a>
             </div>
 
+            <!-- PURCHASE (NESTED HIERARCHY) -->
+            <x-sidebar-link :item="$purchaseSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+
             <!-- FINANCE -->
             <div class="space-y-1">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">FINANCE</span>
@@ -110,10 +208,6 @@
                 <a href="{{ route('admin.cashbook.finance.vendor-credit') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.vendor-credit*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="truck" class="w-4 h-4"></i>
                     <span>Vendor Credit</span>
-                </a>
-                <a href="{{ route('admin.cashbook.finance.purchase') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.purchase*') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="shopping-basket" class="w-4 h-4"></i>
-                    <span>Purchase</span>
                 </a>
                 <a href="{{ route('admin.cashbook.finance.direct-sales') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.finance.direct-sales*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="circle-dollar-sign" class="w-4 h-4"></i>
@@ -169,14 +263,6 @@
                 <a href="{{ route('admin.cashbook.bill-changes') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bill-changes*') ? 'active-sidebar' : '' }}">
                     <i data-lucide="receipt-text" class="w-4 h-4"></i>
                     <span>Bill Changes</span>
-                </a>
-                <a href="{{ route('admin.cashbook.purchaser-business-days.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.purchaser-business-days.*') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="calendar-check-2" class="w-4 h-4 text-emerald-600"></i>
-                    <span>Purchaser Business Days</span>
-                </a>
-                <a href="{{ route('admin.cashbook.purchaser-business-days.reports') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.purchaser-business-days.reports') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="file-spreadsheet" class="w-4 h-4 text-teal-600"></i>
-                    <span>Business Day Reports</span>
                 </a>
                 <a href="{{ route('admin.cashbook.payables') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.payables') ? 'active-sidebar' : '' }}">
                     <i data-lucide="arrow-down-left" class="w-4 h-4"></i>

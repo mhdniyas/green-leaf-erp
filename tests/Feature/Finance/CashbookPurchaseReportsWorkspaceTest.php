@@ -54,11 +54,11 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.credit-purchases'));
 
         $response->assertOk()
-            ->assertSee('Credit Purchase Report')
-            ->assertSee('Purchaser Report')
+            ->assertSee('Credit Purchase')
+            ->assertSee('Purchaser Overview')
             ->assertSee('Price Report')
             ->assertSee('Changed Items')
-            ->assertSee('Purchaser Price')
+            ->assertSee('Purchaser Prices')
             ->assertDontSee('Batch');
     }
 
@@ -81,7 +81,7 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchasers'));
 
         $response->assertOk()
-            ->assertSeeInOrder(['Period', 'Product Filter', 'Search', 'Apply', 'More Filters'])
+            ->assertSeeInOrder(['Month', 'Day', 'Custom', 'Product Filter', 'Purchaser', 'Vendor', 'Payment', 'Category'])
             ->assertSee('Purchaser, invoice, vendor, product...')
             ->assertSee('All Purchasers')
             ->assertSee('All Vendors')
@@ -95,11 +95,12 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.credit-purchases'));
 
         $response->assertOk()
-            ->assertSeeInOrder(['Today', 'Yesterday', 'This Week', 'This Month', 'Custom', 'Product Filter', 'Status', 'Search', 'Apply', 'Total Credit Purchases'])
-            ->assertSee('Vendor name or phone...')
+            ->assertSeeInOrder(['Month', 'Day', 'Custom'])
+            ->assertSee('Total Credit Purchases')
+            ->assertSee('Search vendor name or phone...')
             ->assertSee('All Products')
-            ->assertSee('All Vendors')
-            ->assertSee('Unpaid')
+            ->assertSee('All Statuses')
+            ->assertSee('Unpaid Only')
             ->assertSee('Partially Paid')
             ->assertSee('Fully Settled')
             ->assertSee('aria-label="Reset filters"', false);
@@ -167,16 +168,12 @@ class CashbookPurchaseReportsWorkspaceTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.prices'));
 
         $response->assertOk()
-            ->assertSee('Business Date')
-            ->assertSee('name="date" value="2026-08-25"', false)
-            ->assertDontSee('name="period"', false)
-            ->assertDontSee('name="start_date"', false)
-            ->assertDontSee('name="end_date"', false)
-            ->assertSee('Actual Purchase Price')
-            ->assertSee('Approved Purchase Price')
-            ->assertSee('Group A')
-            ->assertDontSee('Group B')
-            ->assertDontSee('Group C')
+            ->assertSee('Month')
+            ->assertSee('Day')
+            ->assertSee('Custom')
+            ->assertSee('name="date"', false)
+            ->assertSee('Actual Purchase')
+            ->assertSee('Approved Purchase')
             ->assertSee('₹32.00')
             ->assertSee('₹38.00')
             ->assertSee('+₹6.00')

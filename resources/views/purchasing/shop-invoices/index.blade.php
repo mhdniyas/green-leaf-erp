@@ -36,13 +36,33 @@
                 <p class="mt-0.5 text-xs font-bold text-slate-500">{{ $selectedCarbonDate->format('d M Y') }} · {{ $invoices->total() }} invoices</p>
             </div>
 
-            <form method="GET" action="{{ route('purchasing.shop-invoices.index') }}" class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('purchasing.shop-invoices.index', ['date' => $todayDate]) }}" class="h-9 rounded-xl px-3 text-xs font-black leading-9 {{ $selectedDate === $todayDate ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' }}">Today</a>
-                <a href="{{ route('purchasing.shop-invoices.index', ['date' => $yesterdayDate]) }}" class="h-9 rounded-xl px-3 text-xs font-black leading-9 {{ $selectedDate === $yesterdayDate ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' }}">Yesterday</a>
-                <label class="relative h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black leading-9 text-slate-700 hover:bg-slate-50">
-                    Date
-                    <input type="date" name="date" value="{{ $selectedDate }}" onchange="this.form.submit()" class="absolute inset-0 h-full w-full cursor-pointer opacity-0">
-                </label>
+            <form id="shop-invoices-date-form" method="GET" action="{{ route('purchasing.shop-invoices.index') }}" class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('purchasing.shop-invoices.index', ['date' => $todayDate]) }}" class="h-9 rounded-xl px-3 text-xs font-black leading-9 transition {{ $selectedDate === $todayDate ? 'bg-slate-900 text-white shadow-2xs' : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50' }}">Today</a>
+                <a href="{{ route('purchasing.shop-invoices.index', ['date' => $yesterdayDate]) }}" class="h-9 rounded-xl px-3 text-xs font-black leading-9 transition {{ $selectedDate === $yesterdayDate ? 'bg-slate-900 text-white shadow-2xs' : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50' }}">Yesterday</a>
+                <div class="relative inline-flex items-center">
+                    <input
+                        type="date"
+                        id="shop-invoice-date-input"
+                        name="date"
+                        value="{{ $selectedDate }}"
+                        onchange="this.form.submit()"
+                        class="sr-only"
+                        tabindex="-1"
+                        aria-hidden="true"
+                    >
+                    <button
+                        type="button"
+                        id="shop-invoice-date-btn"
+                        onclick="triggerInvoiceDatePicker()"
+                        class="inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-black shadow-2xs transition active:scale-[0.98] cursor-pointer {{ $selectedDate !== $todayDate && $selectedDate !== $yesterdayDate ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50' }}"
+                        title="Choose Date"
+                    >
+                        <span>{{ $selectedCarbonDate->format('d M Y') }}</span>
+                        <svg class="h-3.5 w-3.5 {{ $selectedDate !== $todayDate && $selectedDate !== $yesterdayDate ? 'text-slate-200' : 'text-slate-500' }}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                        </svg>
+                    </button>
+                </div>
             </form>
         </div>
 
@@ -127,3 +147,24 @@
         @endif
     </div>
 @endsection
+
+@push('scripts')
+    <script>
+        function triggerInvoiceDatePicker() {
+            const input = document.getElementById('shop-invoice-date-input');
+            if (!input) return;
+
+            if (typeof input.showPicker === 'function') {
+                try {
+                    input.showPicker();
+                    return;
+                } catch (e) {
+                    console.warn('showPicker failed, falling back', e);
+                }
+            }
+
+            input.focus();
+            input.click();
+        }
+    </script>
+@endpush

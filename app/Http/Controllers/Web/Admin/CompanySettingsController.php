@@ -32,6 +32,8 @@ class CompanySettingsController extends Controller
         'auto_load_all_delay_seconds',
         'auto_load_all_allow_manual',
         'shop_attendance_cutoff_time',
+        'purchaser_business_day_verification_enabled',
+        'purchaser_business_day_require_daily_submission',
     ];
 
     public function __construct(
@@ -64,6 +66,11 @@ class CompanySettingsController extends Controller
             'auto_load_all_delay_seconds' => (int) ($settings->get('auto_load_all_delay_seconds') ?: 3),
             'auto_load_all_allow_manual' => filter_var($settings->get('auto_load_all_allow_manual') ?? true, FILTER_VALIDATE_BOOLEAN),
             'shop_attendance_cutoff_time' => $settings->get('shop_attendance_cutoff_time') ?: '10:00',
+        ];
+
+        $purchaserBusinessDayGlobalSettings = [
+            'verification_enabled' => filter_var($settings->get('purchaser_business_day_verification_enabled') ?? true, FILTER_VALIDATE_BOOLEAN),
+            'require_daily_submission' => filter_var($settings->get('purchaser_business_day_require_daily_submission') ?? true, FILTER_VALIDATE_BOOLEAN),
         ];
 
         $purchaserUsers = User::query()
@@ -109,6 +116,7 @@ class CompanySettingsController extends Controller
 
         return view('admin.company-settings.edit', compact(
             'companyDetails',
+            'purchaserBusinessDayGlobalSettings',
             'purchaserUsers',
             'directSaleShops',
             'allActiveShops',
@@ -143,6 +151,8 @@ class CompanySettingsController extends Controller
             'auto_load_all_delay_seconds' => ['nullable', 'integer', 'min:1', 'max:60'],
             'auto_load_all_allow_manual' => ['nullable', 'boolean'],
             'shop_attendance_cutoff_time' => ['nullable', 'string', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
+            'purchaser_business_day_verification_enabled' => ['nullable', 'boolean'],
+            'purchaser_business_day_require_daily_submission' => ['nullable', 'boolean'],
             'warehouse_sales_enabled' => ['nullable', 'boolean'],
             'warehouse_sales_allowed_user_ids' => ['nullable', 'array'],
             'warehouse_sales_allowed_user_ids.*' => ['integer', 'exists:users,id'],
@@ -178,10 +188,13 @@ class CompanySettingsController extends Controller
             'user_warehouses' => $userWarehouses,
         ]);
 
-        // Save Purchaser Business Day per-warehouse settings
+        // Save Purchaser Business Day settings
         $businessDayService = app(PurchaserBusinessDayService::class);
         $pbdSettingsRaw = $request->input('business_day_warehouse_settings', $request->input('purchaser_business_day_warehouse_settings', []));
         $activeWarehouses = Warehouse::query()->active()->get();
+
+        $isGlobalEnabled = filter_var($request->input('purchaser_business_day_verification_enabled', true), FILTER_VALIDATE_BOOLEAN);
+        $isGlobalRequireSubmission = filter_var($request->input('purchaser_business_day_require_daily_submission', true), FILTER_VALIDATE_BOOLEAN);
 
         foreach ($activeWarehouses as $wh) {
             $whId = (int) $wh->id;
@@ -190,13 +203,14 @@ class CompanySettingsController extends Controller
                 : [];
 
             $businessDayService->updateWarehouseSettings($whId, [
-                'enabled' => ! empty($whSettings['enabled']),
-                'purchasers_can_close' => ! empty($whSettings['purchasers_can_close']),
-                'purchasers_can_reopen' => ! empty($whSettings['purchasers_can_reopen']),
+                'enabled' => isset($whSettings['enabled']) ? ! empty($whSettings['enabled']) : $isGlobalEnabled,
+                'require_daily_submission' => isset($whSettings['require_daily_submission']) ? ! empty($whSettings['require_daily_submission']) : $isGlobalRequireSubmission,
+                'purchasers_can_close' => isset($whSettings['purchasers_can_close']) ? ! empty($whSettings['purchasers_can_close']) : true,
+                'purchasers_can_reopen' => isset($whSettings['purchasers_can_reopen']) ? ! empty($whSettings['purchasers_can_reopen']) : false,
                 'reopen_requires_reason' => true,
-                'allow_close_with_pending' => ! empty($whSettings['allow_close_with_pending']),
-                'require_digital_verification' => ! empty($whSettings['require_digital_verification']),
-                'admin_override_reopen' => ! empty($whSettings['admin_override_reopen']),
+                'allow_close_with_pending' => isset($whSettings['allow_close_with_pending']) ? ! empty($whSettings['allow_close_with_pending']) : true,
+                'require_digital_verification' => isset($whSettings['require_digital_verification']) ? ! empty($whSettings['require_digital_verification']) : false,
+                'admin_override_reopen' => isset($whSettings['admin_override_reopen']) ? ! empty($whSettings['admin_override_reopen']) : false,
             ]);
         }
 

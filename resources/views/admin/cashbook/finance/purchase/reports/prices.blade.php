@@ -61,7 +61,8 @@
                                 <th class="p-3.5">Category</th>
                             @endif
                             <th class="p-3.5">Unit</th>
-                            <th class="p-3.5 text-right">Actual Purchase Price</th>
+                            <th class="p-3.5 text-right">Approved Purchase</th>
+                            <th class="p-3.5 text-right">Actual Purchase</th>
                             <th class="p-3.5 text-right">Selling Price</th>
                             <th class="p-3.5 text-right">Difference</th>
                             <th class="p-3.5 text-right">Margin %</th>
@@ -70,7 +71,7 @@
                     <tbody class="divide-y divide-slate-100">
                         @if($rows->isEmpty())
                             <tr>
-                                <td colspan="{{ $isCategorySort ? 7 : 8 }}" class="p-12 text-center text-slate-400">
+                                <td colspan="{{ $isCategorySort ? 8 : 9 }}" class="p-12 text-center text-slate-400">
                                     <div class="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
                                         <i data-lucide="inbox" class="w-6 h-6"></i>
                                     </div>
@@ -91,7 +92,7 @@
                             @foreach($groupedCollection as $catName => $categoryRows)
                                 @if($isCategorySort)
                                     <tr class="bg-slate-100/80 border-t-2 border-b border-slate-200">
-                                        <td colspan="7" class="px-3.5 py-2 font-black text-xs uppercase tracking-wider text-slate-800">
+                                        <td colspan="{{ $isCategorySort ? 8 : 9 }}" class="px-3.5 py-2 font-black text-xs uppercase tracking-wider text-slate-800">
                                             <div class="flex items-center justify-between">
                                                 <span>{{ $catName ?: 'Uncategorized' }}</span>
                                                 <span class="text-[10px] font-bold text-slate-500 font-mono">{{ count($categoryRows) }} item(s)</span>
@@ -102,10 +103,12 @@
 
                                 @foreach($categoryRows as $row)
                                     @php
+                                        $approvedPrice = $row->approved_purchase_price !== null ? (float) $row->approved_purchase_price : null;
                                         $actualPrice = $row->actual_purchase_price !== null ? (float) $row->actual_purchase_price : null;
                                         $sellingPrice = $row->selling_price !== null ? (float) $row->selling_price : null;
-                                        $diff = ($actualPrice !== null && $sellingPrice !== null) ? ($sellingPrice - $actualPrice) : null;
-                                        $margin = ($diff !== null && $actualPrice > 0) ? ($diff / $actualPrice * 100) : null;
+                                        $diff = ($actualPrice !== null && $sellingPrice !== null) ? ($sellingPrice - $actualPrice) : ($approvedPrice !== null && $sellingPrice !== null ? ($sellingPrice - $approvedPrice) : null);
+                                        $baseCost = $actualPrice ?? $approvedPrice;
+                                        $margin = ($diff !== null && $baseCost > 0) ? ($diff / $baseCost * 100) : null;
                                     @endphp
                                     <tr class="hover:bg-slate-50/80 transition-colors">
                                         <!-- Code -->
@@ -137,6 +140,11 @@
                                         <!-- Unit -->
                                         <td class="p-3.5 font-extrabold text-slate-500 uppercase font-mono">
                                             {{ strtoupper($row->price_unit ?: $row->product_unit) }}
+                                        </td>
+
+                                        <!-- Approved Purchase Price -->
+                                        <td class="p-3.5 text-right font-mono font-bold text-slate-800 whitespace-nowrap">
+                                            {{ $approvedPrice !== null ? '₹'.number_format($approvedPrice, 2) : '—' }}
                                         </td>
 
                                         <!-- Actual Purchase Price -->

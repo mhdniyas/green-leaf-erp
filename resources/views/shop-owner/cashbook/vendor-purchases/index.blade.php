@@ -229,7 +229,7 @@
                             $dateStr = $date ? \Carbon\Carbon::parse($date)->toDateString() : '';
                             $isCash = strcasecmp((string) $inv->payment_method, 'Cash') === 0;
                             $setting = $inv->shopLedgerEntrySetting;
-                            $isActionAllowed = ($isAdmin ?? false) || ($dateStr !== '' && $dateStr >= ($cutoffDate ?? now('Asia/Kolkata')->startOfDay()->subDays(3)->toDateString()));
+                            $isActionAllowed = ($isAdmin ?? false) || ($dateStr !== '' && $dateStr >= ($cutoffDate ?? '1970-01-01'));
                         @endphp
                         <tr class="hover:bg-slate-50/80 transition group">
                             <td class="py-3 px-4 whitespace-nowrap">
@@ -323,9 +323,9 @@
 
 {{-- ── VIEW PURCHASE MODAL ────────────────────────────────────────── --}}
 <div id="view-purchase-modal" onclick="handleModalBackdropClick(event, 'view-purchase-modal')"
-     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs hidden transition-all">
+     class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs hidden transition-all duration-200 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] sm:pb-0 px-0 sm:px-4">
     <div onclick="event.stopPropagation()"
-         class="w-full max-w-2xl rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl flex flex-col max-h-[90vh]">
+         class="w-full max-w-2xl rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl flex flex-col max-h-[82vh] sm:max-h-[90vh]">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center text-white shrink-0">
@@ -356,9 +356,9 @@
 
 {{-- ── EDIT PURCHASE MODAL ────────────────────────────────────────── --}}
 <div id="edit-purchase-modal" onclick="handleModalBackdropClick(event, 'edit-purchase-modal')"
-     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs hidden transition-all">
+     class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs hidden transition-all duration-200 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] sm:pb-0 px-0 sm:px-4">
     <div onclick="event.stopPropagation()"
-         class="w-full max-w-xl rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl flex flex-col max-h-[90vh]">
+         class="w-full max-w-xl rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl flex flex-col max-h-[82vh] sm:max-h-[90vh]">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shrink-0">
@@ -646,20 +646,33 @@
         const errEl = document.getElementById('edit-error-alert');
         errEl.classList.add('hidden');
 
-        const items = [];
+        const itemMap = new Map();
         document.querySelectorAll('#edit-products-list .edit-product-row').forEach(row => {
             const prodId = parseInt(row.querySelector('.edit-prod-select')?.value, 10);
             const qty = parseFloat(row.querySelector('.edit-prod-qty')?.value);
             const totalPrice = parseFloat(row.querySelector('.edit-prod-price')?.value);
             if (prodId && qty > 0 && totalPrice >= 0) {
-                items.push({
-                    product_id: prodId,
-                    quantity: qty,
-                    total_price: totalPrice,
-                    unit_price: qty > 0 ? (totalPrice / qty) : 0,
-                });
+                const key = String(prodId);
+                if (itemMap.has(key)) {
+                    const existing = itemMap.get(key);
+                    existing.quantity += qty;
+                    existing.total_price += totalPrice;
+                } else {
+                    itemMap.set(key, {
+                        product_id: prodId,
+                        quantity: qty,
+                        total_price: totalPrice,
+                    });
+                }
             }
         });
+
+        const items = Array.from(itemMap.values()).map(it => ({
+            product_id: it.product_id,
+            quantity: it.quantity,
+            total_price: it.total_price,
+            unit_price: it.quantity > 0 ? (it.total_price / it.quantity) : 0,
+        }));
 
         if (items.length === 0) {
             errEl.textContent = 'Please add at least one valid product item.';

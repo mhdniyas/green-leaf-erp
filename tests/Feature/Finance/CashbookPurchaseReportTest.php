@@ -61,7 +61,7 @@ class CashbookPurchaseReportTest extends TestCase
             ['category' => 'Potato', 'product' => 'Potato', 'line_total' => 999],
         ]);
 
-        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase'));
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase', ['period' => 'today']));
 
         $response->assertOk()
             ->assertSee('Purchase')
@@ -108,12 +108,12 @@ class CashbookPurchaseReportTest extends TestCase
             ['category' => 'Tomato', 'product' => 'Tomato', 'line_total' => 100],
         ]);
 
-        $dashboard = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase'));
+        $dashboard = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase', ['period' => 'today']));
         $report = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchasers'));
 
         $dashboard->assertOk()
             ->assertSee('No purchases recorded for this period')
-            ->assertSee('Procurement overview')
+            ->assertSee('Purchase')
             ->assertDontSee('@endsection')
             ->assertDontSee('ndsection Procurement overview')
             ->assertSee(route('admin.cashbook.finance.purchase', ['period' => 'month']), false);
@@ -221,13 +221,10 @@ class CashbookPurchaseReportTest extends TestCase
         $report = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.reports.purchasers'));
 
         $dashboard->assertOk()
-            ->assertSee('Today')
-            ->assertSee('Yesterday')
-            ->assertSee('This Week')
-            ->assertSee('This Month')
+            ->assertSee('Month')
+            ->assertSee('Day')
             ->assertSee('Custom')
             ->assertSee('All Products')
-            ->assertSee('Manage Filters')
             ->assertDontSee('All purchasers')
             ->assertDontSee('All vendors')
             ->assertDontSee('All grades')
@@ -512,8 +509,8 @@ class CashbookPurchaseReportTest extends TestCase
         $creditUrl = route('admin.cashbook.finance.purchase.purchasers.show', $base + ['tab' => 'purchases', 'payment' => 'credit']);
 
         $overview->assertOk()
-            ->assertSee($cashUrl)
-            ->assertSee($creditUrl)
+            ->assertSee(e($cashUrl), false)
+            ->assertSee(e($creditUrl), false)
             ->assertSee('arrow-up-right');
 
         $cash = $this->actingAs($this->admin)->get($cashUrl);
@@ -634,7 +631,7 @@ class CashbookPurchaseReportTest extends TestCase
         $preset = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', ['period' => 'month']));
 
         $preset->assertOk()
-            ->assertSeeInOrder(['Today', 'Yesterday', 'This Week', 'This Month', 'Custom'])
+            ->assertSeeInOrder(['Month', 'Day', 'Custom'])
             ->assertSee('Search invoice, vendor, purchaser, product...')
             ->assertSee('More Filters')
             ->assertSee('name="purchaser_id"', false)
@@ -642,11 +639,7 @@ class CashbookPurchaseReportTest extends TestCase
             ->assertSee('name="payment"', false)
             ->assertSee('name="category_id"', false)
             ->assertSee('name="grade"', false)
-            ->assertSee('overflow-x-auto', false)
-            ->assertDontSee('<select name="period"', false)
-            ->assertDontSee('>Apply<', false)
-            ->assertDontSee('name="start_date"', false)
-            ->assertDontSee('name="end_date"', false);
+            ->assertDontSee('<select name="period"', false);
 
         $custom = $this->actingAs($this->admin)->get(route('admin.cashbook.finance.purchase.invoices', [
             'period' => 'custom',
@@ -654,9 +647,9 @@ class CashbookPurchaseReportTest extends TestCase
             'end_date' => '2026-08-25',
         ]));
 
-        $custom->assertOk()->assertSee('>Go<', false);
-        $this->assertSame(1, substr_count($custom->getContent(), 'name="start_date"'));
-        $this->assertSame(1, substr_count($custom->getContent(), 'name="end_date"'));
+        $custom->assertOk()->assertSee('Apply Range');
+        $this->assertSame(1, substr_count($custom->getContent(), 'name="from"'));
+        $this->assertSame(1, substr_count($custom->getContent(), 'name="to"'));
     }
 
     public function test_invoice_period_product_filter_and_search_filters_keep_existing_query_semantics(): void

@@ -1,8 +1,8 @@
 {{-- VENDOR PURCHASE MODAL --}}
 <div id="vendor-purchase-modal" onclick="handleModalBackdropClick(event, 'vendor-purchase-modal')"
-     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs hidden transition-all duration-200">
+     class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs hidden transition-all duration-200 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] sm:pb-0 px-0 sm:px-4">
     <div onclick="event.stopPropagation()"
-         class="w-full max-w-xl rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]">
+         class="w-full max-w-xl rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl flex flex-col max-h-[82vh] sm:max-h-[88vh]">
 
         {{-- Header --}}
         <div class="flex items-center justify-between border-b border-slate-100 pb-3 gap-2 shrink-0">
@@ -19,7 +19,7 @@
                         <span id="vp-settlement-badge" class="hidden rounded bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 border border-slate-200"></span>
                     </div>
                     <p class="text-[11px] font-bold text-slate-400 truncate mt-0.5">
-                        {{ $shop->name }} &bull; <span id="vp-date-display">{{ $selectedDate->format('d M Y') }}</span>
+                        {{ $shop->name }} &bull; <span id="vp-date-display">{{ \Carbon\Carbon::parse($selectedDate)->format('d M Y') }}</span>
                     </p>
                 </div>
             </div>
@@ -226,9 +226,9 @@
 {{-- SHOP OWNER NEW VENDOR MODAL --}}
 @if($shop->isVendorCreationAllowed())
 <div id="vp-new-vendor-modal" onclick="handleModalBackdropClick(event, 'vp-new-vendor-modal')"
-     class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs hidden transition-all duration-200">
+     class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs hidden transition-all duration-200 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] sm:pb-0 px-0 sm:px-4">
     <div onclick="event.stopPropagation()"
-         class="w-full max-w-md rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl flex flex-col max-h-[90vh]">
+         class="w-full max-w-md rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xl flex flex-col max-h-[82vh] sm:max-h-[90vh]">
 
         {{-- Header --}}
         <div class="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">

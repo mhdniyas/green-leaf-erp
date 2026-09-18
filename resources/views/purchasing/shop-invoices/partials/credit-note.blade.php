@@ -101,7 +101,11 @@
             <div>
                 <div class="flex items-center gap-2">
                     <span class="text-xs font-black uppercase tracking-[0.14em] text-slate-700">Shop Change Verification:</span>
-                    @if ($isVerified)
+                    @if (! $summary['has_changes'])
+                        <span class="inline-flex items-center rounded-full bg-slate-200 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-700">
+                            No Changes
+                        </span>
+                    @elseif ($isVerified)
                         <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-800">
                             Verified
                         </span>
@@ -111,7 +115,11 @@
                         </span>
                     @endif
                 </div>
-                @if ($isVerified)
+                @if (! $summary['has_changes'])
+                    <p class="mt-1 text-xs font-semibold text-slate-500">
+                        Invoice is matching original quantities and rates. No shop verification required.
+                    </p>
+                @elseif ($isVerified)
                     <div class="mt-1 text-xs font-semibold text-slate-600 space-y-0.5">
                         <p>Verified By: <span class="font-bold text-slate-900">{{ $verifiedByName ?? 'Shop Manager' }}</span></p>
                         @if ($verifiedAt)
@@ -125,7 +133,7 @@
                 @endif
             </div>
 
-            @if (! $isVerified && auth()->user()?->hasRole('shop') && ($invoice->order?->order_number ?? null))
+            @if ($summary['has_changes'] && ! $isVerified && auth()->user()?->hasRole('shop') && ($invoice->order?->order_number ?? null))
                 <form action="{{ route('shop-owner.deliveries.verify-changes', $invoice->order->order_number) }}" method="POST" class="shrink-0">
                     @csrf
                     <button

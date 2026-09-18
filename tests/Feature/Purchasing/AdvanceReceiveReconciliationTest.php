@@ -118,6 +118,7 @@ class AdvanceReceiveReconciliationTest extends TestCase
         $grn = GoodsReceived::factory()->create([
             'purchase_order_id' => null,
             'warehouse_id' => $this->warehouse->id,
+            'receipt_type' => 'warehouse_advance',
             'bill_status' => 'bill_pending',
             'status' => 'approved',
             'received_at' => $date,

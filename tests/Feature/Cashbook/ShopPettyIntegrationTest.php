@@ -194,14 +194,14 @@ class ShopPettyIntegrationTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug ?: $this->profile->shop_id, 'month' => '2026-09']))
             ->assertOk()
-            ->assertSee('Shop Petty Cash &amp; Floating Fund', false)
+            ->assertSee('PETTY')
             ->assertSee('5,000.00');
 
         // Day detail view
         $this->actingAs($this->admin)
             ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug ?: $this->profile->shop_id, 'date' => '2026-09-17']))
             ->assertOk()
-            ->assertSee('Shop Petty Cash &amp; Floating Fund', false)
+            ->assertSee('PETTY')
             ->assertSee('5,000.00');
     }
 

@@ -62,80 +62,49 @@
     </div>
 
     <!-- Filters -->
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-        <form method="GET" action="{{ route('admin.cashbook.finance.purchase.reports.daily') }}" class="space-y-4">
-            <!-- Quick Filter Chips -->
-            <div class="flex flex-wrap items-center gap-2">
-                <span class="text-xs font-bold text-slate-500 mr-1">Period:</span>
-                <a href="{{ route('admin.cashbook.finance.purchase.reports.daily', array_merge(request()->except(['period', 'start_date', 'end_date']), ['period' => 'today'])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ ($filters['period'] ?? '') === 'today' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    Today
-                </a>
-                <a href="{{ route('admin.cashbook.finance.purchase.reports.daily', array_merge(request()->except(['period', 'start_date', 'end_date']), ['period' => 'yesterday'])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ ($filters['period'] ?? '') === 'yesterday' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    Yesterday
-                </a>
-                <a href="{{ route('admin.cashbook.finance.purchase.reports.daily', array_merge(request()->except(['period', 'start_date', 'end_date']), ['period' => 'month'])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ in_array(($filters['period'] ?? ''), ['month', 'this_month'], true) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    This Month
-                </a>
-                <a href="{{ route('admin.cashbook.finance.purchase.reports.daily', array_merge(request()->except(['period']), ['period' => 'custom', 'start_date' => $reportData['start_date'], 'end_date' => $reportData['end_date']])) }}"
-                   class="rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors {{ in_array(($filters['period'] ?? ''), ['custom', 'between', 'range'], true) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
-                    Custom Range
-                </a>
+    @component('admin.cashbook.finance.purchase.partials._period-filter', [
+        'action' => route('admin.cashbook.finance.purchase.reports.daily'),
+        'filters' => $filters,
+        'extraParams' => [
+            'warehouse_id' => $filters['warehouse_id'] ?? null,
+            'purchaser_id' => $filters['purchaser_id'] ?? null,
+        ],
+    ])
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-end">
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Warehouse</label>
+                <select name="warehouse_id" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                    <option value="">All Warehouses</option>
+                    @foreach($warehouses as $w)
+                        <option value="{{ $w->id }}" @selected(($filters['warehouse_id'] ?? null) == $w->id)>
+                            {{ $w->name }} ({{ $w->code }})
+                        </option>
+                    @endforeach
+                </select>
             </div>
 
-            <!-- Filter Controls -->
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-5 items-end">
-                <input type="hidden" name="period" value="custom">
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Date From</label>
-                    <input type="date" name="start_date" value="{{ $reportData['start_date'] }}"
-                           class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500" />
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Date To</label>
-                    <input type="date" name="end_date" value="{{ $reportData['end_date'] }}"
-                           class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500" />
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Warehouse</label>
-                    <select name="warehouse_id" class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">All Warehouses</option>
-                        @foreach($warehouses as $w)
-                            <option value="{{ $w->id }}" @selected(($filters['warehouse_id'] ?? null) == $w->id)>
-                                {{ $w->name }} ({{ $w->code }})
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-[10px] font-black uppercase text-slate-400">Purchaser</label>
-                    <select name="purchaser_id" class="mt-1 block w-full rounded-lg border-slate-200 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
-                        <option value="">All Purchasers</option>
-                        @foreach($purchasers as $p)
-                            <option value="{{ $p->id }}" @selected(($filters['purchaser_id'] ?? null) == $p->id)>
-                                {{ $p->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div class="flex items-center gap-2">
-                    <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-4 text-xs font-black text-white hover:bg-emerald-800 transition">
-                        <i data-lucide="filter" class="h-4 w-4"></i> Apply
-                    </button>
-                    <a href="{{ route('admin.cashbook.finance.purchase.reports.daily') }}" class="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-slate-600 hover:bg-slate-50 transition" title="Reset filters">
-                        <i data-lucide="rotate-ccw" class="h-4 w-4"></i>
-                    </a>
-                </div>
+            <div>
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Purchaser</label>
+                <select name="purchaser_id" onchange="this.form.submit()" class="mt-1 block w-full rounded-xl border-slate-300 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:ring-emerald-500">
+                    <option value="">All Purchasers</option>
+                    @foreach($purchasers as $p)
+                        <option value="{{ $p->id }}" @selected(($filters['purchaser_id'] ?? null) == $p->id)>
+                            {{ $p->name }}
+                        </option>
+                    @endforeach
+                </select>
             </div>
-        </form>
-    </div>
+
+            <div class="flex items-center gap-2">
+                <button type="submit" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-4 text-xs font-black text-white hover:bg-emerald-800 transition cursor-pointer">
+                    <i data-lucide="filter" class="h-3.5 w-3.5"></i> Apply
+                </button>
+                <a href="{{ route('admin.cashbook.finance.purchase.reports.daily') }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-300 bg-white px-3 text-slate-600 hover:bg-slate-50 transition" title="Reset filters">
+                    <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>
+                </a>
+            </div>
+        </div>
+    @endcomponent
 
     <!-- Daily Comparison Table -->
     <section class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">

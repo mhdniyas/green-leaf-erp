@@ -810,4 +810,491 @@ class ShopInvoiceCreditNoteViewTest extends TestCase
         $adminVerifiedResponse->assertSee('Verified');
         $adminVerifiedResponse->assertSee($this->shopOwner->name);
     }
+
+    public function test_credit_note_reverted_edit_shows_no_pending_changes_and_does_not_require_verification(): void
+    {
+        $onion = Product::factory()->create(['name' => 'Sambar Onion', 'sku' => 'ONN-001', 'unit' => 'kg']);
+
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'ORD-REVERT-001',
+            'business_date' => '2026-09-18',
+        ]);
+
+        $orderItem = ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $onion->id,
+            'product_grade' => 'A',
+            'requested_qty' => 2,
+            'approved_qty' => 2,
+            'loaded_qty' => 2,
+            'delivered_qty' => 2,
+            'unit' => 'kg',
+            'requested_unit' => 'kg',
+            'requested_unit_label' => 'KG',
+            'requested_unit_quantity' => 2,
+            'requested_unit_conversion_to_base' => 1,
+            'unit_cost' => 50,
+        ]);
+
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-20260918-AV_GRANDCITY',
+            'business_date' => '2026-09-18',
+            'subtotal' => 100.00,
+            'final_total' => 100.00,
+            'status' => 'delivery_review',
+        ]);
+
+        $invoiceItem = ShopInvoiceItem::factory()->create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_order_item_id' => $orderItem->id,
+            'product_id' => $onion->id,
+            'product_name' => 'Sambar Onion',
+            'unit' => 'kg',
+            'price_unit' => 'kg',
+            'approved_qty' => 2.00,
+            'price_quantity' => 2.00,
+            'delivered_qty' => 2.00,
+            'delivered_price_quantity' => 2.00,
+            'unit_price' => 50.00,
+            'line_subtotal' => 100.00,
+            'final_line_total' => 100.00,
+        ]);
+
+        // Edit 1: 2 -> 3 KG
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 2, 'price' => 50, 'amount' => 100],
+                'after' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 3, 'price' => 50, 'amount' => 150],
+            ],
+        ]);
+
+        // Edit 2: 3 -> 2 KG (reverted to original)
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 3, 'price' => 50, 'amount' => 150],
+                'after' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 2, 'price' => 50, 'amount' => 100],
+            ],
+        ]);
+
+        $summary = $invoice->creditNoteSummary();
+        $this->assertCount(0, $summary['rows']);
+        $this->assertFalse($summary['has_changes']);
+        $this->assertEquals(0.0, $summary['net_difference']);
+        $this->assertEquals(100.0, $summary['previous_invoice_total']);
+        $this->assertEquals(100.0, $summary['revised_invoice_total']);
+        $this->assertTrue($summary['is_verified']);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('purchasing.shop-invoices.show', $invoice));
+
+        $response->assertOk();
+        $response->assertSee('No invoice edits recorded for this bill.');
+        $response->assertSee('No Changes');
+        $response->assertSee('Invoice is matching original quantities and rates.');
+        $response->assertDontSee('Verify Invoice Changes');
+    }
+
+    public function test_credit_note_multi_step_edit_shows_only_original_vs_current_state(): void
+    {
+        $onion = Product::factory()->create(['name' => 'Sambar Onion', 'sku' => 'ONN-002', 'unit' => 'kg']);
+
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'ORD-MULTISTEP-001',
+            'business_date' => '2026-09-18',
+        ]);
+
+        $orderItem = ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $onion->id,
+            'product_grade' => 'A',
+            'requested_qty' => 2,
+            'approved_qty' => 2,
+            'loaded_qty' => 2,
+            'delivered_qty' => 4,
+            'unit' => 'kg',
+            'requested_unit' => 'kg',
+            'requested_unit_label' => 'KG',
+            'requested_unit_quantity' => 2,
+            'requested_unit_conversion_to_base' => 1,
+            'unit_cost' => 50,
+        ]);
+
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-20260918-AV_GRANDCITY_2',
+            'business_date' => '2026-09-18',
+            'subtotal' => 200.00,
+            'final_total' => 200.00,
+            'status' => 'delivery_review',
+        ]);
+
+        $invoiceItem = ShopInvoiceItem::factory()->create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_order_item_id' => $orderItem->id,
+            'product_id' => $onion->id,
+            'product_name' => 'Sambar Onion',
+            'unit' => 'kg',
+            'price_unit' => 'kg',
+            'approved_qty' => 2.00,
+            'price_quantity' => 2.00,
+            'delivered_qty' => 4.00,
+            'delivered_price_quantity' => 4.00,
+            'unit_price' => 50.00,
+            'line_subtotal' => 100.00,
+            'final_line_total' => 200.00,
+        ]);
+
+        // Edit 1: 2 -> 3 KG
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 2, 'price' => 50, 'amount' => 100],
+                'after' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 3, 'price' => 50, 'amount' => 150],
+            ],
+        ]);
+
+        // Edit 2: 3 -> 4 KG
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 3, 'price' => 50, 'amount' => 150],
+                'after' => ['item_id' => $invoiceItem->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 4, 'price' => 50, 'amount' => 200],
+            ],
+        ]);
+
+        $summary = $invoice->creditNoteSummary();
+        $this->assertCount(1, $summary['rows']);
+        $this->assertTrue($summary['has_changes']);
+        $this->assertEquals(100.0, $summary['net_difference']);
+        $this->assertEquals(100.0, $summary['previous_invoice_total']);
+        $this->assertEquals(200.0, $summary['revised_invoice_total']);
+
+        $row = $summary['rows']->first();
+        $this->assertEquals(2.0, $row['previous_qty']);
+        $this->assertEquals(4.0, $row['revised_qty']);
+        $this->assertEquals(50.0, $row['rate']);
+        $this->assertEquals(100.0, $row['previous_amount']);
+        $this->assertEquals(200.0, $row['revised_amount']);
+        $this->assertEquals(100.0, $row['difference']);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('purchasing.shop-invoices.show', $invoice));
+
+        $response->assertOk();
+        $response->assertSee('2 KG');
+        $response->assertSee('4 KG');
+        $response->assertDontSee('3 KG');
+        $response->assertSee('+₹100.00');
+    }
+
+    public function test_credit_note_handles_quantity_and_rate_edits(): void
+    {
+        $tomato = Product::factory()->create(['name' => 'Tomato Local', 'sku' => 'TOM-003', 'unit' => 'kg']);
+
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'ORD-RATE-001',
+            'business_date' => '2026-09-18',
+        ]);
+
+        $orderItem = ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $tomato->id,
+            'product_grade' => 'A',
+            'requested_qty' => 2,
+            'approved_qty' => 2,
+            'loaded_qty' => 2,
+            'delivered_qty' => 4,
+            'unit' => 'kg',
+            'requested_unit' => 'kg',
+            'requested_unit_label' => 'KG',
+            'requested_unit_quantity' => 2,
+            'requested_unit_conversion_to_base' => 1,
+            'unit_cost' => 50,
+        ]);
+
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-20260918-AV_RATE',
+            'business_date' => '2026-09-18',
+            'subtotal' => 240.00,
+            'final_total' => 240.00,
+            'status' => 'delivery_review',
+        ]);
+
+        $invoiceItem = ShopInvoiceItem::factory()->create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_order_item_id' => $orderItem->id,
+            'product_id' => $tomato->id,
+            'product_name' => 'Tomato Local',
+            'unit' => 'kg',
+            'price_unit' => 'kg',
+            'approved_qty' => 2.00,
+            'price_quantity' => 2.00,
+            'delivered_qty' => 4.00,
+            'delivered_price_quantity' => 4.00,
+            'unit_price' => 60.00,
+            'line_subtotal' => 100.00,
+            'final_line_total' => 240.00,
+        ]);
+
+        // Edit 1: 2 -> 3 KG @ 60 (from original 2 KG @ 50)
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem->id, 'product_id' => $tomato->id, 'product_name' => 'Tomato Local', 'qty' => 2, 'price' => 50, 'amount' => 100],
+                'after' => ['item_id' => $invoiceItem->id, 'product_id' => $tomato->id, 'product_name' => 'Tomato Local', 'qty' => 3, 'price' => 60, 'amount' => 180],
+            ],
+        ]);
+
+        // Edit 2: 3 -> 4 KG @ 60
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem->id, 'product_id' => $tomato->id, 'product_name' => 'Tomato Local', 'qty' => 3, 'price' => 60, 'amount' => 180],
+                'after' => ['item_id' => $invoiceItem->id, 'product_id' => $tomato->id, 'product_name' => 'Tomato Local', 'qty' => 4, 'price' => 60, 'amount' => 240],
+            ],
+        ]);
+
+        $summary = $invoice->creditNoteSummary();
+        $this->assertCount(1, $summary['rows']);
+        $row = $summary['rows']->first();
+        $this->assertEquals(2.0, $row['previous_qty']);
+        $this->assertEquals(4.0, $row['revised_qty']);
+        $this->assertEquals(60.0, $row['rate']);
+        $this->assertEquals(100.0, $row['previous_amount']);
+        $this->assertEquals(240.0, $row['revised_amount']);
+        $this->assertEquals(140.0, $row['difference']);
+        $this->assertEquals(140.0, $summary['net_difference']);
+        $this->assertEquals(100.0, $summary['previous_invoice_total']);
+        $this->assertEquals(240.0, $summary['revised_invoice_total']);
+    }
+
+    public function test_credit_note_multiple_products_one_reverted_one_changed(): void
+    {
+        $onion = Product::factory()->create(['name' => 'Sambar Onion', 'sku' => 'ONN-004', 'unit' => 'kg']);
+        $potato = Product::factory()->create(['name' => 'Potato Jyothi', 'sku' => 'POT-004', 'unit' => 'kg']);
+
+        $order = ShopOrder::factory()->create([
+            'shop_id' => $this->shop->id,
+            'order_number' => 'ORD-MIX-001',
+            'business_date' => '2026-09-18',
+        ]);
+
+        $orderItem1 = ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $onion->id,
+            'product_grade' => 'A',
+            'requested_qty' => 2,
+            'approved_qty' => 2,
+            'loaded_qty' => 2,
+            'delivered_qty' => 2,
+            'unit' => 'kg',
+            'requested_unit' => 'kg',
+            'requested_unit_label' => 'KG',
+            'requested_unit_quantity' => 2,
+            'requested_unit_conversion_to_base' => 1,
+            'unit_cost' => 50,
+        ]);
+
+        $orderItem2 = ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $potato->id,
+            'product_grade' => 'A',
+            'requested_qty' => 10,
+            'approved_qty' => 10,
+            'loaded_qty' => 10,
+            'delivered_qty' => 8,
+            'unit' => 'kg',
+            'requested_unit' => 'kg',
+            'requested_unit_label' => 'KG',
+            'requested_unit_quantity' => 10,
+            'requested_unit_conversion_to_base' => 1,
+            'unit_cost' => 30,
+        ]);
+
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $this->shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-20260918-MIX',
+            'business_date' => '2026-09-18',
+            'subtotal' => 340.00,
+            'final_total' => 340.00,
+            'status' => 'delivery_review',
+        ]);
+
+        $invoiceItem1 = ShopInvoiceItem::factory()->create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_order_item_id' => $orderItem1->id,
+            'product_id' => $onion->id,
+            'product_name' => 'Sambar Onion',
+            'unit' => 'kg',
+            'price_unit' => 'kg',
+            'approved_qty' => 2.00,
+            'price_quantity' => 2.00,
+            'delivered_qty' => 2.00,
+            'delivered_price_quantity' => 2.00,
+            'unit_price' => 50.00,
+            'line_subtotal' => 100.00,
+            'final_line_total' => 100.00,
+        ]);
+
+        $invoiceItem2 = ShopInvoiceItem::factory()->create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_order_item_id' => $orderItem2->id,
+            'product_id' => $potato->id,
+            'product_name' => 'Potato Jyothi',
+            'unit' => 'kg',
+            'price_unit' => 'kg',
+            'approved_qty' => 10.00,
+            'price_quantity' => 10.00,
+            'delivered_qty' => 8.00,
+            'delivered_price_quantity' => 8.00,
+            'unit_price' => 30.00,
+            'line_subtotal' => 300.00,
+            'final_line_total' => 240.00,
+        ]);
+
+        // Onion: 2 -> 3 -> 2 (reverted)
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem1->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 2, 'price' => 50, 'amount' => 100],
+                'after' => ['item_id' => $invoiceItem1->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 3, 'price' => 50, 'amount' => 150],
+            ],
+        ]);
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem1->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 3, 'price' => 50, 'amount' => 150],
+                'after' => ['item_id' => $invoiceItem1->id, 'product_id' => $onion->id, 'product_name' => 'Sambar Onion', 'qty' => 2, 'price' => 50, 'amount' => 100],
+            ],
+        ]);
+
+        // Potato: 10 -> 8 (-60)
+        Activity::query()->create([
+            'log_name' => 'shop_invoice',
+            'description' => 'item_adjusted',
+            'subject_type' => ShopInvoice::class,
+            'subject_id' => $invoice->id,
+            'causer_id' => $this->admin->id,
+            'causer_type' => User::class,
+            'event' => 'item_adjusted',
+            'properties' => [
+                'source' => 'admin_item_adjustment',
+                'before' => ['item_id' => $invoiceItem2->id, 'product_id' => $potato->id, 'product_name' => 'Potato Jyothi', 'qty' => 10, 'price' => 30, 'amount' => 300],
+                'after' => ['item_id' => $invoiceItem2->id, 'product_id' => $potato->id, 'product_name' => 'Potato Jyothi', 'qty' => 8, 'price' => 30, 'amount' => 240],
+            ],
+        ]);
+
+        $summary = $invoice->creditNoteSummary();
+        $this->assertCount(1, $summary['rows']);
+        $this->assertTrue($summary['has_changes']);
+        $this->assertEquals(-60.0, $summary['net_difference']);
+        $this->assertEquals(400.0, $summary['previous_invoice_total']);
+        $this->assertEquals(340.0, $summary['revised_invoice_total']);
+
+        $row = $summary['rows']->first();
+        $this->assertEquals('Potato Jyothi', $row['product_name']);
+        $this->assertEquals(10.0, $row['previous_qty']);
+        $this->assertEquals(8.0, $row['revised_qty']);
+        $this->assertEquals(-60.0, $row['difference']);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('purchasing.shop-invoices.show', $invoice));
+
+        $response->assertOk();
+        $response->assertSee('Potato Jyothi');
+        $response->assertSee('10 KG');
+        $response->assertSee('8 KG');
+        $response->assertSee('-₹60.00');
+    }
+
+    public function test_shop_owner_layout_renders_global_floating_refresh_button(): void
+    {
+        $response = $this->actingAs($this->shopOwner)
+            ->get(route('shop-owner.deliveries.index'));
+
+        $response->assertOk();
+        $response->assertSee('Refresh Page');
+        $response->assertSee('window.location.reload()');
+    }
+
+    public function test_shop_invoices_index_renders_date_picker_button_and_filters_correctly(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('purchasing.shop-invoices.index', ['date' => '2026-09-18']));
+
+        $response->assertOk();
+        $response->assertSee('id="shop-invoice-date-btn"', false);
+        $response->assertSee('id="shop-invoice-date-input"', false);
+        $response->assertSee('type="button"', false);
+        $response->assertSee('triggerInvoiceDatePicker()', false);
+        $response->assertSee('18 Sep 2026');
+        $response->assertSee('showPicker()', false);
+    }
 }

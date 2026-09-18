@@ -322,8 +322,8 @@ class WarehouseReceiveFlowTest extends TestCase
             ->assertSee('Advance')
             ->assertSee('Bill')
             ->assertSee('Diff')
-            ->assertSee('Previous Day')
-            ->assertSee('Next Day');
+            ->assertSee('Prev')
+            ->assertSee('Next');
 
         $dateResponse = $this->get('/admin/cashbook/inventory?date='.now()->toDateString());
         $dateResponse->assertOk()

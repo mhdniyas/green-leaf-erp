@@ -133,6 +133,11 @@ class GoodsReceived extends Model
         return $this->belongsTo(PurchaseOrder::class);
     }
 
+    public function purchaserCart(): BelongsTo
+    {
+        return $this->belongsTo(PurchaserCart::class, 'purchaser_cart_id');
+    }
+
     public function destinationShop(): BelongsTo
     {
         return $this->belongsTo(Shop::class, 'destination_shop_id');
