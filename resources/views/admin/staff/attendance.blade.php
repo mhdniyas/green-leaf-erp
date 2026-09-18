@@ -364,10 +364,9 @@
             </div>
         </div>
 
-        <!-- EMPLOYEE DETAILS MODAL (50% SMALLER / COMPACT) -->
-        <div id="admin-attendance-details-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-3" role="dialog" aria-modal="true">
-            <div id="admin-attendance-details-backdrop" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"></div>
-            <div class="relative w-full max-w-xs sm:max-w-sm rounded-xl bg-white p-3.5 shadow-xl border border-slate-200 space-y-2.5 z-10 text-xs">
+        <!-- EMPLOYEE DETAILS MODAL (50% SMALLER / COMPACT & CENTERED) -->
+        <div id="admin-attendance-details-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <div class="relative w-full max-w-xs sm:max-w-sm mx-auto my-auto rounded-xl bg-white p-3.5 shadow-2xl border border-slate-200 space-y-2.5 z-10 text-xs">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-2">
                     <h3 class="text-xs font-black text-slate-900 uppercase tracking-wide">Attendance Details</h3>
                     <button type="button" id="btn-close-details-modal" class="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer p-0.5">✕</button>
@@ -737,7 +736,13 @@
 
             if (detCloseBtn) detCloseBtn.addEventListener('click', closeDetailsModal);
             if (detCancelBtn) detCancelBtn.addEventListener('click', closeDetailsModal);
-            if (detBackdrop) detBackdrop.addEventListener('click', closeDetailsModal);
+            if (detModal) {
+                detModal.addEventListener('click', function (e) {
+                    if (e.target === detModal) {
+                        closeDetailsModal();
+                    }
+                });
+            }
 
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') {
