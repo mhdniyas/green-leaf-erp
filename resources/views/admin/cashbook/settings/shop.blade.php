@@ -180,7 +180,7 @@
         <div id="income-headers-container" class="space-y-6">
             @foreach($incomeHeaders as $header)
                 @php
-                    $headerSettings = $incomeRows->where('header_group_id', $header->id)->sortBy('header_display_order')->values();
+                    $headerSettings = $allShopRows->where('header_group_id', $header->id)->sortBy('header_display_order')->values();
                 @endphp
                 <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs transition"
                      data-header-id="{{ $header->id }}"
@@ -348,7 +348,7 @@
         <div id="expense-headers-container" class="space-y-6">
             @foreach($expenseHeaders as $header)
                 @php
-                    $headerSettings = $expenseRows->where('header_group_id', $header->id)->sortBy('header_display_order')->values();
+                    $headerSettings = $allShopRows->where('header_group_id', $header->id)->sortBy('header_display_order')->values();
                 @endphp
                 <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs transition"
                      data-header-id="{{ $header->id }}"
