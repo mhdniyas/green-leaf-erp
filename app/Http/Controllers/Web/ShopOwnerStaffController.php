@@ -96,7 +96,105 @@ class ShopOwnerStaffController extends Controller
             ? $request->string('tab', 'attendance')->toString()
             : 'attendance';
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
-        $employeeSearch = trim($request->string('employee_search')->toString());
+        $search = trim($request->string('search', $request->string('employee_search')->toString())->toString());
+        $employeeSearch = $search;
+        $categoryCode = trim($request->string('category')->toString());
+        $selectedStatus = trim($request->string('status')->toString());
+
+        $categories = EmployeeCategory::query()
+            ->where('staff_area', 'shop')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+        $selectedCategory = $categoryCode !== '' && $categoryCode !== 'all'
+            ? $categories->firstWhere('code', $categoryCode)
+            : null;
+
+        $monthDays = collect(range(1, $calendarMonth->daysInMonth))
+            ->map(fn (int $day): Carbon => $calendarMonth->copy()->day($day));
+        $monthStart = $calendarMonth->copy()->startOfMonth();
+        $monthEnd = $calendarMonth->copy()->endOfMonth();
+        $prevMonth = $calendarMonth->copy()->subMonthNoOverflow()->startOfMonth();
+        $nextMonth = $calendarMonth->copy()->addMonthNoOverflow()->startOfMonth();
+
+        $historyEmployees = collect();
+        $monthlyAttendanceByEmployee = collect();
+        $historyDatesWithAttendance = collect();
+        $historyDayAttendance = collect();
+
+        if ($selectedShop !== null) {
+            $historyEmployeesBaseQuery = Employee::query()
+                ->approved()
+                ->where('staff_area', 'shop')
+                ->where('employment_status', 'active')
+                ->with(['category', 'defaultShop', 'shopAssignments.shop'])
+                ->where(function ($query) use ($selectedShop, $monthStart, $monthEnd): void {
+                    $query->where('default_shop_id', $selectedShop->id)
+                        ->orWhereHas('shopAssignments', function ($assignQuery) use ($selectedShop, $monthStart, $monthEnd): void {
+                            $assignQuery->where('shop_id', $selectedShop->id)
+                                ->where(function ($sub) use ($monthStart): void {
+                                    $sub->whereNull('effective_to')
+                                        ->orWhereDate('effective_to', '>=', $monthStart->toDateString());
+                                })
+                                ->where(function ($sub) use ($monthEnd): void {
+                                    $sub->whereNull('effective_from')
+                                        ->orWhereDate('effective_from', '<=', $monthEnd->toDateString());
+                                });
+                        });
+                })
+                ->when($selectedCategory !== null, fn ($query) => $query->where('employee_category_id', $selectedCategory->id))
+                ->when($search !== '', function ($query) use ($search): void {
+                    $query->where(function ($employeeQuery) use ($search): void {
+                        $employeeQuery
+                            ->where('name', 'like', '%'.$search.'%')
+                            ->orWhere('employee_code', 'like', '%'.$search.'%')
+                            ->orWhere('phone', 'like', '%'.$search.'%')
+                            ->orWhere('email', 'like', '%'.$search.'%');
+                    });
+                });
+
+            if (in_array($selectedStatus, ['present', 'half_day', 'leave', 'absent'], true)) {
+                $historyEmployeesBaseQuery->whereHas('attendances', function ($query) use ($selectedDate, $selectedShop, $selectedStatus): void {
+                    $query->whereDate('attendance_date', $selectedDate)
+                        ->where('shop_id', $selectedShop->id)
+                        ->where('status', $selectedStatus);
+                });
+            } elseif ($selectedStatus === 'not_marked') {
+                $historyEmployeesBaseQuery->whereDoesntHave('attendances', function ($query) use ($selectedDate, $selectedShop): void {
+                    $query->whereDate('attendance_date', $selectedDate)
+                        ->where('shop_id', $selectedShop->id);
+                });
+            }
+
+            $historyEmployees = $historyEmployeesBaseQuery->orderBy('name')->get();
+
+            $monthlyAttendanceRecords = EmployeeAttendance::query()
+                ->with(['shop', 'markedBy', 'employee.category'])
+                ->where('shop_id', $selectedShop->id)
+                ->whereBetween('attendance_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+                ->whereIn('employee_id', $historyEmployees->pluck('id'))
+                ->orderBy('attendance_date')
+                ->get();
+
+            $monthlyAttendanceByEmployee = $monthlyAttendanceRecords
+                ->groupBy('employee_id')
+                ->map(fn (Collection $records): Collection => $records->keyBy(
+                    fn (EmployeeAttendance $attendance): string => $attendance->attendance_date instanceof Carbon
+                        ? $attendance->attendance_date->toDateString()
+                        : substr((string) $attendance->attendance_date, 0, 10)
+                ));
+
+            $historyDatesWithAttendance = $monthlyAttendanceRecords
+                ->pluck('attendance_date')
+                ->map(fn ($d): string => $d instanceof Carbon ? $d->format('Y-m-d') : substr((string) $d, 0, 10))
+                ->unique()
+                ->values();
+
+            $historyDayAttendance = $monthlyAttendanceRecords
+                ->filter(fn (EmployeeAttendance $a): bool => ($a->attendance_date instanceof Carbon ? $a->attendance_date->toDateString() : substr((string) $a->attendance_date, 0, 10)) === $selectedDate->toDateString())
+                ->values();
+        }
+
         $attendanceRecords = EmployeeAttendance::query()
             ->with(['shop', 'markedBy'])
             ->whereDate('attendance_date', $selectedDate)
@@ -107,8 +205,10 @@ class ShopOwnerStaffController extends Controller
         $quickEmployees = $this->quickEmployeesForShop($selectedShop?->id, $selectedDate);
         $advanceEmployees = $this->advanceEmployeesForShop($selectedShop?->id, $selectedDate);
 
-        $availabilityMap = collect();
-        if ($selectedShop !== null) {
+        $advanceOptions = [];
+        $salaryOptions = [];
+
+        if (in_array($selectedTab, ['advance', 'salary'], true) && $selectedShop !== null) {
             $allStaffEmployees = $advanceEmployees->concat($quickEmployees)->unique('id')->values();
             $payrollMonth = CarbonImmutable::parse($calendarMonth->toDateString())->startOfMonth();
             $calculationDate = CarbonImmutable::parse($selectedDate->toDateString());
@@ -128,19 +228,19 @@ class ShopOwnerStaffController extends Controller
                 openingRecoveries: $recoveryDebts,
                 shopAllocatedRecoveries: $shopAllocatedRecoveries,
             );
+
+            $advanceOptions = $advanceEmployees
+                ->mapWithKeys(fn (Employee $employee): array => [
+                    $employee->id => $this->advanceOptionForEmployee($employee, $availabilityMap->get($employee->id)),
+                ])
+                ->all();
+
+            $salaryOptions = $quickEmployees
+                ->mapWithKeys(fn (Employee $employee): array => [
+                    $employee->id => $this->salaryOptionForEmployee($employee, $availabilityMap->get($employee->id)),
+                ])
+                ->all();
         }
-
-        $advanceOptions = $advanceEmployees
-            ->mapWithKeys(fn (Employee $employee): array => [
-                $employee->id => $this->advanceOptionForEmployee($employee, $availabilityMap->get($employee->id)),
-            ])
-            ->all();
-
-        $salaryOptions = $quickEmployees
-            ->mapWithKeys(fn (Employee $employee): array => [
-                $employee->id => $this->salaryOptionForEmployee($employee, $availabilityMap->get($employee->id)),
-            ])
-            ->all();
 
         $recentPayrollPayments = ShopStaffPayment::query()
             ->with(['employee', 'advanceRequest', 'cashbookLine.entry'])
@@ -152,36 +252,23 @@ class ShopOwnerStaffController extends Controller
             ->paginate(8, ['*'], 'staff_payments_page')
             ->withQueryString();
 
-        $historyDatesWithAttendance = collect();
-        $historyDayAttendance = collect();
-
-        if ($selectedTab === 'history' && $selectedShop !== null) {
-            $startOfMonth = $calendarMonth->copy()->startOfMonth()->toDateString();
-            $endOfMonth = $calendarMonth->copy()->endOfMonth()->toDateString();
-
-            $historyDatesWithAttendance = EmployeeAttendance::query()
-                ->where('shop_id', $selectedShop->id)
-                ->whereBetween('attendance_date', [$startOfMonth, $endOfMonth])
-                ->pluck('attendance_date')
-                ->map(fn ($d): string => $d instanceof Carbon ? $d->format('Y-m-d') : substr((string) $d, 0, 10))
-                ->unique()
-                ->values();
-
-            $historyDayAttendance = EmployeeAttendance::query()
-                ->with(['employee.category', 'markedBy'])
-                ->where('shop_id', $selectedShop->id)
-                ->whereDate('attendance_date', $selectedDate->toDateString())
-                ->orderBy('id')
-                ->get();
-        }
-
         return view('shop-owner.staff.index', [
             'selectedDate' => $selectedDate,
             'calendarMonth' => $calendarMonth,
             'selectedTab' => $selectedTab,
             'shops' => $ownedShops,
             'selectedShop' => $selectedShop,
+            'search' => $search,
             'employeeSearch' => $employeeSearch,
+            'categories' => $categories,
+            'categoryCode' => $categoryCode,
+            'selectedCategory' => $selectedCategory,
+            'selectedStatus' => $selectedStatus,
+            'monthDays' => $monthDays,
+            'prevMonth' => $prevMonth,
+            'nextMonth' => $nextMonth,
+            'historyEmployees' => $historyEmployees,
+            'monthlyAttendanceByEmployee' => $monthlyAttendanceByEmployee,
             'employees' => $quickEmployees,
             'advanceEmployees' => $advanceEmployees,
             'advanceOptions' => $advanceOptions,

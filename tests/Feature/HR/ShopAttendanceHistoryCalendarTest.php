@@ -107,7 +107,7 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
         $response->assertOk();
         $response->assertSee('Quick Check-In');
         $response->assertDontSee('Pay Staff Salary');
-        $response->assertDontSee('Recent Salary Payments');
+        $response->assertDontSee('Recent Payouts');
     }
 
     public function test_non_salary_requests_do_not_load_salary_options(): void
@@ -142,11 +142,11 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Pay Staff Salary');
-        $response->assertSee('Recent Salary Payments');
+        $response->assertSee('Recent Payouts');
         $this->assertArrayHasKey($this->employee->id, $response->viewData('salaryOptions'));
     }
 
-    public function test_history_tab_renders_calendar_and_defaults_to_correct_month(): void
+    public function test_history_tab_renders_monthly_attendance_register_and_defaults_to_correct_month(): void
     {
         Carbon::setTestNow('2026-09-03');
 
@@ -154,12 +154,16 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
             ->get(route('shop-owner.staff.index', ['shop' => $this->shop->code, 'tab' => 'history']));
 
         $response->assertOk();
-        $response->assertSee('September 2026');
-        $response->assertSee('Attendance History');
-        $response->assertSee('Selected Date');
-        $response->assertSee('03 Sep 2026');
-        $response->assertSee('Mon');
-        $response->assertSee('Sun');
+        $response->assertSee('September 2026 attendance register');
+        $response->assertSee('Ahmed Ali');
+        $response->assertSee('EMP-00031');
+        $response->assertSee('Grandcity Shop');
+        $response->assertSee('Present');
+        $response->assertSee('Absent');
+        $response->assertSee('Half Day');
+        $response->assertSee('Leave');
+        $response->assertSee('Not Marked');
+        $response->assertDontSee('Attendance Calendar');
     }
 
     public function test_history_month_navigation_links_work(): void
@@ -173,13 +177,12 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
             ]));
 
         $response->assertOk();
-        $response->assertSee('August 2026');
-        $response->assertSee('15 Aug 2026');
+        $response->assertSee('August 2026 attendance register');
         $response->assertSee('month=2026-07');
         $response->assertSee('month=2026-09');
     }
 
-    public function test_history_shows_attendance_for_selected_date_only(): void
+    public function test_history_shows_attendance_records_for_assigned_shop_staff(): void
     {
         EmployeeAttendance::query()->create([
             'employee_id' => $this->employee->id,
@@ -203,39 +206,12 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
         $response->assertOk();
         $response->assertSee('Ahmed Ali');
         $response->assertSee('EMP-00031');
-        $response->assertSee('✓ Present');
+        $response->assertSee('data-notes="On time check-in"', false);
+        $response->assertSee('data-marked-by="'.$this->shopOwner->name.'"', false);
         $response->assertSee('9:15 AM');
-        $response->assertSee('On time check-in');
-        $response->assertSee($this->shopOwner->name);
     }
 
-    public function test_history_does_not_show_attendance_from_another_date(): void
-    {
-        EmployeeAttendance::query()->create([
-            'employee_id' => $this->employee->id,
-            'shop_id' => $this->shop->id,
-            'attendance_date' => '2026-09-02',
-            'status' => 'present',
-            'source' => 'shop_owner',
-            'marked_at' => Carbon::parse('2026-09-02 09:10:00', 'Asia/Kolkata'),
-            'marked_by' => $this->shopOwner->id,
-            'notes' => 'Yesterday note',
-        ]);
-
-        $response = $this->actingAs($this->shopOwner)
-            ->get(route('shop-owner.staff.index', [
-                'shop' => $this->shop->code,
-                'tab' => 'history',
-                'month' => '2026-09',
-                'date' => '2026-09-03',
-            ]));
-
-        $response->assertOk();
-        $response->assertDontSee('Yesterday note');
-        $response->assertSee('No attendance records for this date.');
-    }
-
-    public function test_history_does_not_show_attendance_from_another_shop(): void
+    public function test_history_does_not_show_attendance_or_employees_from_another_shop(): void
     {
         EmployeeAttendance::query()->create([
             'employee_id' => $this->otherEmployee->id,
@@ -259,20 +235,32 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
         $response->assertOk();
         $response->assertDontSee('Other shop secret note');
         $response->assertDontSee('Suresh Kumar');
+        $response->assertDontSee('EMP-00032');
     }
 
-    public function test_history_date_with_no_records_shows_empty_state(): void
+    public function test_history_search_and_filter_functionality(): void
     {
-        $response = $this->actingAs($this->shopOwner)
+        $matchResponse = $this->actingAs($this->shopOwner)
             ->get(route('shop-owner.staff.index', [
                 'shop' => $this->shop->code,
                 'tab' => 'history',
                 'month' => '2026-09',
-                'date' => '2026-09-20',
+                'search' => 'Ahmed',
             ]));
 
-        $response->assertOk();
-        $response->assertSee('No attendance records for this date.');
+        $matchResponse->assertOk();
+        $matchResponse->assertSee('Ahmed Ali');
+
+        $emptyResponse = $this->actingAs($this->shopOwner)
+            ->get(route('shop-owner.staff.index', [
+                'shop' => $this->shop->code,
+                'tab' => 'history',
+                'month' => '2026-09',
+                'search' => 'NonExistentWorker',
+            ]));
+
+        $emptyResponse->assertOk();
+        $emptyResponse->assertSee('No active employees match the selected filters for this shop.');
     }
 
     public function test_invalid_month_and_date_parameters_fall_back_safely(): void
@@ -286,7 +274,7 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
             ]));
 
         $response->assertOk();
-        $response->assertSee('Attendance History');
+        $response->assertSee('attendance register');
     }
 
     public function test_date_outside_requested_month_is_resolved_safely(): void
@@ -300,7 +288,7 @@ class ShopAttendanceHistoryCalendarTest extends TestCase
             ]));
 
         $response->assertOk();
-        $response->assertSee('October 2026');
+        $response->assertSee('October 2026 attendance register');
         $this->assertSame('2026-10', $response->viewData('calendarMonth')->format('Y-m'));
         $this->assertSame('2026-10', $response->viewData('selectedDate')->format('Y-m'));
     }

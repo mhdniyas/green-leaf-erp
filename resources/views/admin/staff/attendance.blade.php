@@ -155,15 +155,23 @@
                 </div>
             </div>
 
-            <div class="overflow-x-auto overscroll-x-contain" tabindex="0" aria-label="Monthly attendance table, horizontally scrollable">
+            <div id="admin-attendance-scroll-container" class="overflow-x-auto overscroll-x-contain" tabindex="0" aria-label="Monthly attendance table, horizontally scrollable">
                 <table class="w-max min-w-full border-separate border-spacing-0 text-left">
                     <thead>
                         <tr>
                             <th scope="col" class="sticky left-0 z-30 min-w-64 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wider text-slate-700 shadow-[5px_0_8px_-6px_rgba(15,23,42,0.35)]">Employee</th>
                             @foreach($monthDays as $day)
-                                <th scope="col" class="min-w-12 border-b border-r border-slate-200 px-1 py-2 text-center {{ $day->isSameDay($selectedDate) ? 'bg-emerald-50' : ($day->isWeekend() ? 'bg-slate-100' : 'bg-slate-50') }}">
-                                    <span class="block text-[9px] font-black uppercase text-slate-400">{{ $day->format('D') }}</span>
-                                    <span class="mt-0.5 block text-xs font-black {{ $day->isSameDay($selectedDate) ? 'text-emerald-700' : 'text-slate-800' }}">{{ $day->format('d') }}</span>
+                                @php($isToday = $day->isSameDay(today()))
+                                @php($isSelected = $day->isSameDay($selectedDate))
+                                <th scope="col"
+                                    @if($isToday || (!$selectedDate->isSameMonth(today()) && $isSelected)) id="admin-today-column" @endif
+                                    data-date="{{ $day->toDateString() }}"
+                                    class="min-w-11 sm:min-w-12 border-b border-r border-slate-200 px-1 py-2 text-center {{ $isToday ? 'bg-emerald-100/70 border-b-2 border-b-emerald-600' : ($isSelected ? 'bg-emerald-50' : ($day->isWeekend() ? 'bg-slate-100' : 'bg-slate-50')) }}">
+                                    <span class="block text-[9px] font-black uppercase {{ $isToday ? 'text-emerald-800' : 'text-slate-400' }}">{{ $day->format('D') }}</span>
+                                    <span class="mt-0.5 inline-flex items-center justify-center text-xs font-black {{ $isToday ? 'h-5 w-5 rounded-full bg-emerald-700 text-white shadow-xs mx-auto' : ($isSelected ? 'text-emerald-700' : 'text-slate-800') }}">{{ $day->format('d') }}</span>
+                                    @if($isToday)
+                                        <span class="block text-[8px] font-black uppercase tracking-tighter text-emerald-800 leading-none mt-0.5">Today</span>
+                                    @endif
                                 </th>
                             @endforeach
                         </tr>
@@ -202,7 +210,9 @@
                                         'leave' => ['L', 'Leave', 'bg-slate-950 text-white hover:bg-black'],
                                         default => ['—', 'Not Marked', 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700'],
                                     })
-                                    <td class="border-b border-r border-slate-200 p-1 text-center {{ $day->isSameDay($selectedDate) ? 'bg-emerald-50/60' : ($day->isWeekend() ? 'bg-slate-50' : 'bg-white') }}">
+                                    @php($isToday = $day->isSameDay(today()))
+                                    @php($isSelected = $day->isSameDay($selectedDate))
+                                    <td class="border-b border-r border-slate-200 p-1 text-center {{ $isToday ? 'bg-emerald-50/75' : ($isSelected ? 'bg-emerald-50/40' : ($day->isWeekend() ? 'bg-slate-50' : 'bg-white')) }}">
                                         <button type="button"
                                                 class="js-attendance-cell js-open-attendance-modal flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black transition focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 {{ $statusStyles[2] }}"
                                                 title="{{ $employee->name }} — {{ $day->format('d M') }}: {{ $statusStyles[1] }}"
@@ -735,6 +745,26 @@
                     closeDetailsModal();
                 }
             });
+
+            // Auto-scroll monthly register to today / selected date column on load
+            function scrollToTodayColumn() {
+                const scrollContainer = document.getElementById('admin-attendance-scroll-container');
+                const todayCol = document.getElementById('admin-today-column');
+                if (!scrollContainer || !todayCol) return;
+
+                const stickyHeader = scrollContainer.querySelector('th.sticky');
+                const stickyWidth = stickyHeader ? stickyHeader.offsetWidth : 0;
+                const containerWidth = scrollContainer.clientWidth;
+                const colLeft = todayCol.offsetLeft;
+                const colWidth = todayCol.offsetWidth;
+
+                const targetScroll = Math.max(0, colLeft - stickyWidth - (containerWidth - stickyWidth - colWidth) / 2);
+                scrollContainer.scrollLeft = targetScroll;
+            }
+
+            scrollToTodayColumn();
+            requestAnimationFrame(scrollToTodayColumn);
+            setTimeout(scrollToTodayColumn, 100);
         });
     </script>
 </x-layouts.staff>

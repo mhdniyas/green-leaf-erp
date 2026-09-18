@@ -1,142 +1,260 @@
-<!-- HISTORY TAB: FULL COMPREHENSIVE STAFF HISTORY -->
+<!-- HISTORY TAB: MONTHLY ATTENDANCE REGISTER & STAFF PAYMENTS -->
 @php
-    $prevMonth = $calendarMonth->copy()->subMonth();
-    $nextMonth = $calendarMonth->copy()->addMonth();
-    $daysInMonth = $calendarMonth->daysInMonth;
-    $firstDayOfWeek = $calendarMonth->copy()->startOfMonth()->dayOfWeekIso; // 1 = Monday, 7 = Sunday
     $todayDate = today()->format('Y-m-d');
     $currentSelectedDate = $selectedDate->format('Y-m-d');
 @endphp
 
 <div class="space-y-4">
-    {{-- Top Row: Attendance Calendar & Day Details --}}
-    <section class="grid gap-3 lg:grid-cols-12">
-        <!-- COMPACT CALENDAR CARD -->
-        <article class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-3 lg:col-span-5">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $prevMonth->format('Y-m'), 'date' => $prevMonth->copy()->startOfMonth()->format('Y-m-d')]) }}" 
-                   class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
-                   title="Previous month">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
+    {{-- Top Section: Monthly Attendance Register Header & Controls --}}
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+        <div>
+            <h2 class="text-base font-black text-slate-950 sm:text-lg">{{ $calendarMonth->format('F Y') }} attendance register</h2>
+            <p class="text-xs font-semibold text-slate-500">Monthly attendance register for {{ $selectedShop?->name ?? 'assigned shop' }}.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+            <form method="GET" action="{{ route('shop-owner.staff.index') }}" class="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white p-1 shadow-xs">
+                <input type="hidden" name="shop" value="{{ $selectedShop?->code }}">
+                <input type="hidden" name="tab" value="history">
+                <input type="hidden" name="search" value="{{ $search }}">
+                <input type="hidden" name="category" value="{{ $categoryCode }}">
+                <input type="hidden" name="status" value="{{ $selectedStatus }}">
+
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $prevMonth->format('Y-m'), 'date' => $prevMonth->copy()->startOfMonth()->format('Y-m-d'), 'search' => $search, 'category' => $categoryCode, 'status' => $selectedStatus]) }}" 
+                   class="rounded-xl p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950" title="Previous month" aria-label="Previous month">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                 </a>
-                <div class="text-center">
-                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-900">{{ $calendarMonth->format('F Y') }}</h2>
-                    <p class="text-[10px] font-semibold text-slate-400">Attendance Calendar</p>
-                </div>
-                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $nextMonth->format('Y-m'), 'date' => $nextMonth->copy()->startOfMonth()->format('Y-m-d')]) }}" 
-                   class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
-                   title="Next month">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5-7.5" />
-                    </svg>
+
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => today()->format('Y-m'), 'date' => today()->format('Y-m-d'), 'search' => $search, 'category' => $categoryCode, 'status' => $selectedStatus]) }}"
+                   class="rounded-xl px-2.5 py-1 text-xs font-black text-slate-700 hover:bg-slate-100 transition">
+                    This month
                 </a>
-            </div>
 
-            <!-- 7-COLUMN CALENDAR (Mon-Sun) -->
-            <div>
-                <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase text-slate-400 pb-1.5">
-                    <div>Mon</div>
-                    <div>Tue</div>
-                    <div>Wed</div>
-                    <div>Thu</div>
-                    <div>Fri</div>
-                    <div>Sat</div>
-                    <div>Sun</div>
-                </div>
-                <div class="grid grid-cols-7 gap-1 text-center">
-                    @for($i = 1; $i < $firstDayOfWeek; $i++)
-                        <div class="h-8"></div>
-                    @endfor
-                    @for($day = 1; $day <= $daysInMonth; $day++)
-                        @php
-                            $dayDateStr = $calendarMonth->copy()->day($day)->format('Y-m-d');
-                            $isSelected = $dayDateStr === $currentSelectedDate;
-                            $isToday = $dayDateStr === $todayDate;
-                            $hasAttendance = $historyDatesWithAttendance->contains($dayDateStr);
-                        @endphp
-                        <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $calendarMonth->format('Y-m'), 'date' => $dayDateStr]) }}"
-                           class="relative flex h-8 flex-col items-center justify-center rounded-lg text-xs font-bold transition
-                                  {{ $isSelected ? 'bg-slate-950 text-white shadow-xs' : ($isToday ? 'border border-emerald-500 font-black text-emerald-950 bg-emerald-50/50' : 'text-slate-700 hover:bg-slate-100') }}">
-                            <span>{{ $day }}</span>
-                            @if($hasAttendance)
-                                <span class="absolute bottom-0.5 h-1 w-1 rounded-full {{ $isSelected ? 'bg-emerald-400' : 'bg-emerald-600' }}"></span>
-                            @endif
-                        </a>
-                    @endfor
-                </div>
-            </div>
+                <input type="month" name="month" value="{{ $calendarMonth->format('Y-m') }}"
+                       class="rounded-xl border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-900 focus:border-emerald-600 focus:ring-emerald-600"
+                       onchange="this.form.submit()">
 
-            <div class="flex items-center justify-center gap-3 border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-400">
-                <span class="flex items-center gap-1">
-                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-600"></span> Has Records
-                </span>
-                <span class="flex items-center gap-1">
-                    <span class="h-2 w-2 rounded-sm border border-emerald-500 bg-emerald-50"></span> Today
-                </span>
-                <span class="flex items-center gap-1">
-                    <span class="h-2 w-2 rounded-sm bg-slate-950"></span> Selected
-                </span>
-            </div>
-        </article>
+                <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $nextMonth->format('Y-m'), 'date' => $nextMonth->copy()->startOfMonth()->format('Y-m-d'), 'search' => $search, 'category' => $categoryCode, 'status' => $selectedStatus]) }}" 
+                   class="rounded-xl p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950" title="Next month" aria-label="Next month">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                </a>
+            </form>
+        </div>
+    </div>
 
-        <!-- SELECTED DAY ATTENDANCE DETAILS -->
-        <article class="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-3 lg:col-span-7">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                <div>
-                    <h3 class="text-xs font-black uppercase tracking-wider text-slate-500">Selected Date Attendance</h3>
-                    <p class="text-sm font-black text-slate-950">{{ $selectedDate->format('d M Y') }}</p>
-                </div>
-                @if($historyDayAttendance->isNotEmpty())
-                    <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-black text-slate-700">
-                        {{ $historyDayAttendance->count() }} marked
-                    </span>
+    {{-- Filter Bar --}}
+    <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
+        <form method="GET" action="{{ route('shop-owner.staff.index') }}" class="flex flex-wrap items-center justify-between gap-3">
+            <input type="hidden" name="shop" value="{{ $selectedShop?->code }}">
+            <input type="hidden" name="tab" value="history">
+            <input type="hidden" name="month" value="{{ $calendarMonth->format('Y-m') }}">
+            <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
+
+            <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <input type="search" name="search" value="{{ $search }}" placeholder="Search employee name, code..." 
+                       class="h-9 w-full sm:w-56 rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-600 focus:ring-emerald-600">
+
+                <select name="category" class="h-9 rounded-xl border border-slate-200 px-3 text-xs font-semibold">
+                    <option value="">-- All Categories --</option>
+                    @foreach($categories as $cat)
+                        <option value="{{ $cat->code }}" @selected($categoryCode === $cat->code)>{{ $cat->name }}</option>
+                    @endforeach
+                </select>
+
+                <select name="status" class="h-9 rounded-xl border border-slate-200 px-3 text-xs font-semibold">
+                    <option value="">-- All Statuses --</option>
+                    <option value="present" @selected($selectedStatus === 'present')>Present (P)</option>
+                    <option value="half_day" @selected($selectedStatus === 'half_day')>Half Day (H)</option>
+                    <option value="leave" @selected($selectedStatus === 'leave')>Leave (L)</option>
+                    <option value="absent" @selected($selectedStatus === 'absent')>Absent (A)</option>
+                    <option value="not_marked" @selected($selectedStatus === 'not_marked')>Not Marked (—)</option>
+                </select>
+
+                <button type="submit" class="h-9 rounded-xl bg-slate-950 px-4 text-xs font-bold text-white hover:bg-slate-800 cursor-pointer">Filter</button>
+                @if($search || $categoryCode || $selectedStatus)
+                    <a href="{{ route('shop-owner.staff.index', ['shop' => $selectedShop?->code, 'tab' => 'history', 'month' => $calendarMonth->format('Y-m'), 'date' => $selectedDate->format('Y-m-d')]) }}"
+                       class="h-9 rounded-xl border border-slate-200 px-3 flex items-center text-xs font-bold text-slate-600 hover:bg-slate-50">Reset</a>
                 @endif
             </div>
+        </form>
+    </div>
 
-            <div class="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
-                @forelse($historyDayAttendance as $att)
-                    @php
-                        $status = $att->status;
-                    @endphp
-                    <div class="py-2.5 space-y-1">
-                        <div class="flex items-center justify-between gap-2">
-                            <div class="min-w-0">
-                                <div class="flex items-center gap-1.5">
-                                    <p class="text-xs font-black text-slate-950 truncate">{{ $att->employee?->name }}</p>
-                                    <span class="rounded px-1.5 py-0.5 text-[9px] font-black uppercase border shrink-0 {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-600' }}">
-                                        {{ $status === 'present' ? '✓ Present' : str_replace('_', ' ', ucfirst((string) $status)) }}
-                                    </span>
-                                </div>
-                                <p class="text-[10px] font-semibold text-slate-400">
-                                    {{ $att->employee?->employee_code }}
-                                    @if($att->marked_at)
-                                        · Time: {{ $att->marked_at->timezone('Asia/Kolkata')->format('g:i A') }}
-                                    @endif
-                                    @if($att->markedBy)
-                                        · By: {{ $att->markedBy->name }}
-                                    @endif
-                                </p>
-                            </div>
-                        </div>
-                        @if($att->notes)
-                            <p class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600">
-                                {{ $att->notes }}
-                            </p>
-                        @endif
+    {{-- Monthly Attendance Register Card --}}
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3.5 py-2.5">
+            <div class="flex items-center gap-2">
+                <div>
+                    <div class="flex items-center gap-1.5">
+                        <h3 class="text-xs sm:text-sm font-black text-slate-950">{{ $calendarMonth->format('F Y') }} attendance register</h3>
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-600 border border-slate-200">Read-Only History</span>
                     </div>
-                @empty
-                    <div class="py-8 text-center text-xs font-semibold text-slate-400">
-                        No attendance records for {{ $selectedDate->format('d M Y') }}.
-                    </div>
-                @endforelse
+                    <p class="text-[11px] font-semibold text-slate-500">Scroll sideways to view every day. Select a cell to view record details.</p>
+                </div>
             </div>
-        </article>
+            <div class="flex flex-wrap items-center gap-1.5 text-[10px] font-black" aria-label="Attendance status legend">
+                <span class="rounded bg-emerald-600 px-1.5 py-0.5 text-white">P <span class="font-normal text-[9px]">Present</span></span>
+                <span class="rounded bg-rose-600 px-1.5 py-0.5 text-white">A <span class="font-normal text-[9px]">Absent</span></span>
+                <span class="rounded bg-orange-500 px-1.5 py-0.5 text-white">H <span class="font-normal text-[9px]">Half Day</span></span>
+                <span class="rounded bg-slate-950 px-1.5 py-0.5 text-white">L <span class="font-normal text-[9px]">Leave</span></span>
+                <span class="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-slate-600">— <span class="font-normal text-[9px]">Not Marked</span></span>
+            </div>
+        </div>
+
+        <div id="history-attendance-scroll-container" class="overflow-x-auto overscroll-x-contain" tabindex="0" aria-label="Monthly attendance table, horizontally scrollable">
+            <table class="w-max min-w-full border-separate border-spacing-0 text-left">
+                <thead>
+                    <tr>
+                        <th scope="col" class="sticky left-0 z-30 min-w-36 sm:min-w-44 max-w-44 border-b border-r border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.35)]">Employee</th>
+                        @foreach($monthDays as $day)
+                            @php($isToday = $day->isSameDay(today()))
+                            @php($isSelected = $day->isSameDay($selectedDate))
+                            <th scope="col"
+                                @if($isToday || (!$calendarMonth->isSameMonth(today()) && $isSelected)) id="history-today-column" @endif
+                                data-date="{{ $day->toDateString() }}"
+                                class="min-w-6 sm:min-w-7 w-7 border-b border-r border-slate-200 px-0.5 py-1 text-center {{ $isToday ? 'bg-emerald-100/70 border-b-2 border-b-emerald-600' : ($isSelected ? 'bg-emerald-50' : ($day->isWeekend() ? 'bg-slate-100' : 'bg-slate-50')) }}">
+                                <span class="block text-[8px] font-extrabold uppercase {{ $isToday ? 'text-emerald-800' : 'text-slate-400' }}">{{ substr($day->format('D'), 0, 2) }}</span>
+                                <span class="mt-0.5 inline-flex items-center justify-center text-[10px] font-black {{ $isToday ? 'h-4 w-4 rounded-full bg-emerald-700 text-white shadow-xs mx-auto text-[9px]' : ($isSelected ? 'text-emerald-700' : 'text-slate-800') }}">{{ $day->format('d') }}</span>
+                            </th>
+                        @endforeach
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($historyEmployees as $employee)
+                        @php($employeeAttendance = $monthlyAttendanceByEmployee->get($employee->id, collect()))
+                        @php($selectedAttendance = $employeeAttendance->get($selectedDate->toDateString()))
+                        <tr class="group">
+                            <th scope="row" class="sticky left-0 z-20 border-b border-r border-slate-200 bg-white px-2.5 py-1.5 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.35)] group-hover:bg-slate-50">
+                                <span class="block max-w-32 sm:max-w-40 truncate text-[11px] font-bold text-slate-950 leading-tight">{{ $employee->name }}</span>
+                                <span class="block max-w-32 sm:max-w-40 truncate text-[9px] font-semibold text-slate-400 leading-tight">{{ $employee->employee_code }} · {{ $employee->defaultShop?->name ?? $selectedShop?->name ?? 'Staff' }}</span>
+                                <button type="button"
+                                        class="js-history-open-details text-[9px] font-bold text-emerald-700 hover:underline cursor-pointer inline-block mt-0.5"
+                                        data-employee-code="{{ $employee->employee_code }}"
+                                        data-employee-name="{{ e($employee->name) }}"
+                                        data-employee-category="{{ e($employee->category?->name ?? '') }}"
+                                        data-employee-photo="{{ $employee->photo_url }}"
+                                        data-employee-phone="{{ $employee->phone }}"
+                                        data-employee-emergency="{{ $employee->alternate_phone }}"
+                                        data-shop-name="{{ e($selectedAttendance?->shop?->name ?? $employee->defaultShop?->name ?? $selectedShop?->name ?? 'Shop Staff') }}"
+                                        data-status="{{ $selectedAttendance ? match($selectedAttendance->status) { 'present' => 'P (Present)', 'half_day' => 'H (Half Day)', 'leave' => 'L (Leave)', 'absent' => 'A (Absent)', default => ucfirst($selectedAttendance->status) } : 'Not Marked' }}"
+                                        data-attendance-date="{{ $selectedDate->format('d M Y') }}"
+                                        data-marked-at="{{ $selectedAttendance?->marked_at?->timezone('Asia/Kolkata')->format('g:i A') ?? '—' }}"
+                                        data-marked-by="{{ e($selectedAttendance?->markedBy?->name ?? '—') }}"
+                                        data-source="{{ ucfirst($selectedAttendance?->source ?? 'shop_owner') }}"
+                                        data-notes="{{ e($selectedAttendance?->notes ?? '') }}">Details</button>
+                            </th>
+                            @foreach($monthDays as $day)
+                                @php($attendance = $employeeAttendance->get($day->toDateString()))
+                                @php($status = $attendance?->status)
+                                @php($statusStyles = match($status) {
+                                    'present' => ['P', 'Present', 'bg-emerald-600 text-white hover:bg-emerald-700'],
+                                    'absent' => ['A', 'Absent', 'bg-rose-600 text-white hover:bg-rose-700'],
+                                    'half_day' => ['H', 'Half Day', 'bg-orange-500 text-white hover:bg-orange-600'],
+                                    'leave' => ['L', 'Leave', 'bg-slate-950 text-white hover:bg-black'],
+                                    default => ['—', 'Not Marked', 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700'],
+                                })
+                                @php($isToday = $day->isSameDay(today()))
+                                @php($isSelected = $day->isSameDay($selectedDate))
+                                <td class="border-b border-r border-slate-200 p-0.5 text-center {{ $isToday ? 'bg-emerald-50/75' : ($isSelected ? 'bg-emerald-50/40' : ($day->isWeekend() ? 'bg-slate-50' : 'bg-white')) }}">
+                                    <button type="button"
+                                            class="js-history-open-details flex h-5 w-5 sm:h-5.5 sm:w-5.5 mx-auto items-center justify-center rounded text-[10px] font-black leading-none transition focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer {{ $statusStyles[2] }}"
+                                            title="{{ $employee->name }} — {{ $day->format('d M') }}: {{ $statusStyles[1] }} (Read-only)"
+                                            aria-label="{{ $employee->name }}, {{ $day->format('d F Y') }}, {{ $statusStyles[1] }}"
+                                            data-employee-code="{{ $employee->employee_code }}"
+                                            data-employee-name="{{ e($employee->name) }}"
+                                            data-employee-category="{{ e($employee->category?->name ?? '') }}"
+                                            data-employee-photo="{{ $employee->photo_url }}"
+                                            data-employee-phone="{{ $employee->phone }}"
+                                            data-employee-emergency="{{ $employee->alternate_phone }}"
+                                            data-shop-name="{{ e($attendance?->shop?->name ?? $employee->defaultShop?->name ?? $selectedShop?->name ?? 'Shop Staff') }}"
+                                            data-status="{{ $attendance ? match($status) { 'present' => 'P (Present)', 'half_day' => 'H (Half Day)', 'leave' => 'L (Leave)', 'absent' => 'A (Absent)', default => ucfirst((string) $status) } : 'Not Marked' }}"
+                                            data-attendance-date="{{ $day->format('d M Y') }}"
+                                            data-marked-at="{{ $attendance?->marked_at?->timezone('Asia/Kolkata')->format('g:i A') ?? '—' }}"
+                                            data-marked-by="{{ e($attendance?->markedBy?->name ?? '—') }}"
+                                            data-source="{{ ucfirst($attendance?->source ?? 'shop_owner') }}"
+                                            data-notes="{{ e($attendance?->notes ?? '') }}">{{ $statusStyles[0] }}</button>
+                                </td>
+                            @endforeach
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="{{ $monthDays->count() + 1 }}" class="p-8 text-center text-xs font-semibold text-slate-400">No active employees match the selected filters for this shop.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </section>
 
+    <!-- EMPLOYEE DETAILS MODAL -->
+    <div id="history-attendance-details-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true">
+        <div id="history-attendance-details-backdrop" class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"></div>
+        <div class="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 space-y-4 z-10">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="text-sm font-black text-slate-900 uppercase">Attendance & Employee Details</h3>
+                <button type="button" id="btn-close-history-details-modal" class="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer">✕</button>
+            </div>
+
+            <!-- PROFILE HEADER -->
+            <div class="flex items-center gap-3">
+                <div id="history-details-avatar-container" class="shrink-0">
+                    <div id="history-details-initials" class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white"></div>
+                    <img id="history-details-photo" src="" class="hidden h-12 w-12 rounded-full object-cover border border-slate-200" alt="">
+                </div>
+                <div class="min-w-0">
+                    <h4 id="history-details-name" class="text-base font-black text-slate-950 truncate"></h4>
+                    <p id="history-details-meta" class="text-xs font-semibold text-slate-400"></p>
+                </div>
+            </div>
+
+            <!-- DETAILS GRID -->
+            <div class="space-y-2 text-xs">
+                <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">Assigned Work Location</p>
+                    <p id="history-details-shop" class="font-black text-slate-900">—</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Status & Date</p>
+                        <p id="history-details-status" class="font-bold text-slate-900">—</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Marked Time</p>
+                        <p id="history-details-marked-at" class="font-bold text-slate-900">—</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Primary Phone</p>
+                        <p id="history-details-phone" class="font-semibold text-slate-800">—</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Emergency Contact</p>
+                        <p id="history-details-emergency" class="font-semibold text-slate-800">—</p>
+                    </div>
+                </div>
+
+                <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">Marked By & Source</p>
+                    <p id="history-details-marked-by" class="font-semibold text-slate-800">—</p>
+                </div>
+
+                <div id="history-details-notes-container" class="hidden rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">Reason / Note</p>
+                    <p id="history-details-notes" class="font-semibold text-slate-700 whitespace-pre-line"></p>
+                </div>
+            </div>
+
+            <!-- FOOTER ACTIONS -->
+            <div class="flex items-center justify-end pt-2 border-t border-slate-100">
+                <button type="button" id="btn-cancel-history-details-modal" class="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white cursor-pointer">Close</button>
+            </div>
+        </div>
+    </div>
+
     @if(session('sync_results'))
-        @php $syncRes = session('sync_results'); @endphp
+        @php($syncRes = session('sync_results'))
         <article class="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm space-y-3">
             <div class="flex items-center justify-between border-b border-emerald-200/60 pb-2.5">
                 <div class="flex items-center gap-2">
@@ -428,5 +546,108 @@
             const modal = document.getElementById('edit-staff-payment-modal');
             if (modal) modal.classList.add('hidden');
         }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const detModal = document.getElementById('history-attendance-details-modal');
+            const detBackdrop = document.getElementById('history-attendance-details-backdrop');
+            const detCloseBtn = document.getElementById('btn-close-history-details-modal');
+            const detCancelBtn = document.getElementById('btn-cancel-history-details-modal');
+
+            const elPhoto = document.getElementById('history-details-photo');
+            const elInitials = document.getElementById('history-details-initials');
+            const elName = document.getElementById('history-details-name');
+            const elMeta = document.getElementById('history-details-meta');
+            const elShop = document.getElementById('history-details-shop');
+            const elStatus = document.getElementById('history-details-status');
+            const elMarkedAt = document.getElementById('history-details-marked-at');
+            const elPhone = document.getElementById('history-details-phone');
+            const elEmergency = document.getElementById('history-details-emergency');
+            const elMarkedBy = document.getElementById('history-details-marked-by');
+            const elNotesContainer = document.getElementById('history-details-notes-container');
+            const elNotes = document.getElementById('history-details-notes');
+
+            document.querySelectorAll('.js-history-open-details').forEach(function (button) {
+                button.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const name = button.getAttribute('data-employee-name') || '';
+                    const code = button.getAttribute('data-employee-code') || '';
+                    const category = button.getAttribute('data-employee-category') || '';
+                    const photo = button.getAttribute('data-employee-photo') || '';
+                    const phone = button.getAttribute('data-employee-phone') || 'N/A';
+                    const emergency = button.getAttribute('data-employee-emergency') || 'N/A';
+                    const shop = button.getAttribute('data-shop-name') || '—';
+                    const status = button.getAttribute('data-status') || '—';
+                    const attDate = button.getAttribute('data-attendance-date') || '';
+                    const markedAt = button.getAttribute('data-marked-at') || '—';
+                    const markedBy = button.getAttribute('data-marked-by') || '—';
+                    const source = button.getAttribute('data-source') || 'shop_owner';
+                    const notes = button.getAttribute('data-notes') || '';
+
+                    if (elName) elName.textContent = name;
+                    if (elMeta) elMeta.textContent = code + (category ? ' · ' + category : '');
+                    if (elShop) elShop.textContent = shop;
+                    if (elStatus) elStatus.textContent = status + (attDate ? ' (' + attDate + ')' : '');
+                    if (elMarkedAt) elMarkedAt.textContent = markedAt;
+                    if (elPhone) elPhone.textContent = phone;
+                    if (elEmergency) elEmergency.textContent = emergency;
+                    if (elMarkedBy) elMarkedBy.textContent = markedBy + ' (Source: ' + source + ')';
+
+                    if (photo && elPhoto && elInitials) {
+                        elPhoto.src = photo;
+                        elPhoto.classList.remove('hidden');
+                        elInitials.classList.add('hidden');
+                    } else if (elPhoto && elInitials) {
+                        elInitials.textContent = (name.substr(0, 2) || 'EM').toUpperCase();
+                        elInitials.classList.remove('hidden');
+                        elPhoto.classList.add('hidden');
+                    }
+
+                    if (notes && elNotesContainer && elNotes) {
+                        elNotes.textContent = notes;
+                        elNotesContainer.classList.remove('hidden');
+                    } else if (elNotesContainer) {
+                        elNotesContainer.classList.add('hidden');
+                    }
+
+                    if (detModal) detModal.classList.remove('hidden');
+                });
+            });
+
+            function closeHistoryDetailsModal() {
+                if (detModal) detModal.classList.add('hidden');
+            }
+
+            if (detCloseBtn) detCloseBtn.addEventListener('click', closeHistoryDetailsModal);
+            if (detCancelBtn) detCancelBtn.addEventListener('click', closeHistoryDetailsModal);
+            if (detBackdrop) detBackdrop.addEventListener('click', closeHistoryDetailsModal);
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && detModal && !detModal.classList.contains('hidden')) {
+                    closeHistoryDetailsModal();
+                }
+            });
+
+            // Auto-scroll monthly register to today / selected date column on load
+            function scrollToTodayColumn() {
+                const scrollContainer = document.getElementById('history-attendance-scroll-container');
+                const todayCol = document.getElementById('history-today-column');
+                if (!scrollContainer || !todayCol) return;
+
+                const stickyHeader = scrollContainer.querySelector('th.sticky');
+                const stickyWidth = stickyHeader ? stickyHeader.offsetWidth : 0;
+                const containerWidth = scrollContainer.clientWidth;
+                const colLeft = todayCol.offsetLeft;
+                const colWidth = todayCol.offsetWidth;
+
+                const targetScroll = Math.max(0, colLeft - stickyWidth - (containerWidth - stickyWidth - colWidth) / 2);
+                scrollContainer.scrollLeft = targetScroll;
+            }
+
+            scrollToTodayColumn();
+            requestAnimationFrame(scrollToTodayColumn);
+            setTimeout(scrollToTodayColumn, 100);
+        });
     </script>
 </div>
