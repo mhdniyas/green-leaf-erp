@@ -27,6 +27,7 @@ use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
 use App\Http\Controllers\Web\Admin\MonthlyClosingSummaryController;
 use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
+use App\Http\Controllers\Web\Admin\PurchaserMonthlySummaryController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserAccessController;
 use App\Http\Controllers\Web\Admin\UserController;
@@ -878,6 +879,8 @@ Route::middleware('auth')->group(function () {
             Route::post('finance/purchase/product-allotments', [AdminProductPurchaserAllotmentController::class, 'store'])->name('finance.purchase.product-allotments.store');
             Route::get('finance/purchase/product-allotments/{product}/history', [AdminProductPurchaserAllotmentController::class, 'history'])->name('finance.purchase.product-allotments.history');
             Route::get('finance/purchase', [CashbookController::class, 'companyFinancePurchaseDashboard'])->name('finance.purchase');
+            Route::get('finance/purchase/monthly-summary', [PurchaserMonthlySummaryController::class, 'index'])->name('finance.purchase.monthly-summary.index');
+            Route::get('finance/purchase/monthly-summary/{purchaser:public_uuid}', [PurchaserMonthlySummaryController::class, 'show'])->name('finance.purchase.monthly-summary.show');
             Route::get('finance/purchase/purchasers', [CashbookController::class, 'companyFinancePurchaseSection'])->defaults('section', 'purchasers')->name('finance.purchase.purchasers');
             Route::get('finance/purchase/purchasers/{purchaser:public_uuid}', [CashbookController::class, 'companyFinancePurchasePurchaser'])->name('finance.purchase.purchasers.show');
             Route::get('finance/purchase/purchasers/{purchaser:public_uuid}/vendors/{supplier:public_uuid}', [CashbookController::class, 'companyFinancePurchasePurchaserVendorDetail'])->withoutScopedBindings()->name('finance.purchase.purchasers.vendors.show');

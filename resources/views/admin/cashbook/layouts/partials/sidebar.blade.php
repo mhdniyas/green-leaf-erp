@@ -1,9 +1,10 @@
 @php
     $cashbookSidebarShops = $shops ?? collect();
 
-    $isPurchaseActive = request()->routeIs('admin.cashbook.finance.purchase*')
+    $isPurchaseActive = (request()->routeIs('admin.cashbook.finance.purchase*')
         || request()->routeIs('admin.cashbook.finance.purchasers*')
-        || request()->routeIs('admin.cashbook.purchaser-business-days.*');
+        || request()->routeIs('admin.cashbook.purchaser-business-days.*'))
+        && ! request()->routeIs('admin.cashbook.finance.purchase.monthly-summary*');
 
     $isReportsActive = request()->routeIs('admin.cashbook.finance.purchase.reports*')
         || request()->routeIs('admin.cashbook.finance.purchase.purchaser-expenses*');
@@ -90,6 +91,28 @@
                 'label' => 'Categories',
                 'href' => route('admin.cashbook.finance.purchase.categories'),
                 'active' => request()->routeIs('admin.cashbook.finance.purchase.categories*'),
+            ],
+        ],
+    ];
+
+    $isMonthlyReportsActive = request()->routeIs('admin.cashbook.monthly-closing-summary*')
+        || request()->routeIs('admin.cashbook.finance.purchase.monthly-summary*');
+
+    $monthlyReportsSidebarItem = [
+        'label' => 'Monthly Reports',
+        'href' => route('admin.cashbook.monthly-closing-summary.index'),
+        'active' => $isMonthlyReportsActive,
+        'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" /></svg>',
+        'children' => [
+            [
+                'label' => 'Shop Monthly Closing',
+                'href' => route('admin.cashbook.monthly-closing-summary.index'),
+                'active' => request()->routeIs('admin.cashbook.monthly-closing-summary*'),
+            ],
+            [
+                'label' => 'Purchase Month',
+                'href' => route('admin.cashbook.finance.purchase.monthly-summary.index'),
+                'active' => request()->routeIs('admin.cashbook.finance.purchase.monthly-summary*'),
             ],
         ],
     ];
@@ -180,6 +203,9 @@
             <!-- PURCHASE (NESTED HIERARCHY) -->
             <x-sidebar-link :item="$purchaseSidebarItem" label-attribute="data-cashbook-sidebar-label" />
 
+            <!-- MONTHLY REPORTS (NESTED HIERARCHY) -->
+            <x-sidebar-link :item="$monthlyReportsSidebarItem" label-attribute="data-cashbook-sidebar-label" />
+
             <!-- FINANCE -->
             <div class="space-y-1">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">FINANCE</span>
@@ -229,10 +255,6 @@
                 <a href="{{ route('admin.cashbook.all-shops') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.all-shops') || request()->routeIs('admin.cashbook.index') ? 'active-sidebar' : '' }}">
                     <i data-lucide="layout-grid" class="w-4 h-4"></i>
                     <span>All Shops Overview</span>
-                </a>
-                <a href="{{ route('admin.cashbook.monthly-closing-summary.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.monthly-closing-summary*') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="calendar-check" class="w-4 h-4 text-emerald-600"></i>
-                    <span>Monthly Closing Summary</span>
                 </a>
                 <a href="{{ route('admin.cashbook.shop.show', isset($currentShop) ? ($currentShop->slug ?: $currentShop->shop_id) : ($cashbookSidebarShops->first()?->slug ?? 1)) }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.shop.show') ? 'active-sidebar' : '' }}">
                     <i data-lucide="store" class="w-4 h-4"></i>
