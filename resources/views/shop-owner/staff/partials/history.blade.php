@@ -185,70 +185,70 @@
         </div>
     </section>
 
-    <!-- EMPLOYEE DETAILS MODAL -->
-    <div id="history-attendance-details-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4" role="dialog" aria-modal="true">
-        <div id="history-attendance-details-backdrop" class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"></div>
-        <div class="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 space-y-4 z-10">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 class="text-sm font-black text-slate-900 uppercase">Attendance & Employee Details</h3>
-                <button type="button" id="btn-close-history-details-modal" class="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer">✕</button>
+    <!-- EMPLOYEE DETAILS MODAL (50% SMALLER / COMPACT) -->
+    <div id="history-attendance-details-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-3" role="dialog" aria-modal="true">
+        <div id="history-attendance-details-backdrop" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"></div>
+        <div class="relative w-full max-w-xs sm:max-w-sm rounded-xl bg-white p-3.5 shadow-xl border border-slate-200 space-y-2.5 z-10 text-xs">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 class="text-xs font-black text-slate-900 uppercase tracking-wide">Attendance Details</h3>
+                <button type="button" id="btn-close-history-details-modal" class="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer p-0.5">✕</button>
             </div>
 
             <!-- PROFILE HEADER -->
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2.5">
                 <div id="history-details-avatar-container" class="shrink-0">
-                    <div id="history-details-initials" class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white"></div>
-                    <img id="history-details-photo" src="" class="hidden h-12 w-12 rounded-full object-cover border border-slate-200" alt="">
+                    <div id="history-details-initials" class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white"></div>
+                    <img id="history-details-photo" src="" class="hidden h-8 w-8 rounded-full object-cover border border-slate-200" alt="">
                 </div>
                 <div class="min-w-0">
-                    <h4 id="history-details-name" class="text-base font-black text-slate-950 truncate"></h4>
-                    <p id="history-details-meta" class="text-xs font-semibold text-slate-400"></p>
+                    <h4 id="history-details-name" class="text-xs font-black text-slate-950 truncate leading-tight"></h4>
+                    <p id="history-details-meta" class="text-[10px] font-semibold text-slate-400 truncate leading-tight"></p>
                 </div>
             </div>
 
             <!-- DETAILS GRID -->
-            <div class="space-y-2 text-xs">
-                <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
-                    <p class="text-[10px] font-bold text-slate-400 uppercase">Assigned Work Location</p>
-                    <p id="history-details-shop" class="font-black text-slate-900">—</p>
+            <div class="space-y-1.5 text-[11px]">
+                <div class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                    <p class="text-[8px] font-bold text-slate-400 uppercase">Assigned Location</p>
+                    <p id="history-details-shop" class="font-bold text-slate-900 leading-tight">—</p>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2">
-                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Status & Date</p>
-                        <p id="history-details-status" class="font-bold text-slate-900">—</p>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <div class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                        <p class="text-[8px] font-bold text-slate-400 uppercase">Status & Date</p>
+                        <p id="history-details-status" class="font-bold text-slate-900 leading-tight">—</p>
                     </div>
-                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Marked Time</p>
-                        <p id="history-details-marked-at" class="font-bold text-slate-900">—</p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-2">
-                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Primary Phone</p>
-                        <p id="history-details-phone" class="font-semibold text-slate-800">—</p>
-                    </div>
-                    <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Emergency Contact</p>
-                        <p id="history-details-emergency" class="font-semibold text-slate-800">—</p>
+                    <div class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                        <p class="text-[8px] font-bold text-slate-400 uppercase">Marked Time</p>
+                        <p id="history-details-marked-at" class="font-bold text-slate-900 leading-tight">—</p>
                     </div>
                 </div>
 
-                <div class="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
-                    <p class="text-[10px] font-bold text-slate-400 uppercase">Marked By & Source</p>
-                    <p id="history-details-marked-by" class="font-semibold text-slate-800">—</p>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <div class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                        <p class="text-[8px] font-bold text-slate-400 uppercase">Primary Phone</p>
+                        <p id="history-details-phone" class="font-semibold text-slate-800 leading-tight truncate">—</p>
+                    </div>
+                    <div class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                        <p class="text-[8px] font-bold text-slate-400 uppercase">Emergency Contact</p>
+                        <p id="history-details-emergency" class="font-semibold text-slate-800 leading-tight truncate">—</p>
+                    </div>
                 </div>
 
-                <div id="history-details-notes-container" class="hidden rounded-xl border border-slate-100 bg-slate-50 p-2.5">
-                    <p class="text-[10px] font-bold text-slate-400 uppercase">Reason / Note</p>
-                    <p id="history-details-notes" class="font-semibold text-slate-700 whitespace-pre-line"></p>
+                <div class="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                    <p class="text-[8px] font-bold text-slate-400 uppercase">Marked By & Source</p>
+                    <p id="history-details-marked-by" class="font-semibold text-slate-800 leading-tight">—</p>
+                </div>
+
+                <div id="history-details-notes-container" class="hidden rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                    <p class="text-[8px] font-bold text-slate-400 uppercase">Reason / Note</p>
+                    <p id="history-details-notes" class="font-semibold text-slate-700 whitespace-pre-line leading-tight text-[10px]"></p>
                 </div>
             </div>
 
             <!-- FOOTER ACTIONS -->
-            <div class="flex items-center justify-end pt-2 border-t border-slate-100">
-                <button type="button" id="btn-cancel-history-details-modal" class="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white cursor-pointer">Close</button>
+            <div class="flex items-center justify-end pt-1.5 border-t border-slate-100">
+                <button type="button" id="btn-cancel-history-details-modal" class="rounded-lg bg-slate-900 px-3 py-1 text-[11px] font-bold text-white hover:bg-slate-800 cursor-pointer">Close</button>
             </div>
         </div>
     </div>
