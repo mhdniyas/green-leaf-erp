@@ -256,6 +256,9 @@
     <!-- STEP 4 — SHOP SUMMARY (6 PRIMARY METRICS) -->
     @include('admin.cashbook.shops.partials.shop-summary-cards')
 
+    <!-- SALES REPORT TAB SECTION -->
+    @include('admin.cashbook.shops.partials.sales-report-section')
+
     <!-- STEP 5 & 6 — COMPANY SETTLEMENT & RECEIVED BY -->
     @include('admin.cashbook.shops.partials.settlement-and-payment-modes')
 

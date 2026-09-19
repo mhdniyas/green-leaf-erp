@@ -16,7 +16,9 @@ use App\Models\PurchaserCredit;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -48,7 +50,7 @@ class PurchaserCartRevertAndInvoiceCancellationTest extends TestCase
     public function test_revert_to_pending_flow_full_lifecycle(): void
     {
         try {
-            $today = today();
+            $today = app(PurchaserBusinessDayService::class)->operationalDate();
 
             // 1. Completed purchaser cart with payment_status = paid
             $cart = PurchaserCart::query()->create([
@@ -180,7 +182,7 @@ class PurchaserCartRevertAndInvoiceCancellationTest extends TestCase
 
     public function test_cancelled_tab_deduplication_does_not_double_count_reverted_cart_and_invoice(): void
     {
-        $today = today();
+        $today = app(PurchaserBusinessDayService::class)->operationalDate();
 
         // 1. A reverted cart (submitted, unpaid, with cancelled invoice)
         $cart1 = PurchaserCart::query()->create([
@@ -242,5 +244,147 @@ class PurchaserCartRevertAndInvoiceCancellationTest extends TestCase
             ->delete(route('purchaser.invoices.destroy', $invoice));
 
         $response->assertNotFound();
+    }
+
+    public function test_cancelled_invoices_are_paginated(): void
+    {
+        $today = app(PurchaserBusinessDayService::class)->operationalDate();
+
+        for ($i = 1; $i <= 30; $i++) {
+            $cart = PurchaserCart::query()->create([
+                'user_id' => $this->purchaser->id,
+                'supplier_id' => $this->supplier->id,
+                'status' => 'submitted',
+                'business_date' => $today,
+                'cart_number' => 'VC-PAGINATED-'.$i,
+            ]);
+
+            PurchaseInvoice::factory()->create([
+                'purchaser_cart_id' => $cart->id,
+                'supplier_id' => $this->supplier->id,
+                'invoice_number' => 'INV-PAG-'.$i,
+                'status' => InvoiceStatus::Cancelled,
+                'cancelled_at' => now(),
+                'deleted_at' => now(),
+            ]);
+        }
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'cancelled']));
+
+        $response->assertOk();
+        $response->assertViewHas('cancelledInvoices', function ($paginator) {
+            return $paginator instanceof LengthAwarePaginator
+                && $paginator->total() === 30
+                && $paginator->perPage() === 25
+                && $paginator->count() === 25;
+        });
+    }
+
+    public function test_cancelled_invoice_query_includes_soft_deleted_cancelled_and_excludes_soft_deleted_non_cancelled(): void
+    {
+        $today = app(PurchaserBusinessDayService::class)->operationalDate();
+
+        $cart1 = PurchaserCart::query()->create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => 'submitted',
+            'business_date' => $today,
+            'cart_number' => 'VC-SOFT-CANCELLED',
+        ]);
+
+        $cancelledInvoice = PurchaseInvoice::factory()->create([
+            'purchaser_cart_id' => $cart1->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'INV-SOFT-CANCELLED',
+            'status' => InvoiceStatus::Cancelled,
+            'cancelled_at' => now(),
+            'deleted_at' => now(),
+        ]);
+
+        $cart2 = PurchaserCart::query()->create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => 'submitted',
+            'business_date' => $today,
+            'cart_number' => 'VC-SOFT-NON-CANCELLED',
+        ]);
+
+        $nonCancelledSoftDeletedInvoice = PurchaseInvoice::factory()->create([
+            'purchaser_cart_id' => $cart2->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'INV-SOFT-ACTIVE-TYPE',
+            'status' => InvoiceStatus::Approved,
+            'deleted_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'cancelled']));
+
+        $response->assertOk();
+        $response->assertViewHas('cancelledInvoices', function ($invoices) use ($cancelledInvoice, $nonCancelledSoftDeletedInvoice) {
+            return $invoices->getCollection()->contains('id', $cancelledInvoice->id)
+                && ! $invoices->getCollection()->contains('id', $nonCancelledSoftDeletedInvoice->id);
+        });
+    }
+
+    public function test_purchaser_cannot_view_another_purchasers_cancelled_invoice(): void
+    {
+        $otherPurchaser = User::factory()->create();
+        $otherPurchaser->assignRole('purchaser');
+
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $otherPurchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => 'submitted',
+            'business_date' => today(),
+            'cart_number' => 'VC-OTHER-CANCELLED',
+        ]);
+
+        $invoice = PurchaseInvoice::factory()->create([
+            'purchaser_cart_id' => $cart->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'INV-OTHER-CANCELLED',
+            'status' => InvoiceStatus::Cancelled,
+            'cancelled_at' => now(),
+            'deleted_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.invoices.show', $invoice));
+
+        $response->assertNotFound();
+    }
+
+    public function test_main_cancelled_listing_does_not_eager_load_full_items(): void
+    {
+        $today = app(PurchaserBusinessDayService::class)->operationalDate();
+
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => 'submitted',
+            'business_date' => $today,
+            'cart_number' => 'VC-NO-EAGER-ITEMS',
+        ]);
+
+        $invoice = PurchaseInvoice::factory()->create([
+            'purchaser_cart_id' => $cart->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'INV-NO-EAGER-ITEMS',
+            'status' => InvoiceStatus::Cancelled,
+            'cancelled_at' => now(),
+            'deleted_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'cancelled']));
+
+        $response->assertOk();
+        $response->assertViewHas('cancelledInvoices', function ($paginator) use ($invoice) {
+            $first = $paginator->firstWhere('id', $invoice->id);
+
+            return $first !== null && ! $first->relationLoaded('items');
+        });
     }
 }

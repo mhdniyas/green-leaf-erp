@@ -633,28 +633,6 @@
                         <span class="rounded-full bg-rose-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Bill Cancelled</span>
                     </div>
 
-                    @if ($invoice->purchaserCart?->items?->isNotEmpty())
-                        <div class="mt-3 space-y-1 rounded-2xl border border-slate-100 bg-slate-50 p-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Items ({{ $invoice->purchaserCart->items->count() }})</p>
-                            <div class="divide-y divide-slate-200/60">
-                                @foreach ($invoice->purchaserCart->items as $item)
-                                    <div class="flex items-center justify-between gap-2 py-1.5 text-xs">
-                                        <span class="font-bold text-slate-800">{{ $item->product?->name ?? 'Unknown' }}</span>
-                                        <span class="font-semibold text-slate-600">
-                                            {{ (float) $item->quantity }} {{ $item->product?->unit ?? '' }}
-                                            @if ((float) $item->unit_price > 0)
-                                                · ₹{{ number_format((float) $item->unit_price, 2) }}
-                                            @endif
-                                            @if ((float) $item->line_total > 0)
-                                                = <span class="font-bold text-slate-900">₹{{ number_format((float) $item->line_total, 2) }}</span>
-                                            @endif
-                                        </span>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-
                     <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[10px] font-bold text-slate-500">
                         <span>Total: ₹{{ number_format((float) $invoice->amount, 2) }}</span>
                         <div class="flex items-center gap-2">
@@ -680,30 +658,6 @@
                         <span class="rounded-full bg-rose-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Cancelled</span>
                     </div>
 
-                    @if ($cart->items->isNotEmpty())
-                        <div class="mt-3 space-y-1 rounded-2xl border border-slate-100 bg-slate-50 p-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Items ({{ $cart->items->count() }})</p>
-                            <div class="divide-y divide-slate-200/60">
-                                @foreach ($cart->items as $item)
-                                    <div class="flex items-center justify-between gap-2 py-1.5 text-xs">
-                                        <span class="font-bold text-slate-800">{{ $item->product?->name ?? 'Unknown' }}</span>
-                                        <span class="font-semibold text-slate-600">
-                                            {{ (float) $item->quantity }} {{ $item->product?->unit ?? '' }}
-                                            @if ((float) $item->unit_price > 0)
-                                                · ₹{{ number_format((float) $item->unit_price, 2) }}
-                                            @endif
-                                            @if ((float) $item->line_total > 0)
-                                                = <span class="font-bold text-slate-900">₹{{ number_format((float) $item->line_total, 2) }}</span>
-                                            @endif
-                                        </span>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    @else
-                        <p class="mt-3 text-xs font-semibold text-slate-400">No items recorded in this cart.</p>
-                    @endif
-
                     <div class="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-[10px] font-bold text-slate-500">
                         <span>Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
                         <span class="text-rose-600 font-bold">Order Cancelled</span>
@@ -714,6 +668,13 @@
                     <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">No cancelled carts or bills for this business day.</p>
                 @endif
             @endforelse
+
+            @if ($cancelledInvoices->hasPages())
+                <div class="mt-4">
+                    {{ $cancelledInvoices->links() }}
+                </div>
+            @endif
+        </div>
         </div>
     </div>
 

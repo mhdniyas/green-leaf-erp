@@ -1117,7 +1117,21 @@ class PurchaserDashboardController extends Controller
         $completedCarts = $submittedCarts
             ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) && ! $this->cartHasPaymentPending($cart))
             ->values();
-        $cancelledInvoices = PurchaseInvoice::withTrashed()
+        $cancelledInvoicesQuery = PurchaseInvoice::withTrashed()
+            ->select([
+                'id',
+                'invoice_number',
+                'purchaser_cart_id',
+                'supplier_id',
+                'amount',
+                'status',
+                'cancelled_at',
+                'cancelled_by',
+                'cancellation_reason',
+                'cancellation_note',
+                'deleted_at',
+                'created_at',
+            ])
             ->where('status', InvoiceStatus::Cancelled)
             ->where(function ($query) use ($user, $date, $purchaseGrade): void {
                 $query->whereHas('purchaserCart', function ($cartQuery) use ($user, $date, $purchaseGrade): void {
@@ -1129,21 +1143,43 @@ class PurchaserDashboardController extends Controller
                         ->whereDate('created_at', $date);
                 });
             })
-            ->with(['supplier', 'purchaserCart.items.product', 'cancelledBy'])
-            ->latest('cancelled_at')
-            ->get();
+            ->with([
+                'supplier:id,name',
+                'purchaserCart:id,cart_number,user_id,business_date',
+                'cancelledBy:id,name',
+            ])
+            ->latest('cancelled_at');
 
-        $cancelledCartIdsFromInvoices = $cancelledInvoices->pluck('purchaser_cart_id')->filter()->unique()->all();
-        $standaloneCancelledCarts = $cancelledCarts->reject(fn (PurchaserCart $c): bool => in_array((int) $c->id, $cancelledCartIdsFromInvoices, true))->values();
-        $totalCancelledCount = $cancelledInvoices->count() + $standaloneCancelledCarts->count();
+        $cancelledInvoicesCount = (clone $cancelledInvoicesQuery)->count();
+
+        $cancelledInvoices = (clone $cancelledInvoicesQuery)
+            ->paginate(25, ['*'], 'cancelled_page')
+            ->withQueryString();
+
+        $cancelledCartIdsWithInvoices = $cancelledCarts->isEmpty()
+            ? []
+            : PurchaseInvoice::withTrashed()
+                ->where('status', InvoiceStatus::Cancelled)
+                ->whereIn('purchaser_cart_id', $cancelledCarts->pluck('id'))
+                ->pluck('purchaser_cart_id')
+                ->filter()
+                ->unique()
+                ->all();
+
+        $standaloneCancelledCarts = $cancelledCarts
+            ->reject(fn (PurchaserCart $c): bool => in_array((int) $c->id, $cancelledCartIdsWithInvoices, true))
+            ->values();
+
+        $totalCancelledCount = $cancelledInvoicesCount + $standaloneCancelledCarts->count();
 
         $activeTab = $request->string('tab')->toString();
 
         if (! in_array($activeTab, ['draft', 'pending', 'completed', 'cancelled'], true)) {
             $activeTab = match (true) {
+                $request->has('cancelled_page') => 'cancelled',
                 $completedCarts->contains('id', $focusCartId) => 'completed',
                 $pendingCarts->contains('id', $focusCartId) => 'pending',
-                $cancelledCarts->contains('id', $focusCartId) || $cancelledInvoices->contains('purchaser_cart_id', $focusCartId) => 'cancelled',
+                $cancelledCarts->contains('id', $focusCartId) || $cancelledInvoices->getCollection()->contains('purchaser_cart_id', $focusCartId) => 'cancelled',
                 default => 'draft',
             };
         }

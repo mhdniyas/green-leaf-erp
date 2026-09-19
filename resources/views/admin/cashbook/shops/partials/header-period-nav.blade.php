@@ -67,6 +67,24 @@
                 </form>
             @endif
 
+            @if(request()->routeIs('admin.cashbook.shop.overview'))
+                <a href="{{ route('admin.cashbook.shop.show', $currentShopSlugOrId) }}"
+                   class="inline-flex items-center gap-2 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-black uppercase tracking-wider text-emerald-900 shadow-xs hover:bg-emerald-100 transition cursor-pointer">
+                    <svg class="w-4 h-4 text-emerald-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    <span>Sales Report</span>
+                </a>
+            @else
+                <a href="{{ route('admin.cashbook.shop.overview', $currentShopSlugOrId) }}"
+                   class="inline-flex items-center gap-2 rounded-2xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-xs font-black uppercase tracking-wider text-indigo-900 shadow-xs hover:bg-indigo-100 transition cursor-pointer">
+                    <svg class="w-4 h-4 text-indigo-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    <span>Cashbook Overview</span>
+                </a>
+            @endif
+
             <!-- 3. SETTINGS -->
             <a href="{{ route('admin.cashbook.settings.shop', $currentShopSlugOrId) }}"
                class="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-800 shadow-xs hover:border-slate-400 hover:bg-slate-50 transition cursor-pointer">
@@ -81,7 +99,7 @@
 
     <!-- Period Selector Form & Switcher -->
     <div class="rounded-2xl border border-slate-100 bg-slate-50/80 p-3 sm:p-4" x-data="{ activeMode: '{{ $periodMode }}' }">
-        <form method="GET" action="{{ route('admin.cashbook.shop.show', $currentShopSlugOrId) }}" class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <form method="GET" action="{{ request()->routeIs('admin.cashbook.shop.overview') ? route('admin.cashbook.shop.overview', $currentShopSlugOrId) : route('admin.cashbook.shop.show', $currentShopSlugOrId) }}" class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <input type="hidden" name="month" value="{{ $month }}">
             <input type="hidden" name="period_mode" :value="activeMode">
 

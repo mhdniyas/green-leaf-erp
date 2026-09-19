@@ -24,7 +24,7 @@ class ShopLedgerEntrySetting extends Model
         'settlement_behavior', 'petty_behavior', 'company_pending_behavior',
         'generates_secondary_entry', 'secondary_entry_type_id',
         'secondary_amount_mode', 'secondary_amount_value', 'display_order',
-        'is_vendor_purchase', 'vendor_purchase_payment_type', 'mirror_to_cashbook', 'vendor_access_mode', 'vendor_settlement_relation_id',
+        'is_vendor_purchase', 'vendor_purchase_payment_type', 'mirror_to_cashbook', 'vendor_access_mode', 'vendor_settlement_relation_id', 'sales_report_bucket',
     ];
 
     protected $casts = [
@@ -164,5 +164,41 @@ class ShopLedgerEntrySetting extends Model
     {
         return $this->is_vendor_purchase
             && ($this->vendor_purchase_payment_type === 'credit' || $this->entryType?->code === 'vendor_purchase_credit');
+    }
+
+    public function resolveSalesReportBucket(): string
+    {
+        if ($this->sales_report_bucket !== null && trim((string) $this->sales_report_bucket) !== '' && $this->sales_report_bucket !== 'default') {
+            return strtolower(trim((string) $this->sales_report_bucket));
+        }
+
+        $code = strtolower((string) ($this->entryType?->code ?? ''));
+        $category = strtolower((string) ($this->entryType?->category ?? ''));
+
+        if (in_array($category, ['transfer', 'settlement'], true) || in_array($code, [
+            'sales_to_petty', 'company_to_petty', 'petty_to_company', 'sales_to_company',
+            'company_to_shop', 'bank_to_petty', 'shop_to_supermarket', 'casio_delivery',
+            'shop_paid_company', 'company_paid_shop', 'company_paid_vendor', 'petty_reimbursement',
+        ], true)) {
+            return 'ignore';
+        }
+
+        if (in_array($code, ['rent_expense', 'expense_rent', 'income_rent'], true)) {
+            return 'rent';
+        }
+
+        if ($this->is_vendor_purchase || in_array($code, ['vendor_purchase', 'vendor_purchase_cash', 'vendor_purchase_credit', 'cash_purchase', 'purchase_bill'], true)) {
+            return 'purchase';
+        }
+
+        if ($this->include_in_sales || $category === 'income' || in_array($code, ['cash_sales', 'card', 'paytm', 'upi', 'income_s_m_delivery', 'income_cp', 'other_income', 'excess_receipt'], true)) {
+            return 'sales';
+        }
+
+        if ($this->include_in_expense || $category === 'expense') {
+            return 'other_expense';
+        }
+
+        return 'ignore';
     }
 }

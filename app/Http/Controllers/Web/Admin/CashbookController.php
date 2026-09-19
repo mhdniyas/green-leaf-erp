@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Exports\PurchaserExpenseReportExport;
 use App\Exports\PurchaserReportArrayExport;
+use App\Exports\ShopSalesReportExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Cashbook\AddShopRequest;
 use App\Http\Requests\Cashbook\AssignShopPresetRequest;
@@ -101,6 +102,7 @@ use App\Services\Cashbook\ShopCollectionAutoMatchService;
 use App\Services\Cashbook\ShopFinancialReportService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
 use App\Services\Cashbook\ShopPettyFundingService;
+use App\Services\Cashbook\ShopSalesReportService;
 use App\Services\Cashbook\ShopSettlementService;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\JournalService;
@@ -139,13 +141,13 @@ use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Symfony\Component\Process\Process;
 /**
  * Admin-only Cashbook dashboard — a complete port of the standalone ledger-app.
  *
  * Dynamically connects to Green Leaf ERP's owned shops (via CashbookShopSyncService).
  * All actions use dedicated FormRequests and Policy-backed authorization.
  */
+use Symfony\Component\Process\Process;
 use Throwable;
 
 final class CashbookController extends Controller
@@ -459,7 +461,8 @@ final class CashbookController extends Controller
         Request $request,
         int|string $shop,
         ShopVendorPurchaseReportService $vendorPurchaseReportService,
-        ShopFinancialReportService $financialReportService
+        ShopFinancialReportService $financialReportService,
+        ShopSalesReportService $salesReportService
     ): View {
         $this->ensureMainAdmin($request);
 
@@ -528,6 +531,14 @@ final class CashbookController extends Controller
         }
 
         $financialReport = $financialReportService->generate(
+            $currentShop,
+            $periodStart,
+            $periodEnd,
+            $periodMode,
+            $month
+        );
+
+        $salesReport = $salesReportService->generate(
             $currentShop,
             $periodStart,
             $periodEnd,
@@ -882,6 +893,7 @@ final class CashbookController extends Controller
             'monthEnd',
             'periodMode',
             'financialReport',
+            'salesReport',
             'prevDate',
             'nextDate',
             'todayDate',
@@ -935,8 +947,160 @@ final class CashbookController extends Controller
             'recentCheques',
             'recentAdjustments',
             'lastRecalculatedAt',
-            'recalculationSummary',
         ));
+    }
+
+    public function exportSalesReportPdf(
+        Request $request,
+        int|string $shop,
+        ShopSalesReportService $salesReportService
+    ): mixed {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+
+        [$periodStart, $periodEnd, $periodMode, $month] = $this->resolvePeriodParams($request);
+
+        $salesReport = $salesReportService->generate($currentShop, $periodStart, $periodEnd, $periodMode, $month);
+
+        $viewData = [
+            'shop' => $currentShop,
+            'report' => $salesReport,
+        ];
+
+        $filename = 'Sales_Report_'.$currentShop->slug.'_'.$periodStart.'_to_'.$periodEnd.'.pdf';
+
+        return Pdf::loadView('admin.cashbook.reports.sales_report_pdf', $viewData)
+            ->setPaper('a4', 'portrait')
+            ->setOption(['isRemoteEnabled' => true, 'isHtml5ParserEnabled' => true])
+            ->download($filename);
+    }
+
+    public function exportSalesReportExcel(
+        Request $request,
+        int|string $shop,
+        ShopSalesReportService $salesReportService
+    ): mixed {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+
+        [$periodStart, $periodEnd, $periodMode, $month] = $this->resolvePeriodParams($request);
+
+        $salesReport = $salesReportService->generate($currentShop, $periodStart, $periodEnd, $periodMode, $month);
+
+        $filename = 'Sales_Report_'.$currentShop->slug.'_'.$periodStart.'_to_'.$periodEnd.'.xlsx';
+
+        return Excel::download(
+            new ShopSalesReportExport($salesReport, $currentShop->name),
+            $filename
+        );
+    }
+
+    public function exportSalesReportCsv(
+        Request $request,
+        int|string $shop,
+        ShopSalesReportService $salesReportService
+    ): StreamedResponse {
+        $this->ensureMainAdmin($request);
+        $currentShop = $this->resolveShop($shop);
+
+        [$periodStart, $periodEnd, $periodMode, $month] = $this->resolvePeriodParams($request);
+
+        $salesReport = $salesReportService->generate($currentShop, $periodStart, $periodEnd, $periodMode, $month);
+
+        $filename = 'Sales_Report_'.$currentShop->slug.'_'.$periodStart.'_to_'.$periodEnd.'.csv';
+
+        return response()->streamDownload(function () use ($salesReport): void {
+            $file = fopen('php://output', 'w');
+            if ($file === false) {
+                return;
+            }
+
+            fputcsv($file, ['Date', 'Day', 'Sales (INR)', 'Rent (INR)', 'Cash Purchase (INR)', 'Other Expense (INR)', 'Total Expenses (INR)', 'Net Balance (INR)']);
+
+            foreach ($salesReport['daily_rows'] as $row) {
+                fputcsv($file, [
+                    $row['formatted_date'],
+                    $row['day_name'],
+                    number_format((float) $row['sales'], 2, '.', ''),
+                    number_format((float) $row['rent'], 2, '.', ''),
+                    number_format((float) $row['purchase'], 2, '.', ''),
+                    number_format((float) $row['other_expense'], 2, '.', ''),
+                    number_format((float) $row['total_expenses'], 2, '.', ''),
+                    number_format((float) $row['net_balance'], 2, '.', ''),
+                ]);
+            }
+
+            $summary = $salesReport['summary'];
+            fputcsv($file, []);
+            fputcsv($file, [
+                'TOTALS',
+                '',
+                number_format((float) $summary['total_sales'], 2, '.', ''),
+                number_format((float) $summary['total_rent'], 2, '.', ''),
+                number_format((float) $summary['total_purchase'], 2, '.', ''),
+                number_format((float) $summary['total_other_expense'], 2, '.', ''),
+                number_format((float) $summary['total_expenses'], 2, '.', ''),
+                number_format((float) $summary['net_total'], 2, '.', ''),
+            ]);
+
+            fclose($file);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    private function resolvePeriodParams(Request $request): array
+    {
+        $monthInput = (string) $request->input('month', '');
+        $periodMode = (string) $request->input('period_mode', '');
+
+        if ($monthInput !== '' && preg_match('/^\d{4}-\d{2}$/', $monthInput)) {
+            $month = $monthInput;
+        } elseif ($request->filled('date')) {
+            $month = Carbon::parse((string) $request->input('date'))->format('Y-m');
+        } elseif ($request->filled('from')) {
+            $month = Carbon::parse((string) $request->input('from'))->format('Y-m');
+        } else {
+            $month = today()->format('Y-m');
+        }
+
+        $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
+        $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+
+        if ($periodMode === 'day' || ($periodMode === '' && ($request->filled('date') || $request->filled('day')))) {
+            $periodMode = 'day';
+            $rawDate = (string) ($request->input('date') ?: $request->input('day') ?: $monthStart);
+            $parsedDate = Carbon::parse($rawDate)->toDateString();
+            if ($parsedDate < $monthStart || $parsedDate > $monthEnd) {
+                $parsedDate = $monthStart;
+            }
+            $periodStart = $parsedDate;
+            $periodEnd = $parsedDate;
+        } elseif ($periodMode === 'custom' || ($periodMode === '' && ($request->filled('from') || $request->filled('custom_from') || $request->filled('to') || $request->filled('custom_to')))) {
+            $periodMode = 'custom';
+            $rawFrom = (string) ($request->input('from') ?: $request->input('custom_from') ?: $monthStart);
+            $rawTo = (string) ($request->input('to') ?: $request->input('custom_to') ?: $monthEnd);
+            $parsedFrom = Carbon::parse($rawFrom)->toDateString();
+            $parsedTo = Carbon::parse($rawTo)->toDateString();
+            if ($parsedFrom < $monthStart) {
+                $parsedFrom = $monthStart;
+            }
+            if ($parsedFrom > $monthEnd) {
+                $parsedFrom = $monthEnd;
+            }
+            if ($parsedTo < $parsedFrom) {
+                $parsedTo = $parsedFrom;
+            }
+            if ($parsedTo > $monthEnd) {
+                $parsedTo = $monthEnd;
+            }
+            $periodStart = $parsedFrom;
+            $periodEnd = $parsedTo;
+        } else {
+            $periodMode = 'month';
+            $periodStart = $monthStart;
+            $periodEnd = $monthEnd;
+        }
+
+        return [$periodStart, $periodEnd, $periodMode, $month];
     }
 
     /**
