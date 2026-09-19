@@ -879,7 +879,7 @@ final class CashbookController extends Controller
             $shopId, $isDayDetail ? $businessDate : $monthStart, $isDayDetail ? $businessDate : $monthEnd
         );
 
-        return view('admin.cashbook.shops.show', compact(
+        return view('admin.cashbook.shops.overview', compact(
             'configuredSettlements',
             'shops',
             'company',
@@ -947,6 +947,42 @@ final class CashbookController extends Controller
             'recentCheques',
             'recentAdjustments',
             'lastRecalculatedAt',
+        ));
+    }
+
+    public function salesReport(
+        Request $request,
+        int|string $shop,
+        ShopSalesReportService $salesReportService
+    ): View {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client', 'preset', 'shop');
+
+        [$periodStart, $periodEnd, $periodMode, $month] = $this->resolvePeriodParams($request);
+
+        $monthCarbon = Carbon::createFromFormat('Y-m', $month);
+        $monthTitle = $monthCarbon->format('F Y');
+        $monthStart = $monthCarbon->copy()->startOfMonth()->toDateString();
+        $monthEnd = $monthCarbon->copy()->endOfMonth()->toDateString();
+        $prevMonth = $monthCarbon->copy()->subMonth()->format('Y-m');
+        $nextMonth = $monthCarbon->copy()->addMonth()->format('Y-m');
+
+        $salesReport = $salesReportService->generate($currentShop, $periodStart, $periodEnd, $periodMode, $month);
+
+        return view('admin.cashbook.shops.sales-report', compact(
+            'currentShop',
+            'salesReport',
+            'periodStart',
+            'periodEnd',
+            'periodMode',
+            'month',
+            'monthTitle',
+            'monthStart',
+            'monthEnd',
+            'prevMonth',
+            'nextMonth'
         ));
     }
 
@@ -1140,7 +1176,7 @@ final class CashbookController extends Controller
         }
 
         return redirect()
-            ->route('admin.cashbook.shop.show', [
+            ->route('admin.cashbook.shop.overview', [
                 'shop' => $currentShop->slug ?: $currentShop->shop_id,
                 'month' => $month,
                 'period_mode' => 'month',

@@ -170,6 +170,9 @@ class ShopSalesReportService
             $totalOtherExpense += $dayOtherExpense;
         }
 
+        // Default sort latest date on top (descending)
+        usort($dailyRows, fn (array $a, array $b): int => strcmp($b['date'], $a['date']));
+
         $totalSales = round($totalSales, 2);
         $totalRent = round($totalRent, 2);
         $totalPurchase = round($totalPurchase, 2);

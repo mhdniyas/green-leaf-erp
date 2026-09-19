@@ -380,4 +380,48 @@ class ShopSalesReportTest extends TestCase
         $csvResponse->assertStatus(200);
         $csvResponse->assertHeader('content-type', 'text/csv; charset=UTF-8');
     }
+
+    public function test_default_shop_route_renders_dedicated_sales_report_page(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->shop1->shop_id, 'month' => '2026-09']));
+
+        $response->assertStatus(200);
+        $response->assertViewIs('admin.cashbook.shops.sales-report');
+        $response->assertSee('Sales &amp; Financial Execution Report', false);
+        $response->assertSee('Cashbook Overview');
+        $response->assertSee('Sales (₹)', false);
+        $response->assertSee('Rent (₹)', false);
+        $response->assertSee('Cash Purchase (₹)', false);
+        $response->assertSee('Other Expense (₹)', false);
+        $response->assertSee('Net Balance (₹)', false);
+
+        // Assert operations components/modals are NOT loaded on default sales report page
+        $response->assertDontSee('Manual Expense Allocation');
+        $response->assertDontSee('Add Settlement Adjustment');
+    }
+
+    public function test_overview_route_renders_cashbook_operations_page(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.overview', ['shop' => $this->shop1->shop_id, 'month' => '2026-09']));
+
+        $response->assertStatus(200);
+        $response->assertViewIs('admin.cashbook.shops.overview');
+        $response->assertSee('Sales Report');
+        $response->assertSee('OPERATIONS');
+        $response->assertSee('COMPANY SETTLEMENT');
+    }
+
+    public function test_time_sort_upto_today_and_upto_yesterday_shortcuts_work(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->shop1->shop_id]));
+
+        $response->assertStatus(200);
+        $response->assertSee('Today');
+        $response->assertSee('Yesterday');
+        $response->assertSee('Up to Today');
+        $response->assertSee('Up to Yesterday');
+    }
 }

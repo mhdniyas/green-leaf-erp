@@ -85,7 +85,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
     public function test_01_monthly_report_loads_successfully(): void
     {
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', [
+            route('admin.cashbook.shop.overview', [
                 'shop' => $this->profile->slug,
                 'month' => '2026-09',
                 'period_mode' => 'month',
@@ -112,7 +112,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
     public function test_02_day_view_works(): void
     {
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', [
+            route('admin.cashbook.shop.overview', [
                 'shop' => $this->profile->slug,
                 'month' => '2026-09',
                 'period_mode' => 'day',
@@ -133,7 +133,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
     {
         // Request August date while month is September 2026
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', [
+            route('admin.cashbook.shop.overview', [
                 'shop' => $this->profile->slug,
                 'month' => '2026-09',
                 'period_mode' => 'day',
@@ -154,7 +154,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
     public function test_04_custom_range_works(): void
     {
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', [
+            route('admin.cashbook.shop.overview', [
                 'shop' => $this->profile->slug,
                 'month' => '2026-09',
                 'period_mode' => 'custom',
@@ -176,7 +176,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
     {
         // Custom dates out of range (e.g. 2026-08-01 to 2026-10-15)
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', [
+            route('admin.cashbook.shop.overview', [
                 'shop' => $this->profile->slug,
                 'month' => '2026-09',
                 'period_mode' => 'custom',
@@ -598,7 +598,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
     public function test_23_to_25_settings_action_modals_and_history_links(): void
     {
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', $this->profile->slug)
+            route('admin.cashbook.shop.overview', $this->profile->slug)
         );
 
         $response->assertOk();
@@ -868,7 +868,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', [
+            route('admin.cashbook.shop.overview', [
                 'shop' => $this->profile->slug,
                 'month' => '2026-09',
                 'period_mode' => 'custom',
@@ -1064,7 +1064,7 @@ class ShopFinancialReportActionCenterTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', [
+            route('admin.cashbook.shop.overview', [
                 'shop' => $this->profile->slug,
                 'month' => '2026-09',
                 'period_mode' => 'month',

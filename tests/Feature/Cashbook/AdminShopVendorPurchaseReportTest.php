@@ -297,7 +297,7 @@ class AdminShopVendorPurchaseReportTest extends TestCase
             ['product_id' => $this->onion->id, 'quantity' => 50, 'unit_price' => 25],
         ], $this->vendorCategory);
 
-        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.shop.show', [
+        $response = $this->actingAs($this->admin)->get(route('admin.cashbook.shop.overview', [
             'shop' => $this->shop->id,
             'date' => $today,
         ]));

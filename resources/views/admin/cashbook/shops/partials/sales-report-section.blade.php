@@ -144,23 +144,23 @@
         </div>
 
         <div class="overflow-x-auto rounded-2xl border border-slate-200 shadow-2xs">
-            <table class="w-full text-left text-xs">
+            <table id="sales-report-table" class="w-full text-left text-xs sortable-table" data-sortable="true" data-default-sort-col="0" data-default-sort-dir="desc">
                 <thead class="bg-slate-900 text-white uppercase text-[10px] tracking-wider font-extrabold">
                     <tr>
-                        <th class="px-4 py-3">Date</th>
-                        <th class="px-4 py-3">Day</th>
-                        <th class="px-4 py-3 text-right">Sales (₹)</th>
-                        <th class="px-4 py-3 text-right">Rent (₹)</th>
-                        <th class="px-4 py-3 text-right">Cash Purchase (₹)</th>
-                        <th class="px-4 py-3 text-right">Other Expense (₹)</th>
-                        <th class="px-4 py-3 text-right">Total Expenses (₹)</th>
-                        <th class="px-4 py-3 text-right">Net Balance (₹)</th>
+                        <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 0)" title="Sort by Date">Date <span class="sort-icon ml-1 text-[9px] opacity-100 text-emerald-400">▼</span></th>
+                        <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 1)" title="Sort by Day">Day <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
+                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 2)" title="Sort by Sales">Sales (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
+                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 3)" title="Sort by Rent">Rent (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
+                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 4)" title="Sort by Cash Purchase">Cash Purchase (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
+                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 5)" title="Sort by Other Expense">Other Expense (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
+                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 6)" title="Sort by Total Expenses">Total Expenses (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
+                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 7)" title="Sort by Net Balance">Net Balance (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-mono font-medium text-slate-700 bg-white">
                     @forelse($dailyRows as $row)
                         <tr class="hover:bg-slate-50/80 transition">
-                            <td class="px-4 py-3 font-bold font-sans text-slate-900">{{ $row['formatted_date'] }}</td>
+                            <td class="px-4 py-3 font-bold font-sans text-slate-900" data-date-raw="{{ $row['date'] }}">{{ $row['formatted_date'] }}</td>
                             <td class="px-4 py-3 font-sans text-slate-500">{{ $row['day_name'] }}</td>
                             <td class="px-4 py-3 text-right font-bold text-emerald-700">₹{{ number_format($row['sales'], 2) }}</td>
                             <td class="px-4 py-3 text-right text-rose-700">₹{{ number_format($row['rent'], 2) }}</td>
@@ -198,6 +198,81 @@
 </section>
 
 <script>
+    (function() {
+        window.tableSortStates = window.tableSortStates || {};
+
+        window.sortVanillaTable = function(tableId, colIndex) {
+            const table = typeof tableId === 'string' ? document.getElementById(tableId) : tableId;
+            if (!table) return;
+
+            const tbody = table.querySelector('tbody');
+            if (!tbody) return;
+
+            const rows = Array.from(tbody.querySelectorAll('tr')).filter(row => !row.querySelector('td[colspan]'));
+            if (rows.length <= 1) return;
+
+            const key = (table.id || 'table') + '_' + colIndex;
+            let currentDir = window.tableSortStates[key];
+            let newDir = 'asc';
+            if (!currentDir) {
+                newDir = (colIndex === 0) ? 'desc' : 'desc';
+            } else {
+                newDir = currentDir === 'asc' ? 'desc' : 'asc';
+            }
+            window.tableSortStates[key] = newDir;
+
+            // Update header indicators
+            const ths = table.querySelectorAll('thead th');
+            ths.forEach((th, idx) => {
+                const icon = th.querySelector('.sort-icon');
+                if (icon) {
+                    if (idx === colIndex) {
+                        icon.textContent = newDir === 'asc' ? '▲' : '▼';
+                        icon.classList.remove('opacity-70');
+                        icon.classList.add('opacity-100', 'text-emerald-400');
+                    } else {
+                        icon.textContent = '↕';
+                        icon.classList.add('opacity-70');
+                        icon.classList.remove('opacity-100', 'text-emerald-400');
+                    }
+                }
+            });
+
+            rows.sort((rowA, rowB) => {
+                const cellA = rowA.children[colIndex];
+                const cellB = rowB.children[colIndex];
+                if (!cellA || !cellB) return 0;
+
+                let valA = cellA.getAttribute('data-date-raw') || cellA.getAttribute('data-sort-value') || cellA.textContent.trim();
+                let valB = cellB.getAttribute('data-date-raw') || cellB.getAttribute('data-sort-value') || cellB.textContent.trim();
+
+                const rawNumA = valA.replace(/[₹,%\s]/g, '');
+                const rawNumB = valB.replace(/[₹,%\s]/g, '');
+
+                let cmp = 0;
+
+                if (cellA.hasAttribute('data-date-raw') && cellB.hasAttribute('data-date-raw')) {
+                    cmp = valA.localeCompare(valB);
+                } else if (!isNaN(parseFloat(rawNumA)) && !isNaN(parseFloat(rawNumB)) && isFinite(rawNumA) && isFinite(rawNumB)) {
+                    cmp = parseFloat(rawNumA) - parseFloat(rawNumB);
+                } else {
+                    cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+                }
+
+                return newDir === 'asc' ? cmp : -cmp;
+            });
+
+            rows.forEach(r => tbody.appendChild(r));
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const table = document.getElementById('sales-report-table');
+            if (table) {
+                window.tableSortStates['sales-report-table_0'] = 'desc';
+            }
+        });
+    })();
+
     function shareSalesReport(shopName, periodRange, salesTotal, netTotal) {
         const textToShare = `Sales Report — ${shopName}\nPeriod: ${periodRange}\nTotal Sales: ₹${salesTotal}\nNet Balance: ₹${netTotal}`;
         const currentUrl = window.location.href;
@@ -216,22 +291,21 @@
     }
 
     function copyToClipboard(text) {
-        if (navigator.clipboard && window.isSecureContext) {
+        if (navigator.clipboard) {
             navigator.clipboard.writeText(text).then(() => {
                 alert('Sales Report summary copied to clipboard!');
             }).catch(() => {
-                fallbackCopy(text);
+                fallbackCopyTextToClipboard(text);
             });
         } else {
-            fallbackCopy(text);
+            fallbackCopyTextToClipboard(text);
         }
     }
 
-    function fallbackCopy(text) {
-        const textArea = document.createElement('textarea');
+    function fallbackCopyTextToClipboard(text) {
+        const textArea = document.createElement("textarea");
         textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
+        textArea.style.position = "fixed";
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
@@ -239,7 +313,7 @@
             document.execCommand('copy');
             alert('Sales Report summary copied to clipboard!');
         } catch (err) {
-            alert('Could not copy to clipboard.');
+            alert('Could not copy summary to clipboard.');
         }
         document.body.removeChild(textArea);
     }

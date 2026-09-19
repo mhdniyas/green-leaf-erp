@@ -192,14 +192,14 @@ class ShopPettyIntegrationTest extends TestCase
 
         // Verify operation center view loads cleanly with petty cards & history
         $this->actingAs($this->admin)
-            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug ?: $this->profile->shop_id, 'month' => '2026-09']))
+            ->get(route('admin.cashbook.shop.overview', ['shop' => $this->profile->slug ?: $this->profile->shop_id, 'month' => '2026-09']))
             ->assertOk()
             ->assertSee('PETTY')
             ->assertSee('5,000.00');
 
         // Day detail view
         $this->actingAs($this->admin)
-            ->get(route('admin.cashbook.shop.show', ['shop' => $this->profile->slug ?: $this->profile->shop_id, 'date' => '2026-09-17']))
+            ->get(route('admin.cashbook.shop.overview', ['shop' => $this->profile->slug ?: $this->profile->shop_id, 'date' => '2026-09-17']))
             ->assertOk()
             ->assertSee('PETTY')
             ->assertSee('5,000.00');

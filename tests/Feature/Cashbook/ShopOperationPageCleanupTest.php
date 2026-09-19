@@ -102,7 +102,7 @@ class ShopOperationPageCleanupTest extends TestCase
     public function test_shop_operation_page_loads_successfully_for_admin(): void
     {
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', ['shop' => $this->profile->slug])
+            route('admin.cashbook.shop.overview', ['shop' => $this->profile->slug])
         );
 
         $response->assertOk();
@@ -113,7 +113,7 @@ class ShopOperationPageCleanupTest extends TestCase
     public function test_settings_button_appears_for_authorized_user_with_correct_route(): void
     {
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', ['shop' => $this->profile->slug])
+            route('admin.cashbook.shop.overview', ['shop' => $this->profile->slug])
         );
 
         $response->assertOk();
@@ -163,7 +163,7 @@ class ShopOperationPageCleanupTest extends TestCase
         }
 
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', ['shop' => $this->profile->slug])
+            route('admin.cashbook.shop.overview', ['shop' => $this->profile->slug])
         );
 
         $response->assertOk();
@@ -296,7 +296,7 @@ class ShopOperationPageCleanupTest extends TestCase
 
         // 1. Confirm main shop operation page loads with 200 without undefined relation error
         $showResponse = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', $this->profile->slug)
+            route('admin.cashbook.shop.overview', $this->profile->slug)
         );
         $showResponse->assertOk();
         $recentAllocations = $showResponse->viewData('recentAllocations');
@@ -335,7 +335,7 @@ class ShopOperationPageCleanupTest extends TestCase
 
         // 1. Confirm main shop operation page loads with 200 without unknown column error
         $showResponse = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', $this->profile->slug)
+            route('admin.cashbook.shop.overview', $this->profile->slug)
         );
         // 2. Confirm dedicated adjustments history page loads with 200 and renders adjustment
         $historyResponse = $this->actingAs($this->admin)->get(
@@ -350,7 +350,7 @@ class ShopOperationPageCleanupTest extends TestCase
     public function test_section_collapse_states_default_on_initial_page_load(): void
     {
         $response = $this->actingAs($this->admin)->get(
-            route('admin.cashbook.shop.show', $this->profile->slug)
+            route('admin.cashbook.shop.overview', $this->profile->slug)
         );
         $response->assertOk();
 

@@ -478,7 +478,7 @@ class ShopCashbookMonthRecalculationTest extends TestCase
             'month' => '2026-09',
         ]);
 
-        $response->assertRedirect(route('admin.cashbook.shop.show', [
+        $response->assertRedirect(route('admin.cashbook.shop.overview', [
             'shop' => $shopSlug,
             'month' => '2026-09',
             'period_mode' => 'month',
