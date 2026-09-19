@@ -7,7 +7,7 @@
 @endsection
 
 @section('header_subtitle')
-    Audited closing balances, who-owes-who position, available credit, and next month carry-forward.
+    Audited closing balances, current vs projected positions, allocation status, and carry-forward.
 @endsection
 
 @section('content')
@@ -16,6 +16,8 @@
     $period = $detail['period'];
     $opening = $detail['opening'];
     $activity = $detail['activity'];
+    $currentPos = $detail['current_position'];
+    $projectedPos = $detail['projected_position'];
     $closing = $detail['closing'];
     $credit = $detail['credit'];
     $carry = $detail['carry_forward'];
@@ -86,12 +88,12 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION A: OPENING POSITION ──────────────────────────────────────── -->
+    <!-- 1. OPENING POSITION ──────────────────────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">A</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">1</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
                     Opening Position — 01 {{ strtoupper(Carbon\Carbon::parse($period['start_date'])->format('M Y')) }}
                 </h2>
@@ -141,25 +143,25 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION B: MONTH ACTIVITY ────────────────────────────────────────── -->
+    <!-- 2. MONTH ACTIVITY ────────────────────────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">B</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">2</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                    {{ $period['label'] }} Real Activity
+                    {{ $period['label'] }} Month Activity
                 </h2>
             </div>
             <span class="text-[11px] font-bold text-slate-400">
-                Audited monthly movements &amp; allocations
+                Audited monthly movements &amp; operations
             </span>
         </div>
 
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
             <!-- Settlement Due -->
             <div class="rounded-2xl bg-white p-3.5 border border-slate-200/80 shadow-2xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Company Settlement Due</span>
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Settlement Due</span>
                 <span class="mt-1 block font-mono text-lg font-bold text-slate-900">
                     ₹{{ number_format((float) $activity['settlement_due'], 2) }}
                 </span>
@@ -209,100 +211,303 @@
                 </span>
                 <span class="mt-1 text-[10px] font-semibold text-slate-400 block">Paid from shop sales</span>
             </div>
-
-            <!-- Allocated This Month -->
-            <div class="rounded-2xl bg-white p-3.5 border border-indigo-200 bg-indigo-50/30 shadow-2xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-indigo-900">Total Allocated This Month</span>
-                <span class="mt-1 block font-mono text-lg font-bold text-indigo-950">
-                    ₹{{ number_format((float) $activity['allocated_this_month'], 2) }}
-                </span>
-                <a href="#drilldown-allocations" class="mt-1 text-[10px] font-bold text-indigo-700 hover:underline inline-block">
-                    View Allocations &darr;
-                </a>
-            </div>
-
-            <!-- Previous Credit Utilized -->
-            <div class="rounded-2xl bg-white p-3.5 border border-amber-200 bg-amber-50/30 shadow-2xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">Prior Credit Utilized</span>
-                <span class="mt-1 block font-mono text-lg font-bold text-amber-950">
-                    ₹{{ number_format((float) $activity['previous_credit_utilized'], 2) }}
-                </span>
-                <span class="mt-1 text-[10px] font-semibold text-amber-700 block">Absorbed from prior credit</span>
-            </div>
-
-            <!-- New Unallocated Credit -->
-            <div class="rounded-2xl bg-white p-3.5 border border-amber-200 bg-amber-50/30 shadow-2xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">New Credit Created</span>
-                <span class="mt-1 block font-mono text-lg font-bold text-amber-950">
-                    ₹{{ number_format((float) $activity['new_unallocated_credit'], 2) }}
-                </span>
-                <span class="mt-1 text-[10px] font-semibold text-amber-700 block">From current receipts</span>
-            </div>
-
-            <!-- Pending Verification -->
-            <div class="rounded-2xl bg-white p-3.5 border {{ (float) $activity['pending_verification'] > 0 ? 'border-sky-300 bg-sky-50/50' : 'border-slate-200/80' }} shadow-2xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider {{ (float) $activity['pending_verification'] > 0 ? 'text-sky-900' : 'text-slate-500' }}">Pending Verification</span>
-                <span class="mt-1 block font-mono text-lg font-bold {{ (float) $activity['pending_verification'] > 0 ? 'text-sky-950' : 'text-slate-700' }}">
-                    ₹{{ number_format((float) $activity['pending_verification'], 2) }}
-                </span>
-                <span class="mt-1 text-[10px] font-semibold text-slate-400 block">Awaiting bank reconciliation</span>
-            </div>
         </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION C: CLOSING POSITION (WHO OWES WHO) ───────────────────────── -->
+    <!-- 3. SECTION A — CURRENT POSITION / BEFORE PENDING ALLOCATION ──────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <div class="rounded-3xl border-2 {{ $closing['direction'] === 'shop_owes_company' ? 'border-amber-400 bg-amber-50/40' : ($closing['direction'] === 'company_owes_shop' ? 'border-indigo-400 bg-indigo-50/40' : 'border-emerald-400 bg-emerald-50/40') }} p-6 shadow-sm space-y-4">
-        <div class="flex items-center justify-between border-b border-slate-200/80 pb-3">
+    <div class="rounded-3xl border-2 border-slate-300 bg-white p-6 shadow-xs space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">C</span>
-                <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                    Closing Physical Relationship — {{ Carbon\Carbon::parse($period['end_date'])->format('d M Y') }}
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">A</span>
+                <h2 class="text-xs font-black uppercase tracking-wider text-slate-900">
+                    CURRENT POSITION — Before Pending Allocation (Actual DB State)
                 </h2>
             </div>
-            <span class="inline-flex items-center rounded-md px-3 py-1 text-xs font-black uppercase tracking-wider {{ $closing['direction'] === 'shop_owes_company' ? 'bg-amber-100 text-amber-900 border border-amber-300' : ($closing['direction'] === 'company_owes_shop' ? 'bg-indigo-100 text-indigo-900 border border-indigo-300' : 'bg-emerald-100 text-emerald-900 border border-emerald-300') }}">
-                {{ $closing['direction_label'] }}
+            <span class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-black uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-300 font-mono">
+                Current Actual State
             </span>
         </div>
 
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 p-4 rounded-2xl bg-white border border-slate-200/80">
-            <div>
-                <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500 block">
-                    Final Physical Cash Position
+        <p class="text-xs font-semibold text-slate-600">
+            This section reflects the <strong>CURRENT actual allocation state</strong> in the database. No hypothetical allocation is applied here.
+        </p>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+            <!-- Settlement Due -->
+            <div class="rounded-2xl bg-slate-50/70 p-3.5 border border-slate-200/80">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Settlement Due</span>
+                <span class="mt-1 block font-mono text-lg font-bold text-slate-900">
+                    ₹{{ number_format((float) $currentPos['settlement_due'], 2) }}
                 </span>
-                <h3 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1">
-                    @if($closing['direction'] === 'shop_owes_company')
-                        Shop owes Company
-                    @elseif($closing['direction'] === 'company_owes_shop')
-                        Company owes Shop
-                    @else
-                        Settled (Zero Outstanding)
-                    @endif
-                </h3>
-                <p class="text-xs font-semibold text-slate-500 mt-1">
-                    Net physical cash held at the shop at month close after local expenses and remittances.
-                </p>
             </div>
 
-            <div class="text-left md:text-right">
-                <span class="font-mono text-3xl sm:text-4xl font-black {{ $closing['direction'] === 'shop_owes_company' ? 'text-amber-900' : ($closing['direction'] === 'company_owes_shop' ? 'text-indigo-900' : 'text-emerald-900') }}">
-                    ₹{{ number_format((float) $closing['physical_position'], 2) }}
+            <!-- Company Received -->
+            <div class="rounded-2xl bg-slate-50/70 p-3.5 border border-slate-200/80">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Company Received</span>
+                <span class="mt-1 block font-mono text-lg font-bold text-emerald-700">
+                    ₹{{ number_format((float) $currentPos['company_received'], 2) }}
                 </span>
-                <span class="block text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mt-0.5">
-                    Physical Cash in Hand
+            </div>
+
+            <!-- Already Allocated -->
+            <div class="rounded-2xl bg-indigo-50/40 p-3.5 border border-indigo-200">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-indigo-900">Already Allocated</span>
+                <span class="mt-1 block font-mono text-lg font-bold text-indigo-950">
+                    ₹{{ number_format((float) $currentPos['already_allocated'], 2) }}
+                </span>
+            </div>
+
+            <!-- Allocation Pending / Unallocated -->
+            <div class="rounded-2xl bg-amber-50/50 p-3.5 border border-amber-200">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">Allocation Pending</span>
+                <span class="mt-1 block font-mono text-lg font-bold text-amber-950">
+                    ₹{{ number_format((float) $currentPos['allocation_pending'], 2) }}
+                </span>
+                <a href="#drilldown-allocation-pending" class="mt-1 text-[10px] font-bold text-amber-800 hover:underline inline-block">
+                    View Details &darr;
+                </a>
+            </div>
+
+            <!-- Pending Verification -->
+            <div class="rounded-2xl {{ (float) $currentPos['pending_verification'] > 0 ? 'bg-sky-50/60 border-sky-300' : 'bg-slate-50/70 border-slate-200/80' }} p-3.5 border">
+                <span class="block text-[10px] font-black uppercase tracking-wider {{ (float) $currentPos['pending_verification'] > 0 ? 'text-sky-900' : 'text-slate-500' }}">Pending Verification</span>
+                <span class="mt-1 block font-mono text-lg font-bold {{ (float) $currentPos['pending_verification'] > 0 ? 'text-sky-950' : 'text-slate-700' }}">
+                    ₹{{ number_format((float) $currentPos['pending_verification'], 2) }}
+                </span>
+            </div>
+
+            <!-- Current Closing Position -->
+            <div class="rounded-2xl bg-slate-900 text-white p-3.5 border border-slate-800">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-300">Current Closing</span>
+                <span class="mt-1 block font-mono text-lg font-black text-white">
+                    ₹{{ number_format((float) $currentPos['closing_position'], 2) }}
+                </span>
+                <span class="mt-0.5 block text-[10px] font-bold text-emerald-400">
+                    {{ $currentPos['direction_label'] }}
                 </span>
             </div>
         </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION D: AVAILABLE CREDIT ──────────────────────────────────────── -->
+    <!-- 4. ALLOCATION STATUS ─────────────────────────────────────────────── -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <div class="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div class="flex items-center gap-2">
+                <i data-lucide="split" class="h-4 w-4 text-emerald-600"></i>
+                <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
+                    Allocation Status Overview
+                </h2>
+            </div>
+            @php
+                $badgeStyle = match($status['badge_color'] ?? '') {
+                    'amber' => 'bg-amber-50 text-amber-800 border-amber-200',
+                    'sky' => 'bg-sky-50 text-sky-800 border-sky-200',
+                    'indigo' => 'bg-indigo-50 text-indigo-800 border-indigo-200',
+                    default => 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                };
+            @endphp
+            <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wider {{ $badgeStyle }}">
+                {{ $status['label'] }}
+            </span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="rounded-2xl bg-indigo-50/40 p-4 border border-indigo-200">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-indigo-900">1. Already Allocated</span>
+                <span class="mt-1 block font-mono text-2xl font-black text-indigo-950">
+                    ₹{{ number_format((float) $currentPos['already_allocated'], 2) }}
+                </span>
+                <p class="text-[11px] font-semibold text-indigo-800/80 mt-1">
+                    Genuinely linked to month settlement obligations.
+                </p>
+            </div>
+
+            <div class="rounded-2xl bg-amber-50/50 p-4 border border-amber-200">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">2. Allocation Pending / Unallocated</span>
+                <span class="mt-1 block font-mono text-2xl font-black text-amber-950">
+                    ₹{{ number_format((float) $currentPos['allocation_pending'], 2) }}
+                </span>
+                <p class="text-[11px] font-semibold text-amber-800/80 mt-1">
+                    Received &amp; verified money waiting for allocation.
+                </p>
+            </div>
+
+            <div class="rounded-2xl {{ (float) $currentPos['pending_verification'] > 0 ? 'bg-sky-50/60 border-sky-300' : 'bg-slate-50/70 border-slate-200/80' }} p-4 border">
+                <span class="block text-[10px] font-black uppercase tracking-wider {{ (float) $currentPos['pending_verification'] > 0 ? 'text-sky-900' : 'text-slate-500' }}">3. Pending Verification</span>
+                <span class="mt-1 block font-mono text-2xl font-black {{ (float) $currentPos['pending_verification'] > 0 ? 'text-sky-950' : 'text-slate-700' }}">
+                    ₹{{ number_format((float) $currentPos['pending_verification'], 2) }}
+                </span>
+                <p class="text-[11px] font-semibold text-slate-500 mt-1">
+                    Payment requests awaiting bank statement confirmation.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- 5. SECTION B — AFTER ALL VALID ALLOCATION ────────────────────────── -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <div class="rounded-3xl border-2 border-emerald-400 bg-emerald-50/20 p-6 shadow-xs space-y-6">
+        <div class="flex items-center justify-between border-b border-emerald-200/80 pb-3">
+            <div class="flex items-center gap-2">
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-700 text-white text-xs font-black">B</span>
+                <h2 class="text-xs font-black uppercase tracking-wider text-emerald-950">
+                    AFTER ALL VALID ALLOCATION — Projected Position (Read-Only Preview)
+                </h2>
+            </div>
+            <span class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-black uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono">
+                Projected Simulation
+            </span>
+        </div>
+
+        <p class="text-xs font-semibold text-emerald-900/80">
+            This is a <strong>read-only calculated projection</strong> showing what the position would look like after all currently available and verified unallocated money is allocated against outstanding obligations. Zero database writes.
+        </p>
+
+        <!-- Projected Metrics Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <!-- Settlement Due -->
+            <div class="rounded-2xl bg-white p-3.5 border border-emerald-200/80 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Settlement Due</span>
+                <span class="mt-1 block font-mono text-base font-bold text-slate-900">
+                    ₹{{ number_format((float) $projectedPos['settlement_due'], 2) }}
+                </span>
+            </div>
+
+            <!-- Already Allocated -->
+            <div class="rounded-2xl bg-white p-3.5 border border-emerald-200/80 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-indigo-900">Already Allocated</span>
+                <span class="mt-1 block font-mono text-base font-bold text-indigo-950">
+                    ₹{{ number_format((float) $projectedPos['already_allocated'], 2) }}
+                </span>
+            </div>
+
+            <!-- Additional Valid Allocation -->
+            <div class="rounded-2xl bg-emerald-100/60 p-3.5 border border-emerald-300 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-emerald-900">+ Addl. Valid Alloc.</span>
+                <span class="mt-1 block font-mono text-base font-black text-emerald-950">
+                    ₹{{ number_format((float) $projectedPos['additional_valid_allocation'], 2) }}
+                </span>
+                <span class="text-[9px] font-bold text-emerald-700 block mt-0.5">Available to match</span>
+            </div>
+
+            <!-- Projected Total Allocated -->
+            <div class="rounded-2xl bg-white p-3.5 border border-emerald-200/80 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-700">= Projected Allocated</span>
+                <span class="mt-1 block font-mono text-base font-black text-slate-900">
+                    ₹{{ number_format((float) $projectedPos['projected_total_allocated'], 2) }}
+                </span>
+            </div>
+
+            <!-- Remaining Unallocated Credit -->
+            <div class="rounded-2xl bg-white p-3.5 border border-amber-200 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">Remaining Credit</span>
+                <span class="mt-1 block font-mono text-base font-bold text-amber-950">
+                    ₹{{ number_format((float) $projectedPos['remaining_unallocated_credit'], 2) }}
+                </span>
+                <span class="text-[9px] font-bold text-amber-700 block mt-0.5">Surplus advance</span>
+            </div>
+
+            <!-- Pending Verification -->
+            <div class="rounded-2xl bg-white p-3.5 border border-slate-200/80 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Pending Verification</span>
+                <span class="mt-1 block font-mono text-base font-bold text-slate-700">
+                    ₹{{ number_format((float) $projectedPos['pending_verification'], 2) }}
+                </span>
+            </div>
+
+            <!-- Projected Closing Position -->
+            <div class="rounded-2xl bg-slate-900 text-white p-3.5 border border-slate-800 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-slate-300">Projected Closing</span>
+                <span class="mt-1 block font-mono text-base font-black text-white">
+                    ₹{{ number_format((float) $projectedPos['closing_position'], 2) }}
+                </span>
+                <span class="text-[9px] font-bold text-emerald-400 block mt-0.5">
+                    {{ $projectedPos['direction_label'] }}
+                </span>
+            </div>
+        </div>
+
+        <!-- Compact Comparison Block -->
+        <div class="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-2xs">
+            <div class="bg-emerald-100/50 px-4 py-2.5 border-b border-emerald-200">
+                <h3 class="text-xs font-black uppercase tracking-wider text-emerald-950 flex items-center gap-2">
+                    <i data-lucide="arrow-left-right" class="h-3.5 w-3.5 text-emerald-700"></i>
+                    <span>Side-by-Side Comparison: Current vs After Valid Allocation</span>
+                </h3>
+            </div>
+            <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="px-5 py-3">Accounting Metric</th>
+                        <th class="px-5 py-3 text-right">Current Position</th>
+                        <th class="px-5 py-3 text-right text-emerald-900 bg-emerald-50/40">After Valid Allocation</th>
+                        <th class="px-5 py-3 text-right">Effect / Delta</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
+                    <tr>
+                        <td class="px-5 py-2.5 font-bold text-slate-900">Settlement Due</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-slate-900">₹{{ number_format((float) $currentPos['settlement_due'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono font-bold text-slate-900 bg-emerald-50/30">₹{{ number_format((float) $projectedPos['settlement_due'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-slate-400">—</td>
+                    </tr>
+                    <tr>
+                        <td class="px-5 py-2.5 font-bold text-slate-900">Company Received</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-emerald-700">₹{{ number_format((float) $currentPos['company_received'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">₹{{ number_format((float) $projectedPos['company_received'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-slate-400">—</td>
+                    </tr>
+                    <tr>
+                        <td class="px-5 py-2.5 font-bold text-slate-900">Allocated</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-indigo-700">₹{{ number_format((float) $currentPos['already_allocated'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono font-bold text-indigo-700 bg-emerald-50/30">₹{{ number_format((float) $projectedPos['projected_total_allocated'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono font-bold text-emerald-700">+₹{{ number_format((float) $projectedPos['additional_valid_allocation'], 2) }}</td>
+                    </tr>
+                    <tr>
+                        <td class="px-5 py-2.5 font-bold text-slate-900">Allocation Pending</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-amber-700">₹{{ number_format((float) $currentPos['allocation_pending'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono font-bold text-amber-700 bg-emerald-50/30">₹{{ number_format((float) $projectedPos['remaining_unallocated_credit'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono font-bold text-rose-700">-₹{{ number_format((float) $projectedPos['additional_valid_allocation'], 2) }}</td>
+                    </tr>
+                    <tr>
+                        <td class="px-5 py-2.5 font-bold text-slate-900">Pending Verification</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-slate-600">₹{{ number_format((float) $currentPos['pending_verification'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono font-bold text-slate-600 bg-emerald-50/30">₹{{ number_format((float) $projectedPos['pending_verification'], 2) }}</td>
+                        <td class="px-5 py-2.5 text-right font-mono text-slate-400">—</td>
+                    </tr>
+                    <tr class="bg-slate-50/60 font-black">
+                        <td class="px-5 py-3 text-slate-900">Closing Position</td>
+                        <td class="px-5 py-3 text-right font-mono text-slate-900">₹{{ number_format((float) $currentPos['closing_position'], 2) }}</td>
+                        <td class="px-5 py-3 text-right font-mono text-slate-900 bg-emerald-100/40">₹{{ number_format((float) $projectedPos['closing_position'], 2) }}</td>
+                        <td class="px-5 py-3 text-right font-mono text-slate-400">—</td>
+                    </tr>
+                    <tr class="bg-slate-50/60 font-black">
+                        <td class="px-5 py-3 text-slate-900">Direction</td>
+                        <td class="px-5 py-3 text-right text-xs uppercase {{ $currentPos['direction'] === 'shop_owes_company' ? 'text-amber-700' : 'text-indigo-700' }}">
+                            {{ $currentPos['direction_label'] }}
+                        </td>
+                        <td class="px-5 py-3 text-right text-xs uppercase bg-emerald-100/40 {{ $projectedPos['direction'] === 'shop_owes_company' ? 'text-amber-700' : 'text-indigo-700' }}">
+                            {{ $projectedPos['direction_label'] }}
+                        </td>
+                        <td class="px-5 py-3 text-right text-xs text-slate-400">Audited Snapshot</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- 6. AVAILABLE ADVANCE CREDIT ──────────────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-amber-200/80 bg-amber-50/30 p-6 shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b border-amber-200/80 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-900 text-white text-xs font-black">D</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-900 text-white text-xs font-black">6</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-amber-950">
                     Available Company-Held Advance Credit
                 </h2>
@@ -353,12 +558,12 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION E: CARRY FORWARD TO NEXT MONTH ───────────────────────────── -->
+    <!-- 7. CARRY FORWARD TO NEXT MONTH ───────────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-900 bg-slate-900 text-white p-6 shadow-sm space-y-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-white text-slate-950 text-xs font-black">E</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-white text-slate-950 text-xs font-black">7</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-white">
                     Carry Forward to {{ strtoupper($carry['next_month_label']) }}
                 </h2>
@@ -408,7 +613,7 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- READ-ONLY DRILLDOWNS (TRACEABILITY) ──────────────────────────────── -->
+    <!-- READ-ONLY DRILLDOWNS (TRACEABILITY & ALLOCATION DETAILS) ──────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="space-y-6 pt-4">
         <h2 class="text-sm font-black uppercase tracking-wider text-slate-900 border-b border-slate-200 pb-2 flex items-center gap-2">
@@ -416,7 +621,127 @@
             <span>Read-Only Drilldown Details</span>
         </h2>
 
-        <!-- 1. Settlement Due Formula Items -->
+        <!-- 1. Allocation Pending / Unallocated Detail -->
+        <div id="drilldown-allocation-pending" class="rounded-3xl border border-amber-300 bg-amber-50/20 p-5 shadow-xs space-y-3">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-xs font-black uppercase tracking-wider text-amber-950 flex items-center gap-2">
+                        <i data-lucide="clock" class="h-4 w-4 text-amber-700"></i>
+                        <span>Allocation Pending / Unallocated Payments Detail ({{ count($drilldowns['allocation_pending_items']) }})</span>
+                    </h3>
+                    <p class="text-[11px] font-semibold text-slate-500 mt-0.5">
+                        Received &amp; verified payments with unallocated amounts available for potential allocation.
+                    </p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs bg-white rounded-2xl border border-amber-200 overflow-hidden">
+                    <thead class="bg-amber-100/60 text-[10px] font-black uppercase text-amber-900">
+                        <tr>
+                            <th class="px-3.5 py-2.5">Payment Date</th>
+                            <th class="px-3.5 py-2.5">Reference</th>
+                            <th class="px-3.5 py-2.5">Source / Method</th>
+                            <th class="px-3.5 py-2.5">Account</th>
+                            <th class="px-3.5 py-2.5 text-right">Received</th>
+                            <th class="px-3.5 py-2.5 text-right">Verified</th>
+                            <th class="px-3.5 py-2.5 text-right">Allocated</th>
+                            <th class="px-3.5 py-2.5 text-right">Unallocated</th>
+                            <th class="px-3.5 py-2.5 text-center">Status</th>
+                            <th class="px-3.5 py-2.5 text-right text-emerald-900 bg-emerald-50/60">Potential Allocation</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
+                        @forelse($drilldowns['allocation_pending_items'] as $item)
+                            <tr>
+                                <td class="px-3.5 py-2 text-slate-600 whitespace-nowrap">{{ $item['date'] }}</td>
+                                <td class="px-3.5 py-2 font-mono font-bold text-slate-900">{{ $item['reference'] }}</td>
+                                <td class="px-3.5 py-2 text-slate-700">{{ $item['source'] }}</td>
+                                <td class="px-3.5 py-2 text-slate-500">{{ $item['bank_or_cash'] }}</td>
+                                <td class="px-3.5 py-2 text-right font-mono text-slate-700">₹{{ number_format((float) $item['received_amount'], 2) }}</td>
+                                <td class="px-3.5 py-2 text-right font-mono font-bold text-emerald-700">₹{{ number_format((float) $item['verified_amount'], 2) }}</td>
+                                <td class="px-3.5 py-2 text-right font-mono text-slate-600">₹{{ number_format((float) $item['already_allocated'], 2) }}</td>
+                                <td class="px-3.5 py-2 text-right font-mono font-black text-amber-800">₹{{ number_format((float) $item['remaining_unallocated'], 2) }}</td>
+                                <td class="px-3.5 py-2 text-center">
+                                    <span class="rounded px-2 py-0.5 text-[9px] font-bold uppercase bg-emerald-100 text-emerald-900">
+                                        {{ $item['status'] }}
+                                    </span>
+                                </td>
+                                <td class="px-3.5 py-2 text-right font-mono font-black text-emerald-800 bg-emerald-50/40">
+                                    ₹{{ number_format((float) $item['potential_allocation'], 2) }}
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="10" class="p-4 text-center text-slate-400">No unallocated payments pending for this period.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 2. Outstanding Obligations Detail -->
+        <div id="drilldown-outstanding-obligations" class="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                        <i data-lucide="file-warning" class="h-4 w-4 text-slate-600"></i>
+                        <span>Outstanding Obligations Waiting for Allocation ({{ count($drilldowns['outstanding_obligations']) }})</span>
+                    </h3>
+                    <p class="text-[11px] font-semibold text-slate-500 mt-0.5">
+                        Month settlement transactions that have remaining unpaid / unallocated balances.
+                    </p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto max-h-80 overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500 sticky top-0">
+                        <tr>
+                            <th class="px-3.5 py-2.5">Business Date</th>
+                            <th class="px-3.5 py-2.5">Reference / Description</th>
+                            <th class="px-3.5 py-2.5">Entry Type</th>
+                            <th class="px-3.5 py-2.5 text-right">Original Amount</th>
+                            <th class="px-3.5 py-2.5 text-right">Already Allocated</th>
+                            <th class="px-3.5 py-2.5 text-right">Remaining Due</th>
+                            <th class="px-3.5 py-2.5 text-center">Status</th>
+                            <th class="px-3.5 py-2.5 text-right text-emerald-900 bg-emerald-50/60">Simulated Alloc.</th>
+                            <th class="px-3.5 py-2.5 text-right">Projected Remaining</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
+                        @forelse($drilldowns['outstanding_obligations'] as $ob)
+                            <tr>
+                                <td class="px-3.5 py-2 text-slate-600 whitespace-nowrap">{{ $ob['business_date'] }}</td>
+                                <td class="px-3.5 py-2 font-bold text-slate-900">{{ $ob['reference'] }}</td>
+                                <td class="px-3.5 py-2 text-slate-500">{{ $ob['entry_type'] }}</td>
+                                <td class="px-3.5 py-2 text-right font-mono text-slate-700">₹{{ number_format((float) $ob['original_amount'], 2) }}</td>
+                                <td class="px-3.5 py-2 text-right font-mono text-indigo-700">₹{{ number_format((float) $ob['already_allocated'], 2) }}</td>
+                                <td class="px-3.5 py-2 text-right font-mono font-bold text-rose-700">₹{{ number_format((float) $ob['remaining_due'], 2) }}</td>
+                                <td class="px-3.5 py-2 text-center">
+                                    <span class="rounded px-2 py-0.5 text-[9px] font-bold uppercase {{ $ob['status'] === 'Unallocated' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800' }}">
+                                        {{ $ob['status'] }}
+                                    </span>
+                                </td>
+                                <td class="px-3.5 py-2 text-right font-mono font-bold text-emerald-800 bg-emerald-50/40">
+                                    ₹{{ number_format((float) $ob['simulated_allocation'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-2 text-right font-mono font-bold text-slate-900">
+                                    ₹{{ number_format((float) $ob['projected_remaining'], 2) }}
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="9" class="p-4 text-center text-slate-400">All settlement obligations are fully allocated for this month.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 3. Settlement Due Formula Items -->
         <div id="drilldown-settlement-due" class="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3">
             <h3 class="text-xs font-black uppercase tracking-wider text-slate-800">
                 Settlement Due Formula Breakdown
@@ -453,22 +778,22 @@
             </div>
         </div>
 
-        <!-- 2. Payments Received -->
+        <!-- 4. Payments Received in Period -->
         <div id="drilldown-payments" class="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3">
             <h3 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                Payments Received in Period
+                Payments Received in Period ({{ count($drilldowns['payments']) }})
             </h3>
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto max-h-72 overflow-y-auto">
                 <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500 sticky top-0">
                         <tr>
                             <th class="px-3.5 py-2.5">Date</th>
                             <th class="px-3.5 py-2.5">Reference</th>
                             <th class="px-3.5 py-2.5">Method</th>
                             <th class="px-3.5 py-2.5">Account</th>
                             <th class="px-3.5 py-2.5 text-right">Amount</th>
-                            <th class="px-3.5 py-2.5 text-right">Allocated</th>
-                            <th class="px-3.5 py-2.5 text-right">Unallocated</th>
+                            <th class="px-3.5 py-2.5 text-right">Allocated (Month)</th>
+                            <th class="px-3.5 py-2.5 text-right">Unallocated (Month)</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
@@ -492,14 +817,14 @@
             </div>
         </div>
 
-        <!-- 3. Allocations Breakdown -->
+        <!-- 5. Allocations Breakdown -->
         <div id="drilldown-allocations" class="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3">
             <h3 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                Allocations Applied to Obligations
+                Allocations Applied to Month Obligations ({{ count($drilldowns['allocations']) }})
             </h3>
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto max-h-72 overflow-y-auto">
                 <table class="w-full text-left text-xs">
-                    <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500 sticky top-0">
                         <tr>
                             <th class="px-3.5 py-2.5">Obligation Date</th>
                             <th class="px-3.5 py-2.5">Obligation Item</th>
@@ -533,7 +858,7 @@
             </div>
         </div>
 
-        <!-- 4. GL Bills & Company Expenses -->
+        <!-- 6. GL Bills & Company Expenses -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div id="drilldown-gl-bills" class="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-xs space-y-3">
                 <h3 class="text-xs font-black uppercase tracking-wider text-slate-800">

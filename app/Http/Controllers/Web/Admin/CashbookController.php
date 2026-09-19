@@ -1042,13 +1042,24 @@ final class CashbookController extends Controller
         $search = $request->input('search');
         $paymentMethod = $request->input('payment_method');
 
+        $monthStart = $month ? Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString() : null;
+        $monthEnd = $month ? Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString() : null;
+        $targetMonth = $month ?: now()->format('Y-m');
+        $effectiveMonthStart = Carbon::parse($targetMonth.'-01')->startOfMonth()->toDateString();
+        $effectiveMonthEnd = Carbon::parse($targetMonth.'-01')->endOfMonth()->toDateString();
+
         $query = ShopInvoicePaymentRequest::query()
-            ->with(['reconciliations.companyAccount', 'reconciliations.statementEntry', 'ledgerAllocations.ledgerTransaction.entryType', 'requestedBy'])
+            ->with([
+                'reconciliations.companyAccount',
+                'reconciliations.statementEntry',
+                'ledgerAllocations.ledgerTransaction.entryType',
+                'ledgerAllocations.reconciledBy',
+                'companyExpenseAllocations.ledgerTransaction.entryType',
+                'requestedBy',
+            ])
             ->where('shop_id', $shopId);
 
-        if ($month) {
-            $monthStart = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
-            $monthEnd = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
+        if ($monthStart && $monthEnd) {
             $query->whereBetween('payment_date', [$monthStart, $monthEnd]);
         }
 
@@ -1067,7 +1078,123 @@ final class CashbookController extends Controller
         $payments = $query->latest('payment_date')->latest('id')->paginate(20)->withQueryString();
         $payments->through(fn (ShopInvoicePaymentRequest $payment): ShopInvoicePaymentRequest => $this->enrichShopPaymentModel($payment, $shopId));
 
-        return view('admin.cashbook.shops.history.payments', compact('shops', 'currentShop', 'payments', 'companyAccounts', 'month', 'search', 'paymentMethod'));
+        // ── Period Summary & Allocation Metrics ─────────────────────────────
+        $periodPaymentQuery = ShopInvoicePaymentRequest::query()
+            ->with([
+                'reconciliations.companyAccount',
+                'reconciliations.statementEntry',
+                'ledgerAllocations.ledgerTransaction.entryType',
+                'ledgerAllocations.reconciledBy',
+            ])
+            ->where('shop_id', $shopId)
+            ->whereNotIn('status', ['rejected', 'cancelled']);
+
+        if ($monthStart && $monthEnd) {
+            $periodPaymentQuery->where(function (Builder $q) use ($monthStart, $monthEnd): void {
+                $q->whereBetween('payment_date', [$monthStart, $monthEnd])
+                    ->orWhere(function (Builder $q2) use ($monthStart, $monthEnd): void {
+                        $q2->whereNull('payment_date')
+                            ->whereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+                    });
+            });
+        }
+
+        $periodPayments = $periodPaymentQuery->get();
+
+        $totalPaymentAmount = round((float) $periodPayments->sum(function (ShopInvoicePaymentRequest $p): float {
+            return (float) $this->shopPaymentLedgerReconciliationService->resolvePaymentAmount($p);
+        }), 2);
+
+        $shopToCompanyAllocated = round((float) ShopPaymentLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->where('status', 'active')
+            ->when($monthStart && $monthEnd, function (Builder $q) use ($monthStart, $monthEnd): void {
+                $q->where(function (Builder $sub) use ($monthStart, $monthEnd): void {
+                    $sub->whereHas('paymentRequest', fn (Builder $p) => $p->whereBetween('payment_date', [$monthStart, $monthEnd]))
+                        ->orWhereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+                });
+            })
+            ->sum('amount'), 2);
+
+        $companyToShopAllocated = round((float) CompanyExpenseLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->where('status', 'active')
+            ->when($monthStart && $monthEnd, fn (Builder $q) => $q->whereBetween('allocation_date', [$monthStart, $monthEnd]))
+            ->sum('allocated_amount'), 2);
+
+        $allocatedAmount = $shopToCompanyAllocated;
+        $unallocatedAmount = round(max(0, $totalPaymentAmount - $allocatedAmount), 2);
+
+        $allocationCount = (int) ShopPaymentLedgerAllocation::query()
+            ->where('shop_id', $shopId)
+            ->where('status', 'active')
+            ->when($monthStart && $monthEnd, function (Builder $q) use ($monthStart, $monthEnd): void {
+                $q->where(function (Builder $sub) use ($monthStart, $monthEnd): void {
+                    $sub->whereHas('paymentRequest', fn (Builder $p) => $p->whereBetween('payment_date', [$monthStart, $monthEnd]))
+                        ->orWhereBetween('created_at', [$monthStart.' 00:00:00', $monthEnd.' 23:59:59']);
+                });
+            })
+            ->count()
+            + (int) CompanyExpenseLedgerAllocation::query()
+                ->where('shop_id', $shopId)
+                ->where('status', 'active')
+                ->when($monthStart && $monthEnd, fn (Builder $q) => $q->whereBetween('allocation_date', [$monthStart, $monthEnd]))
+                ->count();
+
+        $allocationSummary = [
+            'total_payment_amount' => $totalPaymentAmount,
+            'allocated_amount' => $allocatedAmount,
+            'unallocated_amount' => $unallocatedAmount,
+            'company_to_shop_allocated' => $companyToShopAllocated,
+            'shop_to_company_allocated' => $shopToCompanyAllocated,
+            'allocation_count' => $allocationCount,
+        ];
+
+        // ── Unallocated / Partially Allocated Payments ──────────────────────
+        $unallocatedPayments = $periodPayments
+            ->map(function (ShopInvoicePaymentRequest $payment) use ($shopId): ?ShopInvoicePaymentRequest {
+                $enriched = $this->enrichShopPaymentModel($payment, $shopId);
+
+                return $enriched->unallocated_amount_calc > 0.01 ? $enriched : null;
+            })
+            ->filter()
+            ->sortByDesc(fn (ShopInvoicePaymentRequest $p): int => $p->payment_date ? $p->payment_date->timestamp : $p->created_at->timestamp)
+            ->values();
+
+        // ── Auto Allocate Data & Status ─────────────────────────────────────
+        $openSettlementTransactions = $this->shopPaymentLedgerReconciliationService->getOpenDailySettlements($shopId, $targetMonth);
+        $bulkEligiblePayments = $this->bulkEligibleShopPayments($shopId, $effectiveMonthStart, $effectiveMonthEnd);
+        $autoAllocateConfig = app(ShopSettlementService::class)->expenseAllocationConfiguration($currentShop);
+        $autoAllocateEnabled = (bool) ($autoAllocateConfig['auto_allocate'] ?? false);
+
+        $bulkEligibleAmount = round((float) collect($bulkEligiblePayments)->sum('unallocated'), 2);
+        $bulkSettlementOutstanding = round((float) collect($openSettlementTransactions)->sum('remaining_due'), 2);
+        $bulkProposedTotal = round(min($bulkEligibleAmount, $bulkSettlementOutstanding), 2);
+
+        $autoAllocateProposal = [
+            'target_month' => $targetMonth,
+            'eligible_amount' => $bulkEligibleAmount,
+            'settlement_outstanding' => $bulkSettlementOutstanding,
+            'proposed_total' => $bulkProposedTotal,
+            'eligible_count' => count($bulkEligiblePayments),
+            'settlement_count' => count($openSettlementTransactions),
+        ];
+
+        return view('admin.cashbook.shops.history.payments', compact(
+            'shops',
+            'currentShop',
+            'payments',
+            'companyAccounts',
+            'month',
+            'search',
+            'paymentMethod',
+            'allocationSummary',
+            'unallocatedPayments',
+            'openSettlementTransactions',
+            'bulkEligiblePayments',
+            'autoAllocateProposal',
+            'autoAllocateEnabled',
+        ));
     }
 
     /**

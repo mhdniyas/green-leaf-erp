@@ -17,7 +17,10 @@ use Illuminate\Support\Facades\DB;
 
 class ShopSettlementService
 {
-    public function __construct(private readonly RelationSettlementCalculator $calculator) {}
+    public function __construct(
+        private readonly RelationSettlementCalculator $calculator,
+        private readonly ShopAccountingOpeningService $openingService = new ShopAccountingOpeningService,
+    ) {}
 
     public function ensureDefaults(ShopLedgerProfile|Shop $profileOrShop): void
     {
@@ -1247,12 +1250,28 @@ class ShopSettlementService
         $expensesPaid = round($expensesPaid, 2);
 
         // 6. Calculate Opening Shop Position
-        $previousSnapshot = ShopDailyLedgerSnapshot::query()
-            ->where('shop_id', $shopId)
-            ->where('business_date', '<', $startDate)
-            ->orderByDesc('business_date')
-            ->first();
-        $openingShopPosition = (float) ($previousSnapshot?->closing_shop_position ?? 0.0);
+        $openingRecord = $this->openingService->getOpeningForDate($shopId, $startDate);
+        $accountingStartDate = $this->openingService->getAccountingStartDate($shopId);
+        $isPreOpening = $this->openingService->isPreOpening($shopId, $startDate);
+
+        if (! $isPreOpening && $startDate === $accountingStartDate) {
+            $openingShopPosition = $openingRecord ? $openingRecord->getSignedShopCompanyBalance() : 0.0;
+        } elseif (! $isPreOpening) {
+            $previousSnapshot = ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', '>=', $accountingStartDate)
+                ->where('business_date', '<', $startDate)
+                ->orderByDesc('business_date')
+                ->first();
+            $openingShopPosition = (float) ($previousSnapshot?->closing_shop_position ?? ($openingRecord ? $openingRecord->getSignedShopCompanyBalance() : 0.0));
+        } else {
+            $previousSnapshot = ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', '<', $startDate)
+                ->orderByDesc('business_date')
+                ->first();
+            $openingShopPosition = (float) ($previousSnapshot?->closing_shop_position ?? 0.0);
+        }
 
         // 7. Calculate Correct Shop Balance: Money Kept by Shop - (Expenses Paid + Manual Remittances Received)
         $shopBalance = round($openingShopPosition + $moneyKeptByShop - $expensesPaid - $manualReceived, 2);
@@ -1283,6 +1302,7 @@ class ShopSettlementService
             if (! empty($txIds)) {
                 $allocationsByTx = ShopPaymentLedgerAllocation::query()
                     ->where('shop_id', $shopId)
+                    ->where('status', 'active')
                     ->whereIn('shop_ledger_transaction_id', $txIds)
                     ->selectRaw('shop_ledger_transaction_id, SUM(amount) as total_allocated')
                     ->groupBy('shop_ledger_transaction_id')

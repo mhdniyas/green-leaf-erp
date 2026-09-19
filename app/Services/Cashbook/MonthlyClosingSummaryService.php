@@ -23,19 +23,14 @@ final class MonthlyClosingSummaryService
         private readonly ShopFinancialReportService $financialReportService,
         private readonly ShopSettlementService $settlementService,
         private readonly CashbookShopSyncService $shopSyncService,
+        private readonly ShopPaymentLedgerReconciliationService $reconciliationService,
+        private readonly ShopAccountingOpeningService $openingService = new ShopAccountingOpeningService,
     ) {}
 
     /**
-     * Get read-only monthly closing summary for all active shops.
-     * Zero DB mutations.
-     *
-     * @return array{
-     *     month: string,
-     *     formatted_month: string,
-     *     shops: array<int, array<string, mixed>>,
-    /**
      * Get all active client shop ledger profiles only.
      * Excludes internal, warehouse, test, direct-buyer, and inactive shops.
+     *
      * @return Collection<int, ShopLedgerProfile>
      */
     public function getActiveClientProfiles(): Collection
@@ -106,8 +101,6 @@ final class MonthlyClosingSummaryService
     public function getAllShopsSummary(string $month): array
     {
         $monthCarbon = Carbon::createFromFormat('Y-m', $month);
-        $prevMonthEnd = $monthCarbon->copy()->subMonth()->endOfMonth()->toDateString();
-
         $profiles = $this->getActiveClientProfiles();
 
         $rows = [];
@@ -116,10 +109,12 @@ final class MonthlyClosingSummaryService
             'settlement_due' => 0.0,
             'received' => 0.0,
             'allocated' => 0.0,
+            'allocation_pending' => 0.0,
+            'pending_verification' => 0.0,
+            'projected_allocated' => 0.0,
             'closing_physical_net' => 0.0,
             'opening_available_credit' => 0.0,
             'closing_available_credit' => 0.0,
-            'pending_verification' => 0.0,
         ];
 
         foreach ($profiles as $profile) {
@@ -142,7 +137,12 @@ final class MonthlyClosingSummaryService
                 'client_name' => $profile->client?->name,
                 'is_direct' => $profile->client_id === null && $profile->profile_template === 'direct_buyer',
                 'opening' => $detail['opening'],
+                'opening_balance' => $openingPhys,
+                'opening_direction' => $openingDir,
+                'opening_direction_label' => (string) ($detail['opening']['direction_label'] ?? 'Settled'),
                 'activity' => $detail['activity'],
+                'current_position' => $detail['current_position'],
+                'projected_position' => $detail['projected_position'],
                 'closing' => $detail['closing'],
                 'credit' => $detail['credit'],
                 'status' => $detail['status'],
@@ -151,11 +151,13 @@ final class MonthlyClosingSummaryService
             $totals['opening_physical_net'] += $openingNet;
             $totals['settlement_due'] += (float) ($detail['activity']['settlement_due'] ?? 0.0);
             $totals['received'] += (float) ($detail['activity']['company_received'] ?? 0.0);
-            $totals['allocated'] += (float) ($detail['activity']['allocated_this_month'] ?? 0.0);
+            $totals['allocated'] += (float) ($detail['current_position']['already_allocated'] ?? 0.0);
+            $totals['allocation_pending'] += (float) ($detail['current_position']['allocation_pending'] ?? 0.0);
+            $totals['pending_verification'] += (float) ($detail['current_position']['pending_verification'] ?? 0.0);
+            $totals['projected_allocated'] += (float) ($detail['projected_position']['projected_total_allocated'] ?? 0.0);
             $totals['closing_physical_net'] += $closingNet;
             $totals['opening_available_credit'] += (float) ($detail['credit']['opening_available_credit'] ?? 0.0);
             $totals['closing_available_credit'] += (float) ($detail['credit']['closing_available_credit'] ?? 0.0);
-            $totals['pending_verification'] += (float) ($detail['activity']['pending_verification'] ?? 0.0);
         }
 
         return [
@@ -190,14 +192,33 @@ final class MonthlyClosingSummaryService
         $nextMonthLabel = $monthCarbon->copy()->addMonth()->format('F Y');
 
         // ── 1. Read-Only Physical Position from Snapshots (No Recalculation!) ──
-        $openingSnapshot = ShopDailyLedgerSnapshot::query()
-            ->where('shop_id', $shopId)
-            ->where('business_date', '<=', $prevMonthEnd)
-            ->orderByDesc('business_date')
-            ->orderByDesc('id')
-            ->first();
+        $accountingStartDate = $this->openingService->getAccountingStartDate($shopId);
+        $openingRecord = $this->openingService->getOpeningForDate($shopId, $startDate);
+        $isPreOpening = $this->openingService->isPreOpeningMonth($shopId, $month);
 
-        $openingPhysicalPosRaw = (float) ($openingSnapshot?->closing_shop_position ?? 0.0);
+        if (! $isPreOpening && $accountingStartDate !== null && $startDate === $accountingStartDate) {
+            $openingPhysicalPosRaw = $openingRecord ? $openingRecord->getSignedShopCompanyBalance() : 0.0;
+        } elseif (! $isPreOpening && $accountingStartDate !== null) {
+            $openingSnapshot = ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', '>=', $accountingStartDate)
+                ->where('business_date', '<=', $prevMonthEnd)
+                ->orderByDesc('business_date')
+                ->orderByDesc('id')
+                ->first();
+
+            $openingPhysicalPosRaw = (float) ($openingSnapshot?->closing_shop_position ?? 0.0);
+        } else {
+            $openingSnapshot = ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', '<=', $prevMonthEnd)
+                ->orderByDesc('business_date')
+                ->orderByDesc('id')
+                ->first();
+
+            $openingPhysicalPosRaw = (float) ($openingSnapshot?->closing_shop_position ?? 0.0);
+        }
+
         $openingPhysicalPos = round(abs($openingPhysicalPosRaw), 2);
         $openingDirection = match (true) {
             $openingPhysicalPosRaw > 0.0001 => 'shop_owes_company',
@@ -212,6 +233,7 @@ final class MonthlyClosingSummaryService
 
         $closingSnapshot = ShopDailyLedgerSnapshot::query()
             ->where('shop_id', $shopId)
+            ->when(! $isPreOpening && $accountingStartDate !== null, fn (Builder $q) => $q->where('business_date', '>=', $accountingStartDate))
             ->where('business_date', '<=', $endDate)
             ->orderByDesc('business_date')
             ->orderByDesc('id')
@@ -296,11 +318,12 @@ final class MonthlyClosingSummaryService
             ->filter(fn ($t) => in_array($t->funding_source, ['sales', 'shop_cash'], true) && ($t->direction === 'expense' || $t->entryType?->category === 'expense') && $t->entryType?->code !== 'shop_paid_company')
             ->sum('amount'), 2);
 
-        // ── 3. Allocation Two-Date Classification & Credit Math ───────────────
-        // Target Month Allocations: All allocations against Month M obligations
+        // ── 3. Allocation Classification & Credit Math ────────────────────────
+        // Target Month Allocations: All active allocations against Month M obligations
         $allocationsThisMonth = ShopPaymentLedgerAllocation::query()
             ->with(['paymentRequest', 'ledgerTransaction.entryType', 'reconciledBy'])
             ->where('shop_id', $shopId)
+            ->where('status', 'active')
             ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->whereBetween('business_date', [$startDate, $endDate]))
             ->get();
 
@@ -328,33 +351,69 @@ final class MonthlyClosingSummaryService
         $previousCreditUtilizedThisMonth = round($previousCreditUtilizedThisMonth, 2);
 
         // Prior Total Payments vs Prior Total Allocations for Opening Available Credit
-        $priorPayments = ShopInvoicePaymentRequest::query()
-            ->where('shop_id', $shopId)
-            ->whereIn('status', ['approved', 'verified'])
-            ->where(function (Builder $query) use ($startDate): void {
-                $query->where('payment_date', '<', $startDate)
-                    ->orWhere(function (Builder $q2) use ($startDate): void {
-                        $q2->whereNull('payment_date')->where('created_at', '<', $startDate.' 00:00:00');
-                    });
-            })
-            ->get();
+        if (! $isPreOpening && $accountingStartDate !== null && $startDate === $accountingStartDate) {
+            $openingAvailableCredit = $openingRecord ? (float) $openingRecord->opening_allocation_pending : 0.0;
+        } elseif (! $isPreOpening && $accountingStartDate !== null) {
+            $priorPayments = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $shopId)
+                ->whereIn('status', ['approved', 'verified'])
+                ->where(function (Builder $query) use ($startDate, $accountingStartDate): void {
+                    $query->whereBetween('payment_date', [$accountingStartDate, Carbon::parse($startDate)->subDay()->toDateString()])
+                        ->orWhere(function (Builder $q2) use ($startDate, $accountingStartDate): void {
+                            $q2->whereNull('payment_date')
+                                ->whereBetween('created_at', [$accountingStartDate.' 00:00:00', Carbon::parse($startDate)->subDay()->toDateString().' 23:59:59']);
+                        });
+                })
+                ->get();
 
-        $priorPaymentsTotal = round((float) ($priorPayments->sum('approved_amount') ?: $priorPayments->sum('requested_amount')), 2)
-            + round((float) CompanyAccountStatementEntry::query()
-                ->where('source_type', ShopLedgerTransaction::class)
-                ->whereHasMorph('sourceRecord', [ShopLedgerTransaction::class], fn (Builder $q): Builder => $q->where('shop_id', $shopId))
-                ->where('direction', 'in')
-                ->where('status', 'reconciled')
-                ->whereNotIn('id', $reconciledStatementIds)
-                ->where('transaction_date', '<', $startDate)
+            $priorPaymentsTotal = round((float) ($priorPayments->sum('approved_amount') ?: $priorPayments->sum('requested_amount')), 2)
+                + round((float) CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->whereHasMorph('sourceRecord', [ShopLedgerTransaction::class], fn (Builder $q): Builder => $q->where('shop_id', $shopId))
+                    ->where('direction', 'in')
+                    ->where('status', 'reconciled')
+                    ->whereNotIn('id', $reconciledStatementIds)
+                    ->whereBetween('transaction_date', [$accountingStartDate, Carbon::parse($startDate)->subDay()->toDateString()])
+                    ->sum('amount'), 2);
+
+            $priorAllocationsTotal = round((float) ShopPaymentLedgerAllocation::query()
+                ->where('shop_id', $shopId)
+                ->where('status', 'active')
+                ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->whereBetween('business_date', [$accountingStartDate, Carbon::parse($startDate)->subDay()->toDateString()]))
                 ->sum('amount'), 2);
 
-        $priorAllocationsTotal = round((float) ShopPaymentLedgerAllocation::query()
-            ->where('shop_id', $shopId)
-            ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->where('business_date', '<', $startDate))
-            ->sum('amount'), 2);
+            $openingAvailableCredit = max(0.0, round($priorPaymentsTotal - $priorAllocationsTotal, 2));
+        } else {
+            // Historical pre-opening period calculation
+            $priorPayments = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $shopId)
+                ->whereIn('status', ['approved', 'verified'])
+                ->where(function (Builder $query) use ($startDate): void {
+                    $query->where('payment_date', '<', $startDate)
+                        ->orWhere(function (Builder $q2) use ($startDate): void {
+                            $q2->whereNull('payment_date')->where('created_at', '<', $startDate.' 00:00:00');
+                        });
+                })
+                ->get();
 
-        $openingAvailableCredit = max(0.0, round($priorPaymentsTotal - $priorAllocationsTotal, 2));
+            $priorPaymentsTotal = round((float) ($priorPayments->sum('approved_amount') ?: $priorPayments->sum('requested_amount')), 2)
+                + round((float) CompanyAccountStatementEntry::query()
+                    ->where('source_type', ShopLedgerTransaction::class)
+                    ->whereHasMorph('sourceRecord', [ShopLedgerTransaction::class], fn (Builder $q): Builder => $q->where('shop_id', $shopId))
+                    ->where('direction', 'in')
+                    ->where('status', 'reconciled')
+                    ->whereNotIn('id', $reconciledStatementIds)
+                    ->where('transaction_date', '<', $startDate)
+                    ->sum('amount'), 2);
+
+            $priorAllocationsTotal = round((float) ShopPaymentLedgerAllocation::query()
+                ->where('shop_id', $shopId)
+                ->where('status', 'active')
+                ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->where('business_date', '<', $startDate))
+                ->sum('amount'), 2);
+
+            $openingAvailableCredit = max(0.0, round($priorPaymentsTotal - $priorAllocationsTotal, 2));
+        }
 
         // New Credit Created This Month from current month unallocated receipts
         $newCreditCreatedThisMonth = max(0.0, round($companyReceivedThisMonth - $currentPaymentsAllocatedThisMonth, 2));
@@ -362,40 +421,153 @@ final class MonthlyClosingSummaryService
         // Closing Available Credit
         $closingAvailableCredit = max(0.0, round($openingAvailableCredit + $newCreditCreatedThisMonth - $previousCreditUtilizedThisMonth, 2));
 
-        // ── 4. Month Status ──────────────────────────────────────────────────
+        // ── 4. Open Settlement Obligations & Projected Valid Allocation ────────
+        $openSettlementTransactions = $this->reconciliationService->getOpenDailySettlements($shopId, $month);
+        $openObligationsDue = round((float) $openSettlementTransactions->sum('remaining_due'), 2);
+
+        // Additional valid allocation available is capped by available unallocated money and outstanding obligations
+        $eligibleUnallocatedMoney = $closingAvailableCredit;
+        $additionalValidAllocation = min($eligibleUnallocatedMoney, $openObligationsDue);
+        $projectedTotalAllocated = round($totalAllocatedThisMonth + $additionalValidAllocation, 2);
+        $remainingUnallocatedCredit = max(0.0, round($eligibleUnallocatedMoney - $additionalValidAllocation, 2));
+
+        // ── 5. CURRENT POSITION vs PROJECTED POSITION Datasets ─────────────────
+        $currentPosition = [
+            'settlement_due' => $settlementDue,
+            'company_received' => $companyReceivedThisMonth,
+            'already_allocated' => $totalAllocatedThisMonth,
+            'allocation_pending' => $newCreditCreatedThisMonth,
+            'total_unallocated_credit' => $closingAvailableCredit,
+            'pending_verification' => $pendingVerification,
+            'closing_position' => $closingPhysicalPos,
+            'direction' => $closingDirection,
+            'direction_label' => $closingDirectionLabel,
+            'open_obligations_due' => $openObligationsDue,
+        ];
+
+        $projectedPosition = [
+            'settlement_due' => $settlementDue,
+            'company_received' => $companyReceivedThisMonth,
+            'already_allocated' => $totalAllocatedThisMonth,
+            'additional_valid_allocation' => $additionalValidAllocation,
+            'projected_total_allocated' => $projectedTotalAllocated,
+            'remaining_unallocated_credit' => $remainingUnallocatedCredit,
+            'pending_verification' => $pendingVerification,
+            'closing_position' => $closingPhysicalPos,
+            'direction' => $closingDirection,
+            'direction_label' => $closingDirectionLabel,
+            'open_obligations_due' => $openObligationsDue,
+            'projected_remaining_obligations' => max(0.0, round($openObligationsDue - $additionalValidAllocation, 2)),
+        ];
+
+        // ── 6. Month Status ──────────────────────────────────────────────────
         $statusKey = match (true) {
             $pendingVerification > 0.01 => 'pending_verification',
-            $closingAvailableCredit > 0.01 => 'has_available_credit',
-            default => 'complete',
+            $newCreditCreatedThisMonth > 0.01 || $openingAvailableCredit > 0.01 => 'allocation_pending',
+            $openObligationsDue <= 0.01 || ($openObligationsDue - $additionalValidAllocation) <= 0.01 => 'settled',
+            default => 'ready_to_settle',
         };
 
         $statusLabel = match ($statusKey) {
             'pending_verification' => 'Pending Verification',
-            'has_available_credit' => 'Has Available Credit',
-            default => 'Complete',
+            'allocation_pending' => 'Allocation Pending',
+            'settled' => 'Settled',
+            'ready_to_settle' => 'Ready to Settle',
         };
 
         $statusBadgeColor = match ($statusKey) {
             'pending_verification' => 'sky',
-            'has_available_credit' => 'amber',
-            default => 'emerald',
+            'allocation_pending' => 'amber',
+            'settled' => 'emerald',
+            'ready_to_settle' => 'indigo',
         };
 
-        // ── 5. Drilldown Datasets (Read-Only) ────────────────────────────────
+        // ── 7. Drilldown Datasets (Read-Only) ────────────────────────────────
+        // A. Allocation Pending Items
+        $allocationPendingItems = $paymentRequests
+            ->filter(function (ShopInvoicePaymentRequest $p) use ($startDate, $endDate): bool {
+                if (! in_array($p->status, ['approved', 'verified'], true)) {
+                    return false;
+                }
+                $verifiedAmt = (float) ($p->approved_amount > 0 ? $p->approved_amount : $p->requested_amount);
+                $allocThisMonth = (float) $p->ledgerAllocations
+                    ->filter(fn ($a) => ($a->status ?? 'active') === 'active' && $a->ledgerTransaction && $a->ledgerTransaction->business_date >= $startDate && $a->ledgerTransaction->business_date <= $endDate)
+                    ->sum('amount');
+                $unalloc = max(0.0, $verifiedAmt - $allocThisMonth);
+
+                return $unalloc > 0.001;
+            })
+            ->map(function (ShopInvoicePaymentRequest $p) use ($startDate, $endDate, $openObligationsDue): array {
+                $receivedAmt = round((float) $p->requested_amount, 2);
+                $verifiedAmt = round((float) ($p->approved_amount > 0 ? $p->approved_amount : $p->requested_amount), 2);
+                $alreadyAlloc = round((float) $p->ledgerAllocations
+                    ->filter(fn ($a) => ($a->status ?? 'active') === 'active' && $a->ledgerTransaction && $a->ledgerTransaction->business_date >= $startDate && $a->ledgerTransaction->business_date <= $endDate)
+                    ->sum('amount'), 2);
+                $unalloc = round(max(0, $verifiedAmt - $alreadyAlloc), 2);
+                $potentialAlloc = min($unalloc, $openObligationsDue);
+
+                return [
+                    'id' => $p->id,
+                    'date' => $p->payment_date ? Carbon::parse($p->payment_date)->format('d M Y') : $p->created_at->format('d M Y'),
+                    'raw_date' => $p->payment_date?->toDateString() ?? $p->created_at->toDateString(),
+                    'reference' => (string) ($p->payment_reference ?: 'PAY-'.$p->id),
+                    'received_amount' => $receivedAmt,
+                    'verified_amount' => $verifiedAmt,
+                    'already_allocated' => $alreadyAlloc,
+                    'remaining_unallocated' => $unalloc,
+                    'source' => ucfirst((string) ($p->payment_method ?: 'cash')),
+                    'bank_or_cash' => $p->reconciliations->first()?->companyAccount?->name ?? (ucfirst((string) ($p->payment_method ?: 'cash'))),
+                    'status' => ucfirst((string) $p->status),
+                    'potential_allocation' => $potentialAlloc,
+                ];
+            })->values()->all();
+
+        // B. Outstanding Obligations
+        $remPool = $eligibleUnallocatedMoney;
+        $outstandingObligationItems = $openSettlementTransactions->map(function (array $st) use (&$remPool): array {
+            $remainingDue = (float) ($st['remaining_due'] ?? 0.0);
+            $simAlloc = round(min($remPool, $remainingDue), 2);
+            $remPool = max(0.0, round($remPool - $simAlloc, 2));
+
+            return [
+                'id' => $st['id'],
+                'business_date' => $st['formatted_date'],
+                'raw_date' => $st['business_date'],
+                'reference' => $st['entry_name'],
+                'entry_type' => $st['entry_name'],
+                'original_amount' => round((float) $st['original_amount'], 2),
+                'already_allocated' => round((float) $st['already_allocated'], 2),
+                'remaining_due' => round($remainingDue, 2),
+                'status' => (float) $st['already_allocated'] > 0.001 ? 'Partially Allocated' : 'Unallocated',
+                'simulated_allocation' => $simAlloc,
+                'projected_remaining' => round(max(0.0, $remainingDue - $simAlloc), 2),
+            ];
+        })->values()->all();
+
         $drilldowns = [
             'settlement_due_items' => ($payableCalculation['items'] ?? []),
-            'payments' => $paymentRequests->map(fn (ShopInvoicePaymentRequest $p): array => [
-                'id' => $p->id,
-                'date' => $p->payment_date ? Carbon::parse($p->payment_date)->format('d M Y') : $p->created_at->format('d M Y'),
-                'raw_date' => $p->payment_date?->toDateString() ?? $p->created_at->toDateString(),
-                'reference' => (string) ($p->payment_reference ?: 'PAY-'.$p->id),
-                'method' => ucfirst((string) ($p->payment_method ?: 'cash')),
-                'amount' => round((float) ($p->status === 'approved' && $p->approved_amount > 0 ? $p->approved_amount : $p->requested_amount), 2),
-                'allocated' => round((float) $p->ledgerAllocations->sum('amount'), 2),
-                'unallocated' => round(max(0, (float) ($p->status === 'approved' && $p->approved_amount > 0 ? $p->approved_amount : $p->requested_amount) - (float) $p->ledgerAllocations->sum('amount')), 2),
-                'status' => $p->status,
-                'account' => $p->reconciliations->first()?->companyAccount?->name ?? '—',
-            ])->values()->all(),
+            'payments' => $paymentRequests->map(function (ShopInvoicePaymentRequest $p) use ($startDate, $endDate): array {
+                $verifiedAmt = round((float) ($p->status === 'approved' && $p->approved_amount > 0 ? $p->approved_amount : $p->requested_amount), 2);
+                $allocatedThisMonth = round((float) $p->ledgerAllocations
+                    ->filter(fn ($a) => ($a->status ?? 'active') === 'active' && $a->ledgerTransaction && $a->ledgerTransaction->business_date >= $startDate && $a->ledgerTransaction->business_date <= $endDate)
+                    ->sum('amount'), 2);
+                $unallocatedThisMonth = round(max(0, $verifiedAmt - $allocatedThisMonth), 2);
+
+                return [
+                    'id' => $p->id,
+                    'date' => $p->payment_date ? Carbon::parse($p->payment_date)->format('d M Y') : $p->created_at->format('d M Y'),
+                    'raw_date' => $p->payment_date?->toDateString() ?? $p->created_at->toDateString(),
+                    'reference' => (string) ($p->payment_reference ?: 'PAY-'.$p->id),
+                    'method' => ucfirst((string) ($p->payment_method ?: 'cash')),
+                    'amount' => $verifiedAmt,
+                    'allocated' => $allocatedThisMonth,
+                    'unallocated' => $unallocatedThisMonth,
+                    'status' => $p->status,
+                    'account' => $p->reconciliations->first()?->companyAccount?->name ?? '—',
+                ];
+            })->values()->all(),
+            'allocation_pending_items' => $allocationPendingItems,
+            'outstanding_obligations' => $outstandingObligationItems,
             'allocations' => $allocationsThisMonth->map(fn (ShopPaymentLedgerAllocation $a): array => [
                 'id' => $a->id,
                 'amount' => round((float) $a->amount, 2),
@@ -435,6 +607,8 @@ final class MonthlyClosingSummaryService
                 'end_date' => $endDate,
                 'next_month' => $nextMonthStr,
                 'next_month_label' => $nextMonthLabel,
+                'is_pre_opening' => $isPreOpening,
+                'accounting_start_date' => $accountingStartDate,
             ],
             'opening' => [
                 'physical_position' => $openingPhysicalPos,
@@ -456,6 +630,8 @@ final class MonthlyClosingSummaryService
                 'new_unallocated_credit' => $newCreditCreatedThisMonth,
                 'pending_verification' => $pendingVerification,
             ],
+            'current_position' => $currentPosition,
+            'projected_position' => $projectedPosition,
             'closing' => [
                 'physical_position' => $closingPhysicalPos,
                 'direction' => $closingDirection,

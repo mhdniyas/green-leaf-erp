@@ -80,22 +80,22 @@
             <span class="mt-0.5 block text-[10px] font-semibold text-emerald-600">Verified receipts</span>
         </div>
 
-        <!-- Allocated This Month -->
+        <!-- Allocated To Month -->
         <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
-            <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Allocated To Month</span>
+            <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Already Allocated</span>
             <span class="mt-1 block font-mono text-lg sm:text-xl font-bold text-indigo-700">
                 ₹{{ number_format((float) ($summary['grand_totals']['allocated'] ?? 0), 2) }}
             </span>
-            <span class="mt-0.5 block text-[10px] font-semibold text-indigo-600">Matched to obligations</span>
+            <span class="mt-0.5 block text-[10px] font-semibold text-indigo-600">Current DB allocations</span>
         </div>
 
-        <!-- Available Advance Credit -->
+        <!-- Allocation Pending -->
         <div class="rounded-2xl border border-amber-200/80 bg-amber-50/40 p-4 shadow-xs">
-            <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">Available Credit</span>
+            <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">Allocation Pending</span>
             <span class="mt-1 block font-mono text-lg sm:text-xl font-bold text-amber-950">
-                ₹{{ number_format((float) ($summary['grand_totals']['closing_available_credit'] ?? 0), 2) }}
+                ₹{{ number_format((float) ($summary['grand_totals']['allocation_pending'] ?? 0), 2) }}
             </span>
-            <span class="mt-0.5 block text-[10px] font-semibold text-amber-700">Company-held advance</span>
+            <span class="mt-0.5 block text-[10px] font-semibold text-amber-700">Unallocated verified money</span>
         </div>
 
         <!-- Pending Verification -->
@@ -128,11 +128,11 @@
                     <span>All Shops Closing Matrix</span>
                 </h2>
                 <p class="text-xs font-semibold text-slate-500 mt-0.5">
-                    Click any shop row to view detailed breakdown, credit timeline, and read-only drilldowns.
+                    Click any shop row to view detailed Current vs Projected positions, credit timeline, and read-only drilldowns.
                 </p>
             </div>
             <span class="rounded-full bg-slate-200/70 px-3 py-1 text-xs font-bold text-slate-700">
-                {{ count($summary['shops']) }} Shops
+                {{ count($summary['shops']) }} Client Shops
             </span>
         </div>
 
@@ -141,12 +141,12 @@
                 <thead class="bg-slate-100/70 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200/80">
                     <tr>
                         <th class="px-5 py-3.5">Shop</th>
-                        <th class="px-4 py-3.5 text-right">Opening Position</th>
-                        <th class="px-4 py-3.5 text-right">Settlement Due</th>
-                        <th class="px-4 py-3.5 text-right">Received</th>
-                        <th class="px-4 py-3.5 text-right">Closing Position</th>
-                        <th class="px-4 py-3.5 text-right">Available Credit</th>
-                        <th class="px-4 py-3.5 text-right">Pending</th>
+                        <th class="px-4 py-3.5 text-right">Opening Balance</th>
+                        <th class="px-4 py-3.5 text-right">Current Closing</th>
+                        <th class="px-4 py-3.5 text-right">Allocated</th>
+                        <th class="px-4 py-3.5 text-right">Allocation Pending</th>
+                        <th class="px-4 py-3.5 text-right">Pending Verification</th>
+                        <th class="px-4 py-3.5 text-right">After Allocation Closing</th>
                         <th class="px-4 py-3.5 text-center">Status</th>
                         <th class="px-5 py-3.5 text-right">Details</th>
                     </tr>
@@ -155,10 +155,9 @@
                     @forelse($summary['shops'] as $row)
                         @php
                             $detailUrl = route('admin.cashbook.monthly-closing-summary.show', ['shop' => $row['slug'], 'month' => $month]);
-                            $opening = $row['opening'];
+                            $curr = $row['current_position'] ?? $row['closing'];
+                            $proj = $row['projected_position'] ?? $row['closing'];
                             $activity = $row['activity'];
-                            $closing = $row['closing'];
-                            $credit = $row['credit'];
                             $status = $row['status'];
                         @endphp
                         <tr class="hover:bg-slate-50/80 transition group cursor-pointer" onclick="window.location.href='{{ $detailUrl }}'">
@@ -175,7 +174,7 @@
                                         <div class="flex items-center gap-1.5 mt-0.5">
                                             <span class="font-mono text-[10px] text-slate-400 font-semibold">{{ $row['code'] }}</span>
                                             @if($row['client_name'])
-                                                <span class="rounded bg-slate-100 px-1.5 py-0.2 text-[9px] font-bold text-slate-500">{{ $row['client_name'] }}</span>
+                                                 <span class="rounded bg-slate-100 px-1.5 py-0.2 text-[9px] font-bold text-slate-500">{{ $row['client_name'] }}</span>
                                             @elseif($row['is_direct'])
                                                 <span class="rounded bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.2 text-[9px] font-bold">Direct</span>
                                             @endif
@@ -184,60 +183,74 @@
                                 </div>
                             </td>
 
-                            <!-- Opening Position -->
-                            <td class="px-4 py-4 text-right whitespace-nowrap">
-                                <span class="font-mono font-bold text-slate-900">
-                                    ₹{{ number_format((float) $opening['physical_position'], 2) }}
-                                </span>
-                                <span class="block text-[10px] font-bold {{ $opening['direction'] === 'shop_owes_company' ? 'text-amber-700' : ($opening['direction'] === 'company_owes_shop' ? 'text-indigo-700' : 'text-slate-400') }}">
-                                    {{ $opening['direction_label'] }}
-                                </span>
-                            </td>
-
-                            <!-- Settlement Due -->
-                            <td class="px-4 py-4 text-right whitespace-nowrap">
-                                <span class="font-mono font-bold text-slate-900">
-                                    ₹{{ number_format((float) $activity['settlement_due'], 2) }}
-                                </span>
-                            </td>
-
-                            <!-- Received -->
-                            <td class="px-4 py-4 text-right whitespace-nowrap">
-                                <span class="font-mono font-bold text-emerald-700">
-                                    ₹{{ number_format((float) $activity['company_received'], 2) }}
-                                </span>
-                            </td>
-
-                            <!-- Closing Position -->
+                            <!-- Opening Balance -->
                             <td class="px-4 py-4 text-right whitespace-nowrap">
                                 <span class="font-mono font-black text-slate-900">
-                                    ₹{{ number_format((float) $closing['physical_position'], 2) }}
+                                    ₹{{ number_format((float) ($row['opening_balance'] ?? $row['opening']['physical_position'] ?? 0), 2) }}
                                 </span>
-                                <span class="block text-[10px] font-black {{ $closing['direction'] === 'shop_owes_company' ? 'text-amber-700' : ($closing['direction'] === 'company_owes_shop' ? 'text-indigo-700' : 'text-slate-400') }}">
-                                    {{ $closing['direction_label'] }}
+                                @php
+                                    $openDir = (string) ($row['opening_direction'] ?? $row['opening']['direction'] ?? 'settled');
+                                    $openDirLabel = (string) ($row['opening_direction_label'] ?? $row['opening']['direction_label'] ?? 'Settled');
+                                @endphp
+                                @if($openDir !== 'settled')
+                                    <span class="block text-[10px] font-black {{ $openDir === 'shop_owes_company' ? 'text-amber-700' : 'text-indigo-700' }}">
+                                        {{ $openDirLabel }}
+                                    </span>
+                                @else
+                                    <span class="block text-[10px] font-semibold text-slate-400">
+                                        Settled
+                                    </span>
+                                @endif
+                            </td>
+
+                            <!-- Current Closing -->
+                            <td class="px-4 py-4 text-right whitespace-nowrap">
+                                <span class="font-mono font-black text-slate-900">
+                                    ₹{{ number_format((float) ($curr['closing_position'] ?? $row['closing']['physical_position']), 2) }}
+                                </span>
+                                <span class="block text-[10px] font-black {{ ($curr['direction'] ?? '') === 'shop_owes_company' ? 'text-amber-700' : (($curr['direction'] ?? '') === 'company_owes_shop' ? 'text-indigo-700' : 'text-slate-400') }}">
+                                    {{ $curr['direction_label'] ?? $row['closing']['direction_label'] }}
                                 </span>
                             </td>
 
-                            <!-- Available Credit -->
+                            <!-- Allocated -->
                             <td class="px-4 py-4 text-right whitespace-nowrap">
-                                <span class="font-mono font-bold {{ (float) $credit['closing_available_credit'] > 0 ? 'text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200' : 'text-slate-400' }}">
-                                    ₹{{ number_format((float) $credit['closing_available_credit'], 2) }}
+                                <span class="font-mono font-bold text-indigo-700">
+                                    ₹{{ number_format((float) ($curr['already_allocated'] ?? $activity['allocated_this_month']), 2) }}
                                 </span>
                             </td>
 
-                            <!-- Pending -->
+                            <!-- Allocation Pending -->
                             <td class="px-4 py-4 text-right whitespace-nowrap">
-                                <span class="font-mono font-bold {{ (float) $activity['pending_verification'] > 0 ? 'text-sky-700' : 'text-slate-400' }}">
-                                    ₹{{ number_format((float) $activity['pending_verification'], 2) }}
+                                <span class="font-mono font-bold {{ (float) ($curr['allocation_pending'] ?? 0) > 0 ? 'text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200' : 'text-slate-400' }}">
+                                    ₹{{ number_format((float) ($curr['allocation_pending'] ?? 0), 2) }}
+                                </span>
+                            </td>
+
+                            <!-- Pending Verification -->
+                            <td class="px-4 py-4 text-right whitespace-nowrap">
+                                <span class="font-mono font-bold {{ (float) ($curr['pending_verification'] ?? 0) > 0 ? 'text-sky-700' : 'text-slate-400' }}">
+                                    ₹{{ number_format((float) ($curr['pending_verification'] ?? 0), 2) }}
+                                </span>
+                            </td>
+
+                            <!-- After Allocation Closing -->
+                            <td class="px-4 py-4 text-right whitespace-nowrap">
+                                <span class="font-mono font-black text-slate-900">
+                                    ₹{{ number_format((float) ($proj['closing_position'] ?? $row['closing']['physical_position']), 2) }}
+                                </span>
+                                <span class="block text-[10px] font-black {{ ($proj['direction'] ?? '') === 'shop_owes_company' ? 'text-amber-700' : (($proj['direction'] ?? '') === 'company_owes_shop' ? 'text-indigo-700' : 'text-slate-400') }}">
+                                    {{ $proj['direction_label'] ?? $row['closing']['direction_label'] }}
                                 </span>
                             </td>
 
                             <!-- Status -->
                             <td class="px-4 py-4 text-center whitespace-nowrap">
                                 @php
-                                    $badgeStyle = match($status['badge_color']) {
+                                    $badgeStyle = match($status['badge_color'] ?? '') {
                                         'amber' => 'bg-amber-50 text-amber-800 border-amber-200',
                                         'sky' => 'bg-sky-50 text-sky-800 border-sky-200',
+                                        'indigo' => 'bg-indigo-50 text-indigo-800 border-indigo-200',
                                         default => 'bg-emerald-50 text-emerald-800 border-emerald-200',
                                     };
                                 @endphp

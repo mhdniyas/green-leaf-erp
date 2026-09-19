@@ -1361,10 +1361,10 @@ class PurchaserDashboardController extends Controller
             })
             ->with([
                 'purchaseInvoices' => fn ($query) => $query
-                    ->with('purchaserCart')
+                    ->with(['purchaserCart', 'vendorSettlementAllocations'])
                     ->latest('updated_at'),
                 'purchaserCarts' => fn ($query) => $query
-                    ->with('purchaseInvoice')
+                    ->with(['purchaseInvoice.vendorSettlementAllocations'])
                     ->latest('business_date'),
             ])
             ->orderBy('name')
@@ -1458,10 +1458,21 @@ class PurchaserDashboardController extends Controller
             ->whereKey($supplier->id)
             ->with([
                 'purchaseInvoices' => fn ($query) => $query
-                    ->with(['purchaserCart.goodsReceived.items.product', 'purchaserCart.goodsReceived.items.purchaseOrderItem.product', 'goodsReceived.items.product', 'goodsReceived.items.purchaseOrderItem.product'])
+                    ->with([
+                        'purchaserCart.goodsReceived.items.product',
+                        'purchaserCart.goodsReceived.items.purchaseOrderItem.product',
+                        'goodsReceived.items.product',
+                        'goodsReceived.items.purchaseOrderItem.product',
+                        'vendorSettlementAllocations',
+                    ])
                     ->latest('updated_at'),
                 'purchaserCarts' => fn ($query) => $query
-                    ->with(['items.product', 'purchaseInvoice', 'goodsReceived.items.product', 'goodsReceived.items.purchaseOrderItem.product'])
+                    ->with([
+                        'items.product',
+                        'purchaseInvoice.vendorSettlementAllocations',
+                        'goodsReceived.items.product',
+                        'goodsReceived.items.purchaseOrderItem.product',
+                    ])
                     ->latest('business_date'),
             ])
             ->firstOrFail();
@@ -1505,6 +1516,9 @@ class PurchaserDashboardController extends Controller
                     ->values()
                     ->all();
 
+                $balanceAmount = $isCancelled ? 0.0 : ($invoice ? $this->invoiceRemainingBalance($invoice) : 0.0);
+                $isPaid = ! $isCancelled && ($balanceAmount <= 0 || ($invoice?->payment_status === 'paid') || ($cart->payment_status === 'paid'));
+
                 return [
                     'date_key' => $cart->business_date->format('Y-m-d'),
                     'date_label' => $cart->business_date->format('d M Y'),
@@ -1516,10 +1530,10 @@ class PurchaserDashboardController extends Controller
                     'amount' => (float) ($invoice ? max(0, (float) $invoice->amount - (float) $invoice->discount_amount) : max(0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)),
                     'updated_at' => $invoice?->updated_at ?? $cart->updated_at,
                     'updated_label' => ($invoice?->updated_at ?? $cart->updated_at)?->format('d M Y h:i A'),
-                    'payment_status' => $isCancelled ? 'Cancelled' : str($invoice?->payment_status ?: $cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),
+                    'payment_status' => $isCancelled ? 'Cancelled' : ($isPaid ? 'Paid' : str($invoice?->payment_status ?: $cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString()),
                     'payment_method' => $invoice?->payment_method ?: $cart->payment_method ?: 'Cash',
                     'paid_amount' => (float) ($invoice?->paid_amount ?? $cart->paid_amount ?? 0),
-                    'balance_amount' => $isCancelled ? 0.0 : ($invoice ? $this->invoiceRemainingBalance($invoice) : 0.0),
+                    'balance_amount' => $balanceAmount,
                     'item_count' => $itemCount,
                     'total_quantity' => $totalQuantity,
                     'item_summary' => $itemSummary,
@@ -2914,7 +2928,7 @@ class PurchaserDashboardController extends Controller
         $carts = PurchaserCart::query()
             ->where('user_id', $userId)
             ->where('supplier_id', $supplier->id)
-            ->with(['purchaseInvoice'])
+            ->with(['purchaseInvoice.vendorSettlementAllocations'])
             ->orderBy('business_date', 'asc')
             ->get();
 
@@ -2924,9 +2938,7 @@ class PurchaserDashboardController extends Controller
                 $invoice = $cart->purchaseInvoice;
 
                 if ($invoice) {
-                    // Cart has invoice - check if it has any remaining balance
-                    $netAmount = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
-                    $remaining = max(0, $netAmount - (float) $invoice->paid_amount);
+                    $remaining = $this->invoiceRemainingBalance($invoice);
 
                     // Skip fully paid invoices
                     if ($invoice->payment_status === 'paid' || $remaining <= 0) {
@@ -4581,7 +4593,7 @@ class PurchaserDashboardController extends Controller
 
     private function invoiceRemainingBalance(PurchaseInvoice $invoice): float
     {
-        return max(0, round(((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount, 2));
+        return $invoice->remainingBalance();
     }
 
     /**

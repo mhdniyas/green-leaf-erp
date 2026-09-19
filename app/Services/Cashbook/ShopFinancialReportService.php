@@ -22,6 +22,7 @@ final class ShopFinancialReportService
     public function __construct(
         private readonly ShopSettlementService $settlementService,
         private readonly ShopPaymentLedgerReconciliationService $reconciliationService,
+        private readonly ShopAccountingOpeningService $openingService = new ShopAccountingOpeningService,
     ) {}
 
     /**
@@ -249,16 +250,33 @@ final class ShopFinancialReportService
             ->sum('petty_delta');
         $companyFundedPetty = round($companyFundedPetty, 2);
 
-        $openingPetty = (float) (ShopDailyLedgerSnapshot::query()
-            ->where('shop_id', $shopId)
-            ->where('business_date', '<', $startDate)
-            ->orderByDesc('business_date')
-            ->orderByDesc('id')
-            ->value('closing_petty') ?? 0.0);
+        $openingRecord = $this->openingService->getOpeningForDate($shopId, $startDate);
+        $accountingStartDate = $this->openingService->getAccountingStartDate($shopId);
+        $isPreOpening = $this->openingService->isPreOpening($shopId, $startDate);
+
+        if (! $isPreOpening && $accountingStartDate !== null && $startDate === $accountingStartDate) {
+            $openingPetty = (float) ($openingRecord?->opening_petty_balance ?? 0.0);
+        } elseif (! $isPreOpening && $accountingStartDate !== null) {
+            $openingPetty = (float) (ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', '>=', $accountingStartDate)
+                ->where('business_date', '<', $startDate)
+                ->orderByDesc('business_date')
+                ->orderByDesc('id')
+                ->value('closing_petty') ?? ($openingRecord?->opening_petty_balance ?? 0.0));
+        } else {
+            $openingPetty = (float) (ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', '<', $startDate)
+                ->orderByDesc('business_date')
+                ->orderByDesc('id')
+                ->value('closing_petty') ?? 0.0);
+        }
         $openingPetty = round($openingPetty, 2);
 
         $currentPetty = (float) (ShopDailyLedgerSnapshot::query()
             ->where('shop_id', $shopId)
+            ->when(! $isPreOpening && $accountingStartDate !== null, fn (Builder $q) => $q->where('business_date', '>=', $accountingStartDate))
             ->where('business_date', '<=', $endDate)
             ->orderByDesc('business_date')
             ->orderByDesc('id')
@@ -300,6 +318,7 @@ final class ShopFinancialReportService
 
         $totalAllocated = round((float) ShopPaymentLedgerAllocation::query()
             ->where('shop_id', $shopId)
+            ->where('status', 'active')
             ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->whereBetween('business_date', [$startDate, $endDate]))
             ->sum('amount'), 2);
 
@@ -556,7 +575,7 @@ final class ShopFinancialReportService
         $targetEntryTypeIds = $targetCategories->pluck('entry_type_id')->filter()->unique()->all();
 
         $obligationTransactions = ShopLedgerTransaction::query()
-            ->with(['entryType', 'paymentLedgerAllocations'])
+            ->with(['entryType', 'paymentLedgerAllocations' => fn ($q) => $q->where('status', 'active')])
             ->where('shop_id', $shopId)
             ->whereBetween('business_date', [$startDate, $endDate])
             ->whereNotIn('status', ['void', 'voided', 'reversed'])
@@ -610,7 +629,7 @@ final class ShopFinancialReportService
 
         // ── 3. Payments Received Breakdown in Period ─────────────────────────
         $paymentRequests = ShopInvoicePaymentRequest::query()
-            ->with(['reconciliations.statementEntry', 'reconciliations.companyAccount', 'ledgerAllocations'])
+            ->with(['reconciliations.statementEntry', 'reconciliations.companyAccount', 'ledgerAllocations' => fn ($q) => $q->where('status', 'active')])
             ->where('shop_id', $shopId)
             ->where('status', '!=', 'rejected')
             ->where(function (Builder $query) use ($startDate, $endDate): void {
@@ -710,6 +729,7 @@ final class ShopFinancialReportService
         $allocationRecords = ShopPaymentLedgerAllocation::query()
             ->with(['paymentRequest', 'ledgerTransaction.entryType', 'reconciledBy'])
             ->where('shop_id', $shopId)
+            ->where('status', 'active')
             ->whereHas('ledgerTransaction', fn (Builder $q): Builder => $q->whereBetween('business_date', [$startDate, $endDate]))
             ->orderBy('created_at', 'desc')
             ->orderBy('id', 'desc')

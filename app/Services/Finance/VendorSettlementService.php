@@ -21,7 +21,13 @@ class VendorSettlementService
     public function __construct(
         private readonly JournalService $journalService,
         private readonly CompanyPaymentReconciliationService $reconciliationService,
+        private readonly ?PurchaseFinanceAccountingOpeningService $accountingOpeningService = null,
     ) {}
+
+    private function getAccountingOpeningService(): PurchaseFinanceAccountingOpeningService
+    {
+        return $this->accountingOpeningService ?? app(PurchaseFinanceAccountingOpeningService::class);
+    }
 
     /** @param array{actual_payment_amount:float,settlement_discount_amount:float,vendor_advance_used_amount:float,payment_date:string,payment_method:?string,company_account_id:?int,statement_entry_id?:int,reference:?string,note:?string,allocations:array<int,array{purchase_invoice_id:int,cash_allocated:float,advance_allocated:float,discount_allocated:float}>} $payload */
     public function create(Supplier $supplier, array $payload, int $userId): VendorSettlement
@@ -36,6 +42,7 @@ class VendorSettlementService
             }
 
             $invoices = PurchaseInvoice::query()
+                ->with('purchaserCart')
                 ->whereIn('id', $invoiceIds)
                 ->where('supplier_id', $supplier->id)
                 ->lockForUpdate()
@@ -60,6 +67,28 @@ class VendorSettlementService
                 $payload['payment_date'] = $selectedStatement->transaction_date->toDateString();
                 $payload['reference'] = $selectedStatement->reference;
             }
+
+            // Pre-opening payments cannot allocate to post-opening invoices.
+            // Post-opening payments are permitted to settle carried-forward pre-opening vendor credit invoices.
+            $paymentDate = (string) ($payload['payment_date'] ?? today()->toDateString());
+            $accountingStartDate = $this->getAccountingOpeningService()->getAccountingStartDate(null, (int) $supplier->id, 'vendor')
+                ?? PurchaseFinanceAccountingOpeningService::DEFAULT_ACCOUNTING_START_DATE;
+
+            $isPaymentInActivePeriod = $paymentDate >= $accountingStartDate;
+
+            foreach ($invoices as $inv) {
+                $invDate = (string) ($inv->purchaserCart?->business_date?->toDateString()
+                    ?? $inv->original_business_date?->toDateString()
+                    ?? $inv->created_at->toDateString());
+                $isInvoiceInActivePeriod = $invDate >= $accountingStartDate;
+
+                if (! $isPaymentInActivePeriod && $isInvoiceInActivePeriod) {
+                    throw ValidationException::withMessages([
+                        'allocations' => "Historical pre-opening payment ({$paymentDate}) cannot allocate to post-opening Invoice {$inv->invoice_number} ({$invDate}).",
+                    ]);
+                }
+            }
+
             $discount = round((float) $payload['settlement_discount_amount'], 2);
             $advanceUsed = round((float) $payload['vendor_advance_used_amount'], 2);
             $totalCash = round((float) $allocations->sum('cash_allocated'), 2);
@@ -81,7 +110,7 @@ class VendorSettlementService
             foreach ($allocations as $row) {
                 $invoice = $invoices->get((int) $row['purchase_invoice_id']);
                 $allocated = round((float) $row['cash_allocated'] + (float) $row['advance_allocated'] + (float) $row['discount_allocated'], 2);
-                $existing = round((float) VendorSettlementAllocation::query()->where('purchase_invoice_id', $invoice->id)->sum('total_settled'), 2);
+                $existing = round((float) VendorSettlementAllocation::query()->where('is_reversed', false)->where('purchase_invoice_id', $invoice->id)->sum('total_settled'), 2);
                 $outstanding = round(max(0, ((float) $invoice->amount - (float) $invoice->discount_amount) - $existing), 2);
                 if ($allocated > $outstanding + 0.01) {
                     throw ValidationException::withMessages(['allocations' => "Invoice {$invoice->invoice_number} has only ₹{$outstanding} outstanding."]);
@@ -177,6 +206,7 @@ class VendorSettlementService
                 ->get()
                 ->map(function (PurchaseInvoice $invoice): array {
                     $settled = round((float) VendorSettlementAllocation::query()
+                        ->where('is_reversed', false)
                         ->where('purchase_invoice_id', $invoice->id)
                         ->sum('total_settled'), 2);
 

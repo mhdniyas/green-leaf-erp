@@ -382,9 +382,9 @@ class PurchaserMonthlySummaryTest extends TestCase
         $this->assertEquals($augDetailBefore['activity']['company_funded'], $augDetailAfter['activity']['company_funded']);
         $this->assertEquals($augDetailBefore['closing']['cash_balance'], $augDetailAfter['closing']['cash_balance']);
 
-        // September opening must equal August closing (40,000)
+        // September opening starts fresh at 0.00 for September 2026 accounting start
         $septDetail = $service->getPurchaserMonthlyDetail($this->activePurchaser, '2026-09');
-        $this->assertEquals(40000.00, $septDetail['opening']['cash_balance']);
+        $this->assertEquals(0.00, $septDetail['opening']['cash_balance']);
         $this->assertEquals(60000.00, $septDetail['activity']['company_funded']);
     }
 

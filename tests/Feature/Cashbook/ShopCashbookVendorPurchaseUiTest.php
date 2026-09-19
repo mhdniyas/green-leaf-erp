@@ -13,6 +13,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Purchasing\ShopVendorReportService;
+use Carbon\Carbon;
 use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
 use Database\Seeders\Cashbook\ShopConfigPresetSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -40,6 +41,8 @@ class ShopCashbookVendorPurchaseUiTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Carbon::setTestNow('2026-09-15 12:00:00');
 
         $this->seed(RolePermissionSeeder::class);
         $this->seed(LedgerEntryTypeSeeder::class);
@@ -103,6 +106,12 @@ class ShopCashbookVendorPurchaseUiTest extends TestCase
         ]);
 
         app(CashbookShopSyncService::class)->syncAndGetProfiles();
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     public function test_vendor_purchase_button_is_visible_when_purchasing_is_enabled(): void

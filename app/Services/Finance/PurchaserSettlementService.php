@@ -7,6 +7,7 @@ namespace App\Services\Finance;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\JournalEntry;
+use App\Models\PurchaseFinanceAccountingOpening;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\User;
@@ -21,8 +22,14 @@ final class PurchaserSettlementService
     public function __construct(
         private readonly PurchaserFinanceService $purchaserFinanceService,
         private readonly JournalService $journalService,
-        private readonly CompanyPaymentReconciliationService $companyPaymentReconciliationService
+        private readonly CompanyPaymentReconciliationService $companyPaymentReconciliationService,
+        private readonly ?PurchaseFinanceAccountingOpeningService $accountingOpeningService = null,
     ) {}
+
+    private function getAccountingOpeningService(): PurchaseFinanceAccountingOpeningService
+    {
+        return $this->accountingOpeningService ?? app(PurchaseFinanceAccountingOpeningService::class);
+    }
 
     /**
      * Parse or default a year-month string (YYYY-MM) and return half-open date range.
@@ -128,12 +135,59 @@ final class PurchaserSettlementService
     /**
      * Calculate opening advance balance as of startDate (transactions prior to startDate).
      *
-     * @return array{cash_given: float, cash_returned: float, advance_utilized: float, advance: float}
+     * @return array{cash_given: float, cash_returned: float, advance_utilized: float, advance: float, is_accounting_opening: bool, accounting_start_date: ?string}
      */
     public function openingBalanceBefore(int $purchaserId, string $startDate): array
     {
+        $openingRecord = $this->getAccountingOpeningService()->getOpeningForDate($purchaserId, null, $startDate, 'purchaser');
+        $accountingStartDate = $openingRecord?->accounting_start_date?->toDateString()
+            ?? $this->getAccountingOpeningService()->getAccountingStartDate($purchaserId, null, 'purchaser')
+            ?? PurchaseFinanceAccountingOpeningService::DEFAULT_ACCOUNTING_START_DATE;
+
+        if ($startDate < $accountingStartDate) {
+            $row = DB::table('purchaser_credits')
+                ->where('purchaser_id', $purchaserId)
+                ->whereDate('business_date', '<', $startDate)
+                ->selectRaw("
+                    COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END), 0) as cash_given,
+                    COALESCE(SUM(CASE WHEN type = 'out' AND purchase_invoice_id IS NULL THEN amount ELSE 0 END), 0) as cash_returned,
+                    COALESCE(SUM(CASE WHEN type = 'out' AND purchase_invoice_id IS NOT NULL THEN amount ELSE 0 END), 0) as advance_utilized
+                ")
+                ->first();
+
+            $given = round((float) ($row->cash_given ?? 0), 2);
+            $returned = round((float) ($row->cash_returned ?? 0), 2);
+            $utilized = round((float) ($row->advance_utilized ?? 0), 2);
+            $advance = round($given - $returned - $utilized, 2);
+
+            return [
+                'cash_given' => $given,
+                'cash_returned' => $returned,
+                'advance_utilized' => $utilized,
+                'advance' => $advance,
+                'is_accounting_opening' => false,
+                'accounting_start_date' => null,
+            ];
+        }
+
+        $baseOpening = $openingRecord instanceof PurchaseFinanceAccountingOpening
+            ? $openingRecord->getSignedOpeningBalance()
+            : 0.0;
+
+        if ($startDate === $accountingStartDate) {
+            return [
+                'cash_given' => 0.0,
+                'cash_returned' => 0.0,
+                'advance_utilized' => 0.0,
+                'advance' => $baseOpening,
+                'is_accounting_opening' => true,
+                'accounting_start_date' => $accountingStartDate,
+            ];
+        }
+
         $row = DB::table('purchaser_credits')
             ->where('purchaser_id', $purchaserId)
+            ->whereDate('business_date', '>=', $accountingStartDate)
             ->whereDate('business_date', '<', $startDate)
             ->selectRaw("
                 COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END), 0) as cash_given,
@@ -145,13 +199,73 @@ final class PurchaserSettlementService
         $given = round((float) ($row->cash_given ?? 0), 2);
         $returned = round((float) ($row->cash_returned ?? 0), 2);
         $utilized = round((float) ($row->advance_utilized ?? 0), 2);
-        $advance = round($given - $returned - $utilized, 2);
+        $advance = round($baseOpening + $given - $returned - $utilized, 2);
 
         return [
             'cash_given' => $given,
             'cash_returned' => $returned,
             'advance_utilized' => $utilized,
             'advance' => $advance,
+            'is_accounting_opening' => true,
+            'accounting_start_date' => $accountingStartDate,
+        ];
+    }
+
+    /**
+     * Calculate continuous opening credit balance as of startDate.
+     *
+     * @return array{credit_added: float, credit_used: float, credit_balance: float, is_accounting_opening: bool}
+     */
+    public function openingCreditBalanceBefore(int $purchaserId, string $startDate): array
+    {
+        $openingRecord = $this->getAccountingOpeningService()->getOpeningForDate($purchaserId, null, $startDate, 'purchaser');
+        $accountingStartDate = $openingRecord?->accounting_start_date?->toDateString();
+
+        if ($accountingStartDate === null || $startDate <= $accountingStartDate) {
+            $row = DB::table('purchaser_credits')
+                ->where('purchaser_id', $purchaserId)
+                ->whereDate('business_date', '<', $startDate)
+                ->selectRaw("
+                    COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END), 0) as credit_added,
+                    COALESCE(SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END), 0) as credit_used,
+                    COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0) as credit_balance
+                ")
+                ->first();
+
+            $added = round((float) ($row->credit_added ?? 0), 2);
+            $used = round((float) ($row->credit_used ?? 0), 2);
+            $balance = round((float) ($row->credit_balance ?? 0), 2);
+
+            return [
+                'credit_added' => $added,
+                'credit_used' => $used,
+                'credit_balance' => $balance,
+                'is_accounting_opening' => ($accountingStartDate !== null && $startDate === $accountingStartDate),
+            ];
+        }
+
+        $baseCredit = (float) $openingRecord->opening_credit_balance;
+
+        $row = DB::table('purchaser_credits')
+            ->where('purchaser_id', $purchaserId)
+            ->whereDate('business_date', '>=', $accountingStartDate)
+            ->whereDate('business_date', '<', $startDate)
+            ->selectRaw("
+                COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END), 0) as credit_added,
+                COALESCE(SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END), 0) as credit_used,
+                COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END), 0) as credit_balance
+            ")
+            ->first();
+
+        $added = round((float) ($row->credit_added ?? 0), 2);
+        $used = round((float) ($row->credit_used ?? 0), 2);
+        $balance = round($baseCredit + $added - $used, 2);
+
+        return [
+            'credit_added' => $added,
+            'credit_used' => $used,
+            'credit_balance' => $balance,
+            'is_accounting_opening' => true,
         ];
     }
 

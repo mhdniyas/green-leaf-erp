@@ -55,8 +55,8 @@ class BulkPaymentService
             // Calculate remaining balance for each invoice
             $invoicesWithBalance = $invoices->map(function (PurchaseInvoice $invoice) use ($discountAllocations): array {
                 $grossAmount = round((float) $invoice->amount, 2);
-                $currentDiscount = round((float) ($invoice->discount_amount ?? 0), 2);
-                $currentPaid = round((float) ($invoice->paid_amount ?? 0), 2);
+                $currentDiscount = round((float) ($invoice->discount_amount ?? 0) + $invoice->settlementDiscountTotal(), 2);
+                $currentPaid = round((float) ($invoice->paid_amount ?? 0) + $invoice->settlementAdvanceTotal(), 2);
                 $additionalDiscount = round((float) ($discountAllocations[$invoice->id] ?? 0), 2);
                 $totalDiscount = min($grossAmount, round($currentDiscount + $additionalDiscount, 2));
                 $netAmount = max(0, round($grossAmount - $totalDiscount, 2));

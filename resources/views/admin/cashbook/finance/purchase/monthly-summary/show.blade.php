@@ -7,7 +7,7 @@
 @endsection
 
 @section('header_subtitle')
-    Audited closing cash balances, company funding, cash/credit purchases, expenses, and carry-forward status.
+    Audited closing cash balances, vendor purchasing credit pending, company funding, cash/credit purchases, expenses, and carry-forward status.
 @endsection
 
 @section('content')
@@ -15,6 +15,7 @@
     $purchaser = $detail['purchaser'];
     $period = $detail['period'];
     $opening = $detail['opening'];
+    $credit = $detail['credit'];
     $activity = $detail['activity'];
     $cashDetails = $detail['cash_details'];
     $bills = $detail['bills'];
@@ -83,7 +84,7 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION A: OPENING POSITION ──────────────────────────────────────── -->
+    <!-- SECTION A: OPENING POSITION (01 OF THE MONTH) ────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -94,15 +95,15 @@
                 </h2>
             </div>
             <span class="text-[11px] font-bold text-slate-400">
-                Derived from canonical ledger history prior to {{ Carbon\Carbon::parse($period['start_date'])->format('d M Y') }}
+                Accounting Start / Carry Forward Position prior to {{ Carbon\Carbon::parse($period['start_date'])->format('d M Y') }}
             </span>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Opening Cash Position -->
+            <!-- Opening Physical Cash Position -->
             <div class="rounded-2xl bg-slate-50/80 p-4 border border-slate-200/70 shadow-2xs">
                 <span class="block text-[10px] font-black uppercase tracking-wider text-slate-500">
-                    Opening Purchaser Cash / Advance
+                    Opening Purchaser Physical Cash
                 </span>
                 <div class="flex items-baseline gap-3 mt-1">
                     <span class="font-mono text-2xl font-black text-slate-900">
@@ -113,43 +114,187 @@
                     </span>
                 </div>
                 <p class="text-[11px] font-semibold text-slate-500 mt-2">
-                    Unremitted company cash / advance in purchaser's possession at the start of {{ $period['label'] }}.
+                    Physical unremitted company cash / advance in purchaser's hands at month start (₹0.00 for accounting start).
                 </p>
             </div>
 
-            <!-- Historical Cumulative Context -->
-            <div class="rounded-2xl bg-indigo-50/40 p-4 border border-indigo-200/80 shadow-2xs">
-                <span class="block text-[10px] font-black uppercase tracking-wider text-indigo-900">
-                    Prior Cumulative Ledger Movements
+            <!-- Opening Vendor Purchasing Credit Pending -->
+            <div class="rounded-2xl bg-amber-50/50 p-4 border border-amber-200/80 shadow-2xs">
+                <span class="block text-[10px] font-black uppercase tracking-wider text-amber-900">
+                    Opening Vendor Purchase Credit Pending
                 </span>
-                <div class="grid grid-cols-3 gap-2 mt-2 font-mono text-xs">
-                    <div>
-                        <span class="text-[10px] font-bold text-slate-500 block uppercase">Funding Given</span>
-                        <span class="font-bold text-slate-900">₹{{ number_format((float) $opening['cash_given_historical'], 2) }}</span>
-                    </div>
-                    <div>
-                        <span class="text-[10px] font-bold text-slate-500 block uppercase">Returned</span>
-                        <span class="font-bold text-slate-900">₹{{ number_format((float) $opening['cash_returned_historical'], 2) }}</span>
-                    </div>
-                    <div>
-                        <span class="text-[10px] font-bold text-slate-500 block uppercase">Utilized</span>
-                        <span class="font-bold text-slate-900">₹{{ number_format((float) $opening['advance_utilized_historical'], 2) }}</span>
-                    </div>
+                <div class="flex items-baseline gap-3 mt-1">
+                    <span class="font-mono text-2xl font-black text-amber-950">
+                        ₹{{ number_format((float) ($credit['opening_credit_pending'] ?? $opening['credit_pending'] ?? 0), 2) }}
+                    </span>
+                    <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-black uppercase tracking-wider {{ (float)($credit['opening_credit_pending'] ?? 0) > 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-slate-200 text-slate-700' }}">
+                        {{ (float)($credit['opening_credit_pending'] ?? 0) > 0 ? 'Carried Vendor Credit' : 'Zero Carried Credit' }}
+                    </span>
                 </div>
-                <p class="text-[11px] font-semibold text-indigo-800/80 mt-2">
-                    Calculated from all historical transactions prior to {{ Carbon\Carbon::parse($period['start_date'])->format('d M Y') }}.
+                <p class="text-[11px] font-semibold text-amber-800/80 mt-2">
+                    Legitimate unpaid vendor purchasing obligations carried forward across the accounting boundary.
                 </p>
             </div>
         </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION B: MONTH ACTIVITY ────────────────────────────────────────── -->
+    <!-- SECTION B: VENDOR PURCHASING CREDIT BREAKDOWN ────────────────────── -->
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <div class="rounded-3xl border border-amber-200/90 bg-white p-6 shadow-xs space-y-4">
+        <div class="flex items-center justify-between border-b border-amber-100 pb-3">
+            <div class="flex items-center gap-2">
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-800 text-white text-xs font-black">B</span>
+                <h2 class="text-xs font-black uppercase tracking-wider text-amber-950">
+                    Vendor Purchasing Credit Position &amp; Breakdown
+                </h2>
+            </div>
+            <span class="text-xs font-mono font-black text-amber-950 bg-amber-100 border border-amber-300 px-3 py-1 rounded-md">
+                Current Credit Pending: ₹{{ number_format((float) $credit['credit_pending'], 2) }}
+            </span>
+        </div>
+
+        <p class="text-xs font-semibold text-slate-500">
+            Authoritative tracking of vendor purchasing credit obligations associated with this purchaser: opening obligations + month credit purchases - settlements - settlement discounts.
+        </p>
+
+        <!-- Credit Formula KPI Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+            <div class="rounded-2xl bg-slate-50 p-3.5 border border-slate-200/80">
+                <span class="block text-[10px] font-black uppercase text-slate-500">1. Opening Credit</span>
+                <span class="mt-1 block font-mono text-base font-bold text-slate-900">
+                    ₹{{ number_format((float) $credit['opening_credit_pending'], 2) }}
+                </span>
+                <span class="text-[10px] text-slate-400 font-semibold">Carried from August</span>
+            </div>
+
+            <div class="rounded-2xl bg-indigo-50/40 p-3.5 border border-indigo-200/80">
+                <span class="block text-[10px] font-black uppercase text-indigo-800">2. Credit Purchases</span>
+                <span class="mt-1 block font-mono text-base font-bold text-indigo-700">
+                    +₹{{ number_format((float) $credit['credit_purchases'], 2) }}
+                </span>
+                <span class="text-[10px] text-indigo-600 font-semibold">New credit bills in month</span>
+            </div>
+
+            <div class="rounded-2xl bg-emerald-50/40 p-3.5 border border-emerald-200/80">
+                <span class="block text-[10px] font-black uppercase text-emerald-800">3. Paid / Settled</span>
+                <span class="mt-1 block font-mono text-base font-bold text-emerald-700">
+                    -₹{{ number_format((float) $credit['credit_settled'], 2) }}
+                </span>
+                <span class="text-[10px] text-emerald-600 font-semibold">Company settlements paid</span>
+            </div>
+
+            <div class="rounded-2xl bg-amber-50/40 p-3.5 border border-amber-200/80">
+                <span class="block text-[10px] font-black uppercase text-amber-800">4. Discounts</span>
+                <span class="mt-1 block font-mono text-base font-bold text-amber-700">
+                    -₹{{ number_format((float) $credit['credit_discount'], 2) }}
+                </span>
+                <span class="text-[10px] text-amber-600 font-semibold">Settlement discounts</span>
+            </div>
+
+            <div class="rounded-2xl bg-amber-950 text-white p-3.5 border border-amber-900 shadow-sm">
+                <span class="block text-[10px] font-black uppercase text-amber-300">5. Credit Pending</span>
+                <span class="mt-1 block font-mono text-base font-black text-amber-100">
+                    = ₹{{ number_format((float) $credit['credit_pending'], 2) }}
+                </span>
+                <span class="text-[10px] text-amber-300 font-semibold">Current vendor payable</span>
+            </div>
+        </div>
+
+        <!-- Vendor Breakdown Table -->
+        <div class="space-y-3 pt-2">
+            <h3 class="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center justify-between">
+                <span>Vendor-by-Vendor Credit Breakdown ({{ count($credit['breakdown_by_vendor'] ?? []) }} Vendors)</span>
+            </h3>
+
+            <div class="overflow-x-auto rounded-2xl border border-slate-200/80">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-100/70 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                        <tr>
+                            <th class="px-4 py-3">Vendor / Supplier</th>
+                            <th class="px-3.5 py-3 text-right">Opening Credit</th>
+                            <th class="px-3.5 py-3 text-right">Month Purchases</th>
+                            <th class="px-3.5 py-3 text-right">Paid / Settled</th>
+                            <th class="px-3.5 py-3 text-right">Discount</th>
+                            <th class="px-3.5 py-3 text-right">Current Pending</th>
+                            <th class="px-3.5 py-3 text-center">Bills Count</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
+                        @forelse($credit['breakdown_by_vendor'] as $vendor)
+                            <tr class="hover:bg-slate-50/80 transition">
+                                <td class="px-4 py-3">
+                                    <span class="font-bold text-slate-900 block">{{ $vendor['supplier_name'] }}</span>
+                                    <span class="text-[10px] text-slate-400 font-mono">Vendor #{{ $vendor['supplier_id'] }}</span>
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-slate-900">
+                                    ₹{{ number_format((float) $vendor['opening_credit'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-indigo-700">
+                                    ₹{{ number_format((float) $vendor['credit_purchases'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-emerald-700">
+                                    ₹{{ number_format((float) $vendor['credit_settled'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-amber-700">
+                                    ₹{{ number_format((float) $vendor['credit_discount'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono font-bold text-amber-950">
+                                    ₹{{ number_format((float) $vendor['credit_pending'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-center">
+                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700 font-mono">
+                                        {{ $vendor['invoices_count'] }} bills
+                                    </span>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="p-6 text-center text-slate-400 font-medium">
+                                    No vendor purchasing credit records found for this purchaser.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                    @if(count($credit['breakdown_by_vendor'] ?? []) > 0)
+                        <tfoot class="bg-slate-50 font-black text-slate-900 border-t border-slate-200 text-xs">
+                            <tr>
+                                <td class="px-4 py-3 uppercase tracking-wider">Total Credit</td>
+                                <td class="px-3.5 py-3 text-right font-mono">
+                                    ₹{{ number_format((float) $credit['opening_credit_pending'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-indigo-700">
+                                    ₹{{ number_format((float) $credit['credit_purchases'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-emerald-700">
+                                    ₹{{ number_format((float) $credit['credit_settled'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-amber-700">
+                                    ₹{{ number_format((float) $credit['credit_discount'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-right font-mono text-amber-950">
+                                    ₹{{ number_format((float) $credit['credit_pending'], 2) }}
+                                </td>
+                                <td class="px-3.5 py-3 text-center">
+                                    <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                                        Consolidated
+                                    </span>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    @endif
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════ -->
+    <!-- SECTION C: MONTH PURCHASING & FUNDING ACTIVITY ───────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">B</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">C</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
                     {{ $period['label'] }} Purchasing &amp; Funding Activity
                 </h2>
@@ -223,23 +368,23 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION C: CASH DETAILS & RECONCILIATION ──────────────────────────── -->
+    <!-- SECTION D: PURCHASER PHYSICAL CASH RECONCILIATION ────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-700 text-white text-xs font-black">C</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-700 text-white text-xs font-black">D</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                    Purchaser Cash Reconciliation &amp; Details
+                    Purchaser Physical Cash Reconciliation
                 </h2>
             </div>
             <span class="text-xs font-mono font-black text-emerald-950 bg-emerald-100 border border-emerald-300 px-3 py-1 rounded-md">
-                Closing Cash: ₹{{ number_format((float) $cashDetails['closing_cash'], 2) }}
+                Cash in Hand: ₹{{ number_format((float) $cashDetails['cash_in_hand'], 2) }}
             </span>
         </div>
 
         <p class="text-xs font-semibold text-slate-500">
-            Reconciles opening advance, monthly funding received, cash spent on purchases, cash returned to company, and procurement expenses.
+            Reconciles opening cash (₹0.00 for Sep), monthly funding received, cash spent on purchase invoices, cash returned to company, and procurement expenses.
         </p>
 
         <!-- Cash Step Breakdown -->
@@ -250,7 +395,7 @@
                 <span class="mt-1 block font-mono text-base font-bold text-slate-900">
                     ₹{{ number_format((float) $cashDetails['opening_cash'], 2) }}
                 </span>
-                <span class="text-[10px] text-slate-400 font-semibold">From previous month</span>
+                <span class="text-[10px] text-slate-400 font-semibold">Physical opening cash</span>
             </div>
 
             <!-- 2. Company Funded -->
@@ -282,24 +427,24 @@
 
             <!-- 5. Closing Purchaser Cash -->
             <div class="rounded-2xl bg-slate-900 text-white p-3.5 border border-slate-700 shadow-sm">
-                <span class="block text-[10px] font-black uppercase text-slate-400">5. Closing Cash Balance</span>
+                <span class="block text-[10px] font-black uppercase text-slate-400">5. Cash in Hand</span>
                 <span class="mt-1 block font-mono text-base font-black text-white">
-                    = ₹{{ number_format((float) $cashDetails['closing_cash'], 2) }}
+                    = ₹{{ number_format((float) $cashDetails['cash_in_hand'], 2) }}
                 </span>
-                <span class="text-[10px] text-emerald-400 font-semibold">Carries into next month</span>
+                <span class="text-[10px] text-emerald-400 font-semibold">Consolidated cash position</span>
             </div>
         </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION D: PURCHASE BILLS & VENDOR DETAILS ───────────────────────── -->
+    <!-- SECTION E: PURCHASE BILLS & VENDOR DETAILS ───────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-xs space-y-4">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-700 text-white text-xs font-black">D</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-700 text-white text-xs font-black">E</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                    Purchase &amp; Bill Details
+                    Purchase &amp; Bill Summary
                 </h2>
             </div>
             <span class="text-[11px] font-bold text-slate-400">
@@ -348,13 +493,13 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION E: PENDING & UNRESOLVED ITEMS ─────────────────────────────── -->
+    <!-- SECTION F: PENDING & UNRESOLVED ITEMS ─────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     @if((int) $pending['pending_bills_count'] > 0 || (int) $pending['pending_inventory_count'] > 0 || (float) $pending['credit_outstanding'] > 0.0001)
         <div class="rounded-3xl border border-amber-200 bg-amber-50/40 p-6 shadow-xs space-y-4">
             <div class="flex items-center justify-between border-b border-amber-200/80 pb-3">
                 <div class="flex items-center gap-2">
-                    <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-900 text-white text-xs font-black">E</span>
+                    <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-900 text-white text-xs font-black">F</span>
                     <h2 class="text-xs font-black uppercase tracking-wider text-amber-950">
                         Pending &amp; Unresolved Items
                     </h2>
@@ -398,14 +543,14 @@
     @endif
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION F: CLOSING POSITION HERO CARD ─────────────────────────────── -->
+    <!-- SECTION G: CLOSING POSITION HERO CARD ─────────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border-2 {{ $closing['direction'] === 'purchaser_holds_company_cash' ? 'border-emerald-400 bg-emerald-50/40' : ($closing['direction'] === 'company_owes_purchaser' ? 'border-amber-400 bg-amber-50/40' : 'border-slate-400 bg-slate-50/40') }} p-6 shadow-sm space-y-4">
         <div class="flex items-center justify-between border-b border-slate-200/80 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">F</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900 text-white text-xs font-black">G</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-slate-800">
-                    Closing Cash Position — {{ Carbon\Carbon::parse($period['end_date'])->format('d M Y') }}
+                    Closing Cash in Hand — {{ Carbon\Carbon::parse($period['end_date'])->format('d M Y') }}
                 </h2>
             </div>
             <span class="inline-flex items-center rounded-md px-3 py-1 text-xs font-black uppercase tracking-wider {{ $closing['direction'] === 'purchaser_holds_company_cash' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : ($closing['direction'] === 'company_owes_purchaser' ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-slate-100 text-slate-900 border border-slate-300') }}">
@@ -416,7 +561,7 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 p-4 rounded-2xl bg-white border border-slate-200/80">
             <div>
                 <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500 block">
-                    Final Purchaser Cash in Hand
+                    Final Purchaser Physical Cash
                 </span>
                 <h3 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1">
                     @if($closing['direction'] === 'purchaser_holds_company_cash')
@@ -428,7 +573,7 @@
                     @endif
                 </h3>
                 <p class="text-xs font-semibold text-slate-500 mt-1">
-                    Net cash balance in purchaser's hands at month close after advances, bill payments, returns, and expenses.
+                    Net physical cash balance in purchaser's hands at month close after advances, bill payments, returns, and expenses.
                 </p>
             </div>
 
@@ -444,12 +589,12 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════════ -->
-    <!-- SECTION G: CARRY FORWARD TO NEXT MONTH ───────────────────────────── -->
+    <!-- SECTION H: CARRY FORWARD TO NEXT MONTH ───────────────────────────── -->
     <!-- ══════════════════════════════════════════════════════════════════════ -->
     <div class="rounded-3xl border border-slate-900 bg-slate-900 text-white p-6 shadow-sm space-y-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-3">
             <div class="flex items-center gap-2">
-                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-white text-slate-950 text-xs font-black">G</span>
+                <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-white text-slate-950 text-xs font-black">H</span>
                 <h2 class="text-xs font-black uppercase tracking-wider text-white">
                     Carry Forward to {{ strtoupper($carry['next_month_label']) }}
                 </h2>
@@ -492,7 +637,7 @@
                     </span>
                 </div>
                 <p class="text-[11px] font-semibold text-slate-400 mt-2">
-                    Vendor payables carried forward for payment in subsequent periods.
+                    Vendor purchasing payables carried forward for settlement in subsequent periods.
                 </p>
             </div>
         </div>
@@ -524,20 +669,20 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 font-semibold text-slate-700">
-                        @forelse($drilldowns['funding'] as $credit)
+                        @forelse($drilldowns['funding'] as $creditRow)
                             <tr>
-                                <td class="px-3.5 py-2 text-slate-500 whitespace-nowrap">{{ $credit['business_date'] ? Carbon\Carbon::parse($credit['business_date'])->format('d M Y') : '—' }}</td>
+                                <td class="px-3.5 py-2 text-slate-500 whitespace-nowrap">{{ $creditRow['business_date'] ? Carbon\Carbon::parse($creditRow['business_date'])->format('d M Y') : '—' }}</td>
                                 <td class="px-3.5 py-2">
-                                    <span class="rounded px-2 py-0.5 text-[10px] font-bold {{ $credit['type'] === 'in' ? 'bg-emerald-100 text-emerald-900' : ($credit['purchase_invoice_id'] ? 'bg-indigo-100 text-indigo-900' : 'bg-amber-100 text-amber-900') }}">
-                                        {{ $credit['type'] === 'in' ? 'Company Funded' : ($credit['purchase_invoice_id'] ? 'Bill Payment' : 'Cash Returned') }}
+                                    <span class="rounded px-2 py-0.5 text-[10px] font-bold {{ $creditRow['type'] === 'in' ? 'bg-emerald-100 text-emerald-900' : ($creditRow['purchase_invoice_id'] ? 'bg-indigo-100 text-indigo-900' : 'bg-amber-100 text-amber-900') }}">
+                                        {{ $creditRow['type'] === 'in' ? 'Company Funded' : ($creditRow['purchase_invoice_id'] ? 'Bill Payment' : 'Cash Returned') }}
                                     </span>
                                 </td>
-                                <td class="px-3.5 py-2 text-slate-600">{{ $credit['company_account_name'] ?: ($credit['payment_source'] ?: '—') }}</td>
+                                <td class="px-3.5 py-2 text-slate-600">{{ $creditRow['company_account_name'] ?: ($creditRow['payment_source'] ?: '—') }}</td>
                                 <td class="px-3.5 py-2 text-slate-700">
-                                    {{ $credit['reference'] ?: ($credit['invoice_number'] ?: ($credit['description'] ?: '—')) }}
+                                    {{ $creditRow['reference'] ?: ($creditRow['invoice_number'] ?: ($creditRow['description'] ?: '—')) }}
                                 </td>
-                                <td class="px-3.5 py-2 text-right font-mono font-bold {{ $credit['type'] === 'in' ? 'text-emerald-700' : 'text-slate-900' }}">
-                                    {{ $credit['type'] === 'in' ? '+' : '-' }}₹{{ number_format((float) $credit['amount'], 2) }}
+                                <td class="px-3.5 py-2 text-right font-mono font-bold {{ $creditRow['type'] === 'in' ? 'text-emerald-700' : 'text-slate-900' }}">
+                                    {{ $creditRow['type'] === 'in' ? '+' : '-' }}₹{{ number_format((float) $creditRow['amount'], 2) }}
                                 </td>
                             </tr>
                         @empty

@@ -34,6 +34,7 @@ class ShopPaymentLedgerReconciliationService
         private readonly DailyLedgerService $dailyLedgerService,
         private readonly JournalService $journalService,
         private readonly CompanyMoneyPositionService $moneyPositionService,
+        private readonly ShopAccountingOpeningService $openingService = new ShopAccountingOpeningService,
     ) {}
 
     /**
@@ -78,10 +79,14 @@ class ShopPaymentLedgerReconciliationService
 
         $query->whereIn('entry_type_id', $eligibleEntryTypeIds);
 
+        $accountingStartDate = $this->openingService->getAccountingStartDate($shopId);
+
         if ($month) {
             $monthStart = Carbon::parse($month.'-01')->startOfMonth()->toDateString();
             $monthEnd = Carbon::parse($month.'-01')->endOfMonth()->toDateString();
             $query->whereBetween('business_date', [$monthStart, $monthEnd]);
+        } elseif ($accountingStartDate !== null) {
+            $query->where('business_date', '>=', $accountingStartDate);
         }
 
         $transactions = $query
@@ -94,6 +99,7 @@ class ShopPaymentLedgerReconciliationService
         foreach ($transactions as $tx) {
             $alreadyAllocated = round((float) ShopPaymentLedgerAllocation::query()
                 ->where('shop_ledger_transaction_id', $tx->id)
+                ->where('status', 'active')
                 ->sum('amount'), 2);
 
             $originalAmount = round((float) ($tx->settlement_delta > 0 ? $tx->settlement_delta : $tx->amount), 2);
@@ -353,8 +359,15 @@ class ShopPaymentLedgerReconciliationService
             $shopId = (int) $payment->shop_id;
             $paymentAmount = $this->resolvePaymentAmount($payment);
 
+            $paymentDate = $payment->payment_date
+                ? Carbon::parse($payment->payment_date)->toDateString()
+                : ($payment->created_at ? $payment->created_at->toDateString() : today()->toDateString());
+            $accountingStartDate = $this->openingService->getAccountingStartDate($shopId);
+            $isPaymentPreOpening = $accountingStartDate !== null && $paymentDate < $accountingStartDate;
+
             $alreadyAllocated = (float) ShopPaymentLedgerAllocation::query()
                 ->where('payment_request_id', $payment->id)
+                ->where('status', 'active')
                 ->lockForUpdate()
                 ->sum('amount');
 
@@ -406,6 +419,15 @@ class ShopPaymentLedgerReconciliationService
                     ]);
                 }
 
+                $txDate = $transaction->business_date ? Carbon::parse($transaction->business_date)->toDateString() : null;
+                $isTxPreOpening = $accountingStartDate !== null && $txDate !== null && $txDate < $accountingStartDate;
+
+                if ($accountingStartDate !== null && $isPaymentPreOpening !== $isTxPreOpening) {
+                    throw ValidationException::withMessages([
+                        'allocations' => 'Cross-period allocations between pre-opening and active accounting periods are not allowed.',
+                    ]);
+                }
+
                 if (in_array($transaction->status, ['void', 'voided', 'reversed'], true)) {
                     throw ValidationException::withMessages([
                         'allocations' => "Transaction on {$transaction->business_date?->format('d M Y')} is voided and cannot be allocated.",
@@ -429,6 +451,7 @@ class ShopPaymentLedgerReconciliationService
 
                 $alreadyAllocatedForTx = round((float) ShopPaymentLedgerAllocation::query()
                     ->where('shop_ledger_transaction_id', $transaction->id)
+                    ->where('status', 'active')
                     ->lockForUpdate()
                     ->sum('amount'), 2);
 
@@ -445,6 +468,7 @@ class ShopPaymentLedgerReconciliationService
                 $existingAlloc = ShopPaymentLedgerAllocation::query()
                     ->where('payment_request_id', $payment->id)
                     ->where('shop_ledger_transaction_id', $transaction->id)
+                    ->where('status', 'active')
                     ->lockForUpdate()
                     ->first();
 
@@ -461,6 +485,7 @@ class ShopPaymentLedgerReconciliationService
                         'shop_id' => $shopId,
                         'shop_ledger_transaction_id' => $transaction->id,
                         'amount' => $amount,
+                        'status' => 'active',
                         'reconciled_by' => $userId,
                         'batch_uuid' => $batchUuid,
                     ]);
@@ -511,8 +536,8 @@ class ShopPaymentLedgerReconciliationService
         $totalAmount = $this->resolvePaymentAmount($payment);
 
         $allocations = $payment->relationLoaded('ledgerAllocations')
-            ? $payment->ledgerAllocations
-            : $payment->ledgerAllocations()->get(['id', 'shop_ledger_transaction_id', 'amount']);
+            ? $payment->ledgerAllocations->filter(fn (ShopPaymentLedgerAllocation $a): bool => ($a->status ?? 'active') === 'active')
+            : $payment->ledgerAllocations()->where('status', 'active')->get(['id', 'shop_ledger_transaction_id', 'amount']);
 
         $actualAllocated = round((float) $allocations->sum(fn (ShopPaymentLedgerAllocation $allocation): float => (float) $allocation->amount), 2);
         $actualRemaining = round($totalAmount - $actualAllocated, 2);
@@ -775,7 +800,7 @@ class ShopPaymentLedgerReconciliationService
     {
         $payment = ShopInvoicePaymentRequest::query()
             ->whereKey($payment->id)
-            ->with('ledgerAllocations:id,payment_request_id,amount')
+            ->with(['ledgerAllocations' => fn ($q) => $q->where('status', 'active')])
             ->lockForUpdate()
             ->firstOrFail();
 
@@ -786,10 +811,32 @@ class ShopPaymentLedgerReconciliationService
             return [];
         }
 
-        $openSettlements = $this->getOpenDailySettlements($shopId)
-            ->filter(fn (array $settlement): bool => (float) $settlement['remaining_due'] > self::ALLOCATION_TOLERANCE)
-            ->sortBy([['business_date', 'asc'], ['id', 'asc']])
-            ->values();
+        $paymentDate = $payment->payment_date
+            ? Carbon::parse($payment->payment_date)->toDateString()
+            : ($payment->created_at ? $payment->created_at->toDateString() : today()->toDateString());
+        $accountingStartDate = $this->openingService->getAccountingStartDate($shopId);
+        $isPaymentPreOpening = $accountingStartDate !== null && $paymentDate < $accountingStartDate;
+
+        if ($accountingStartDate !== null && $isPaymentPreOpening) {
+            // For historical payments, only consider historical pre-opening obligations
+            $openSettlements = $this->getOpenDailySettlements($shopId)
+                ->filter(fn (array $settlement): bool => (float) $settlement['remaining_due'] > self::ALLOCATION_TOLERANCE)
+                ->filter(fn (array $settlement): bool => ($settlement['business_date'] ?? '') < $accountingStartDate)
+                ->sortBy([['business_date', 'asc'], ['id', 'asc']])
+                ->values();
+        } elseif ($accountingStartDate !== null) {
+            // For active period payments, only consider obligations >= accountingStartDate
+            $openSettlements = $this->getOpenDailySettlements($shopId)
+                ->filter(fn (array $settlement): bool => (float) $settlement['remaining_due'] > self::ALLOCATION_TOLERANCE)
+                ->filter(fn (array $settlement): bool => ($settlement['business_date'] ?? '') >= $accountingStartDate)
+                ->sortBy([['business_date', 'asc'], ['id', 'asc']])
+                ->values();
+        } else {
+            $openSettlements = $this->getOpenDailySettlements($shopId)
+                ->filter(fn (array $settlement): bool => (float) $settlement['remaining_due'] > self::ALLOCATION_TOLERANCE)
+                ->sortBy([['business_date', 'asc'], ['id', 'asc']])
+                ->values();
+        }
 
         $allocationPlan = [];
 
@@ -820,18 +867,46 @@ class ShopPaymentLedgerReconciliationService
     }
 
     /**
-     * Remove / reverse an existing allocation.
+     * Safely and auditably reverse an existing allocation.
      */
-    public function removeAllocation(ShopPaymentLedgerAllocation $allocation, int $userId): void
+    public function reverseAllocation(ShopPaymentLedgerAllocation $allocation, ?int $userId = null, string $reason = 'Reversed allocation'): ShopPaymentLedgerAllocation
     {
-        DB::transaction(function () use ($allocation): void {
-            $allocation = ShopPaymentLedgerAllocation::query()
+        return DB::transaction(function () use ($allocation, $userId, $reason): ShopPaymentLedgerAllocation {
+            $locked = ShopPaymentLedgerAllocation::query()
                 ->whereKey($allocation->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $allocation->delete();
+            $locked->update([
+                'status' => 'reversed',
+                'reversed_by' => $userId && $userId > 0 ? $userId : null,
+                'reversed_at' => now(),
+                'reversal_reason' => $reason,
+            ]);
+
+            activity('shop_cashbook.reverse_allocation')
+                ->performedOn($locked)
+                ->withProperties([
+                    'allocation_id' => $locked->id,
+                    'payment_request_id' => $locked->payment_request_id,
+                    'shop_id' => $locked->shop_id,
+                    'shop_ledger_transaction_id' => $locked->shop_ledger_transaction_id,
+                    'amount' => $locked->amount,
+                    'reason' => $reason,
+                    'user_id' => $userId,
+                ])
+                ->log('Reversed shop payment ledger allocation');
+
+            return $locked;
         }, attempts: 3);
+    }
+
+    /**
+     * Remove / reverse an existing allocation.
+     */
+    public function removeAllocation(ShopPaymentLedgerAllocation $allocation, int $userId, ?string $reason = null): void
+    {
+        $this->reverseAllocation($allocation, $userId, $reason ?? 'Allocation removed');
     }
 
     /**

@@ -213,9 +213,55 @@ class PurchaseInvoice extends Model
         return $this->hasMany(VendorSettlementAllocation::class);
     }
 
+    public function activeVendorSettlementAllocations(): HasMany
+    {
+        return $this->hasMany(VendorSettlementAllocation::class)->where('is_reversed', false);
+    }
+
+    public function settlementDiscountTotal(): float
+    {
+        if ($this->relationLoaded('vendorSettlementAllocations')) {
+            return round((float) $this->vendorSettlementAllocations->where('is_reversed', false)->sum('discount_allocated'), 2);
+        }
+
+        return round((float) $this->vendorSettlementAllocations()->where('is_reversed', false)->sum('discount_allocated'), 2);
+    }
+
+    public function settlementAdvanceTotal(): float
+    {
+        if ($this->relationLoaded('vendorSettlementAllocations')) {
+            return round((float) $this->vendorSettlementAllocations->where('is_reversed', false)->sum('advance_allocated'), 2);
+        }
+
+        return round((float) $this->vendorSettlementAllocations()->where('is_reversed', false)->sum('advance_allocated'), 2);
+    }
+
+    public function remainingBalance(): float
+    {
+        if ($this->isCancelled()) {
+            return 0.0;
+        }
+
+        $grossAmount = round((float) $this->amount, 2);
+        $directDiscount = round((float) ($this->discount_amount ?? 0), 2);
+        $settlementDiscount = $this->settlementDiscountTotal();
+        $totalDiscount = min($grossAmount, round($directDiscount + $settlementDiscount, 2));
+        $netPayable = max(0, round($grossAmount - $totalDiscount, 2));
+
+        $cashPaid = round((float) ($this->paid_amount ?? 0), 2);
+        $settlementAdvance = $this->settlementAdvanceTotal();
+        $totalPaidOrCovered = round($cashPaid + $settlementAdvance, 2);
+
+        return max(0, round($netPayable - $totalPaidOrCovered, 2));
+    }
+
     public function settlementTotal(): float
     {
-        return round((float) $this->vendorSettlementAllocations()->sum('total_settled'), 2);
+        if ($this->relationLoaded('vendorSettlementAllocations')) {
+            return round((float) $this->vendorSettlementAllocations->where('is_reversed', false)->sum('total_settled'), 2);
+        }
+
+        return round((float) $this->vendorSettlementAllocations()->where('is_reversed', false)->sum('total_settled'), 2);
     }
 
     public function settlementOutstanding(): float

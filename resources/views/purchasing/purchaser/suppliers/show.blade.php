@@ -38,7 +38,7 @@
                     foreach ($vendorHistory ?? [] as $day) {
                         foreach ($day['entries'] as $entry) {
                             if (!empty($entry['invoice_id'])) {
-                                $entryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                                $entryPending = (float) ($entry['balance_amount'] ?? max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']));
                                 if ($entryPending > 0) {
                                     $pendingBills->push([
                                         'id' => $entry['invoice_id'],
@@ -87,7 +87,7 @@
                     @foreach ($vendorHistory as $day)
                         @foreach ($day['entries'] as $entry)
                             @php
-                                $entryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                                $entryPending = (float) ($entry['balance_amount'] ?? max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']));
                                 $billModalPayload = [
                                     'supplierName'   => $supplier->name,
                                     'supplierMobile' => $supplier->mobile_number ?: '',
@@ -133,7 +133,7 @@
                     @foreach ($vendorHistory as $day)
                         @foreach ($day['entries'] as $entry)
                             @php
-                                $mobileEntryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                                $mobileEntryPending = (float) ($entry['balance_amount'] ?? max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']));
                                 $mobileBillModalPayload = [
                                     'supplierName'   => $supplier->name,
                                     'supplierMobile' => $supplier->mobile_number ?: '',

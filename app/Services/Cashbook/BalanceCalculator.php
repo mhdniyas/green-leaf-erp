@@ -17,6 +17,7 @@ class BalanceCalculator
     public function __construct(
         private readonly FundingSourceEffectResolver $effectResolver,
         private readonly LedgerRuleResolver $ruleResolver,
+        private readonly ShopAccountingOpeningService $openingService = new ShopAccountingOpeningService,
     ) {}
 
     /**
@@ -148,13 +149,52 @@ class BalanceCalculator
 
     /**
      * Opening balances = previous business day's closing snapshot for this
-     * shop. First day for a shop opens everything at zero.
+     * shop, bounded by the active accounting start date.
+     * On accounting start date, balances start from configured opening records.
      */
-    private function openingBalances(int $shopId, string $date): array
+    public function openingBalances(int $shopId, string $date): array
     {
+        $opening = $this->openingService->getOpeningForDate($shopId, $date);
+
+        if ($opening) {
+            $startDate = $opening->accounting_start_date->toDateString();
+
+            if ($date === $startDate) {
+                return [
+                    'petty' => (float) $opening->opening_petty_balance,
+                    'shop_position' => $opening->getSignedShopCompanyBalance(),
+                    'company_pending' => 0.0,
+                ];
+            }
+
+            if ($date > $startDate) {
+                $previous = ShopDailyLedgerSnapshot::query()
+                    ->where('shop_id', $shopId)
+                    ->whereDate('business_date', '>=', $startDate)
+                    ->whereDate('business_date', '<', $date)
+                    ->orderByDesc('business_date')
+                    ->first();
+
+                if ($previous) {
+                    return [
+                        'petty' => (float) ($previous->closing_petty ?? 0),
+                        'shop_position' => (float) ($previous->closing_shop_position ?? 0),
+                        'company_pending' => (float) ($previous->closing_company_pending ?? 0),
+                    ];
+                }
+
+                return [
+                    'petty' => (float) $opening->opening_petty_balance,
+                    'shop_position' => $opening->getSignedShopCompanyBalance(),
+                    'company_pending' => 0.0,
+                ];
+            }
+        }
+
+        // Pre-opening or fallback without opening record
         $previous = ShopDailyLedgerSnapshot::query()
             ->where('shop_id', $shopId)
-            ->where('business_date', '<', $date)
+            ->whereDate('business_date', '<', $date)
             ->orderByDesc('business_date')
             ->first();
 

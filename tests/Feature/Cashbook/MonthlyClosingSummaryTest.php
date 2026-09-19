@@ -8,6 +8,7 @@ use App\Models\Account;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\LedgerClient;
 use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopAccountingOpening;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
@@ -150,9 +151,10 @@ class MonthlyClosingSummaryTest extends TestCase
         $responseDetail->assertOk();
         $responseDetail->assertSee('Casio Boutique');
         $responseDetail->assertSee('OPENING POSITION');
-        $responseDetail->assertSee('MONTH ACTIVITY');
-        $responseDetail->assertSee('CLOSING POSITION');
-        $responseDetail->assertSee('Available Credit');
+        $responseDetail->assertSee('Month Activity');
+        $responseDetail->assertSee('CURRENT POSITION');
+        $responseDetail->assertSee('AFTER ALL VALID ALLOCATION');
+        $responseDetail->assertSee('Available Company-Held Advance Credit');
     }
 
     public function test_monthly_closing_summary_is_strictly_read_only_and_never_writes_snapshots(): void
@@ -171,6 +173,122 @@ class MonthlyClosingSummaryTest extends TestCase
         $responseDetail->assertOk();
 
         $this->assertSame($snapshotCountBefore, ShopDailyLedgerSnapshot::query()->count());
+    }
+
+    public function test_current_position_reflects_only_actual_db_state_and_projected_performs_zero_writes(): void
+    {
+        $settlementType = LedgerEntryType::firstOrCreate(
+            ['code' => 'settlement_due'],
+            ['name' => 'Settlement Due', 'category' => 'settlement', 'affects_balance' => true, 'normal_balance' => 'debit']
+        );
+
+        ShopLedgerEntrySetting::firstOrCreate(
+            [
+                'profile_id' => $this->profile->id,
+                'shop_id' => $this->shop->id,
+                'entry_type_id' => $settlementType->id,
+            ],
+            [
+                'entry_direction' => 'debit',
+                'effective_from' => '2026-01-01',
+                'enabled' => true,
+                'include_in_expense' => true,
+                'is_active' => true,
+            ]
+        );
+
+        // Create obligation of 1,000 on Aug 5
+        $txn = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'entry_type_id' => $settlementType->id,
+            'business_date' => '2026-08-05',
+            'amount' => 1000.00,
+            'direction' => 'debit',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+            'affects_balance' => true,
+        ]);
+
+        // Verified payment of 1,200 received in August, with ONLY 400 allocated in DB
+        $pr = ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'payment_reference' => 'PAY-AUG-TEST',
+            'requested_amount' => 1200.00,
+            'approved_amount' => 1200.00,
+            'status' => 'verified',
+            'payment_method' => 'bank_transfer',
+            'payment_date' => '2026-08-06',
+        ]);
+
+        ShopPaymentLedgerAllocation::create([
+            'payment_request_id' => $pr->id,
+            'shop_id' => $this->shop->id,
+            'shop_ledger_transaction_id' => $txn->id,
+            'amount' => 400.00,
+            'reconciled_by' => $this->admin->id,
+        ]);
+
+        // Pending unverified payment of 300
+        ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'payment_reference' => 'PAY-AUG-PENDING',
+            'requested_amount' => 300.00,
+            'status' => 'pending',
+            'payment_method' => 'bank_transfer',
+            'payment_date' => '2026-08-07',
+        ]);
+
+        // Cancelled payment of 500
+        ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'payment_reference' => 'PAY-AUG-CANCELLED',
+            'requested_amount' => 500.00,
+            'status' => 'rejected',
+            'payment_method' => 'bank_transfer',
+            'payment_date' => '2026-08-08',
+        ]);
+
+        // Cancelled transaction of 800
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'entry_type_id' => $settlementType->id,
+            'business_date' => '2026-08-09',
+            'amount' => 800.00,
+            'direction' => 'debit',
+            'funding_source' => 'sales',
+            'status' => 'void',
+            'voided_at' => now(),
+            'affects_balance' => true,
+        ]);
+
+        $allocCountBefore = ShopPaymentLedgerAllocation::query()->count();
+        $txnCountBefore = ShopLedgerTransaction::query()->count();
+
+        /** @var MonthlyClosingSummaryService $service */
+        $service = app(MonthlyClosingSummaryService::class);
+        $detail = $service->getShopMonthlyDetail($this->shop, '2026-08');
+
+        // 1. Current Position reflects actual DB state
+        $this->assertSame(1200.00, $detail['current_position']['company_received']);
+        $this->assertSame(400.00, $detail['current_position']['already_allocated']);
+        $this->assertSame(800.00, $detail['current_position']['allocation_pending']);
+        $this->assertSame(300.00, $detail['current_position']['pending_verification']);
+
+        // 2. Projected Position: remaining obligation = 600, available money = 800
+        // Additional valid allocation = min(800, 600) = 600
+        // Projected total allocated = 400 + 600 = 1000
+        // Remaining unallocated credit = 800 - 600 = 200
+        $this->assertSame(600.00, $detail['projected_position']['additional_valid_allocation']);
+        $this->assertSame(1000.00, $detail['projected_position']['projected_total_allocated']);
+        $this->assertSame(200.00, $detail['projected_position']['remaining_unallocated_credit']);
+        $this->assertSame(300.00, $detail['projected_position']['pending_verification']);
+        $this->assertSame(0.00, $detail['projected_position']['projected_remaining_obligations']);
+
+        // 3. Zero writes occurred
+        $this->assertSame($allocCountBefore, ShopPaymentLedgerAllocation::query()->count());
+        $this->assertSame($txnCountBefore, ShopLedgerTransaction::query()->count());
     }
 
     public function test_boundary_resolution_uses_latest_valid_snapshot_on_or_before_boundary(): void
@@ -490,5 +608,198 @@ class MonthlyClosingSummaryTest extends TestCase
         // 3. Active Client Shop (valid) -> 200 OK
         $responseValid = $this->get(route('admin.cashbook.monthly-closing-summary.show', ['shop' => $this->shop->id]));
         $responseValid->assertOk();
+    }
+
+    public function test_historical_months_remain_immutable_and_allocation_caps_apply(): void
+    {
+        $settlementType = LedgerEntryType::firstOrCreate(
+            ['code' => 'settlement_due'],
+            ['name' => 'Settlement Due', 'category' => 'settlement', 'affects_balance' => true, 'normal_balance' => 'debit']
+        );
+
+        ShopLedgerEntrySetting::firstOrCreate(
+            [
+                'profile_id' => $this->profile->id,
+                'shop_id' => $this->shop->id,
+                'entry_type_id' => $settlementType->id,
+            ],
+            [
+                'entry_direction' => 'debit',
+                'effective_from' => '2026-01-01',
+                'enabled' => true,
+                'include_in_expense' => true,
+                'is_active' => true,
+            ]
+        );
+
+        // July obligation of 500
+        $julyTxn = ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'entry_type_id' => $settlementType->id,
+            'business_date' => '2026-07-20',
+            'amount' => 500.00,
+            'direction' => 'debit',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+            'affects_balance' => true,
+        ]);
+
+        // July payment of 500 fully allocated in July
+        $julyPayment = ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'payment_reference' => 'PAY-JUL-001',
+            'requested_amount' => 500.00,
+            'approved_amount' => 500.00,
+            'status' => 'verified',
+            'payment_method' => 'bank_transfer',
+            'payment_date' => '2026-07-21',
+        ]);
+
+        ShopPaymentLedgerAllocation::create([
+            'payment_request_id' => $julyPayment->id,
+            'shop_id' => $this->shop->id,
+            'shop_ledger_transaction_id' => $julyTxn->id,
+            'amount' => 500.00,
+            'reconciled_by' => $this->admin->id,
+        ]);
+
+        /** @var MonthlyClosingSummaryService $service */
+        $service = app(MonthlyClosingSummaryService::class);
+
+        // Query July before and after August activity
+        $julyBefore = $service->getShopMonthlyDetail($this->shop, '2026-07');
+        $this->assertSame(500.00, $julyBefore['current_position']['already_allocated']);
+        $this->assertSame(0.00, $julyBefore['current_position']['allocation_pending']);
+
+        // August receives payment of 200 with open obligation of 100
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'entry_type_id' => $settlementType->id,
+            'business_date' => '2026-08-10',
+            'amount' => 100.00,
+            'direction' => 'debit',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+            'affects_balance' => true,
+        ]);
+
+        ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'payment_reference' => 'PAY-AUG-SURPLUS',
+            'requested_amount' => 200.00,
+            'approved_amount' => 200.00,
+            'status' => 'verified',
+            'payment_method' => 'bank_transfer',
+            'payment_date' => '2026-08-11',
+        ]);
+
+        // Query August: payment cannot be projected beyond remaining due (max 100 allocated, 100 remains credit)
+        $augustDetail = $service->getShopMonthlyDetail($this->shop, '2026-08');
+        $this->assertSame(100.00, $augustDetail['projected_position']['additional_valid_allocation']);
+        $this->assertSame(100.00, $augustDetail['projected_position']['remaining_unallocated_credit']);
+
+        // Historical July remains identical
+        $julyAfter = $service->getShopMonthlyDetail($this->shop, '2026-07');
+        $this->assertSame($julyBefore['current_position'], $julyAfter['current_position']);
+        $this->assertSame($julyBefore['projected_position'], $julyAfter['projected_position']);
+    }
+
+    public function test_opening_balance_column_in_all_shops_summary_and_blade_view(): void
+    {
+        // 1. Create August 31 closing snapshot with ₹50,000 for Casio
+        ShopDailyLedgerSnapshot::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'business_date' => '2026-08-31',
+            'opening_balance' => 0.00,
+            'closing_balance' => 50000.00,
+            'opening_shop_position' => 0.00,
+            'closing_shop_position' => 50000.00,
+            'closing_company_pending' => 0.00,
+            'closing_petty' => 0.00,
+            'settlement_due' => 0.00,
+            'company_paid' => 0.00,
+            'shop_paid' => 0.00,
+            'status' => 'closed',
+        ]);
+
+        // 2. Set official accounting start date for September 1 as ₹0
+        ShopAccountingOpening::create([
+            'shop_id' => $this->shop->id,
+            'accounting_start_date' => '2026-09-01',
+            'opening_shop_company_balance' => 0.00,
+            'opening_balance_direction' => 'settled',
+            'opening_petty_balance' => 0.00,
+        ]);
+
+        // 3. Add September transaction
+        $settlementType = LedgerEntryType::firstOrCreate(
+            ['code' => 'settlement_due'],
+            ['name' => 'Settlement Due', 'category' => 'settlement', 'affects_balance' => true, 'normal_balance' => 'debit']
+        );
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'entry_type_id' => $settlementType->id,
+            'business_date' => '2026-09-05',
+            'amount' => 15000.00,
+            'direction' => 'debit',
+            'funding_source' => 'sales',
+            'status' => 'posted',
+            'affects_balance' => true,
+        ]);
+
+        /** @var MonthlyClosingSummaryService $service */
+        $service = app(MonthlyClosingSummaryService::class);
+
+        // A. Service level verification for September
+        $septemberSummary = $service->getAllShopsSummary('2026-09');
+        $casioRow = collect($septemberSummary['shops'])->firstWhere('shop_id', $this->shop->id);
+        $this->assertNotNull($casioRow);
+        $this->assertSame(0.00, $casioRow['opening_balance']);
+        $this->assertSame('settled', $casioRow['opening_direction']);
+        $this->assertSame('Settled', $casioRow['opening_direction_label']);
+
+        // B. Service level verification for August (historical)
+        $augustSummary = $service->getAllShopsSummary('2026-08');
+        $casioAugRow = collect($augustSummary['shops'])->firstWhere('shop_id', $this->shop->id);
+        $this->assertNotNull($casioAugRow);
+        $this->assertSame(0.00, $casioAugRow['opening_balance']);
+        $this->assertSame(50000.00, $casioAugRow['closing']['physical_position']);
+
+        // C. Controller and Blade view verification
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.monthly-closing-summary.index', ['month' => '2026-09']));
+
+        $response->assertOk();
+        $response->assertSee('Opening Balance');
+        $response->assertSee('₹0.00');
+        $response->assertSee('Settled');
+
+        // Verify read-only: no writes occurred
+        $this->assertEquals(1, ShopAccountingOpening::count());
+        $this->assertEquals(1, ShopLedgerTransaction::where('business_date', '>=', '2026-09-01')->count());
+    }
+
+    public function test_opening_balance_direction_display_when_non_zero(): void
+    {
+        // Set an opening with shop_owes_company
+        ShopAccountingOpening::create([
+            'shop_id' => $this->shop->id,
+            'accounting_start_date' => '2026-10-01',
+            'opening_shop_company_balance' => 25000.00,
+            'opening_balance_direction' => 'shop_owes_company',
+            'opening_petty_balance' => 0.00,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.monthly-closing-summary.index', ['month' => '2026-10']));
+
+        $response->assertOk();
+        $response->assertSee('₹25,000.00');
+        $response->assertSee('Shop → Company');
     }
 }

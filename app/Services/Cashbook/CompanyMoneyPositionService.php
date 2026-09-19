@@ -644,14 +644,9 @@ class CompanyMoneyPositionService
         $shop = Shop::find($shopId);
         $shopName = $shop?->name ?? 'Shop';
 
-        $prevSnapshot = ShopDailyLedgerSnapshot::query()
-            ->where('shop_id', $shopId)
-            ->where('business_date', '<', $businessDate)
-            ->orderByDesc('business_date')
-            ->first();
-
-        $openingShopOutstanding = max(0.0, (float) ($prevSnapshot?->closing_shop_position ?? 0.0));
-        $openingCompanyOutstanding = max(0.0, (float) ($prevSnapshot?->closing_company_pending ?? 0.0));
+        $openingBalances = app(BalanceCalculator::class)->openingBalances($shopId, $businessDate);
+        $openingShopOutstanding = max(0.0, (float) ($openingBalances['shop_position'] ?? 0.0));
+        $openingCompanyOutstanding = max(0.0, (float) ($openingBalances['company_pending'] ?? 0.0));
 
         $shopObligationGross = round($grossSales + $settlementAdditions, 2);
         $shopSalesDeductions = round($settlementDeductions, 2);
@@ -705,7 +700,7 @@ class CompanyMoneyPositionService
         }
 
         // Petty Cash Analysis
-        $openingPetty = (float) ($prevSnapshot?->closing_petty ?? 0.0);
+        $openingPetty = (float) ($openingBalances['petty'] ?? 0.0);
         $companyPettyReceived = (float) $transactions
             ->filter(fn ($t) => ! in_array($t->status, ['void', 'voided'], true) && (string) $t->funding_source === 'company' && (float) $t->petty_delta > 0)
             ->sum('amount');

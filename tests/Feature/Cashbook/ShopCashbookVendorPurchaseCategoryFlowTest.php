@@ -19,6 +19,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Purchasing\ShopPurchaseService;
+use Carbon\Carbon;
 use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
 use Database\Seeders\Cashbook\ShopConfigPresetSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -70,6 +71,8 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Carbon::setTestNow('2026-09-15 12:00:00');
 
         $this->seed(RolePermissionSeeder::class);
         $this->seed(LedgerEntryTypeSeeder::class);
@@ -255,6 +258,12 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
             ]
         );
         $this->vendorCategoryDefinedOnly->definedShopSuppliers()->sync([$this->shopSupplier1->id]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     public function test_normal_category_and_vendor_purchase_categories_remain_under_existing_header(): void

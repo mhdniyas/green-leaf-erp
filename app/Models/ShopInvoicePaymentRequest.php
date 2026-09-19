@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Cashbook\CompanyExpenseLedgerAllocation;
 use App\Models\Cashbook\CompanyPaymentReconciliation;
 use App\Models\Cashbook\ShopPaymentLedgerAllocation;
 use Database\Factories\ShopInvoicePaymentRequestFactory;
@@ -123,6 +124,11 @@ class ShopInvoicePaymentRequest extends Model
     public function ledgerAllocations(): HasMany
     {
         return $this->hasMany(ShopPaymentLedgerAllocation::class, 'payment_request_id');
+    }
+
+    public function companyExpenseAllocations(): HasMany
+    {
+        return $this->hasMany(CompanyExpenseLedgerAllocation::class, 'payment_request_id');
     }
 
     public function allocatedAmount(): float
