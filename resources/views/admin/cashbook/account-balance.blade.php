@@ -52,73 +52,105 @@
             </div>
         </div>
 
-        <!-- Period Preset Selector Form -->
-        <form method="GET" action="{{ route('admin.cashbook.account-balance') }}" id="period-filter-form" class="pt-4 border-t border-slate-100 space-y-4">
-            <div class="flex items-center justify-between gap-2 flex-wrap">
-                <span class="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
-                    <i data-lucide="filter" class="w-3.5 h-3.5 text-emerald-600"></i> Select Period Filter:
-                </span>
-                <span class="text-xs font-bold text-slate-500 font-mono">
-                    From <strong class="text-slate-800 font-bold">{{ $report->period['from_date'] }}</strong> to <strong class="text-slate-800 font-bold">{{ $report->period['to_date'] }}</strong>
-                </span>
-            </div>
+        <!-- Period Selector Form & Switcher (Matching Shop Cashbook Reference) -->
+        <div class="pt-4 border-t border-slate-100" x-data="{ activeMode: '{{ $report->period['mode'] }}' }">
+            <form method="GET" action="{{ route('admin.cashbook.account-balance') }}" class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <input type="hidden" name="month" value="{{ $report->period['month'] }}">
+                <input type="hidden" name="period_mode" :value="activeMode">
 
-            <!-- Segmented Filter Buttons -->
-            <div class="p-1.5 bg-slate-100/80 rounded-2xl border border-slate-200/70 flex flex-wrap items-center gap-1">
-                @php
-                    $presets = [
-                        'today' => 'Today',
-                        'yesterday' => 'Yesterday',
-                        'this_week' => 'This Week',
-                        'last_week' => 'Last Week',
-                        'this_month' => 'This Month',
-                        'last_month' => 'Last Month',
-                        'this_quarter' => 'This Quarter',
-                        'this_year' => 'This Year',
-                        'all_time' => 'All Time',
-                        'custom' => 'Custom Range',
-                    ];
-                    $currentPreset = $report->period['preset'];
-                @endphp
-
-                @foreach($presets as $key => $name)
-                    <button type="button" onclick="selectPreset('{{ $key }}')"
-                        class="px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all duration-200 cursor-pointer flex items-center gap-1.5 {{ $currentPreset === $key ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30' : 'bg-transparent text-slate-600 hover:bg-white hover:text-slate-900' }}">
-                        @if($currentPreset === $key)
-                            <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-white"></i>
-                        @endif
-                        {{ $name }}
-                    </button>
-                @endforeach
-                <input type="hidden" name="preset" id="selected-preset" value="{{ $currentPreset }}">
-            </div>
-
-            <!-- Custom Date Range Picker Container (Smooth Toggle) -->
-            <div id="custom-date-container" class="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3 {{ $currentPreset === 'custom' ? 'block' : 'hidden' }}">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-extrabold text-slate-700 flex items-center gap-1.5">
-                        <i data-lucide="calendar-range" class="w-4 h-4 text-emerald-600"></i> Custom Date Range Selection
-                    </span>
-                    <span class="text-[11px] font-medium text-slate-400">Select start and end dates then click Apply</span>
-                </div>
-                <div class="flex flex-wrap items-center gap-4">
-                    <div class="flex items-center gap-2">
-                        <label for="from_date" class="text-xs font-bold text-slate-600">From Date:</label>
-                        <input type="date" id="from_date" name="from_date" value="{{ $report->period['from_date'] }}"
-                            class="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-extrabold text-slate-900 focus:ring-2 focus:ring-emerald-600 focus:outline-none shadow-2xs">
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <label for="to_date" class="text-xs font-bold text-slate-600">To Date:</label>
-                        <input type="date" id="to_date" name="to_date" value="{{ $report->period['to_date'] }}"
-                            class="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-extrabold text-slate-900 focus:ring-2 focus:ring-emerald-600 focus:outline-none shadow-2xs">
-                    </div>
+                <!-- Mode Switcher Buttons: Month | Day | Custom -->
+                <div class="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl w-fit flex-wrap">
                     <button type="submit"
-                        class="px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-extrabold hover:bg-emerald-700 transition shadow-md shadow-emerald-600/20 cursor-pointer flex items-center gap-1.5">
-                        <i data-lucide="filter" class="w-4 h-4"></i> Apply Custom Filter
+                            @click="activeMode = 'month'"
+                            name="period_mode"
+                            value="month"
+                            class="px-4 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer"
+                            :class="activeMode === 'month' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
+                        Month
+                    </button>
+
+                    <button type="button"
+                            @click="activeMode = 'day'"
+                            class="px-4 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer"
+                            :class="activeMode === 'day' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
+                        Day
+                    </button>
+
+                    <button type="button"
+                            @click="activeMode = 'custom'"
+                            class="px-4 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer"
+                            :class="activeMode === 'custom' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'">
+                        Custom
                     </button>
                 </div>
+
+                <!-- Month Selection & Mode Specific Inputs -->
+                <div class="flex flex-wrap items-center gap-3">
+                    <!-- Month Navigator (Shown when activeMode === 'month') -->
+                    <div x-show="activeMode === 'month'" class="flex items-center gap-1">
+                        <a href="{{ route('admin.cashbook.account-balance', ['month' => $report->period['prev_month'], 'period_mode' => 'month']) }}"
+                           class="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 transition font-black text-xs" title="Previous Month">
+                            &larr;
+                        </a>
+                        <span class="px-3 py-1 text-xs font-black text-slate-900 uppercase tracking-wide">
+                            {{ $report->period['month_title'] }}
+                        </span>
+                        <a href="{{ route('admin.cashbook.account-balance', ['month' => $report->period['next_month'], 'period_mode' => 'month']) }}"
+                           class="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 transition font-black text-xs" title="Next Month">
+                            &rarr;
+                        </a>
+                    </div>
+
+                    <!-- Day Mode Input (Shown when activeMode === 'day') -->
+                    <div x-show="activeMode === 'day'" class="flex flex-wrap items-center gap-2" style="display: none;">
+                        <label for="day_picker" class="text-xs font-bold text-slate-600">Day:</label>
+                        <input type="date"
+                               id="day_picker"
+                               name="date"
+                               value="{{ $report->period['from_date'] }}"
+                               class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-600 focus:outline-none max-w-[150px]">
+                        <button type="submit" class="rounded-xl bg-slate-900 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-slate-800 transition cursor-pointer">
+                            Apply Day
+                        </button>
+                    </div>
+
+                    <!-- Custom Range Mode Inputs (Shown when activeMode === 'custom') -->
+                    <div x-show="activeMode === 'custom'" class="flex flex-wrap items-center gap-2" style="display: none;">
+                        <div class="flex items-center gap-1">
+                            <label for="from_picker" class="text-xs font-bold text-slate-600">From:</label>
+                            <input type="date"
+                                   id="from_picker"
+                                   name="from_date"
+                                   value="{{ $report->period['from_date'] }}"
+                                   class="rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-600 focus:outline-none max-w-[140px]">
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <label for="to_picker" class="text-xs font-bold text-slate-600">To:</label>
+                            <input type="date"
+                                   id="to_picker"
+                                   name="to_date"
+                                   value="{{ $report->period['to_date'] }}"
+                                   class="rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-600 focus:outline-none max-w-[140px]">
+                        </div>
+                        <button type="submit" class="rounded-xl bg-slate-900 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-slate-800 transition cursor-pointer">
+                            Apply Range
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Active Period Subtext Badge & Mode View Indicator -->
+            <div class="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="text-xs font-bold text-slate-600">
+                        Period: <strong class="text-slate-950 font-black">{{ $report->period['formatted_range'] }}</strong>
+                    </span>
+                </div>
+                <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                    {{ strtoupper($report->period['mode']) }} VIEW
+                </span>
             </div>
-        </form>
+        </div>
     </div>
 
     <!-- MAIN SUMMARY KPI CARDS -->
@@ -329,6 +361,7 @@
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Amount <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 cursor-pointer hover:text-slate-900 transition" data-sort="string">Status <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Age <span class="sort-icon text-slate-300">↕</span></th>
+                            <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="string">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
@@ -344,10 +377,28 @@
                                     </span>
                                 </td>
                                 <td class="py-2.5 px-2 text-right font-mono text-slate-400" data-val="{{ $item['age'] }}">{{ $item['age'] }}d</td>
+                                <td class="py-2.5 px-2 text-right font-medium whitespace-nowrap">
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        @if(!empty($item['details_url']))
+                                            <a href="{{ $item['details_url'] }}" title="View Details" class="p-1 rounded-lg text-slate-500 hover:text-amber-700 hover:bg-amber-50 transition inline-flex items-center">
+                                                <i data-lucide="eye" class="w-4 h-4"></i>
+                                            </a>
+                                        @endif
+                                        @if(!empty($item['delete_url']))
+                                            <form action="{{ $item['delete_url'] }}" method="POST" onsubmit="return confirm('Are you sure you want to delete/reject this floating entry?');" class="inline">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" title="Delete / Reject Entry" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition inline-flex items-center">
+                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                </button>
+                                            </form>
+                                        @endif
+                                    </div>
+                                </td>
                             </tr>
                         @empty
                             <tr class="no-records-row">
-                                <td colspan="6" class="py-6 text-center text-slate-400 font-medium">No active floating in items.</td>
+                                <td colspan="7" class="py-6 text-center text-slate-400 font-medium">No active floating in items.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -390,6 +441,7 @@
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Amount <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 cursor-pointer hover:text-slate-900 transition" data-sort="string">Status <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Age <span class="sort-icon text-slate-300">↕</span></th>
+                            <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="string">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
@@ -405,10 +457,28 @@
                                     </span>
                                 </td>
                                 <td class="py-2.5 px-2 text-right font-mono text-slate-400" data-val="{{ $item['age'] }}">{{ $item['age'] }}d</td>
+                                <td class="py-2.5 px-2 text-right font-medium whitespace-nowrap">
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        @if(!empty($item['details_url']))
+                                            <a href="{{ $item['details_url'] }}" title="View Details" class="p-1 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 transition inline-flex items-center">
+                                                <i data-lucide="eye" class="w-4 h-4"></i>
+                                            </a>
+                                        @endif
+                                        @if(!empty($item['delete_url']))
+                                            <form action="{{ $item['delete_url'] }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this statement entry?');" class="inline">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" title="Delete Entry" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition inline-flex items-center">
+                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                </button>
+                                            </form>
+                                        @endif
+                                    </div>
+                                </td>
                             </tr>
                         @empty
                             <tr class="no-records-row">
-                                <td colspan="6" class="py-6 text-center text-slate-400 font-medium">No active floating out items.</td>
+                                <td colspan="7" class="py-6 text-center text-slate-400 font-medium">No active floating out items.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -454,6 +524,7 @@
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Received <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Float Offset <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Closing Net <span class="sort-icon text-slate-300">↕</span></th>
+                            <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="string">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
@@ -465,10 +536,17 @@
                                 <td class="py-2.5 px-2 text-right font-mono text-emerald-600" data-val="{{ $rec['received'] }}">-₹{{ number_format($rec['received'], 2) }}</td>
                                 <td class="py-2.5 px-2 text-right font-mono text-amber-600" data-val="{{ $rec['floating_in_offset'] }}">-₹{{ number_format($rec['floating_in_offset'], 2) }}</td>
                                 <td class="py-2.5 px-2 text-right font-mono font-bold text-slate-900" data-val="{{ $rec['closing_outstanding'] }}">₹{{ number_format($rec['closing_outstanding'], 2) }}</td>
+                                <td class="py-2.5 px-2 text-right font-medium whitespace-nowrap">
+                                    @if(!empty($rec['details_url']))
+                                        <a href="{{ $rec['details_url'] }}" title="View Shop Cashbook" class="p-1 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition inline-flex items-center">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </a>
+                                    @endif
+                                </td>
                             </tr>
                         @empty
                             <tr class="no-records-row">
-                                <td colspan="6" class="py-6 text-center text-slate-400 font-medium">No receivables records found.</td>
+                                <td colspan="7" class="py-6 text-center text-slate-400 font-medium">No receivables records found.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -510,6 +588,7 @@
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">New Payable <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Paid <span class="sort-icon text-slate-300">↕</span></th>
                             <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Closing Payable <span class="sort-icon text-slate-300">↕</span></th>
+                            <th class="py-2.5 px-2 text-right cursor-pointer hover:text-slate-900 transition" data-sort="string">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
@@ -520,10 +599,17 @@
                                 <td class="py-2.5 px-2 text-right font-mono text-slate-600" data-val="{{ $pay['new_payable'] }}">+₹{{ number_format($pay['new_payable'], 2) }}</td>
                                 <td class="py-2.5 px-2 text-right font-mono text-emerald-600" data-val="{{ $pay['paid'] }}">-₹{{ number_format($pay['paid'], 2) }}</td>
                                 <td class="py-2.5 px-2 text-right font-mono font-bold text-slate-900" data-val="{{ $pay['closing_payable'] }}">₹{{ number_format($pay['closing_payable'], 2) }}</td>
+                                <td class="py-2.5 px-2 text-right font-medium whitespace-nowrap">
+                                    @if(!empty($pay['details_url']))
+                                        <a href="{{ $pay['details_url'] }}" title="View Vendor Payables" class="p-1 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 transition inline-flex items-center">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </a>
+                                    @endif
+                                </td>
                             </tr>
                         @empty
                             <tr class="no-records-row">
-                                <td colspan="5" class="py-6 text-center text-slate-400 font-medium">No payables records found.</td>
+                                <td colspan="6" class="py-6 text-center text-slate-400 font-medium">No payables records found.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -661,6 +747,7 @@
                         <th class="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition" data-sort="number">Amount <span class="sort-icon text-slate-300">↕</span></th>
                         <th class="py-3 px-3 cursor-pointer hover:text-slate-900 transition" data-sort="string">Status <span class="sort-icon text-slate-300">↕</span></th>
                         <th class="py-3 px-3 cursor-pointer hover:text-slate-900 transition" data-sort="string">Reference <span class="sort-icon text-slate-300">↕</span></th>
+                        <th class="py-3 px-3 text-right cursor-pointer hover:text-slate-900 transition" data-sort="string">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
@@ -677,10 +764,28 @@
                                 </span>
                             </td>
                             <td class="py-3 px-3 font-mono text-slate-500">{{ $tx['reference'] }}</td>
+                            <td class="py-3 px-3 text-right font-medium whitespace-nowrap">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    @if(!empty($tx['details_url']))
+                                        <a href="{{ $tx['details_url'] }}" title="View Details" class="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition inline-flex items-center">
+                                            <i data-lucide="eye" class="w-4 h-4"></i>
+                                        </a>
+                                    @endif
+                                    @if(!empty($tx['delete_url']))
+                                        <form action="{{ $tx['delete_url'] }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this statement entry?');" class="inline">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" title="Delete Entry" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition inline-flex items-center">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </form>
+                                    @endif
+                                </div>
+                            </td>
                         </tr>
                     @empty
                         <tr class="no-records-row">
-                            <td colspan="7" class="py-6 text-center text-slate-400 font-medium">No transactions found for the selected period.</td>
+                            <td colspan="8" class="py-6 text-center text-slate-400 font-medium">No transactions found for the selected period.</td>
                         </tr>
                     @endforelse
                 </tbody>

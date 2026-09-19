@@ -12327,8 +12327,18 @@ PY;
 
     private function resolveSecureStatementEntry(string $statementRef): CompanyAccountStatementEntry
     {
+        $decodedId = $this->tryDecodeFinanceRouteKey($statementRef, 'statement-entry');
+
+        if ($decodedId) {
+            $entry = CompanyAccountStatementEntry::query()->find($decodedId);
+            if ($entry) {
+                return $entry;
+            }
+        }
+
         return CompanyAccountStatementEntry::query()
-            ->whereKey($this->decodeFinanceRouteKey($statementRef, 'statement-entry'))
+            ->where('public_uuid', $statementRef)
+            ->orWhere('id', $statementRef)
             ->firstOrFail();
     }
 

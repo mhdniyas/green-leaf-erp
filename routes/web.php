@@ -771,6 +771,8 @@ Route::middleware('auth')->group(function () {
             Route::get('cash-flow-tree/edge-drilldown', [CashFlowTreeController::class, 'edgeDrilldown'])->name('cash-flow-tree.edge-drilldown');
             Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
             Route::get('account-balance', [AccountBalanceReportController::class, 'index'])->name('account-balance');
+            Route::delete('account-balance/statements/{entry}', [AccountBalanceReportController::class, 'destroyStatementEntry'])->name('account-balance.statements.delete');
+            Route::delete('account-balance/payment-requests/{paymentRequest}', [AccountBalanceReportController::class, 'destroyPaymentRequest'])->name('account-balance.payment-requests.delete');
             Route::get('monthly-closing-summary', [MonthlyClosingSummaryController::class, 'index'])->name('monthly-closing-summary.index');
             Route::get('monthly-closing-summary/shop/{shop}', [MonthlyClosingSummaryController::class, 'show'])->name('monthly-closing-summary.show');
             Route::get('overview-cards', [AdminCashbookReportsController::class, 'hub'])->name('reports.hub');

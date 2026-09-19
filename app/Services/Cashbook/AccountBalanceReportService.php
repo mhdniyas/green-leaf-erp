@@ -9,11 +9,15 @@ use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\Supplier;
+use App\Models\User;
+use App\Models\VendorSettlement;
 use App\Services\Cashbook\DTO\AccountBalanceReportData;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
 
 class AccountBalanceReportService
@@ -21,13 +25,26 @@ class AccountBalanceReportService
     /**
      * Generate the comprehensive Cashbook Account Balance Report.
      */
-    public function generateReport(string $preset = 'this_month', ?string $fromDate = null, ?string $toDate = null): AccountBalanceReportData
-    {
-        [$startDate, $endDate, $periodLabel] = $this->resolvePeriodDates($preset, $fromDate, $toDate);
+    public function generateReport(
+        string $preset = 'this_month',
+        ?string $fromDate = null,
+        ?string $toDate = null,
+        ?string $periodMode = null,
+        ?string $month = null,
+        ?string $date = null
+    ): AccountBalanceReportData {
+        [$startDate, $endDate, $periodLabel, $mode, $monthStr, $prevMonth, $nextMonth, $monthTitle, $formattedRange] = $this->resolvePeriodDates(
+            preset: $preset,
+            fromDate: $fromDate,
+            toDate: $toDate,
+            periodMode: $periodMode,
+            month: $month,
+            date: $date
+        );
 
         $accountsData = $this->calculateAccountBreakdowns($startDate, $endDate);
-        $floatingInData = $this->calculateFloatingIn($endDate);
-        $floatingOutData = $this->calculateFloatingOut($endDate);
+        $floatingInData = $this->calculateFloatingIn($startDate, $endDate);
+        $floatingOutData = $this->calculateFloatingOut($startDate, $endDate);
         $receivablesData = $this->calculateReceivables($startDate, $endDate, $floatingInData['items']);
         $payablesData = $this->calculatePayables($startDate, $endDate);
         $movementsData = $this->calculatePeriodMovements($startDate, $endDate, $accountsData, $floatingInData, $floatingOutData, $receivablesData, $payablesData);
@@ -53,8 +70,14 @@ class AccountBalanceReportService
 
         $period = [
             'preset' => $preset,
+            'mode' => $mode,
+            'month' => $monthStr,
+            'prev_month' => $prevMonth,
+            'next_month' => $nextMonth,
+            'month_title' => $monthTitle,
             'from_date' => $startDate,
             'to_date' => $endDate,
+            'formatted_range' => $formattedRange,
             'label' => $periodLabel,
         ];
 
@@ -72,66 +95,74 @@ class AccountBalanceReportService
     }
 
     /**
-     * Resolve date ranges from preset or custom dates.
+     * Resolve date ranges from mode, month, date or custom dates.
      *
-     * @return array{0: string, 1: string, 2: string}
+     * @return array{0: string, 1: string, 2: string, 3: string, 4: string, 5: string, 6: string, 7: string, 8: string}
      */
-    private function resolvePeriodDates(string $preset, ?string $fromDate, ?string $toDate): array
-    {
+    private function resolvePeriodDates(
+        string $preset,
+        ?string $fromDate,
+        ?string $toDate,
+        ?string $periodMode = null,
+        ?string $month = null,
+        ?string $date = null
+    ): array {
         $today = Carbon::today();
 
-        return match ($preset) {
-            'today' => [
-                $today->toDateString(),
-                $today->toDateString(),
-                'Today ('.$today->format('d M Y').')',
-            ],
-            'yesterday' => [
-                $today->copy()->subDay()->toDateString(),
-                $today->copy()->subDay()->toDateString(),
-                'Yesterday ('.$today->copy()->subDay()->format('d M Y').')',
-            ],
-            'this_week' => [
-                $today->copy()->startOfWeek()->toDateString(),
-                $today->toDateString(),
-                'This Week ('.$today->copy()->startOfWeek()->format('d M').' - '.$today->format('d M Y').')',
-            ],
-            'last_week' => [
-                $today->copy()->subWeek()->startOfWeek()->toDateString(),
-                $today->copy()->subWeek()->endOfWeek()->toDateString(),
-                'Last Week ('.$today->copy()->subWeek()->startOfWeek()->format('d M').' - '.$today->copy()->subWeek()->endOfWeek()->format('d M Y').')',
-            ],
-            'last_month' => [
-                $today->copy()->subMonth()->startOfMonth()->toDateString(),
-                $today->copy()->subMonth()->endOfMonth()->toDateString(),
-                'Last Month ('.$today->copy()->subMonth()->format('M Y').')',
-            ],
-            'this_quarter' => [
-                $today->copy()->startOfQuarter()->toDateString(),
-                $today->toDateString(),
-                'This Quarter (Q'.$today->quarter.' '.$today->year.')',
-            ],
-            'this_year' => [
-                $today->copy()->startOfYear()->toDateString(),
-                $today->toDateString(),
-                'This Year ('.$today->year.')',
-            ],
-            'all_time' => [
-                '2020-01-01',
-                $today->toDateString(),
-                'All Time (Up to '.$today->format('d M Y').')',
-            ],
-            'custom' => [
-                $fromDate ?: $today->copy()->startOfMonth()->toDateString(),
-                $toDate ?: $today->toDateString(),
-                'Custom ('.Carbon::parse($fromDate ?: $today->copy()->startOfMonth()->toDateString())->format('d M Y').' - '.Carbon::parse($toDate ?: $today->toDateString())->format('d M Y').')',
-            ],
-            default => [
-                $today->copy()->startOfMonth()->toDateString(),
-                $today->toDateString(),
-                'This Month ('.$today->format('M Y').')',
-            ],
-        };
+        // Determine active mode (Month | Day | Custom)
+        $mode = $periodMode ?: (match ($preset) {
+            'today', 'yesterday' => 'day',
+            'custom' => 'custom',
+            default => 'month',
+        });
+
+        if ($mode === 'day') {
+            $targetDate = $date ?: ($fromDate ?: ($preset === 'yesterday' ? $today->copy()->subDay()->toDateString() : $today->toDateString()));
+            $cDate = Carbon::parse($targetDate);
+            $startDate = $cDate->toDateString();
+            $endDate = $cDate->toDateString();
+            $label = $cDate->format('d M Y');
+            $monthStr = $cDate->format('Y-m');
+        } elseif ($mode === 'custom') {
+            $startDate = $fromDate ?: $today->copy()->startOfMonth()->toDateString();
+            $endDate = $toDate ?: $today->toDateString();
+            $label = Carbon::parse($startDate)->format('d M Y').' – '.Carbon::parse($endDate)->format('d M Y');
+            $monthStr = Carbon::parse($startDate)->format('Y-m');
+        } else {
+            // Month mode (default)
+            $mode = 'month';
+            $monthStr = $month ?: $today->format('Y-m');
+            try {
+                $cMonth = Carbon::createFromFormat('Y-m', $monthStr);
+            } catch (\Throwable) {
+                $cMonth = $today->copy();
+                $monthStr = $today->format('Y-m');
+            }
+
+            $startDate = $cMonth->copy()->startOfMonth()->toDateString();
+            $endDate = $cMonth->copy()->endOfMonth()->toDateString();
+            $label = $cMonth->format('F Y');
+        }
+
+        $cMonthRef = Carbon::createFromFormat('Y-m', $monthStr);
+        $prevMonth = $cMonthRef->copy()->subMonth()->format('Y-m');
+        $nextMonth = $cMonthRef->copy()->addMonth()->format('Y-m');
+        $monthTitle = strtoupper($cMonthRef->format('F Y'));
+        $formattedRange = $startDate === $endDate
+            ? Carbon::parse($startDate)->format('d M Y')
+            : Carbon::parse($startDate)->format('d M Y').' – '.Carbon::parse($endDate)->format('d M Y');
+
+        return [
+            $startDate,
+            $endDate,
+            $label,
+            $mode,
+            $monthStr,
+            $prevMonth,
+            $nextMonth,
+            $monthTitle,
+            $formattedRange,
+        ];
     }
 
     /**
@@ -214,7 +245,12 @@ class AccountBalanceReportService
      *
      * @return array{total: float, items: array<int, array<string, mixed>>}
      */
-    private function calculateFloatingIn(string $endDate): array
+    /**
+     * Calculate Floating In money (money inbound to company not yet cleared).
+     *
+     * @return array{total: float, items: array<int, array<string, mixed>>}
+     */
+    private function calculateFloatingIn(string $startDate, string $endDate): array
     {
         $items = [];
         $today = Carbon::today();
@@ -223,9 +259,16 @@ class AccountBalanceReportService
         $paymentRequests = ShopInvoicePaymentRequest::query()
             ->with(['shop'])
             ->where('status', '!=', 'rejected')
-            ->where(function ($query) use ($endDate): void {
-                $query->whereNull('payment_date')
-                    ->orWhereDate('payment_date', '<=', $endDate);
+            ->where(function ($query) use ($startDate, $endDate): void {
+                $query->where(function ($q) use ($startDate, $endDate): void {
+                    $q->whereNotNull('payment_date')
+                        ->whereDate('payment_date', '>=', $startDate)
+                        ->whereDate('payment_date', '<=', $endDate);
+                })->orWhere(function ($q) use ($startDate, $endDate): void {
+                    $q->whereNull('payment_date')
+                        ->whereDate('created_at', '>=', $startDate)
+                        ->whereDate('created_at', '<=', $endDate);
+                });
             })
             ->where(function ($query): void {
                 $query->where('status', 'pending')
@@ -243,6 +286,9 @@ class AccountBalanceReportService
             $date = Carbon::parse($req->payment_date ?: $req->created_at);
             $ageDays = max(0, (int) $date->diffInDays($today));
 
+            $detailsUrl = $req->shop_id ? route('admin.cashbook.shop.show', $req->shop_id) : null;
+            $deleteUrl = route('admin.cashbook.account-balance.payment-requests.delete', $req->id);
+
             $items[] = [
                 'id' => 'payment_req_'.$req->id,
                 'type' => 'Shop Payment Request',
@@ -255,6 +301,8 @@ class AccountBalanceReportService
                 'status' => strtoupper((string) ($req->cheque_status ?: $req->status)),
                 'reference' => $req->cheque_number ?: ($req->transaction_reference ?: 'REQ-'.$req->id),
                 'age' => $ageDays,
+                'details_url' => $detailsUrl,
+                'delete_url' => $deleteUrl,
             ];
         }
 
@@ -264,9 +312,16 @@ class AccountBalanceReportService
             ->where('is_finalized', 0)
             ->where('direction', 'in')
             ->whereNotIn('status', ['superseded', 'duplicate_flagged', 'rejected'])
-            ->where(function ($query) use ($endDate): void {
-                $query->whereNull('transaction_date')
-                    ->orWhereDate('transaction_date', '<=', $endDate);
+            ->where(function ($query) use ($startDate, $endDate): void {
+                $query->where(function ($q) use ($startDate, $endDate): void {
+                    $q->whereNotNull('transaction_date')
+                        ->whereDate('transaction_date', '>=', $startDate)
+                        ->whereDate('transaction_date', '<=', $endDate);
+                })->orWhere(function ($q) use ($startDate, $endDate): void {
+                    $q->whereNull('transaction_date')
+                        ->whereDate('created_at', '>=', $startDate)
+                        ->whereDate('created_at', '<=', $endDate);
+                });
             })
             ->get();
 
@@ -285,6 +340,9 @@ class AccountBalanceReportService
                 $fromName = $shop?->name ?: 'Shop #'.$stmt->sourceRecord->shop_id;
             }
 
+            $detailsUrl = $stmt->public_uuid ? route('admin.cashbook.finance.reconciliation', ['statementRef' => $stmt->public_uuid]) : null;
+            $deleteUrl = route('admin.cashbook.account-balance.statements.delete', $stmt->public_uuid ?: $stmt->id);
+
             $items[] = [
                 'id' => 'stmt_'.$stmt->id,
                 'type' => 'Statement Entry',
@@ -297,8 +355,13 @@ class AccountBalanceReportService
                 'status' => strtoupper((string) ($stmt->status ?: 'FLOATING')),
                 'reference' => $stmt->reference_number ?: 'STMT-'.$stmt->id,
                 'age' => $ageDays,
+                'details_url' => $detailsUrl,
+                'delete_url' => $deleteUrl,
             ];
         }
+
+        // Sort items by date descending (latest first)
+        usort($items, fn ($a, $b) => strcmp((string) $b['date'], (string) $a['date']));
 
         $totalFloatingIn = array_sum(array_column($items, 'amount'));
 
@@ -313,20 +376,38 @@ class AccountBalanceReportService
      *
      * @return array{total: float, items: array<int, array<string, mixed>>}
      */
-    private function calculateFloatingOut(string $endDate): array
+    private function calculateFloatingOut(string $startDate, string $endDate): array
     {
         $items = [];
         $today = Carbon::today();
 
-        // Unfinalized Outbound Statement Entries & Pending Vendor Payments
+        // Unfinalized Outbound Statement Entries & Pending Payments
         $unfinalizedStatements = CompanyAccountStatementEntry::query()
-            ->with(['companyAccount', 'sourceRecord'])
+            ->with([
+                'companyAccount',
+                'counterpart',
+                'sourceRecord' => function (MorphTo $morphTo): void {
+                    $morphTo->morphWith([
+                        PurchaserCredit::class => ['purchaser'],
+                        VendorSettlement::class => ['supplier'],
+                        PurchaseInvoice::class => ['supplier'],
+                        ShopLedgerTransaction::class => ['shop'],
+                    ]);
+                },
+            ])
             ->where('is_finalized', 0)
             ->where('direction', 'out')
             ->whereNotIn('status', ['superseded', 'duplicate_flagged', 'rejected'])
-            ->where(function ($query) use ($endDate): void {
-                $query->whereNull('transaction_date')
-                    ->orWhereDate('transaction_date', '<=', $endDate);
+            ->where(function ($query) use ($startDate, $endDate): void {
+                $query->where(function ($q) use ($startDate, $endDate): void {
+                    $q->whereNotNull('transaction_date')
+                        ->whereDate('transaction_date', '>=', $startDate)
+                        ->whereDate('transaction_date', '<=', $endDate);
+                })->orWhere(function ($q) use ($startDate, $endDate): void {
+                    $q->whereNull('transaction_date')
+                        ->whereDate('created_at', '>=', $startDate)
+                        ->whereDate('created_at', '<=', $endDate);
+                });
             })
             ->get();
 
@@ -339,19 +420,29 @@ class AccountBalanceReportService
             $date = Carbon::parse($stmt->transaction_date ?: $stmt->created_at);
             $ageDays = max(0, (int) $date->diffInDays($today));
 
+            $toParty = $this->resolveFloatingOutPartyName($stmt);
+
+            $detailsUrl = $stmt->public_uuid ? route('admin.cashbook.finance.reconciliation', ['statementRef' => $stmt->public_uuid]) : null;
+            $deleteUrl = route('admin.cashbook.account-balance.statements.delete', $stmt->public_uuid ?: $stmt->id);
+
             $items[] = [
                 'id' => 'stmt_out_'.$stmt->id,
                 'type' => 'Outbound Statement Entry',
                 'date' => $date->format('Y-m-d'),
                 'from_account' => $stmt->companyAccount?->name ?: 'Company Account',
-                'to' => $stmt->party_name ?: 'Vendor / Party',
-                'source' => 'Outbound Bank Transfer / Payment',
+                'to' => $toParty,
+                'source' => $stmt->source_label ?: 'Outbound Bank Transfer / Payment',
                 'amount' => round($amount, 2),
                 'status' => strtoupper((string) ($stmt->status ?: 'FLOATING OUT')),
-                'reference' => $stmt->reference_number ?: 'STMT-OUT-'.$stmt->id,
+                'reference' => $stmt->reference ?: 'STMT-OUT-'.$stmt->id,
                 'age' => $ageDays,
+                'details_url' => $detailsUrl,
+                'delete_url' => $deleteUrl,
             ];
         }
+
+        // Sort items by date descending (latest first)
+        usort($items, fn ($a, $b) => strcmp((string) $b['date'], (string) $a['date']));
 
         $totalFloatingOut = array_sum(array_column($items, 'amount'));
 
@@ -359,6 +450,105 @@ class AccountBalanceReportService
             'total' => round((float) $totalFloatingOut, 2),
             'items' => $items,
         ];
+    }
+
+    /**
+     * Resolve target party name for Floating Out money items.
+     */
+    private function resolveFloatingOutPartyName(CompanyAccountStatementEntry $stmt): string
+    {
+        // 1. Check counterpart relation
+        if ($stmt->counterpart) {
+            $counterpart = $stmt->counterpart;
+
+            if ($counterpart instanceof User) {
+                return $counterpart->name.' (Purchaser)';
+            }
+
+            if ($counterpart instanceof Supplier) {
+                return $counterpart->name.' (Vendor)';
+            }
+
+            if ($counterpart instanceof Shop) {
+                return $counterpart->name.' (Shop)';
+            }
+        }
+
+        // 2. Check sourceRecord relation
+        if ($stmt->sourceRecord) {
+            $source = $stmt->sourceRecord;
+
+            if ($source instanceof PurchaserCredit) {
+                $purchaserName = $source->purchaser?->name;
+
+                return $purchaserName ? $purchaserName.' (Purchaser)' : 'Purchaser';
+            }
+
+            if ($source instanceof VendorSettlement) {
+                $vendorName = $source->supplier?->name;
+
+                return $vendorName ? $vendorName.' (Vendor)' : 'Vendor';
+            }
+
+            if ($source instanceof PurchaseInvoice) {
+                $vendorName = $source->supplier?->name;
+
+                return $vendorName ? $vendorName.' (Vendor)' : 'Vendor';
+            }
+
+            if ($source instanceof ShopLedgerTransaction) {
+                $shopName = $source->shop?->name;
+
+                return $shopName ? $shopName.' (Shop Petty)' : 'Shop Petty';
+            }
+
+            if (isset($source->employee_name) && ! empty($source->employee_name)) {
+                return (string) $source->employee_name.' (Payroll)';
+            }
+        }
+
+        // 3. Fallback check by counterpart_id if type string is available
+        if ($stmt->counterpart_type && $stmt->counterpart_id) {
+            $cType = class_basename($stmt->counterpart_type);
+            if ($cType === 'User') {
+                $user = User::find($stmt->counterpart_id);
+                if ($user) {
+                    return $user->name.' (Purchaser)';
+                }
+            } elseif ($cType === 'Supplier') {
+                $supplier = Supplier::find($stmt->counterpart_id);
+                if ($supplier) {
+                    return $supplier->name.' (Vendor)';
+                }
+            } elseif ($cType === 'Shop') {
+                $shop = Shop::find($stmt->counterpart_id);
+                if ($shop) {
+                    return $shop->name.' (Shop)';
+                }
+            }
+        }
+
+        // 4. Source string or narration fallback
+        $sourceType = (string) $stmt->source_type;
+        $sourceStr = (string) $stmt->source;
+
+        if (str_contains($sourceType, 'PurchaserCredit') || $sourceStr === 'purchaser_funding') {
+            return 'Purchaser Funding';
+        }
+
+        if (str_contains($sourceType, 'VendorSettlement') || $sourceStr === 'vendor_settlement') {
+            return 'Vendor Settlement';
+        }
+
+        if (str_contains($sourceType, 'ShopLedgerTransaction') || $sourceStr === 'shop_petty_funding') {
+            return 'Shop Petty Funding';
+        }
+
+        if (! empty($stmt->narration)) {
+            return (string) $stmt->narration;
+        }
+
+        return 'Vendor / Party';
     }
 
     /**
@@ -434,6 +624,7 @@ class AccountBalanceReportService
                 'closing_outstanding' => $netClosingPosition,
                 'status' => $netClosingPosition > 0 ? 'OUTSTANDING' : 'SETTLED',
                 'reference' => 'SHOP-'.$shop->code,
+                'details_url' => route('admin.cashbook.shop.show', $shop->id),
             ];
 
             $totalClosing += $netClosingPosition;
@@ -495,6 +686,7 @@ class AccountBalanceReportService
                     'closing_payable' => $closingPayable,
                     'status' => $closingPayable > 0 ? 'PAYABLE OUTSTANDING' : 'PAID',
                     'reference' => 'VENDOR-'.$supplier->id,
+                    'details_url' => route('admin.cashbook.finance.vendor-credit'),
                 ];
 
                 $totalClosing += $closingPayable;
@@ -582,7 +774,8 @@ class AccountBalanceReportService
             ->whereDate('transaction_date', '>=', $startDate)
             ->whereDate('transaction_date', '<=', $endDate)
             ->whereNotIn('status', ['superseded', 'duplicate_flagged'])
-            ->latest('id')
+            ->orderBy('transaction_date', 'desc')
+            ->orderBy('id', 'desc')
             ->take(100)
             ->get()
             ->map(fn ($s) => [
@@ -594,6 +787,8 @@ class AccountBalanceReportService
                 'amount' => (float) $s->amount,
                 'status' => strtoupper((string) ($s->is_finalized ? 'CLEARED' : ($s->status ?: 'FLOATING'))),
                 'reference' => $s->reference ?: 'STMT-'.$s->id,
+                'details_url' => $s->public_uuid ? route('admin.cashbook.finance.reconciliation', ['statementRef' => $s->public_uuid]) : null,
+                'delete_url' => $s->is_finalized ? null : route('admin.cashbook.account-balance.statements.delete', $s->public_uuid ?: $s->id),
             ]);
 
         return collect($statements->all());

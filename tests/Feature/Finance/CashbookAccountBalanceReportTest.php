@@ -97,26 +97,27 @@ class CashbookAccountBalanceReportTest extends TestCase
 
         $response = $this->actingAs($this->admin)
             ->get(route('admin.cashbook.account-balance', [
-                'preset' => 'custom',
+                'period_mode' => 'custom',
                 'from_date' => $fromDate,
                 'to_date' => $toDate,
             ]));
 
         $response->assertOk();
-        $response->assertSee('Custom (');
+        $response->assertSee('CUSTOM VIEW');
     }
 
-    public function test_year_and_all_time_preset_filters(): void
+    public function test_month_and_day_period_mode_filters(): void
     {
-        $responseYear = $this->actingAs($this->admin)
-            ->get(route('admin.cashbook.account-balance', ['preset' => 'this_year']));
-        $responseYear->assertOk();
-        $responseYear->assertSee('This Year');
+        $responseMonth = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.account-balance', ['period_mode' => 'month', 'month' => '2026-09']));
+        $responseMonth->assertOk();
+        $responseMonth->assertSee('MONTH VIEW');
+        $responseMonth->assertSee('SEPTEMBER 2026');
 
-        $responseAllTime = $this->actingAs($this->admin)
-            ->get(route('admin.cashbook.account-balance', ['preset' => 'all_time']));
-        $responseAllTime->assertOk();
-        $responseAllTime->assertSee('All Time');
+        $responseDay = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.account-balance', ['period_mode' => 'day', 'date' => '2026-09-19']));
+        $responseDay->assertOk();
+        $responseDay->assertSee('DAY VIEW');
     }
 
     public function test_confirmed_statement_entries_affect_actual_balance_and_movements(): void
@@ -197,6 +198,48 @@ class CashbookAccountBalanceReportTest extends TestCase
         $this->assertEquals(107000.00, $report->summary['expected_balance']); // 90k + 25k - 8k
     }
 
+    public function test_floating_out_party_name_resolution_for_purchaser_and_vendor(): void
+    {
+        $purchaserUser = User::factory()->create([
+            'name' => 'John Doe',
+        ]);
+
+        // Outbound statement entry to a purchaser
+        CompanyAccountStatementEntry::create([
+            'company_account_id' => $this->bankAccount->id,
+            'direction' => 'out',
+            'amount' => 15000.00,
+            'status' => 'pending',
+            'is_finalized' => false,
+            'transaction_date' => Carbon::today()->toDateString(),
+            'counterpart_type' => User::class,
+            'counterpart_id' => $purchaserUser->id,
+            'source' => 'purchaser_funding',
+        ]);
+
+        // Outbound statement entry to a vendor
+        CompanyAccountStatementEntry::create([
+            'company_account_id' => $this->bankAccount->id,
+            'direction' => 'out',
+            'amount' => 20000.00,
+            'status' => 'pending',
+            'is_finalized' => false,
+            'transaction_date' => Carbon::today()->toDateString(),
+            'counterpart_type' => Supplier::class,
+            'counterpart_id' => $this->supplier->id,
+            'source' => 'vendor_settlement',
+        ]);
+
+        $service = app(AccountBalanceReportService::class);
+        $report = $service->generateReport('this_month');
+
+        $this->assertEquals(35000.00, $report->summary['floating_out']);
+        $toParties = array_column($report->floatingOut, 'to');
+
+        $this->assertContains('John Doe (Purchaser)', $toParties);
+        $this->assertContains('Agri Supplies Ltd (Vendor)', $toParties);
+    }
+
     public function test_double_count_prevention_between_floating_in_and_shop_receivables(): void
     {
         // Shop owes 100,000 gross
@@ -257,5 +300,124 @@ class CashbookAccountBalanceReportTest extends TestCase
 
         $this->assertEquals($initialAccountsCount, CompanyAccount::count());
         $this->assertEquals($initialStatementsCount, CompanyAccountStatementEntry::count());
+    }
+
+    public function test_floating_items_are_strictly_date_filtered_and_sorted_latest_first(): void
+    {
+        $septStart = '2026-09-01';
+        $septEnd = '2026-09-30';
+
+        // Item from August (previous month - should NOT appear in Sept filter)
+        ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'company_account_id' => $this->bankAccount->id,
+            'payment_method' => 'cheque',
+            'cheque_number' => 'CHQ-AUG-01',
+            'requested_amount' => 10000.00,
+            'approved_amount' => 10000.00,
+            'floating_amount' => 10000.00,
+            'status' => 'pending',
+            'cheque_status' => 'pending',
+            'payment_date' => '2026-08-16',
+        ]);
+
+        // Item from Sept 10
+        ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'company_account_id' => $this->bankAccount->id,
+            'payment_method' => 'cheque',
+            'cheque_number' => 'CHQ-SEPT-10',
+            'requested_amount' => 15000.00,
+            'approved_amount' => 15000.00,
+            'floating_amount' => 15000.00,
+            'status' => 'pending',
+            'cheque_status' => 'pending',
+            'payment_date' => '2026-09-10',
+        ]);
+
+        // Item from Sept 25 (Later date in Sept)
+        ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'company_account_id' => $this->bankAccount->id,
+            'payment_method' => 'cheque',
+            'cheque_number' => 'CHQ-SEPT-25',
+            'requested_amount' => 20000.00,
+            'approved_amount' => 20000.00,
+            'floating_amount' => 20000.00,
+            'status' => 'pending',
+            'cheque_status' => 'pending',
+            'payment_date' => '2026-09-25',
+        ]);
+
+        $service = app(AccountBalanceReportService::class);
+        $report = $service->generateReport('custom', $septStart, $septEnd, 'month', '2026-09');
+
+        $this->assertEquals(35000.00, $report->summary['floating_in']); // 15k + 20k (10k from Aug excluded)
+        $this->assertCount(2, $report->floatingIn);
+
+        // Assert latest date appears first
+        $this->assertEquals('2026-09-25', $report->floatingIn[0]['date']);
+        $this->assertEquals('2026-09-10', $report->floatingIn[1]['date']);
+    }
+
+    public function test_admin_can_delete_unfinalized_statement_entry(): void
+    {
+        $stmt = CompanyAccountStatementEntry::create([
+            'company_account_id' => $this->bankAccount->id,
+            'amount' => 5000.00,
+            'direction' => 'out',
+            'is_finalized' => 0,
+            'status' => 'pending',
+            'transaction_date' => Carbon::today()->toDateString(),
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->delete(route('admin.cashbook.account-balance.statements.delete', $stmt));
+
+        $response->assertRedirect();
+        $this->assertDatabaseMissing('cashbook_company_account_statement_entries', ['id' => $stmt->id]);
+    }
+
+    public function test_cannot_delete_finalized_statement_entry(): void
+    {
+        $stmt = CompanyAccountStatementEntry::create([
+            'company_account_id' => $this->bankAccount->id,
+            'amount' => 5000.00,
+            'direction' => 'out',
+            'is_finalized' => 1,
+            'status' => 'reconciled',
+            'transaction_date' => Carbon::today()->toDateString(),
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->delete(route('admin.cashbook.account-balance.statements.delete', $stmt));
+
+        $response->assertSessionHas('error');
+        $this->assertDatabaseHas('cashbook_company_account_statement_entries', ['id' => $stmt->id]);
+    }
+
+    public function test_admin_can_reject_payment_request(): void
+    {
+        $req = ShopInvoicePaymentRequest::create([
+            'shop_id' => $this->shop->id,
+            'company_account_id' => $this->bankAccount->id,
+            'payment_method' => 'cheque',
+            'cheque_number' => 'CHQ-REJ-99',
+            'requested_amount' => 12000.00,
+            'approved_amount' => 12000.00,
+            'floating_amount' => 12000.00,
+            'status' => 'pending',
+            'cheque_status' => 'pending',
+            'payment_date' => Carbon::today()->toDateString(),
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->delete(route('admin.cashbook.account-balance.payment-requests.delete', $req->id));
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('shop_invoice_payment_requests', [
+            'id' => $req->id,
+            'status' => 'rejected',
+        ]);
     }
 }
