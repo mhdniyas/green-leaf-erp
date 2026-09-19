@@ -954,6 +954,7 @@ Route::middleware('auth')->group(function () {
             Route::get('post-entry', [CashbookController::class, 'postEntryPage'])->name('post-entry');
             Route::get('post-entry/{shop}', [CashbookController::class, 'postEntryPageForShop'])->name('post-entry.shop');
             Route::get('shops/{shop}', [CashbookController::class, 'showShop'])->name('shop.show');
+            Route::post('shops/{shop}/recalculate-month', [CashbookController::class, 'recalculateMonth'])->name('shop.recalculate-month');
             Route::get('shops/{shop}/settlement-details', [CashbookController::class, 'showSettlementDetails'])->name('shop.settlement-details');
             Route::get('shops/{shop}/purchases/vendors', [CashbookController::class, 'shopVendorPurchasesReport'])->name('shop.purchases.vendors');
             Route::prefix('shops/{shop}/history')->name('shop.history.')->group(function () {

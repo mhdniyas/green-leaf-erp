@@ -37,6 +37,7 @@ use App\Models\Cashbook\PresetCollectionGroupEntryType;
 use App\Models\Cashbook\PresetEntrySetting;
 use App\Models\Cashbook\ShopBankSettlementAdjustment;
 use App\Models\Cashbook\ShopBankSettlementAdjustmentRule;
+use App\Models\Cashbook\ShopCashbookMonthConfigSnapshot;
 use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopConfigPreset;
@@ -94,6 +95,8 @@ use App\Services\Cashbook\DirectCompanySaleInventoryService;
 use App\Services\Cashbook\HistoricalBankCollectionFetchService;
 use App\Services\Cashbook\ReconciliationAutoMatchSuggestionService;
 use App\Services\Cashbook\ReconciliationTransactionQuery;
+use App\Services\Cashbook\ShopCashbookMonthConfigService;
+use App\Services\Cashbook\ShopCashbookMonthRecalculationService;
 use App\Services\Cashbook\ShopCollectionAutoMatchService;
 use App\Services\Cashbook\ShopFinancialReportService;
 use App\Services\Cashbook\ShopPaymentLedgerReconciliationService;
@@ -137,14 +140,14 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Process\Process;
-use Throwable;
-
 /**
  * Admin-only Cashbook dashboard — a complete port of the standalone ledger-app.
  *
  * Dynamically connects to Green Leaf ERP's owned shops (via CashbookShopSyncService).
  * All actions use dedicated FormRequests and Policy-backed authorization.
  */
+use Throwable;
+
 final class CashbookController extends Controller
 {
     public function __construct(
@@ -166,6 +169,7 @@ final class CashbookController extends Controller
         private readonly CashbookTransactionReversalService $reversalService,
         private readonly CompanyExpenseAllocationService $expenseAllocationService,
         private readonly PurchaserFinanceService $purchaserFinanceService,
+        private readonly ShopCashbookMonthConfigService $monthConfigService,
         private readonly BankSettlementExpectedAmountService $expectedAmountService = new BankSettlementExpectedAmountService,
     ) {}
 
@@ -536,6 +540,13 @@ final class CashbookController extends Controller
             $periodStart,
             $periodEnd
         );
+
+        $monthSnapshot = ShopCashbookMonthConfigSnapshot::query()
+            ->where('shop_id', $shopId)
+            ->where('month', $month)
+            ->first();
+        $lastRecalculatedAt = $monthSnapshot?->recalculated_at;
+        $recalculationSummary = $monthSnapshot?->recalculation_summary;
 
         $monthlyData = $this->moneyPositionService->getShopMonthlyDailySummaries($shopId, $month);
         $dailySettlement = $this->moneyPositionService->getShopDaySettlementOperationalSummary($shopId, $businessDate);
@@ -923,7 +934,54 @@ final class CashbookController extends Controller
             'recentAllocations',
             'recentCheques',
             'recentAdjustments',
+            'lastRecalculatedAt',
+            'recalculationSummary',
         ));
+    }
+
+    /**
+     * Refresh and recalculate all Cashbook calculations for a shop for a given month.
+     */
+    public function recalculateMonth(
+        Request $request,
+        int|string $shop,
+        ShopCashbookMonthRecalculationService $recalculationService
+    ): JsonResponse|RedirectResponse {
+        $this->ensureMainAdmin($request);
+
+        $currentShop = $this->resolveShop($shop);
+        $shopId = (int) $currentShop->shop_id;
+
+        $month = (string) $request->input('month', Carbon::now()->format('Y-m'));
+        if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = Carbon::now()->format('Y-m');
+        }
+
+        $result = $recalculationService->recalculateMonth($shopId, $month, auth()->id());
+
+        $message = sprintf(
+            'Month %s recalculated successfully. %d business days, %d categories, and %d relations processed.',
+            Carbon::parse($month.'-01')->format('F Y'),
+            $result['days_processed'],
+            $result['categories_processed'],
+            $result['relations_processed']
+        );
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'data' => $result,
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.cashbook.shop.show', [
+                'shop' => $currentShop->slug ?: $currentShop->shop_id,
+                'month' => $month,
+                'period_mode' => 'month',
+            ])
+            ->with('success', $message);
     }
 
     /**
@@ -3553,47 +3611,30 @@ final class CashbookController extends Controller
         $currentShop->load('client');
         $this->ensureShopSettings($currentShop);
 
-        $settings = ShopLedgerEntrySetting::query()
-            ->with(['entryType', 'vendorSettlementRelation', 'definedShopSuppliers.supplier'])
-            ->where('shop_id', $currentShop->shop_id)
-            ->get()
-            ->sortBy(fn (ShopLedgerEntrySetting $setting): int => (int) ($setting->entryType?->display_order ?? $setting->display_order))
-            ->values();
+        $selectedMonth = (string) $request->input('month', Carbon::now()->format('Y-m'));
+        if (! preg_match('/^\d{4}-\d{2}$/', $selectedMonth)) {
+            $selectedMonth = Carbon::now()->format('Y-m');
+        }
 
-        $settingsByCategory = $settings->groupBy(fn (ShopLedgerEntrySetting $setting): string => (string) ($setting->entryType?->category ?? 'other'));
-        $collectionGroup = ShopLedgerCollectionGroup::query()
-            ->where('shop_id', $currentShop->shop_id)
-            ->where('code', 'collection')
-            ->with('entryTypes.entryType')
-            ->first();
+        $configData = $this->monthConfigService->getConfigurationForMonth((int) $currentShop->shop_id, $selectedMonth);
+        $availableMonths = $this->monthConfigService->getAvailableMonthsForShop((int) $currentShop->shop_id);
 
-        $bankAdjustmentRules = ShopBankSettlementAdjustmentRule::query()
-            ->where('shop_id', $currentShop->shop_id)
-            ->get()
-            ->groupBy('entry_type_id');
-
-        $headerGroups = ShopLedgerHeaderGroup::query()
-            ->where('shop_id', $currentShop->shop_id)
-            ->orderBy('display_order')
-            ->get();
-
-        $relations = ShopCashbookRelation::query()
-            ->with(['items.setting.entryType', 'items.setting.companyAccount'])
-            ->where('shop_id', $currentShop->shop_id)
-            ->orderBy('display_order')
-            ->get();
-
-        $allEntryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
-
-        $shopSuppliers = ShopSupplier::query()
-            ->with('supplier')
-            ->where('shop_id', $currentShop->shop_id)
-            ->get()
-            ->sortBy(fn (ShopSupplier $ss): string => strtolower((string) ($ss->supplier?->name ?? '')))
-            ->values();
+        $settingsByCategory = $configData['settings_by_category'];
+        $collectionGroup = $configData['collection_group'];
+        $bankAdjustmentRules = $configData['bank_adjustment_rules'];
+        $headerGroups = $configData['headers'];
+        $relations = $configData['relations'];
+        $allEntryTypes = $configData['all_entry_types'];
+        $shopSuppliers = $configData['shop_suppliers'];
+        $isHistorical = $configData['is_historical'];
+        $isLegacy = $configData['is_legacy'];
+        $isReadOnly = $configData['is_read_only'];
+        $selectedMonthLabel = $configData['month_label'];
+        $isCurrentMonth = ! $isHistorical;
 
         return view('admin.cashbook.settings.shop', compact(
-            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup', 'bankAdjustmentRules', 'headerGroups', 'relations', 'allEntryTypes', 'shopSuppliers'
+            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup', 'bankAdjustmentRules', 'headerGroups', 'relations', 'allEntryTypes', 'shopSuppliers',
+            'selectedMonth', 'selectedMonthLabel', 'availableMonths', 'isHistorical', 'isLegacy', 'isReadOnly', 'isCurrentMonth'
         ));
     }
 
@@ -9599,6 +9640,7 @@ final class CashbookController extends Controller
 
         try {
             $setting = ShopLedgerEntrySetting::query()->findOrFail((int) $validated['setting_id']);
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $setting->shop_id);
             $isVendorPurchase = array_key_exists('is_vendor_purchase', $validated) ? (bool) $validated['is_vendor_purchase'] : (bool) $setting->is_vendor_purchase;
             $mirrorToCashbook = array_key_exists('mirror_to_cashbook', $validated) ? (bool) $validated['mirror_to_cashbook'] : (bool) ($setting->mirror_to_cashbook ?? true);
             $vendorAccessMode = $isVendorPurchase
@@ -9719,6 +9761,7 @@ final class CashbookController extends Controller
 
         try {
             $setting = ShopLedgerEntrySetting::query()->findOrFail((int) $validated['setting_id']);
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $setting->shop_id);
             $newStatus = array_key_exists('enabled', $validated) && $validated['enabled'] !== null
                 ? (bool) $validated['enabled']
                 : ! (bool) $setting->enabled;
@@ -9819,6 +9862,7 @@ final class CashbookController extends Controller
 
         try {
             $shopId = (int) $validated['shop_id'];
+            $this->monthConfigService->preservePriorMonthsBeforeMutation($shopId);
             $entryTypeId = (int) $validated['entry_type_id'];
 
             if (! empty($validated['id'])) {
@@ -9867,6 +9911,7 @@ final class CashbookController extends Controller
         try {
             $ruleModel = ShopBankSettlementAdjustmentRule::findOrFail($rule);
             $shopId = $ruleModel->shop_id;
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $shopId);
             $entryTypeId = $ruleModel->entry_type_id;
             $ruleModel->delete();
 
@@ -9980,6 +10025,7 @@ final class CashbookController extends Controller
 
         try {
             $shopId = (int) $validated['shop_id'];
+            $this->monthConfigService->preservePriorMonthsBeforeMutation($shopId);
             $name = trim($validated['name']);
             $type = $validated['type'];
 
@@ -10038,6 +10084,7 @@ final class CashbookController extends Controller
 
         try {
             $header = ShopLedgerHeaderGroup::query()->findOrFail((int) $validated['id']);
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $header->shop_id);
             $updateData = [];
 
             if (! empty($validated['name'])) {
@@ -10139,6 +10186,7 @@ final class CashbookController extends Controller
 
         try {
             $header = ShopLedgerHeaderGroup::query()->findOrFail((int) $validated['id']);
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $header->shop_id);
             $name = $header->name;
             $header->delete();
 
@@ -10163,6 +10211,7 @@ final class CashbookController extends Controller
 
         try {
             $shopId = (int) $validated['shop_id'];
+            $this->monthConfigService->preservePriorMonthsBeforeMutation($shopId);
             foreach ($validated['header_ids'] as $index => $id) {
                 ShopLedgerHeaderGroup::query()
                     ->where('id', (int) $id)
@@ -10188,6 +10237,7 @@ final class CashbookController extends Controller
 
         try {
             $setting = ShopLedgerEntrySetting::query()->findOrFail((int) $validated['setting_id']);
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $setting->shop_id);
             $headerGroupId = ! empty($validated['header_group_id']) ? (int) $validated['header_group_id'] : null;
 
             if ($headerGroupId !== null) {
@@ -10225,6 +10275,7 @@ final class CashbookController extends Controller
 
         try {
             $shopId = (int) $validated['shop_id'];
+            $this->monthConfigService->preservePriorMonthsBeforeMutation($shopId);
             $headerGroupId = ! empty($validated['header_group_id']) ? (int) $validated['header_group_id'] : null;
 
             if ($headerGroupId !== null) {
@@ -10261,6 +10312,7 @@ final class CashbookController extends Controller
 
         try {
             $shopId = (int) $validated['shop_id'];
+            $this->monthConfigService->preservePriorMonthsBeforeMutation($shopId);
             $name = trim($validated['name']);
             $type = $validated['relation_type'] ?? 'settlement';
 
@@ -10306,6 +10358,8 @@ final class CashbookController extends Controller
                 return response()->json(['success' => false, 'message' => 'Setting and Relation must belong to the same shop.'], 422);
             }
 
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $relation->shop_id);
+
             $maxOrder = (int) ShopCashbookRelationItem::query()
                 ->where('relation_id', $relation->id)
                 ->max('display_order');
@@ -10342,6 +10396,9 @@ final class CashbookController extends Controller
 
         try {
             $item = ShopCashbookRelationItem::query()->with('relation')->findOrFail((int) $validated['item_id']);
+            if ($item->relation) {
+                $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $item->relation->shop_id);
+            }
             $item->update(['role' => $validated['role']]);
 
             return response()->json([
@@ -10363,7 +10420,10 @@ final class CashbookController extends Controller
         ]);
 
         try {
-            $item = ShopCashbookRelationItem::query()->findOrFail((int) $validated['item_id']);
+            $item = ShopCashbookRelationItem::query()->with('relation')->findOrFail((int) $validated['item_id']);
+            if ($item->relation) {
+                $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $item->relation->shop_id);
+            }
             $item->delete();
 
             return response()->json([
@@ -10385,6 +10445,7 @@ final class CashbookController extends Controller
 
         try {
             $relation = ShopCashbookRelation::query()->findOrFail((int) $validated['id']);
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $relation->shop_id);
             $name = $relation->name;
             $relation->delete();
 
@@ -10411,6 +10472,7 @@ final class CashbookController extends Controller
         try {
             $relation = ShopCashbookRelation::query()->findOrFail((int) $validated['id']);
             $this->resolveShop($relation->shop_id);
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $relation->shop_id);
 
             $data = [];
             if (array_key_exists('settlement_source', $validated)) {
@@ -10453,6 +10515,8 @@ final class CashbookController extends Controller
             $shop = ShopLedgerProfile::query()
                 ->where('shop_id', (int) $validated['shop_id'])
                 ->firstOrFail();
+
+            $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $shop->shop_id);
 
             $name = trim($validated['name']);
             $customCode = ! empty($validated['code']) ? Str::slug($validated['code'], '_') : null;

@@ -11,6 +11,7 @@ use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Shop;
 use App\Models\Supplier;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\ShopCashbookMonthConfigService;
 use App\Services\Purchasing\ShopPurchaseService;
 use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +25,7 @@ class CashbookVendorController extends Controller
         private readonly CashbookShopSyncService $shopSync,
         private readonly ActiveShopResolver $activeShopResolver,
         private readonly ShopPurchaseService $purchaseService,
+        private readonly ShopCashbookMonthConfigService $monthConfigService,
     ) {}
 
     public function index(Request $request, string $shop): View
@@ -128,6 +130,7 @@ class CashbookVendorController extends Controller
     public function updateRouting(Request $request, string $shop): RedirectResponse|JsonResponse
     {
         $shopModel = $this->resolveAuthorizedShop($request, $shop);
+        $this->monthConfigService->preservePriorMonthsBeforeMutation((int) $shopModel->id);
         $this->shopSync->ensureVendorPurchaseForShop((int) $shopModel->id);
 
         $validated = $request->validate([

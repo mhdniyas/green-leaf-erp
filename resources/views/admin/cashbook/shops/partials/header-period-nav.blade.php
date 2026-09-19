@@ -51,6 +51,22 @@
                 @endif
             @endif
 
+            @if($periodMode === 'month' && auth()->check())
+                <!-- REFRESH & RECALCULATE MONTH (MONTH VIEW ONLY) -->
+                <form method="POST" action="{{ route('admin.cashbook.shop.recalculate-month', $currentShopSlugOrId) }}" class="inline-flex items-center">
+                    @csrf
+                    <input type="hidden" name="month" value="{{ $month }}">
+                    <button type="submit"
+                            class="inline-flex items-center gap-1.5 rounded-2xl border border-indigo-300 bg-indigo-50 px-3.5 py-2 text-xs font-black uppercase tracking-wider text-indigo-900 shadow-xs hover:bg-indigo-100 transition cursor-pointer"
+                            title="Rebuild all monthly Cashbook calculations according to its Category/Header/Relation configuration">
+                        <svg class="w-4 h-4 text-indigo-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span>Refresh &amp; Recalculate Month</span>
+                    </button>
+                </form>
+            @endif
+
             <!-- 3. SETTINGS -->
             <a href="{{ route('admin.cashbook.settings.shop', $currentShopSlugOrId) }}"
                class="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-800 shadow-xs hover:border-slate-400 hover:bg-slate-50 transition cursor-pointer">
@@ -153,11 +169,22 @@
             </div>
         </form>
 
-        <!-- Current Period Active Badge -->
+        <!-- Current Period Active Badge & Recalculation Info -->
         <div class="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-2">
-            <span class="text-xs font-bold text-slate-600">
-                Period: <strong class="text-slate-950 font-black">{{ $period['formatted_range'] }}</strong>
-            </span>
+            <div class="flex items-center gap-3 flex-wrap">
+                <span class="text-xs font-bold text-slate-600">
+                    Period: <strong class="text-slate-950 font-black">{{ $period['formatted_range'] }}</strong>
+                </span>
+                @if($periodMode === 'month')
+                    <span class="text-slate-300">&bull;</span>
+                    <span class="inline-flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                        <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Last recalculated: <strong class="text-slate-700 font-bold">{{ !empty($lastRecalculatedAt) ? \Illuminate\Support\Carbon::parse($lastRecalculatedAt)->format('d M Y h:i A') : 'Not recalculated yet' }}</strong></span>
+                    </span>
+                @endif
+            </div>
             <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
                 {{ strtoupper($periodMode) }} VIEW
             </span>

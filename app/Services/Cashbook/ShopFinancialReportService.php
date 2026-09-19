@@ -23,6 +23,7 @@ final class ShopFinancialReportService
         private readonly ShopSettlementService $settlementService,
         private readonly ShopPaymentLedgerReconciliationService $reconciliationService,
         private readonly ShopAccountingOpeningService $openingService = new ShopAccountingOpeningService,
+        private readonly ?ShopCashbookMonthConfigService $monthConfigService = null,
     ) {}
 
     /**
@@ -94,7 +95,9 @@ final class ShopFinancialReportService
         $monthCarbon = Carbon::createFromFormat('Y-m', $monthStr);
 
         // ── 1. Settings & Configured Entry Types ─────────────────────────────
-        $entrySettings = ShopLedgerEntrySetting::query()
+        $configService = $this->monthConfigService ?? app(ShopCashbookMonthConfigService::class);
+        $monthConfig = $configService->getConfigurationForMonth($shopId, $monthStr);
+        $entrySettings = $monthConfig['settings'] ?? ShopLedgerEntrySetting::query()
             ->with('entryType')
             ->where('shop_id', $shopId)
             ->where('enabled', true)

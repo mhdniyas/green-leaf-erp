@@ -105,12 +105,51 @@
                 </a>
                 <div class="flex items-center gap-3">
                     <h1 class="text-2xl font-extrabold tracking-tight text-slate-950">{{ $currentShop->name }}</h1>
-                    <span class="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200">Active Shop</span>
+                    @if(! empty($isHistorical))
+                        <span class="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-black text-amber-800 border border-amber-300">
+                            Historical ({{ $selectedMonthLabel ?? $selectedMonth }})
+                        </span>
+                        <span class="rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-black text-amber-950 uppercase tracking-wider">
+                            READ ONLY
+                        </span>
+                    @else
+                        <span class="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200">Current Configuration</span>
+                    @endif
                 </div>
                 <p class="mt-1 font-mono text-xs font-bold text-slate-400">{{ $currentShop->code ?: 'SHOP-'.$currentShop->shop_id }}</p>
             </div>
             
             <div class="flex flex-wrap items-center gap-3">
+                <!-- Month Selector & Recalculate Action -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <form method="GET" action="{{ route('admin.cashbook.settings.shop', ['shop' => $currentShop->slug ?: $currentShop->shop_id]) }}" class="flex items-center gap-2">
+                        <div class="relative inline-flex items-center">
+                            <label for="month-select" class="sr-only">Month</label>
+                            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5 text-slate-400">
+                                <i data-lucide="calendar" class="h-4 w-4"></i>
+                            </div>
+                            <select id="month-select" name="month" onchange="this.form.submit()" class="h-9 rounded-xl border border-slate-300 bg-white pl-8 pr-8 text-xs font-black text-slate-900 shadow-2xs focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900">
+                                @foreach($availableMonths ?? [] as $m)
+                                    <option value="{{ $m['value'] }}" {{ ($selectedMonth ?? '') === $m['value'] ? 'selected' : '' }}>
+                                        {{ $m['label'] }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </form>
+
+                    <form method="POST" action="{{ route('admin.cashbook.shop.recalculate-month', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex items-center">
+                        @csrf
+                        <input type="hidden" name="month" value="{{ $selectedMonth ?? now()->format('Y-m') }}">
+                        <button type="submit"
+                                class="inline-flex items-center gap-1.5 h-9 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-black text-indigo-900 shadow-2xs hover:bg-indigo-100 transition cursor-pointer"
+                                title="Rebuild all monthly Cashbook calculations for {{ $selectedMonthLabel ?? $selectedMonth }} according to its Category/Header/Relation configuration">
+                            <i data-lucide="refresh-cw" class="h-3.5 w-3.5 text-indigo-700"></i>
+                            <span>Refresh &amp; Recalculate Month</span>
+                        </button>
+                    </form>
+                </div>
+
                 <!-- Compact Show Disabled Toggle Switch -->
                 <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700">
                     <label for="toggle-show-disabled" class="cursor-pointer select-none">Show Disabled Entries</label>
@@ -141,6 +180,48 @@
         </div>
     </div>
 
+    @if(! empty($isHistorical))
+        <!-- Historical Configuration Banner -->
+        <div class="rounded-2xl border border-amber-300 bg-amber-50/90 p-4 shadow-xs">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+                <div class="flex items-center gap-3">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 text-white font-bold shrink-0">
+                        <i data-lucide="lock" class="h-4 w-4"></i>
+                    </span>
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 class="text-sm font-black text-amber-950">Historical Configuration &mdash; {{ $selectedMonthLabel ?? $selectedMonth }}</h2>
+                            <span class="rounded-full bg-amber-200/90 border border-amber-300 px-2.5 py-0.5 text-[10px] font-black text-amber-950 uppercase tracking-wider">
+                                READ ONLY
+                            </span>
+                            @if(! empty($isLegacy))
+                                <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                                    Legacy / Reconstructed
+                                </span>
+                            @endif
+                        </div>
+                        <p class="text-xs font-medium text-amber-800 mt-0.5">
+                            Showing all headers and categories as they existed during {{ $selectedMonthLabel ?? $selectedMonth }}. This view is strictly read-only to preserve financial history.
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <form method="POST" action="{{ route('admin.cashbook.shop.recalculate-month', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex items-center">
+                        @csrf
+                        <input type="hidden" name="month" value="{{ $selectedMonth }}">
+                        <button type="submit" class="inline-flex items-center gap-1.5 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-900 hover:bg-indigo-100 shadow-2xs transition cursor-pointer">
+                            <i data-lucide="refresh-cw" class="h-3.5 w-3.5 text-indigo-700"></i>
+                            <span>Recalculate {{ $selectedMonthLabel ?? $selectedMonth }}</span>
+                        </button>
+                    </form>
+                    <a href="{{ route('admin.cashbook.settings.shop', ['shop' => $currentShop->slug ?: $currentShop->shop_id]) }}" class="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-white px-3 py-1.5 text-xs font-black text-amber-900 hover:bg-amber-100/50 shadow-2xs transition">
+                        <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Return to Current Month
+                    </a>
+                </div>
+            </div>
+        </div>
+    @endif
+
     <!-- SECTION 1 — Income & Sales Section -->
     <section id="income-sales" class="space-y-6">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -160,20 +241,27 @@
                 </div>
             </div>
             
-            <div class="flex flex-wrap items-center gap-2">
-                <button type="button" onclick="openCreateHeaderModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100 transition shadow-xs">
-                    <i data-lucide="plus" class="h-4 w-4"></i>
-                    Create Income Header
-                </button>
-                <button type="button" onclick="openSearchModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-extrabold text-slate-800 hover:bg-slate-50 transition shadow-xs">
-                    <i data-lucide="search" class="h-4 w-4"></i>
-                    Search &amp; Add Income
-                </button>
-                <button type="button" onclick="openCreateModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-600 px-3.5 py-2 text-xs font-black text-white hover:bg-emerald-700 transition shadow-xs">
-                    <i data-lucide="plus" class="h-4 w-4"></i>
-                    Create New Income
-                </button>
-            </div>
+            @if(! empty($isReadOnly))
+                <span class="rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-black text-amber-900 inline-flex items-center gap-1.5 shadow-xs">
+                    <i data-lucide="lock" class="h-3.5 w-3.5"></i>
+                    Read Only Historical View
+                </span>
+            @else
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" onclick="openCreateHeaderModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100 transition shadow-xs">
+                        <i data-lucide="plus" class="h-4 w-4"></i>
+                        Create Income Header
+                    </button>
+                    <button type="button" onclick="openSearchModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-extrabold text-slate-800 hover:bg-slate-50 transition shadow-xs">
+                        <i data-lucide="search" class="h-4 w-4"></i>
+                        Search &amp; Add Income
+                    </button>
+                    <button type="button" onclick="openCreateModal('income')" class="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-600 px-3.5 py-2 text-xs font-black text-white hover:bg-emerald-700 transition shadow-xs">
+                        <i data-lucide="plus" class="h-4 w-4"></i>
+                        Create New Income
+                    </button>
+                </div>
+            @endif
         </div>
 
         <!-- INCOME HEADERS CONTAINER (Draggable Headers) -->
@@ -185,16 +273,24 @@
                 <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs transition"
                      data-header-id="{{ $header->id }}"
                      data-header-type="income"
+                     @if(empty($isReadOnly))
                      draggable="true"
                      ondragstart="handleHeaderDragStart(event)"
                      ondragover="handleHeaderDragOver(event)"
                      ondrop="handleHeaderDrop(event)"
-                     ondragend="handleHeaderDragEnd(event)">
+                     ondragend="handleHeaderDragEnd(event)"
+                     @endif>
                     <div class="flex items-center justify-between border-b border-slate-200/80 pb-3 mb-4">
                         <div class="flex items-center gap-2.5">
+                            @if(empty($isReadOnly))
                             <span class="header-drag-handle cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700" title="Drag to reorder header">
                                 <i data-lucide="grip-vertical" class="h-4 w-4"></i>
                             </span>
+                            @else
+                            <span class="text-slate-400" title="Historical Header">
+                                <i data-lucide="lock" class="h-3.5 w-3.5"></i>
+                            </span>
+                            @endif
                             <div class="flex flex-col gap-1">
                                 <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2 flex-wrap">
                                     <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
@@ -233,6 +329,7 @@
 
                         </div>
 
+                        @if(empty($isReadOnly))
                         <div class="flex items-center gap-2">
                             <button type="button" onclick="openSearchModal('income', {{ $header->id }})" class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 hover:text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
                                 <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Income Source
@@ -257,19 +354,22 @@
                                 <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
                             </button>
                         </div>
+                        @endif
                     </div>
 
                     <!-- Header Cards Dropzone Grid (4 columns) -->
                     <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
                          data-header-id="{{ $header->id }}"
                          data-header-type="income"
+                         @if(empty($isReadOnly))
                          ondragover="handleCardDragOver(event)"
-                         ondrop="handleCardDrop(event)">
+                         ondrop="handleCardDrop(event)"
+                         @endif>
                         @forelse($headerSettings as $setting)
-                            @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
+                            @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels, 'isReadOnly' => $isReadOnly ?? false])
                         @empty
                             <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
-                                No entries assigned yet. Drag cards here or click "+ Add Income Source".
+                                No entries assigned yet.
                             </div>
                         @endforelse
                     </div>
@@ -295,10 +395,12 @@
                 <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
                      data-header-id="unassigned"
                      data-header-type="income"
+                     @if(empty($isReadOnly))
                      ondragover="handleCardDragOver(event)"
-                     ondrop="handleCardDrop(event)">
+                     ondrop="handleCardDrop(event)"
+                     @endif>
                     @forelse($unassignedIncomeRows as $setting)
-                        @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
+                        @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels, 'isReadOnly' => $isReadOnly ?? false])
                     @empty
                         <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
                             All income entries are assigned to headers.
@@ -328,6 +430,7 @@
                 </div>
             </div>
 
+            @if(empty($isReadOnly))
             <div class="flex flex-wrap items-center gap-2">
                 <button type="button" onclick="openCreateHeaderModal('expense')" class="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-black text-rose-800 hover:bg-rose-100 transition shadow-xs">
                     <i data-lucide="plus" class="h-4 w-4"></i>
@@ -342,6 +445,7 @@
                     Create New Expense
                 </button>
             </div>
+            @endif
         </div>
 
         <!-- EXPENSE HEADERS CONTAINER (Draggable Headers) -->
@@ -353,16 +457,20 @@
                 <div class="header-group-box rounded-3xl border border-slate-200 bg-slate-50/50 p-5 shadow-xs transition"
                      data-header-id="{{ $header->id }}"
                      data-header-type="expense"
+                     @if(empty($isReadOnly))
                      draggable="true"
                      ondragstart="handleHeaderDragStart(event)"
                      ondragover="handleHeaderDragOver(event)"
                      ondrop="handleHeaderDrop(event)"
-                     ondragend="handleHeaderDragEnd(event)">
+                     ondragend="handleHeaderDragEnd(event)"
+                     @endif>
                     <div class="flex items-center justify-between border-b border-slate-200/80 pb-3 mb-4">
                         <div class="flex items-center gap-2.5">
+                            @if(empty($isReadOnly))
                             <span class="header-drag-handle cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700" title="Drag to reorder header">
                                 <i data-lucide="grip-vertical" class="h-4 w-4"></i>
                             </span>
+                            @endif
                             <div class="flex flex-col gap-1">
                                 <h3 class="text-sm font-black text-slate-950 tracking-tight flex items-center gap-2 flex-wrap">
                                     <span id="header-name-{{ $header->id }}">{{ $header->name }}</span>
@@ -401,6 +509,7 @@
 
                         </div>
 
+                        @if(empty($isReadOnly))
                         <div class="flex items-center gap-2">
                             <button type="button" onclick="openSearchModal('expense', {{ $header->id }})" class="inline-flex items-center gap-1 text-[11px] font-black text-rose-700 hover:text-rose-900 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
                                 <i data-lucide="plus" class="h-3.5 w-3.5"></i> Add Expense Source
@@ -425,16 +534,24 @@
                                 <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
                             </button>
                         </div>
+                        @endif
                     </div>
 
                     <!-- Header Cards Dropzone Grid (4 columns) -->
                     <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
                          data-header-id="{{ $header->id }}"
                          data-header-type="expense"
+                         @if(empty($isReadOnly))
                          ondragover="handleCardDragOver(event)"
-                         ondrop="handleCardDrop(event)">
+                         ondrop="handleCardDrop(event)"
+                         @endif>
                         @forelse($headerSettings as $setting)
-                            @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
+                            @include('admin.cashbook.settings.partials.card', [
+                                'setting' => $setting,
+                                'digitalEntryCodes' => $digitalEntryCodes,
+                                'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels,
+                                'isReadOnly' => $isReadOnly ?? false
+                            ])
                         @empty
                             <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
                                 No entries assigned yet. Drag cards here or click "+ Add Expense Source".
@@ -463,10 +580,17 @@
                 <div class="cards-dropzone grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 min-h-[85px] p-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/60"
                      data-header-id="unassigned"
                      data-header-type="expense"
+                     @if(empty($isReadOnly))
                      ondragover="handleCardDragOver(event)"
-                     ondrop="handleCardDrop(event)">
+                     ondrop="handleCardDrop(event)"
+                     @endif>
                     @forelse($unassignedExpenseRows as $setting)
-                        @include('admin.cashbook.settings.partials.card', ['setting' => $setting, 'digitalEntryCodes' => $digitalEntryCodes, 'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels])
+                        @include('admin.cashbook.settings.partials.card', [
+                            'setting' => $setting,
+                            'digitalEntryCodes' => $digitalEntryCodes,
+                            'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels,
+                            'isReadOnly' => $isReadOnly ?? false
+                        ])
                     @empty
                         <div class="no-cards-placeholder col-span-full py-6 text-center text-xs font-bold text-slate-400">
                             All expense entries are assigned to headers.
@@ -496,6 +620,7 @@
                 </div>
             </div>
 
+            @if(empty($isReadOnly))
             <div class="flex flex-wrap items-center gap-2">
                 <button type="button" onclick="openSearchModal('transfer')" class="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-xs font-black text-indigo-800 hover:bg-indigo-100 transition shadow-xs">
                     <i data-lucide="plus" class="h-4 w-4"></i>
@@ -503,6 +628,7 @@
                 </button>
                 <a href="{{ route('admin.cashbook.settings.shop.settlements.create', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex items-center rounded-xl bg-indigo-700 px-4 py-3 text-xs font-black text-white hover:bg-indigo-800">Create Settlement</a>
             </div>
+            @endif
         </div>
 
         <!-- Part A: Single Entry Transfers & Settlements -->
@@ -521,7 +647,8 @@
                         @include('admin.cashbook.settings.partials.card', [
                             'setting' => $setting,
                             'fundingSourceBusinessLabels' => $fundingSourceBusinessLabels,
-                            'digitalEntryCodes' => $digitalEntryCodes
+                            'digitalEntryCodes' => $digitalEntryCodes,
+                            'isReadOnly' => $isReadOnly ?? false
                         ])
                     @endforeach
                 </div>
@@ -531,7 +658,11 @@
         <div class="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 space-y-3">
             <h3 class="text-base font-black text-slate-950">Settlement calculations</h3>
             <p class="text-sm text-slate-600">Configure Income, Expense, and custom settlements by adding or subtracting categories. Only enabled settlement results appear in the summary.</p>
+            @if(empty($isReadOnly))
             <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $currentShop->slug ?: $currentShop->shop_id) }}" class="inline-flex rounded-xl bg-indigo-700 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-800">Manage Settlements</a>
+            @else
+            <span class="inline-flex rounded-xl bg-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 cursor-not-allowed">Read Only in Historical View</span>
+            @endif
         </div>
     </section>
 
