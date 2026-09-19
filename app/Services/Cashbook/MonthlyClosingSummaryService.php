@@ -191,24 +191,41 @@ final class MonthlyClosingSummaryService
         $nextMonthStr = $monthCarbon->copy()->addMonth()->format('Y-m');
         $nextMonthLabel = $monthCarbon->copy()->addMonth()->format('F Y');
 
-        // ── 1. Read-Only Physical Position from Snapshots (No Recalculation!) ──
+        // ── 1. Read-Only Physical Position (Authoritative Accounting Boundary) ──
         $accountingStartDate = $this->openingService->getAccountingStartDate($shopId);
         $openingRecord = $this->openingService->getOpeningForDate($shopId, $startDate);
         $isPreOpening = $this->openingService->isPreOpeningMonth($shopId, $month);
 
-        if (! $isPreOpening && $accountingStartDate !== null && $startDate === $accountingStartDate) {
-            $openingPhysicalPosRaw = $openingRecord ? $openingRecord->getSignedShopCompanyBalance() : 0.0;
-        } elseif (! $isPreOpening && $accountingStartDate !== null) {
-            $openingSnapshot = ShopDailyLedgerSnapshot::query()
-                ->where('shop_id', $shopId)
-                ->where('business_date', '>=', $accountingStartDate)
-                ->where('business_date', '<=', $prevMonthEnd)
-                ->orderByDesc('business_date')
-                ->orderByDesc('id')
-                ->first();
+        if (! $isPreOpening && $accountingStartDate !== null) {
+            if ($startDate === $accountingStartDate) {
+                // Accounting boundary month (e.g. September 2026): configured opening baseline
+                $openingPhysicalPosRaw = $openingRecord ? $openingRecord->getSignedShopCompanyBalance() : 0.0;
+            } elseif ($startDate > $accountingStartDate) {
+                // Post-boundary months (e.g. October 2026): baseline opening + cumulative post-boundary activity
+                $baseOpeningRecord = $this->openingService->getOpeningForDate($shopId, $accountingStartDate);
+                $baseOpening = $baseOpeningRecord ? $baseOpeningRecord->getSignedShopCompanyBalance() : 0.0;
+                $priorPostOpeningNet = (float) ShopLedgerTransaction::query()
+                    ->where('shop_id', $shopId)
+                    ->whereBetween('business_date', [$accountingStartDate, $prevMonthEnd])
+                    ->whereNotIn('status', ['void', 'voided', 'reversed'])
+                    ->whereNull('voided_at')
+                    ->sum('settlement_delta');
+                $openingPhysicalPosRaw = $baseOpening + $priorPostOpeningNet;
+            } else {
+                $openingPhysicalPosRaw = 0.0;
+            }
 
-            $openingPhysicalPosRaw = (float) ($openingSnapshot?->closing_shop_position ?? 0.0);
+            // Current month closing is opening physical position + net activity during the month
+            $monthNetActivity = (float) ShopLedgerTransaction::query()
+                ->where('shop_id', $shopId)
+                ->whereBetween('business_date', [$startDate, $endDate])
+                ->whereNotIn('status', ['void', 'voided', 'reversed'])
+                ->whereNull('voided_at')
+                ->sum('settlement_delta');
+
+            $closingPhysicalPosRaw = $openingPhysicalPosRaw + $monthNetActivity;
         } else {
+            // Historical pre-opening period (e.g. August 2026 and earlier): read from historical snapshots
             $openingSnapshot = ShopDailyLedgerSnapshot::query()
                 ->where('shop_id', $shopId)
                 ->where('business_date', '<=', $prevMonthEnd)
@@ -217,6 +234,15 @@ final class MonthlyClosingSummaryService
                 ->first();
 
             $openingPhysicalPosRaw = (float) ($openingSnapshot?->closing_shop_position ?? 0.0);
+
+            $closingSnapshot = ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shopId)
+                ->where('business_date', '<=', $endDate)
+                ->orderByDesc('business_date')
+                ->orderByDesc('id')
+                ->first();
+
+            $closingPhysicalPosRaw = (float) ($closingSnapshot?->closing_shop_position ?? $openingPhysicalPosRaw);
         }
 
         $openingPhysicalPos = round(abs($openingPhysicalPosRaw), 2);
@@ -231,15 +257,6 @@ final class MonthlyClosingSummaryService
             default => 'Settled',
         };
 
-        $closingSnapshot = ShopDailyLedgerSnapshot::query()
-            ->where('shop_id', $shopId)
-            ->when(! $isPreOpening && $accountingStartDate !== null, fn (Builder $q) => $q->where('business_date', '>=', $accountingStartDate))
-            ->where('business_date', '<=', $endDate)
-            ->orderByDesc('business_date')
-            ->orderByDesc('id')
-            ->first();
-
-        $closingPhysicalPosRaw = (float) ($closingSnapshot?->closing_shop_position ?? $openingPhysicalPosRaw);
         $closingPhysicalPos = round(abs($closingPhysicalPosRaw), 2);
         $closingDirection = match (true) {
             $closingPhysicalPosRaw > 0.0001 => 'shop_owes_company',

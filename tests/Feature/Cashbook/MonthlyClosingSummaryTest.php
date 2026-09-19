@@ -802,4 +802,135 @@ class MonthlyClosingSummaryTest extends TestCase
         $response->assertSee('₹25,000.00');
         $response->assertSee('Shop → Company');
     }
+
+    public function test_comprehensive_september_accounting_boundary_and_future_carry_forward(): void
+    {
+        // 1. Setup August snapshot with pre-opening balance ₹583,425.00 (Company owes Shop)
+        ShopDailyLedgerSnapshot::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'business_date' => '2026-08-31',
+            'opening_balance' => 0.00,
+            'closing_balance' => -583425.00,
+            'opening_shop_position' => 0.00,
+            'closing_shop_position' => -583425.00,
+            'closing_company_pending' => 36000.00,
+            'closing_petty' => 0.00,
+            'settlement_due' => 0.00,
+            'company_paid' => 0.00,
+            'shop_paid' => 0.00,
+            'status' => 'closed',
+        ]);
+
+        // Setup a stale future snapshot created in August (e.g. 2026-09-30 with old ₹1,304,286.00)
+        ShopDailyLedgerSnapshot::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'business_date' => '2026-09-30',
+            'opening_balance' => 1304286.00,
+            'closing_balance' => 1304286.00,
+            'opening_shop_position' => 1304286.00,
+            'closing_shop_position' => 1304286.00,
+            'closing_company_pending' => 36000.00,
+            'closing_petty' => 0.00,
+            'settlement_due' => 0.00,
+            'company_paid' => 0.00,
+            'shop_paid' => 0.00,
+            'status' => 'open',
+        ]);
+
+        // 2. Configure authoritative September 1 accounting opening: ₹0.00 opening balance, ₹0.00 pending
+        ShopAccountingOpening::create([
+            'shop_id' => $this->shop->id,
+            'accounting_start_date' => '2026-09-01',
+            'opening_shop_company_balance' => 0.00,
+            'opening_balance_direction' => 'settled',
+            'opening_allocation_pending' => 0.00,
+            'opening_petty_balance' => 0.00,
+        ]);
+
+        // 3. Add September transactions
+        $settlementType = LedgerEntryType::firstOrCreate(
+            ['code' => 'settlement_due'],
+            ['name' => 'Settlement Due', 'category' => 'settlement', 'affects_balance' => true, 'normal_balance' => 'debit']
+        );
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'entry_type_id' => $settlementType->id,
+            'business_date' => '2026-09-10',
+            'amount' => 500000.00,
+            'direction' => 'debit',
+            'funding_source' => 'sales',
+            'settlement_delta' => 500000.00,
+            'status' => 'posted',
+            'affects_balance' => true,
+        ]);
+
+        // Add October transaction
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop->id,
+            'profile_id' => $this->profile->id,
+            'entry_type_id' => $settlementType->id,
+            'business_date' => '2026-10-05',
+            'amount' => 100000.00,
+            'direction' => 'debit',
+            'funding_source' => 'sales',
+            'settlement_delta' => 100000.00,
+            'status' => 'posted',
+            'affects_balance' => true,
+        ]);
+
+        /** @var MonthlyClosingSummaryService $service */
+        $service = app(MonthlyClosingSummaryService::class);
+
+        // --- Verify 1: August (Historical pre-boundary) remains untouched ---
+        $augustDetail = $service->getShopMonthlyDetail($this->shop, '2026-08');
+        $this->assertSame(0.00, $augustDetail['opening']['physical_position']);
+        $this->assertSame(583425.00, $augustDetail['closing']['physical_position']);
+        $this->assertSame('company_owes_shop', $augustDetail['closing']['direction']);
+        $this->assertSame('Company → Shop', $augustDetail['closing']['direction_label']);
+
+        // --- Verify 2: September (Boundary month) ---
+        $septemberDetail = $service->getShopMonthlyDetail($this->shop, '2026-09');
+        // Rule 1, 2, 3, 4: September opening = configured ₹0.00, opening pending = ₹0.00, August does NOT leak
+        $this->assertSame(0.00, $septemberDetail['opening']['physical_position']);
+        $this->assertSame('settled', $septemberDetail['opening']['direction']);
+        $this->assertSame('Settled', $septemberDetail['opening']['direction_label']);
+        $this->assertSame(0.00, $septemberDetail['opening']['available_credit']);
+
+        // Rule 5, 6: September closing starts from configured ₹0.00 + September activity only (ignores stale ₹1,304,286 snapshot)
+        $this->assertSame(500000.00, $septemberDetail['closing']['physical_position']);
+        $this->assertSame('shop_owes_company', $septemberDetail['closing']['direction']);
+        $this->assertSame('Shop → Company', $septemberDetail['closing']['direction_label']);
+        $this->assertSame(500000.00, $septemberDetail['current_position']['closing_position']);
+        $this->assertSame(500000.00, $septemberDetail['projected_position']['closing_position']);
+
+        // --- Verify 3: October (Future month) carries forward September closing ---
+        $octoberDetail = $service->getShopMonthlyDetail($this->shop, '2026-10');
+        // Rule 7, 8: October opening = September final closing (₹500,000.00), not reset to zero
+        $this->assertSame(500000.00, $octoberDetail['opening']['physical_position']);
+        $this->assertSame('shop_owes_company', $octoberDetail['opening']['direction']);
+        $this->assertSame('Shop → Company', $octoberDetail['opening']['direction_label']);
+
+        // October closing = October opening (500,000) + October activity (100,000) = 600,000
+        $this->assertSame(600000.00, $octoberDetail['closing']['physical_position']);
+        $this->assertSame('shop_owes_company', $octoberDetail['closing']['direction']);
+        $this->assertSame(600000.00, $octoberDetail['current_position']['closing_position']);
+
+        // --- Verify 4: Controller GET requests remain read-only ---
+        $initialSnapshotsCount = ShopDailyLedgerSnapshot::count();
+        $initialTxsCount = ShopLedgerTransaction::count();
+        $initialOpeningsCount = ShopAccountingOpening::count();
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.monthly-closing-summary.index', ['month' => '2026-09']));
+        $response->assertOk();
+        $response->assertSee('₹500,000.00');
+
+        $this->assertSame($initialSnapshotsCount, ShopDailyLedgerSnapshot::count());
+        $this->assertSame($initialTxsCount, ShopLedgerTransaction::count());
+        $this->assertSame($initialOpeningsCount, ShopAccountingOpening::count());
+    }
 }
