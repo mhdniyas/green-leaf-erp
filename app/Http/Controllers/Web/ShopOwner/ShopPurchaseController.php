@@ -48,28 +48,42 @@ class ShopPurchaseController extends Controller
 
         $now = now('Asia/Kolkata');
         $requestedDate = $request->string('date', '')->toString();
-        $selectedDate = Carbon::parse($this->dailyLedgerService->resolveActiveBusinessDate($shop, $requestedDate ?: null));
+        $activeBusinessDate = $this->dailyLedgerService->resolveActiveBusinessDate($shop, $requestedDate ?: null);
+        $selectedDate = Carbon::parse($activeBusinessDate);
 
         $period = $request->string('period', '')->toString();
         if ($period === '') {
-            $period = $requestedDate !== '' ? 'custom' : 'today';
+            if ($request->filled('start_date') && $request->filled('end_date')) {
+                $period = 'custom';
+            } elseif ($requestedDate !== '' || $request->has('date')) {
+                $period = 'exact';
+            } else {
+                $period = 'today';
+            }
         }
-        if (! in_array($period, ['today', 'yesterday', 'month', 'custom', 'all'], true)) {
+
+        if (! in_array($period, ['today', 'yesterday', 'exact', '7days', '7_days', '30days', '30_days', 'month', 'this_month', 'custom', 'all'], true)) {
             $period = 'today';
         }
 
         $startDate = null;
         $endDate = null;
 
-        if ($period === 'today') {
-            $startDate = $now->toDateString();
-            $endDate = $now->toDateString();
+        if ($period === 'today' || $period === 'exact') {
+            $startDate = $selectedDate->toDateString();
+            $endDate = $selectedDate->toDateString();
         } elseif ($period === 'yesterday') {
-            $startDate = $now->copy()->subDay()->toDateString();
-            $endDate = $now->copy()->subDay()->toDateString();
-        } elseif ($period === 'month') {
-            $startDate = $now->copy()->startOfMonth()->toDateString();
-            $endDate = $now->copy()->endOfMonth()->toDateString();
+            $startDate = $selectedDate->copy()->subDay()->toDateString();
+            $endDate = $selectedDate->copy()->subDay()->toDateString();
+        } elseif ($period === '7days' || $period === '7_days') {
+            $startDate = $selectedDate->copy()->subDays(6)->toDateString();
+            $endDate = $selectedDate->toDateString();
+        } elseif ($period === '30days' || $period === '30_days') {
+            $startDate = $selectedDate->copy()->subDays(29)->toDateString();
+            $endDate = $selectedDate->toDateString();
+        } elseif ($period === 'month' || $period === 'this_month') {
+            $startDate = $selectedDate->copy()->startOfMonth()->toDateString();
+            $endDate = $selectedDate->copy()->endOfMonth()->toDateString();
         } elseif ($period === 'custom') {
             $startDate = $request->string('start_date', '')->toString() ?: ($requestedDate ?: $selectedDate->toDateString());
             $endDate = $request->string('end_date', '')->toString() ?: $startDate;
@@ -109,7 +123,30 @@ class ShopPurchaseController extends Controller
         }
 
         if ($categoryId !== null) {
-            $query->where('shop_ledger_entry_setting_id', $categoryId);
+            $catSetting = ShopLedgerEntrySetting::find($categoryId);
+            if ($catSetting) {
+                if ($catSetting->isVendorPurchaseCash()) {
+                    $query->where(function ($sq) use ($categoryId): void {
+                        $sq->where('shop_ledger_entry_setting_id', $categoryId)
+                            ->orWhere(function ($subQ): void {
+                                $subQ->whereNull('shop_ledger_entry_setting_id')
+                                    ->where('payment_method', 'Cash');
+                            });
+                    });
+                } elseif ($catSetting->isVendorPurchaseCredit()) {
+                    $query->where(function ($sq) use ($categoryId): void {
+                        $sq->where('shop_ledger_entry_setting_id', $categoryId)
+                            ->orWhere(function ($subQ): void {
+                                $subQ->whereNull('shop_ledger_entry_setting_id')
+                                    ->where('payment_method', 'Credit');
+                            });
+                    });
+                } else {
+                    $query->where('shop_ledger_entry_setting_id', $categoryId);
+                }
+            } else {
+                $query->where('shop_ledger_entry_setting_id', $categoryId);
+            }
         }
 
         if ($paymentMethod !== 'all' && $paymentMethod !== '') {
@@ -131,7 +168,7 @@ class ShopPurchaseController extends Controller
             'total_amount' => round((float) $allInvoicesForSummary->sum(fn ($inv) => (float) ($inv->amount - $inv->discount_amount)), 2),
             'cash_amount' => round((float) $allInvoicesForSummary->filter(fn ($inv) => strcasecmp((string) $inv->payment_method, 'Cash') === 0)->sum(fn ($inv) => (float) ($inv->amount - $inv->discount_amount)), 2),
             'credit_amount' => round((float) $allInvoicesForSummary->filter(fn ($inv) => strcasecmp((string) $inv->payment_method, 'Credit') === 0)->sum(fn ($inv) => (float) ($inv->amount - $inv->discount_amount)), 2),
-            'credit_outstanding' => round((float) $allInvoicesForSummary->sum(fn ($inv) => (float) ($inv->shopVendorPayable?->outstanding_amount ?? 0)), 2),
+            'credit_outstanding' => round((float) $allInvoicesForSummary->sum(fn ($inv) => (float) ($inv->shopVendorPayable?->outstanding_amount ?? ($inv->payment_method === 'Credit' ? max(0.0, ($inv->amount - $inv->discount_amount) - $inv->paid_amount) : 0))), 2),
         ];
 
         $invoices = $query

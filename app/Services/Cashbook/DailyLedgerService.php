@@ -283,9 +283,11 @@ class DailyLedgerService
             return Carbon::parse($requestedDate)->toDateString();
         }
 
+        $todayStr = today()->toDateString();
         $latestOpenSnapshot = ShopDailyLedgerSnapshot::query()
             ->where('shop_id', $shopId)
             ->whereIn('status', ['open', 'reopened'])
+            ->where('business_date', '<=', $todayStr)
             ->orderByDesc('business_date')
             ->first();
 
@@ -293,7 +295,7 @@ class DailyLedgerService
             return $latestOpenSnapshot->business_date->toDateString();
         }
 
-        return today()->toDateString();
+        return $todayStr;
     }
 
     public function assertDayOpen(int $shopId, string $businessDate): void

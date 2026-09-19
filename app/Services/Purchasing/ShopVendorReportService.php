@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\PurchaseInvoice;
 use App\Models\Shop;
 use App\Models\Supplier;
@@ -177,21 +178,133 @@ class ShopVendorReportService
         ];
     }
 
+    /**
+     * Get per-setting vendor purchase summaries for Cashbook on a specific business date.
+     *
+     * @param  Collection<int, ShopLedgerEntrySetting>  $settings
+     * @return array<int, array{setting_id: int, name: string, total_amount: float, cash_amount: float, credit_amount: float, count: int, payment_type: string}>
+     */
+    public function getVendorPurchaseSummariesForCashbook(Shop $shop, string $date, Collection $settings): array
+    {
+        $vpSettings = $settings->where('is_vendor_purchase', true);
+        if ($vpSettings->isEmpty()) {
+            return [];
+        }
+
+        $invoices = PurchaseInvoice::query()
+            ->where(function (Builder $q) use ($shop): void {
+                $q->where('shop_id', $shop->id)
+                    ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('destination_shop_id', $shop->id));
+            })
+            ->where('purchase_source', 'shop')
+            ->notCancelled()
+            ->where(function (Builder $dq) use ($date): void {
+                $dq->where('original_business_date', $date)
+                    ->orWhere(function (Builder $sub) use ($date): void {
+                        $sub->whereNull('original_business_date')
+                            ->whereHas('purchaserCart', fn (Builder $pq) => $pq->where('business_date', $date));
+                    });
+            })
+            ->get();
+
+        $summaries = [];
+        foreach ($vpSettings as $vpSetting) {
+            $isCashSetting = $vpSetting->isVendorPurchaseCash();
+            $isCreditSetting = $vpSetting->isVendorPurchaseCredit();
+
+            $invoicesForSetting = $invoices->filter(function (PurchaseInvoice $inv) use ($vpSetting, $vpSettings, $isCashSetting, $isCreditSetting): bool {
+                if ($inv->shop_ledger_entry_setting_id) {
+                    return (int) $inv->shop_ledger_entry_setting_id === (int) $vpSetting->id;
+                }
+
+                if ($isCashSetting) {
+                    return strcasecmp((string) $inv->payment_method, 'Cash') === 0;
+                }
+
+                if ($isCreditSetting) {
+                    return strcasecmp((string) $inv->payment_method, 'Credit') === 0;
+                }
+
+                return $vpSettings->count() === 1;
+            });
+
+            $cashAmt = (float) $invoicesForSetting
+                ->filter(fn (PurchaseInvoice $inv): bool => strcasecmp((string) $inv->payment_method, 'Cash') === 0)
+                ->sum(fn (PurchaseInvoice $inv): float => (float) ($inv->amount - $inv->discount_amount));
+
+            $creditAmt = (float) $invoicesForSetting
+                ->filter(fn (PurchaseInvoice $inv): bool => strcasecmp((string) $inv->payment_method, 'Credit') === 0)
+                ->sum(fn (PurchaseInvoice $inv): float => (float) ($inv->amount - $inv->discount_amount));
+
+            $totalAmt = match (true) {
+                $isCashSetting => $cashAmt,
+                $isCreditSetting => $creditAmt,
+                default => $cashAmt + $creditAmt,
+            };
+
+            $summaries[(int) $vpSetting->id] = [
+                'setting_id' => (int) $vpSetting->id,
+                'name' => $vpSetting->displayName(),
+                'total_amount' => round($totalAmt, 2),
+                'cash_amount' => round($cashAmt, 2),
+                'credit_amount' => round($creditAmt, 2),
+                'count' => $invoicesForSetting->count(),
+                'payment_type' => (string) ($vpSetting->vendor_purchase_payment_type ?? ''),
+            ];
+        }
+
+        return $summaries;
+    }
+
     private function applyFilters(Builder $query, array $filters): void
     {
         if (! empty($filters['date'])) {
             $date = Carbon::parse((string) $filters['date'])->toDateString();
             $query->where(function (Builder $q) use ($date): void {
-                $q->whereDate('created_at', $date)
-                    ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->whereDate('business_date', $date));
+                $q->where('original_business_date', $date)
+                    ->orWhere(function (Builder $sub) use ($date): void {
+                        $sub->whereNull('original_business_date')
+                            ->whereHas('purchaserCart', fn (Builder $cq) => $cq->where('business_date', $date));
+                    });
             });
         } elseif (! empty($filters['start_date']) && ! empty($filters['end_date'])) {
-            $start = Carbon::parse((string) $filters['start_date'])->startOfDay();
-            $end = Carbon::parse((string) $filters['end_date'])->endOfDay();
+            $start = Carbon::parse((string) $filters['start_date'])->toDateString();
+            $end = Carbon::parse((string) $filters['end_date'])->toDateString();
             $query->where(function (Builder $q) use ($start, $end): void {
-                $q->whereBetween('created_at', [$start, $end])
-                    ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->whereBetween('business_date', [$start->toDateString(), $end->toDateString()]));
+                $q->whereBetween('original_business_date', [$start, $end])
+                    ->orWhere(function (Builder $sub) use ($start, $end): void {
+                        $sub->whereNull('original_business_date')
+                            ->whereHas('purchaserCart', fn (Builder $cq) => $cq->whereBetween('business_date', [$start, $end]));
+                    });
             });
+        }
+
+        if (! empty($filters['category_id'])) {
+            $catId = (int) $filters['category_id'];
+            $setting = ShopLedgerEntrySetting::find($catId);
+            if ($setting) {
+                if ($setting->isVendorPurchaseCash()) {
+                    $query->where(function (Builder $sq) use ($catId): void {
+                        $sq->where('shop_ledger_entry_setting_id', $catId)
+                            ->orWhere(function (Builder $subQ): void {
+                                $subQ->whereNull('shop_ledger_entry_setting_id')
+                                    ->where('payment_method', 'Cash');
+                            });
+                    });
+                } elseif ($setting->isVendorPurchaseCredit()) {
+                    $query->where(function (Builder $sq) use ($catId): void {
+                        $sq->where('shop_ledger_entry_setting_id', $catId)
+                            ->orWhere(function (Builder $subQ): void {
+                                $subQ->whereNull('shop_ledger_entry_setting_id')
+                                    ->where('payment_method', 'Credit');
+                            });
+                    });
+                } else {
+                    $query->where('shop_ledger_entry_setting_id', $catId);
+                }
+            } else {
+                $query->where('shop_ledger_entry_setting_id', $catId);
+            }
         }
 
         if (! empty($filters['supplier_id'])) {
@@ -210,7 +323,8 @@ class ShopVendorReportService
             $search = trim((string) $filters['search']);
             $query->where(function (Builder $q) use ($search): void {
                 $q->where('invoice_number', 'like', "%{$search}%")
-                    ->orWhereHas('supplier', fn (Builder $sq) => $sq->where('name', 'like', "%{$search}%"));
+                    ->orWhereHas('supplier', fn (Builder $sq) => $sq->where('name', 'like', "%{$search}%")->orWhere('mobile_number', 'like', "%{$search}%"))
+                    ->orWhereHas('purchaserCart.items.product', fn (Builder $pq) => $pq->where('name', 'like', "%{$search}%"));
             });
         }
     }

@@ -40,7 +40,13 @@
                        @if($cutoffDate) min="{{ $cutoffDate }}" @endif
                        onchange="this.form.submit()"
                        class="font-mono text-xs font-black text-slate-900 bg-transparent border-0 p-0 focus:outline-none focus:ring-0 cursor-pointer">
+                {{-- Preserve current filters on date navigation --}}
+                @if($filters['category_id']) <input type="hidden" name="category_id" value="{{ $filters['category_id'] }}"> @endif
+                @if($filters['supplier_id']) <input type="hidden" name="supplier_id" value="{{ $filters['supplier_id'] }}"> @endif
+                @if(($filters['payment_method'] ?? 'all') !== 'all') <input type="hidden" name="payment_method" value="{{ $filters['payment_method'] }}"> @endif
+                @if($filters['search']) <input type="hidden" name="search" value="{{ $filters['search'] }}"> @endif
             </form>
+
 
             <button type="button" onclick="openNewVendorPurchaseModal()"
                     class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-emerald-700 active:scale-98 transition cursor-pointer">
@@ -55,6 +61,7 @@
         @php
             $currentPeriod = $filters['period'] ?? 'today';
             $baseParams = [
+                'date' => $selectedDate->format('Y-m-d'),
                 'supplier_id' => $filters['supplier_id'],
                 'category_id' => $filters['category_id'],
                 'payment_method' => $filters['payment_method'],
@@ -67,9 +74,16 @@
         @endphp
 
         <form method="GET" action="{{ route('shop-owner.cashbook.vendor-purchases') }}" id="vp-filter-form" class="space-y-3">
+            <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
+            <input type="hidden" name="period" value="{{ $currentPeriod }}">
+
             {{-- Quick Period Tabs --}}
             <div class="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-3">
                 <div class="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
+                    <a href="{{ route('shop-owner.cashbook.vendor-purchases', array_merge($baseParams, ['period' => 'exact'])) }}"
+                       class="px-3 py-1.5 rounded-xl text-xs font-black transition {{ $currentPeriod === 'exact' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        Exact Day
+                    </a>
                     <a href="{{ route('shop-owner.cashbook.vendor-purchases', array_merge($baseParams, ['period' => 'today'])) }}"
                        class="px-3 py-1.5 rounded-xl text-xs font-black transition {{ $currentPeriod === 'today' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                         Today
@@ -78,8 +92,16 @@
                        class="px-3 py-1.5 rounded-xl text-xs font-black transition {{ $currentPeriod === 'yesterday' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                         Yesterday
                     </a>
+                    <a href="{{ route('shop-owner.cashbook.vendor-purchases', array_merge($baseParams, ['period' => '7days'])) }}"
+                       class="px-3 py-1.5 rounded-xl text-xs font-black transition {{ in_array($currentPeriod, ['7days', '7_days'], true) ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        7 Days
+                    </a>
+                    <a href="{{ route('shop-owner.cashbook.vendor-purchases', array_merge($baseParams, ['period' => '30days'])) }}"
+                       class="px-3 py-1.5 rounded-xl text-xs font-black transition {{ in_array($currentPeriod, ['30days', '30_days'], true) ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        30 Days
+                    </a>
                     <a href="{{ route('shop-owner.cashbook.vendor-purchases', array_merge($baseParams, ['period' => 'month'])) }}"
-                       class="px-3 py-1.5 rounded-xl text-xs font-black transition {{ $currentPeriod === 'month' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                       class="px-3 py-1.5 rounded-xl text-xs font-black transition {{ in_array($currentPeriod, ['month', 'this_month'], true) ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                         This Month
                     </a>
                     <a href="{{ route('shop-owner.cashbook.vendor-purchases', array_merge($baseParams, ['period' => 'custom', 'start_date' => $filters['start_date'] ?: $todayStr, 'end_date' => $filters['end_date'] ?: $todayStr])) }}"
@@ -91,15 +113,6 @@
                         All
                     </a>
                 </div>
-
-                @if($filters['start_date'] && $filters['end_date'])
-                    <div class="text-xs font-mono text-slate-500 font-bold">
-                        {{ \Carbon\Carbon::parse($filters['start_date'])->format('d M Y') }} &mdash; {{ \Carbon\Carbon::parse($filters['end_date'])->format('d M Y') }}
-                    </div>
-                @endif
-            </div>
-
-            <input type="hidden" name="period" value="{{ $currentPeriod }}">
 
             {{-- Filter Fields Grid --}}
             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1">

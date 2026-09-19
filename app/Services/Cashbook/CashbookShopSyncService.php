@@ -496,7 +496,7 @@ class CashbookShopSyncService
                 'vendor_purchase_payment_type' => 'credit',
                 'vendor_access_mode' => $vendorAccessMode,
                 'vendor_settlement_relation_id' => $vendorSettlementRelationId,
-                'mirror_to_cashbook' => false,
+                'mirror_to_cashbook' => true,
                 'version' => 1,
                 'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
                 'effective_to' => null,
@@ -523,6 +523,9 @@ class CashbookShopSyncService
             }
             if ($creditSetting->vendor_purchase_payment_type !== 'credit') {
                 $updates['vendor_purchase_payment_type'] = 'credit';
+            }
+            if (! $creditSetting->mirror_to_cashbook) {
+                $updates['mirror_to_cashbook'] = true;
             }
             if ($updates !== []) {
                 $creditSetting->update($updates);

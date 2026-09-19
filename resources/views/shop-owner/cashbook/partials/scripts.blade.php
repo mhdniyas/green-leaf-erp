@@ -430,8 +430,26 @@
             let headerCount = 0;
 
             (h.setting_ids || []).forEach(sId => {
-                const amt = parseFloat(activeDayData[sId]) || 0;
                 const s = settings.find(item => item.id === sId);
+                const isVp = s && Boolean(s.is_vendor_purchase);
+                const isMirrorEnabled = !s || (s.mirror_to_cashbook !== false && s.mirror_to_cashbook !== 0 && s.mirror_to_cashbook !== '0');
+
+                let amt = parseFloat(activeDayData[sId]) || 0;
+
+                // VP settings: use vendor_purchase_summary amounts (no ShopLedgerTransaction exists for them)
+                if (isVp && isMirrorEnabled) {
+                    const vpSum = (s.vendor_purchase_summary) || {};
+                    const paymentType = s.vendor_purchase_payment_type || vpSum.payment_type || '';
+                    if (paymentType === 'cash') {
+                        amt = typeof vpSum.cash_amount === 'number' ? vpSum.cash_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : 0);
+                    } else if (paymentType === 'credit') {
+                        // Credit VP: no cash impact, tracked as liability only
+                        amt = 0;
+                    } else {
+                        amt = typeof vpSum.total_amount === 'number' ? vpSum.total_amount : 0;
+                    }
+                }
+
                 const isMinus = isExpenseHeader || (s && (s.is_sales_deduction || s.payable_direction === 'minus'));
 
                 if (isMinus) {
@@ -443,7 +461,12 @@
                 if (s && amt > 0) {
                     headerCount++;
                     activeEntryCount++;
-                    if (s.is_sales_deduction) {
+                    if (isVp) {
+                        // Cash VP: deducted from shop cash (it's a cash expense)
+                        // Credit VP: amt is already 0, so no cash impact
+                        totalExpense += amt;
+                        expensesPaidFromShopCash += amt;
+                    } else if (s.is_sales_deduction) {
                         totalIncome -= amt;
                         if (s.funding_source === 'sales' || s.funding_source === 'shop_cash') {
                             cashCollectedAtShop -= amt;
@@ -498,6 +521,7 @@
             const outTotalEl = document.getElementById('out-modal-total-' + h.id);
             if (outTotalEl) outTotalEl.textContent = formatCurrency(headerTotal);
         });
+
 
         // Calculate Header Add-Backs for headers with show_both_sides enabled & cash purchase settings
         let headerAddBacks = [];
@@ -567,10 +591,34 @@
             activeDayData['header_tagged_product_' + h.id] = hTaggedSum;
         });
 
+        // Inject VP amounts into activeDayData for settlement calculations.
+        // VP settings have no ShopLedgerTransaction so activeDayData[sId] is 0.
+        // We use vendor_purchase_summary so both Cash and Credit VP appear correctly
+        // in the settlement breakdown (Expense section).
+        settings.forEach(s => {
+            if (!s.is_vendor_purchase) return;
+            const isMirrorEnabled = s.mirror_to_cashbook !== false && s.mirror_to_cashbook !== 0 && s.mirror_to_cashbook !== '0';
+            if (!isMirrorEnabled) return;
+            const vpSum = (s.vendor_purchase_summary) || {};
+            const paymentType = s.vendor_purchase_payment_type || vpSum.payment_type || '';
+            let vpAmt = 0;
+            if (paymentType === 'cash') {
+                vpAmt = typeof vpSum.cash_amount === 'number' ? vpSum.cash_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : 0);
+            } else if (paymentType === 'credit') {
+                vpAmt = typeof vpSum.credit_amount === 'number' ? vpSum.credit_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : 0);
+            } else {
+                vpAmt = typeof vpSum.total_amount === 'number' ? vpSum.total_amount : 0;
+            }
+            if (vpAmt > 0) {
+                activeDayData[s.id] = vpAmt;
+            }
+        });
+
         // Compute settlements dynamically using CashbookSettlementSummary
         const settlementResult = (typeof CashbookSettlementSummary !== 'undefined' && relations && relations.length > 0)
             ? CashbookSettlementSummary.calculate(relations, activeDayData, 0)
             : { settlements: [], netBalance: totalIncome - totalExpense, netLabel: 'Net Activity' };
+
 
         const todayNetActivity = settlementResult.netBalance;
 
@@ -787,18 +835,39 @@
                 const isVp = Boolean(s.is_vendor_purchase);
                 const isMirrorEnabled = s.mirror_to_cashbook !== false && s.mirror_to_cashbook !== 0 && s.mirror_to_cashbook !== '0';
 
-                // If Vendor Purchase has mirroring disabled, do not show in cashbook
-                if (isVp && !isMirrorEnabled) {
-                    return '';
-                }
-
                 const amt = parseFloat(activeDayData[sId]) || 0;
+                let effectiveAmt = amt;
+
+                if (isVp) {
+                    // VP amounts come from vendor_purchase_summary (not ShopLedgerTransaction)
+                    const vpSum = (s.vendor_purchase_summary) || {};
+                    const paymentType = s.vendor_purchase_payment_type || vpSum.payment_type || '';
+                    if (paymentType === 'cash') {
+                        effectiveAmt = typeof vpSum.cash_amount === 'number' ? vpSum.cash_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : amt);
+                    } else if (paymentType === 'credit') {
+                        effectiveAmt = typeof vpSum.credit_amount === 'number' ? vpSum.credit_amount : (typeof vpSum.total_amount === 'number' ? vpSum.total_amount : amt);
+                    } else {
+                        effectiveAmt = typeof vpSum.total_amount === 'number' ? vpSum.total_amount : amt;
+                    }
+                }
 
                 const isMinus = !isIncome || s.is_sales_deduction || s.payable_direction === 'minus';
                 if (isMinus) {
-                    hTotal -= amt;
+                    hTotal -= effectiveAmt;
                 } else {
-                    hTotal += amt;
+                    hTotal += effectiveAmt;
+                }
+
+                // VP settings are rendered server-side in the Blade vendor-purchase-section partial.
+                // We still count their amount in hTotal above (so the header group total is correct),
+                // but we do NOT render a duplicate JS card here.
+                if (isVp) {
+                    return '';
+                }
+
+                // Non-VP settings: If mirroring disabled just skip
+                if (!isMirrorEnabled) {
+                    return '';
                 }
 
                 const name = s.name || 'Item';
@@ -815,51 +884,6 @@
                 const signPrefix = isMinus ? '−' : '+';
                 const signBadgeClass = isMinus ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700';
                 const signTextClass = isMinus ? 'text-rose-600' : 'text-emerald-700';
-
-                if (isVp) {
-                    const vpSum = (s.vendor_purchase_summary) || {
-                        total_amount: amt,
-                        cash_amount: amt,
-                        credit_amount: 0,
-                        count: (amt > 0 ? 1 : 0)
-                    };
-                    const totalPurchases = typeof vpSum.total_amount === 'number' ? vpSum.total_amount : amt;
-                    const cashPurchases = typeof vpSum.cash_amount === 'number' ? vpSum.cash_amount : amt;
-                    const creditPurchases = typeof vpSum.credit_amount === 'number' ? vpSum.credit_amount : 0;
-                    const purchaseCount = typeof vpSum.count === 'number' ? vpSum.count : (totalPurchases > 0 ? 1 : 0);
-                    const countLabel = `${purchaseCount} ${purchaseCount === 1 ? 'purchase' : 'purchases'}`;
-
-                    return `
-                        <div class="mt-2 pt-2 border-t border-slate-100/80 rounded-xl bg-slate-50/70 border border-slate-200/80 p-3 space-y-2 transition">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex items-center gap-1.5 flex-wrap">
-                                        <span class="text-xs font-black text-slate-900 truncate">${escapeHtml(name)}</span>
-                                        <span class="rounded bg-slate-200/80 text-slate-700 text-[9px] font-bold px-1.5 py-0.5 shrink-0">Vendor Purchases</span>
-                                    </div>
-                                    <div class="text-[11px] font-bold text-slate-600 mt-1">
-                                        Cash ${formatCurrency(cashPurchases, false)} · Credit ${formatCurrency(creditPurchases, false)}
-                                    </div>
-                                    <div class="text-[10px] font-medium text-slate-400 mt-0.5">
-                                        ${countLabel}
-                                    </div>
-                                </div>
-                                <div class="text-right shrink-0">
-                                    <span class="font-mono text-xs font-black text-slate-900">
-                                        ${formatCurrency(totalPurchases, false)}
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="pt-1.5 border-t border-slate-200/60 flex items-center justify-between">
-                                <span class="text-[10px] font-medium text-slate-400">Managed on dedicated page</span>
-                                <a href="${vendorPurchasesUrl}?category_id=${s.id}&date=${activeBusinessDate}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-2xs transition">
-                                    <span>View Vendor Purchases</span>
-                                    <i data-lucide="arrow-right" class="h-3 w-3"></i>
-                                </a>
-                            </div>
-                        </div>
-                    `;
-                }
 
                 return `
                     <div class="flex items-start justify-between gap-2 py-1">

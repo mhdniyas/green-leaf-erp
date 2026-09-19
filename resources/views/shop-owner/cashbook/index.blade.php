@@ -140,7 +140,7 @@
     $expenseHeaders = $ownerHeaderSections->filter(fn($h) => $h['type'] === 'expense' || ! empty($h['show_both_sides']))->sortBy('display_order')->values();
 
     // Serialize metadata for JS calculation engine
-    $settingsJson = $settings->map(function ($s) {
+    $settingsJson = $settings->map(function ($s) use ($vendorPurchaseSummaries) {
         $cat = strtolower((string) ($s->entryType?->category ?? ''));
         $isSalesDeduction = $s->include_in_sales && ($s->payable_direction === 'minus' || $cat === 'transfer');
         $isIncome = ($cat === 'income' || $s->include_in_sales || $s->include_in_income) && ! $isSalesDeduction;
@@ -185,6 +185,7 @@
             'destination_label' => $resolver->resolveDestinationLabel($s),
             'is_readonly' => (bool) ($s->is_readonly || in_array($code, ['salary', 'staff_advance', 'advance'], true)),
             'is_vendor_purchase' => (bool) ($s->is_vendor_purchase ?? false),
+            'vendor_purchase_payment_type' => (string) ($s->vendor_purchase_payment_type ?? ''),
             'mirror_to_cashbook' => (bool) ($s->mirror_to_cashbook ?? true),
             'vendor_purchase_summary' => ($vendorPurchaseSummaries ?? [])[$s->id] ?? [
                 'setting_id' => (int) $s->id,
@@ -193,6 +194,7 @@
                 'cash_amount' => 0.0,
                 'credit_amount' => 0.0,
                 'count' => 0,
+                'payment_type' => (string) ($s->vendor_purchase_payment_type ?? ''),
             ],
             'vendor_access_mode' => (string) ($s->vendor_access_mode ?? 'linked_create'),
             'vendor_settlement_relation_id' => $s->vendor_settlement_relation_id ? (int) $s->vendor_settlement_relation_id : null,
@@ -351,6 +353,7 @@
     <div id="cashbook-dashboard-view" @class(['space-y-3 sm:space-y-4', 'hidden' => $isReportTab])>
         @include('shop-owner.cashbook.partials.header')
         @include('shop-owner.cashbook.partials.header-bill-list')
+        @include('shop-owner.cashbook.partials.vendor-purchase-section')
         @include('shop-owner.cashbook.partials.position-summary')
     </div>
 

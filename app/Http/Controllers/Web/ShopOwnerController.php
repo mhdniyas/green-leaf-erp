@@ -25,7 +25,6 @@ use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyPricePublication;
 use App\Models\Product;
-use App\Models\PurchaseInvoice;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
@@ -50,6 +49,7 @@ use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Purchasing\ShopVendorReportService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Services\ShopOrders\DeliveryPriceReadinessService;
 use App\Services\ShopOrders\DeliveryVerificationEligibility;
@@ -84,6 +84,7 @@ class ShopOwnerController extends Controller
         private readonly InvoiceCashbookProjectionService $invoiceCashbookProjectionService,
         private readonly StaffPaymentCashbookProjectionService $staffPaymentCashbookProjectionService,
         private readonly ShopSettlementService $shopSettlementService,
+        private readonly ShopVendorReportService $vendorReportService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -1273,7 +1274,8 @@ class ShopOwnerController extends Controller
         $tab = (string) $request->input('tab', 'cashbook');
         $open = (string) $request->input('open', '');
         $timeframe = (string) $request->input('timeframe', 'daily');
-        $date = Carbon::parse((string) $request->input('date', today()->toDateString()))->toDateString();
+        $requestedDate = $request->string('date', '')->toString();
+        $date = $this->dailyLedgerService->resolveActiveBusinessDate($shop, $requestedDate ?: null);
         $startDate = (string) $request->input('start_date', $date);
         $endDate = (string) $request->input('end_date', $date);
         $month = (string) $request->input('month', substr($date, 0, 7));
@@ -1734,74 +1736,7 @@ class ShopOwnerController extends Controller
      */
     private function getVendorPurchaseSummaries(Shop $shop, string $date, Collection $settings): array
     {
-        $vpSettings = $settings->where('is_vendor_purchase', true);
-        if ($vpSettings->isEmpty()) {
-            return [];
-        }
-
-        $invoices = PurchaseInvoice::query()
-            ->where(function ($q) use ($shop): void {
-                $q->where('shop_id', $shop->id)
-                    ->orWhereHas('purchaserCart', fn ($cq) => $cq->where('destination_shop_id', $shop->id));
-            })
-            ->where('purchase_source', 'shop')
-            ->notCancelled()
-            ->where(function ($dq) use ($date): void {
-                $dq->where('original_business_date', $date)
-                    ->orWhere(function ($sub) use ($date): void {
-                        $sub->whereNull('original_business_date')
-                            ->whereHas('purchaserCart', fn ($pq) => $pq->where('business_date', $date));
-                    });
-            })
-            ->get();
-
-        $summaries = [];
-        foreach ($vpSettings as $vpSetting) {
-            $isCashSetting = $vpSetting->isVendorPurchaseCash();
-            $isCreditSetting = $vpSetting->isVendorPurchaseCredit();
-
-            $invoicesForSetting = $invoices->filter(function (PurchaseInvoice $inv) use ($vpSetting, $vpSettings, $isCashSetting, $isCreditSetting): bool {
-                if ($inv->shop_ledger_entry_setting_id) {
-                    return (int) $inv->shop_ledger_entry_setting_id === (int) $vpSetting->id;
-                }
-
-                if ($isCashSetting) {
-                    return strcasecmp((string) $inv->payment_method, 'Cash') === 0;
-                }
-
-                if ($isCreditSetting) {
-                    return strcasecmp((string) $inv->payment_method, 'Credit') === 0;
-                }
-
-                return $vpSettings->count() === 1;
-            });
-
-            $cashAmt = (float) $invoicesForSetting
-                ->filter(fn (PurchaseInvoice $inv): bool => strcasecmp((string) $inv->payment_method, 'Cash') === 0)
-                ->sum(fn (PurchaseInvoice $inv): float => (float) ($inv->amount - $inv->discount_amount));
-
-            $creditAmt = (float) $invoicesForSetting
-                ->filter(fn (PurchaseInvoice $inv): bool => strcasecmp((string) $inv->payment_method, 'Credit') === 0)
-                ->sum(fn (PurchaseInvoice $inv): float => (float) ($inv->amount - $inv->discount_amount));
-
-            $totalAmt = match (true) {
-                $isCashSetting => $cashAmt,
-                $isCreditSetting => $creditAmt,
-                default => $cashAmt + $creditAmt,
-            };
-
-            $summaries[(int) $vpSetting->id] = [
-                'setting_id' => (int) $vpSetting->id,
-                'name' => $vpSetting->displayName(),
-                'total_amount' => round($totalAmt, 2),
-                'cash_amount' => round($cashAmt, 2),
-                'credit_amount' => round($creditAmt, 2),
-                'count' => $invoicesForSetting->count(),
-                'payment_type' => $vpSetting->vendor_purchase_payment_type,
-            ];
-        }
-
-        return $summaries;
+        return $this->vendorReportService->getVendorPurchaseSummariesForCashbook($shop, $date, $settings);
     }
 
     /**
