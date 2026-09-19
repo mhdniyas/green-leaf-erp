@@ -74,7 +74,13 @@
                                                 @endif
                                             </div>
                                             <div class="text-[11px] font-bold text-slate-600 mt-1">
-                                                Cash ₹{{ number_format($vpSum['cash_amount'], 2) }} &middot; Credit ₹{{ number_format($vpSum['credit_amount'], 2) }}
+                                                @if($s->isVendorPurchaseCash())
+                                                    Cash ₹{{ number_format($vpSum['cash_amount'], 2) }}
+                                                @elseif($s->isVendorPurchaseCredit())
+                                                    Credit ₹{{ number_format($vpSum['credit_amount'], 2) }} <span class="text-[10px] text-slate-400 font-normal">(Liability · No Cash Outflow)</span>
+                                                @else
+                                                    Cash ₹{{ number_format($vpSum['cash_amount'], 2) }} &middot; Credit ₹{{ number_format($vpSum['credit_amount'], 2) }}
+                                                @endif
                                             </div>
                                             <div class="text-[10px] font-medium text-slate-400 mt-0.5">
                                                 {{ $vpSum['count'] }} {{ \Illuminate\Support\Str::plural('purchase', $vpSum['count']) }}

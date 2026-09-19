@@ -9227,6 +9227,17 @@ final class CashbookController extends Controller
                 ]);
             }
 
+            $entryTypeCode = strtolower((string) ($validated['entry_type_code'] ?? ''));
+            if (in_array($entryTypeCode, ['purchase_bill', 'gl_bill'], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Manual cashbook entry for GL Bill is not allowed. GL Bills are automatically synchronized from approved shop invoices.',
+                    'errors' => [
+                        'entry_type_code' => ['Manual cashbook entry for GL Bill is not allowed.'],
+                    ],
+                ], 422);
+            }
+
             $input = [
                 'shop_id' => (int) $validated['shop_id'],
                 'business_date' => $validated['business_date'],
@@ -9240,7 +9251,7 @@ final class CashbookController extends Controller
                 $input['funding_source'] = $validated['funding_source'];
             }
 
-            $result = $this->dailyLedgerService->recordEntry($input);
+            $result = $this->ledgerService->recordEntry($input);
             $transaction = $result['transaction']->load('entryType');
 
             return response()->json([

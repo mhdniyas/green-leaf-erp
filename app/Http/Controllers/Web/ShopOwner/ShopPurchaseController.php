@@ -735,25 +735,44 @@ class ShopPurchaseController extends Controller
         abort(422, $message);
     }
 
-    private function validateCategoryAndSupplierAccess(Shop $shop, array $validated, Request $request): void
+    private function validateCategoryAndSupplierAccess(Shop $shop, array &$validated, Request $request): void
     {
-        if (! empty($validated['shop_ledger_entry_setting_id'])) {
-            /** @var ShopLedgerEntrySetting $categorySetting */
-            $categorySetting = ShopLedgerEntrySetting::query()->with('definedShopSuppliers')->findOrFail((int) $validated['shop_ledger_entry_setting_id']);
+        $paymentMethod = (string) ($validated['payment_method'] ?? 'Cash');
+        $explicitSettingId = ! empty($validated['shop_ledger_entry_setting_id']) ? (int) $validated['shop_ledger_entry_setting_id'] : null;
 
-            if ((int) $categorySetting->shop_id !== (int) $shop->id) {
+        $explicitSetting = null;
+        if ($explicitSettingId) {
+            $explicitSetting = ShopLedgerEntrySetting::query()->with('definedShopSuppliers')->find($explicitSettingId);
+            if (! $explicitSetting || (int) $explicitSetting->shop_id !== (int) $shop->id) {
                 $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category does not belong to this shop.');
             }
+            if (! $explicitSetting->enabled) {
+                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category is disabled.');
+            }
+            if (! $explicitSetting->is_vendor_purchase) {
+                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'Vendor purchasing is not enabled for this category.');
+            }
+        }
 
-            if (! $categorySetting->enabled) {
+        /** @var ShopLedgerEntrySetting|null $categorySetting */
+        $categorySetting = $this->purchaseService->resolveVendorPurchaseCategorySetting($shop, $paymentMethod, $explicitSettingId);
+        if ($categorySetting) {
+            $validated['shop_ledger_entry_setting_id'] = $categorySetting->id;
+            $categorySetting->loadMissing('definedShopSuppliers');
+        }
+
+        $validationTarget = $explicitSetting ?? $categorySetting;
+
+        if ($validationTarget) {
+            if (! $validationTarget->enabled) {
                 $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category is disabled.');
             }
 
-            if (! $categorySetting->is_vendor_purchase) {
+            if (! $validationTarget->is_vendor_purchase) {
                 $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'Vendor purchasing is not enabled for this category.');
             }
 
-            $mode = $categorySetting->vendor_access_mode ?: 'linked_create';
+            $mode = $validationTarget->vendor_access_mode ?: 'linked_create';
 
             if ($mode === 'defined_only') {
                 if (! empty($validated['new_supplier_name'])) {
@@ -767,8 +786,8 @@ class ShopPurchaseController extends Controller
                         ->where('is_active', true)
                         ->first();
 
-                    if (! $shopSupplier || ! $categorySetting->definedShopSuppliers->contains('id', $shopSupplier->id)) {
-                        $this->rejectAccess($request, 'supplier_id', "The selected vendor is not permitted for category '{$categorySetting->displayName()}'.");
+                    if (! $shopSupplier || ! $validationTarget->definedShopSuppliers->contains('id', $shopSupplier->id)) {
+                        $this->rejectAccess($request, 'supplier_id', "The selected vendor is not permitted for category '{$validationTarget->displayName()}'.");
                     }
                 }
             } elseif ($mode === 'linked_only') {

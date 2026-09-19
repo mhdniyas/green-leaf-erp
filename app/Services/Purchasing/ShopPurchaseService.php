@@ -20,6 +20,7 @@ use App\Models\Shop;
 use App\Models\ShopVendorPayable;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\DailyLedgerService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -80,10 +81,6 @@ class ShopPurchaseService
         }
 
         return DB::transaction(function () use ($shop, $payload, $user, $items, $businessDate, $dateStr): PurchaseInvoice {
-            $categorySetting = ! empty($payload['shop_ledger_entry_setting_id'])
-                ? ShopLedgerEntrySetting::query()->with(['entryType', 'headerGroup'])->where('shop_id', (int) $shop->id)->find((int) $payload['shop_ledger_entry_setting_id'])
-                : null;
-
             $supplier = $this->resolveSupplier($shop, $payload, $user);
             $paymentMethod = ucfirst(strtolower(trim((string) $payload['payment_method'])));
             $isCash = strcasecmp($paymentMethod, 'Cash') === 0;
@@ -93,6 +90,13 @@ class ShopPurchaseService
                 $paymentMethod = 'Cash';
                 $isCash = true;
             }
+
+            $categorySetting = $this->resolveVendorPurchaseCategorySetting(
+                $shop,
+                $paymentMethod,
+                ! empty($payload['shop_ledger_entry_setting_id']) ? (int) $payload['shop_ledger_entry_setting_id'] : null
+            );
+            $headerGroupId = $categorySetting?->header_group_id;
 
             $discountAmount = max(0.0, round((float) ($payload['discount_amount'] ?? 0), 2));
             $rawBillNumber = trim((string) ($payload['bill_number'] ?? ''));
@@ -217,6 +221,7 @@ class ShopPurchaseService
                 'supplier_id' => $supplier->id,
                 'shop_id' => $shop->id,
                 'shop_ledger_entry_setting_id' => $categorySetting?->id,
+                'original_header_group_id' => $headerGroupId,
                 'purchaser_cart_id' => $cart->id,
                 'business_day_id' => $cart->business_day_id,
                 'purchase_source' => 'shop',
@@ -251,6 +256,7 @@ class ShopPurchaseService
                     'shop_id' => $shop->id,
                     'supplier_id' => $supplier->id,
                     'shop_ledger_entry_setting_id' => $categorySetting?->id,
+                    'original_header_group_id' => $headerGroupId,
                     'business_date' => $businessDate,
                     'original_amount' => $grossAmount,
                     'paid_amount' => 0.0,
@@ -316,7 +322,7 @@ class ShopPurchaseService
             $this->dailyLedgerService->assertEditAllowed((int) $shop->id, $dateStr, (int) $categorySetting->entry_type_id);
         }
 
-        return DB::transaction(function () use ($shop, $invoice, $payload, $user, $categorySetting, $dateStr): PurchaseInvoice {
+        return DB::transaction(function () use ($shop, $invoice, $payload, $user, $dateStr): PurchaseInvoice {
             $supplier = $this->resolveSupplier($shop, $payload, $user);
 
             $paymentMethod = isset($payload['payment_method'])
@@ -330,6 +336,13 @@ class ShopPurchaseService
                 $paymentMethod = 'Cash';
                 $isCash = true;
             }
+
+            $categorySetting = $this->resolveVendorPurchaseCategorySetting(
+                $shop,
+                $paymentMethod,
+                ! empty($payload['shop_ledger_entry_setting_id']) ? (int) $payload['shop_ledger_entry_setting_id'] : (int) $invoice->shop_ledger_entry_setting_id
+            );
+            $headerGroupId = $categorySetting?->header_group_id ?? $invoice->original_header_group_id;
 
             $discountAmount = array_key_exists('discount_amount', $payload)
                 ? max(0.0, round((float) $payload['discount_amount'], 2))
@@ -455,6 +468,7 @@ class ShopPurchaseService
             $invoice->update([
                 'supplier_id' => $supplier->id,
                 'shop_ledger_entry_setting_id' => $categorySetting?->id ?? $invoice->shop_ledger_entry_setting_id,
+                'original_header_group_id' => $invoice->original_header_group_id ?? $headerGroupId,
                 'invoice_number' => $rawBillNumber ?: $invoice->invoice_number,
                 'amount' => $grossAmount,
                 'discount_amount' => $discountAmount,
@@ -503,6 +517,7 @@ class ShopPurchaseService
                     $existingPayable->update([
                         'supplier_id' => $supplier->id,
                         'shop_ledger_entry_setting_id' => $categorySetting?->id ?? $existingPayable->shop_ledger_entry_setting_id,
+                        'original_header_group_id' => $existingPayable->original_header_group_id ?? $headerGroupId,
                         'original_amount' => $grossAmount,
                         'outstanding_amount' => max(0.0, round($netAmount - (float) $existingPayable->paid_amount, 2)),
                         'notes' => "Shop credit purchase from {$supplier->name} (Bill #{$invoice->invoice_number})",
@@ -513,6 +528,7 @@ class ShopPurchaseService
                         'shop_id' => $shop->id,
                         'supplier_id' => $supplier->id,
                         'shop_ledger_entry_setting_id' => $categorySetting?->id,
+                        'original_header_group_id' => $headerGroupId,
                         'business_date' => Carbon::parse($dateStr)->startOfDay(),
                         'original_amount' => $grossAmount,
                         'paid_amount' => 0.0,
@@ -875,5 +891,67 @@ class ShopPurchaseService
         }
 
         return $user->hasRole('admin') || $user->hasRole('main_admin') || $user->hasRole('super_admin') || (method_exists($user, 'isMainAdmin') && $user->isMainAdmin());
+    }
+
+    /**
+     * Authoritatively resolve the ShopLedgerEntrySetting for a purchase based on shop and payment method.
+     */
+    public function resolveVendorPurchaseCategorySetting(Shop $shop, string $paymentMethod, ?int $explicitSettingId = null): ?ShopLedgerEntrySetting
+    {
+        $isCash = strcasecmp($paymentMethod, 'Cash') === 0;
+        $targetType = $isCash ? 'cash' : 'credit';
+        $targetCode = $isCash ? 'vendor_purchase_cash' : 'vendor_purchase_credit';
+
+        // 1. First priority: match by vendor_purchase_payment_type on the shop's vendor purchase settings
+        $setting = ShopLedgerEntrySetting::query()
+            ->with(['entryType', 'headerGroup'])
+            ->where('shop_id', (int) $shop->id)
+            ->where('is_vendor_purchase', true)
+            ->where('vendor_purchase_payment_type', $targetType)
+            ->first();
+
+        // 2. Second priority: match by entry type code
+        if (! $setting) {
+            $setting = ShopLedgerEntrySetting::query()
+                ->with(['entryType', 'headerGroup'])
+                ->where('shop_id', (int) $shop->id)
+                ->whereHas('entryType', fn ($q) => $q->where('code', $targetCode))
+                ->first();
+        }
+
+        // 3. If missing, ensure categories exist for shop and try again
+        if (! $setting) {
+            app(CashbookShopSyncService::class)->ensureVendorPurchaseForShop((int) $shop->id);
+
+            $setting = ShopLedgerEntrySetting::query()
+                ->with(['entryType', 'headerGroup'])
+                ->where('shop_id', (int) $shop->id)
+                ->where('is_vendor_purchase', true)
+                ->where('vendor_purchase_payment_type', $targetType)
+                ->first();
+        }
+
+        // 4. If explicit ID provided and belongs to shop, check if it's a valid fallback
+        if (! $setting && $explicitSettingId) {
+            $explicit = ShopLedgerEntrySetting::query()
+                ->with(['entryType', 'headerGroup'])
+                ->where('shop_id', (int) $shop->id)
+                ->find($explicitSettingId);
+
+            if ($explicit && $explicit->is_vendor_purchase) {
+                $setting = $explicit;
+            }
+        }
+
+        // 5. Final fallback to any vendor purchase setting on the shop
+        if (! $setting) {
+            $setting = ShopLedgerEntrySetting::query()
+                ->with(['entryType', 'headerGroup'])
+                ->where('shop_id', (int) $shop->id)
+                ->where('is_vendor_purchase', true)
+                ->first();
+        }
+
+        return $setting;
     }
 }

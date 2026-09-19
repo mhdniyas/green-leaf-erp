@@ -194,7 +194,11 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
             'enabled' => true,
         ]);
 
-        $expenseTypes = LedgerEntryType::query()->where('category', 'expense')->take(4)->get();
+        $expenseTypes = LedgerEntryType::query()
+            ->where('category', 'expense')
+            ->whereNotIn('code', ['vendor_purchase', 'vendor_purchase_cash', 'vendor_purchase_credit', 'purchase_bill'])
+            ->take(4)
+            ->get();
 
         // 1. Normal category
         $this->normalCategory = ShopLedgerEntrySetting::query()->updateOrCreate(
@@ -457,8 +461,13 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
         $this->assertDatabaseHas('shop_suppliers', ['shop_id' => $this->shop->id, 'supplier_id' => $newVendorId, 'is_active' => 1]);
     }
 
-    public function test_cash_purchase_saves_category_context_and_posts_to_category_entry_type(): void
+    public function test_cash_purchase_authoritatively_routes_to_cash_category_and_posts_to_cash_entry_type(): void
     {
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->firstOrFail();
+
         $response = $this->actingAs($this->shopUser)->postJson(route('shop-owner.purchasing.store'), [
             'shop_ledger_entry_setting_id' => $this->vendorCategoryDefinedOnly->id,
             'supplier_id' => $this->activeVendor1->id,
@@ -482,16 +491,17 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
         $invoice = PurchaseInvoice::query()->find($invoiceId);
         $this->assertNotNull($invoice);
 
-        // 1. Category context preserved on PurchaseInvoice
-        $this->assertSame($this->vendorCategoryDefinedOnly->id, $invoice->shop_ledger_entry_setting_id);
+        // 1. Category context routed authoritatively to Vendor Purchase - Cash
+        $this->assertSame($cashSetting->id, $invoice->shop_ledger_entry_setting_id);
+        $this->assertSame($cashSetting->header_group_id, $invoice->original_header_group_id);
         $this->assertSame(750.0, (float) $invoice->amount);
 
         // 2. Category context preserved on PurchaserCart
         $cart = PurchaserCart::query()->where('purchase_invoice_id', $invoice->id)->first();
         $this->assertNotNull($cart);
-        $this->assertSame($this->vendorCategoryDefinedOnly->id, $cart->shop_ledger_entry_setting_id);
+        $this->assertSame($cashSetting->id, $cart->shop_ledger_entry_setting_id);
 
-        // 3. Cashbook posting uses the category's specific entry type and header
+        // 3. Cashbook posting uses the Cash category's specific entry type and header
         $transaction = ShopLedgerTransaction::query()
             ->where('shop_id', $this->shop->id)
             ->where('reference_type', PurchaseInvoice::class)
@@ -499,12 +509,17 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
             ->first();
 
         $this->assertNotNull($transaction);
-        $this->assertSame($this->vendorCategoryDefinedOnly->entry_type_id, $transaction->entry_type_id);
+        $this->assertSame($cashSetting->entry_type_id, $transaction->entry_type_id);
         $this->assertSame(750.0, (float) $transaction->amount);
     }
 
-    public function test_credit_purchase_saves_category_context_on_payable_and_invoice(): void
+    public function test_credit_purchase_authoritatively_routes_to_credit_category_and_creates_payable_without_cash_movement(): void
     {
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->firstOrFail();
+
         $response = $this->actingAs($this->shopUser)->postJson(route('shop-owner.purchasing.store'), [
             'shop_ledger_entry_setting_id' => $this->vendorCategoryDefinedOnly->id,
             'supplier_id' => $this->activeVendor1->id, // Credit approved
@@ -526,12 +541,14 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
         $invoiceId = $response->json('invoice.id');
         $invoice = PurchaseInvoice::query()->find($invoiceId);
         $this->assertNotNull($invoice);
-        $this->assertSame($this->vendorCategoryDefinedOnly->id, $invoice->shop_ledger_entry_setting_id);
+        $this->assertSame($creditSetting->id, $invoice->shop_ledger_entry_setting_id);
+        $this->assertSame($creditSetting->header_group_id, $invoice->original_header_group_id);
 
-        // ShopVendorPayable created with category context
+        // ShopVendorPayable created with Credit category context and original header snapshot
         $payable = ShopVendorPayable::query()->where('purchase_invoice_id', $invoice->id)->first();
         $this->assertNotNull($payable);
-        $this->assertSame($this->vendorCategoryDefinedOnly->id, $payable->shop_ledger_entry_setting_id);
+        $this->assertSame($creditSetting->id, $payable->shop_ledger_entry_setting_id);
+        $this->assertSame($creditSetting->header_group_id, $payable->original_header_group_id);
         $this->assertSame(1500.0, (float) $payable->outstanding_amount);
 
         // No cash movement transaction for credit purchase
@@ -542,39 +559,299 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
         ]);
     }
 
-    public function test_legacy_vendor_purchase_without_category_context_still_works(): void
+    public function test_legacy_vendor_purchase_records_remain_untouched_after_split_migration(): void
     {
-        $response = $this->actingAs($this->shopUser)->postJson(route('shop-owner.purchasing.store'), [
-            'shop_ledger_entry_setting_id' => null,
+        $legacyType = LedgerEntryType::where('code', 'vendor_purchase')->firstOrFail();
+
+        // Create a historical legacy setting and invoice
+        $legacySetting = ShopLedgerEntrySetting::query()->create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $legacyType->id,
+            'display_name' => 'Legacy Vendor Purchase',
+            'header_group_id' => $this->headerGroup->id,
+            'is_vendor_purchase' => true,
+            'vendor_purchase_payment_type' => null,
+            'vendor_access_mode' => 'linked_create',
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'default_funding_source' => 'sales',
+        ]);
+
+        $service = app(ShopPurchaseService::class);
+        $invoice = $service->recordPurchase($this->shop, [
+            'supplier_id' => $this->activeVendor1->id,
+            'payment_method' => 'Cash',
+            'business_date' => '2026-09-10',
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 5, 'unit_price' => 10.0],
+            ],
+        ], $this->shopUser);
+
+        // Re-run sync to ensure migration preserves the legacy record
+        app(CashbookShopSyncService::class)->ensureVendorPurchaseForShop((int) $this->shop->id);
+
+        $this->assertDatabaseHas('shop_ledger_entry_settings', [
+            'id' => $legacySetting->id,
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $legacyType->id,
+        ]);
+
+        $this->assertDatabaseHas('purchase_invoices', [
+            'id' => $invoice->id,
+        ]);
+    }
+
+    public function test_defined_only_vendor_mappings_carry_forward_to_both_split_categories(): void
+    {
+        $newShop = Shop::query()->create([
+            'name' => 'Koramangala Fresh 2',
+            'code' => 'KOR_02',
+            'warehouse_tag' => 'KOR2',
+            'status' => 'active',
+            'is_active' => true,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+            'shop_purchasing_enabled' => true,
+        ]);
+
+        $newSupplier = Supplier::query()->create([
+            'name' => 'Exclusive Tomato Supplier',
+            'mobile_number' => '9800000099',
+            'type' => 'local',
+            'category' => 'shop_vendor',
+        ]);
+
+        $newShopSupplier = ShopSupplier::query()->create([
+            'shop_id' => $newShop->id,
+            'supplier_id' => $newSupplier->id,
+            'is_active' => true,
+        ]);
+
+        $legacyType = LedgerEntryType::where('code', 'vendor_purchase')->firstOrFail();
+        $legacySetting = ShopLedgerEntrySetting::query()->create([
+            'shop_id' => $newShop->id,
+            'entry_type_id' => $legacyType->id,
+            'display_name' => 'Legacy Other Shop VP',
+            'header_group_id' => null,
+            'is_vendor_purchase' => true,
+            'vendor_access_mode' => 'defined_only',
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'default_funding_source' => 'sales',
+        ]);
+        $legacySetting->definedShopSuppliers()->sync([$newShopSupplier->id]);
+
+        // Sync split categories for newShop
+        app(CashbookShopSyncService::class)->ensureVendorPurchaseForShop((int) $newShop->id);
+
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $newShop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->firstOrFail();
+
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $newShop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->firstOrFail();
+
+        $this->assertSame('defined_only', $cashSetting->vendor_access_mode);
+        $this->assertSame('defined_only', $creditSetting->vendor_access_mode);
+
+        $this->assertTrue($cashSetting->definedShopSuppliers->contains('id', $newShopSupplier->id));
+        $this->assertTrue($creditSetting->definedShopSuppliers->contains('id', $newShopSupplier->id));
+    }
+
+    public function test_credit_category_visible_under_header_without_cash_reduction(): void
+    {
+        $creditHeader = ShopLedgerHeaderGroup::query()->create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Credit Liabilities',
+            'type' => 'expense',
+            'display_order' => 2,
+            'enabled' => true,
+        ]);
+
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->firstOrFail();
+
+        $creditSetting->update([
+            'header_group_id' => $creditHeader->id,
+            'display_name' => 'Vendor Purchase - Credit',
+        ]);
+
+        // Create a Credit purchase
+        $service = app(ShopPurchaseService::class);
+        $invoice = $service->recordPurchase($this->shop, [
+            'supplier_id' => $this->activeVendor1->id,
+            'payment_method' => 'Credit',
+            'business_date' => '2026-09-16',
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 10, 'unit_price' => 50.0],
+            ],
+        ], $this->shopUser);
+
+        // Load cashbook view
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.show', ['date' => '2026-09-16']));
+        $response->assertOk();
+        $response->assertSee('Credit Liabilities');
+        $response->assertSee('Vendor Purchase - Credit');
+
+        // Confirm no cash transaction exists
+        $this->assertDatabaseMissing('shop_ledger_transactions', [
+            'shop_id' => $this->shop->id,
+            'reference_type' => PurchaseInvoice::class,
+            'reference_id' => (string) $invoice->id,
+        ]);
+    }
+
+    public function test_changing_category_header_preserves_historical_purchase_header_snapshot(): void
+    {
+        $oldHeader = ShopLedgerHeaderGroup::query()->create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Old Procurement Header',
+            'type' => 'expense',
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $newHeader = ShopLedgerHeaderGroup::query()->create([
+            'shop_id' => $this->shop->id,
+            'name' => 'New Central Header',
+            'type' => 'expense',
+            'display_order' => 2,
+            'enabled' => true,
+        ]);
+
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->firstOrFail();
+
+        $cashSetting->update(['header_group_id' => $oldHeader->id]);
+
+        $service = app(ShopPurchaseService::class);
+        $invoice = $service->recordPurchase($this->shop, [
             'supplier_id' => $this->activeVendor1->id,
             'payment_method' => 'Cash',
             'business_date' => '2026-09-16',
             'items' => [
-                [
-                    'product_id' => $this->product->id,
-                    'quantity' => 20,
-                    'total_price' => 300.0,
-                ],
+                ['product_id' => $this->product->id, 'quantity' => 10, 'unit_price' => 20.0],
+            ],
+        ], $this->shopUser);
+
+        $this->assertSame($oldHeader->id, $invoice->original_header_group_id);
+
+        // Change category header to newHeader
+        $cashSetting->update(['header_group_id' => $newHeader->id]);
+
+        // Historical invoice's original_header_group_id must remain oldHeader->id
+        $this->assertSame($oldHeader->id, $invoice->fresh()->original_header_group_id);
+    }
+
+    public function test_settled_or_partially_settled_credit_purchase_cannot_convert_to_cash(): void
+    {
+        $service = app(ShopPurchaseService::class);
+        $invoice = $service->recordPurchase($this->shop, [
+            'supplier_id' => $this->activeVendor1->id,
+            'payment_method' => 'Credit',
+            'business_date' => '2026-09-16',
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 10, 'unit_price' => 100.0],
+            ],
+        ], $this->shopUser);
+
+        $payable = ShopVendorPayable::query()->where('purchase_invoice_id', $invoice->id)->firstOrFail();
+        $payable->update([
+            'paid_amount' => 200.0,
+            'outstanding_amount' => 800.0,
+        ]);
+
+        // Attempting to switch payment_method to Cash must fail with 422
+        $response = $this->actingAs($this->shopUser)->putJson(route('shop-owner.cashbook.vendor-purchases.update', $invoice->id), [
+            'supplier_id' => $this->activeVendor1->id,
+            'payment_method' => 'Cash',
+            'business_date' => '2026-09-16',
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 10, 'total_price' => 1000.0],
             ],
         ]);
 
-        $response->assertOk();
-        $response->assertJson(['success' => true]);
+        $response->assertStatus(422);
+        $response->assertJson([
+            'success' => false,
+            'message' => 'Cannot switch payment method to Cash because payments have already been recorded on this payable.',
+        ]);
+    }
 
-        $invoiceId = $response->json('invoice.id');
-        $invoice = PurchaseInvoice::query()->find($invoiceId);
-        $this->assertNotNull($invoice);
-        $this->assertNull($invoice->shop_ledger_entry_setting_id);
+    public function test_repeated_sync_is_idempotent_and_does_not_create_duplicate_categories(): void
+    {
+        $syncService = app(CashbookShopSyncService::class);
 
-        // Fallback default vendor_purchase transaction created
-        $tx = ShopLedgerTransaction::query()
+        $syncService->ensureVendorPurchaseForShop((int) $this->shop->id);
+        $syncService->ensureVendorPurchaseForShop((int) $this->shop->id);
+        $syncService->ensureVendorPurchaseForShop((int) $this->shop->id);
+
+        $cashCount = ShopLedgerEntrySetting::query()
             ->where('shop_id', $this->shop->id)
-            ->where('reference_type', PurchaseInvoice::class)
-            ->where('reference_id', (string) $invoice->id)
-            ->first();
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->count();
 
-        $this->assertNotNull($tx);
-        $this->assertSame(300.0, (float) $tx->amount);
+        $creditCount = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->count();
+
+        $this->assertSame(1, $cashCount);
+        $this->assertSame(1, $creditCount);
+    }
+
+    public function test_admin_routing_endpoint_updates_cash_and_credit_headers_independently(): void
+    {
+        $cashHeader = ShopLedgerHeaderGroup::query()->create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Admin Direct Cash Header',
+            'type' => 'expense',
+            'display_order' => 1,
+            'enabled' => true,
+        ]);
+
+        $creditHeader = ShopLedgerHeaderGroup::query()->create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Admin Payables Header',
+            'type' => 'expense',
+            'display_order' => 2,
+            'enabled' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->from(route('admin.cashbook.settings.shop.vendors.index', $this->shop->id))
+            ->post(
+                route('admin.cashbook.settings.shop.vendors.update-routing', $this->shop->id),
+                [
+                    'cash_header_group_id' => $cashHeader->id,
+                    'credit_header_group_id' => $creditHeader->id,
+                ]
+            );
+
+        $response->assertRedirect(route('admin.cashbook.settings.shop.vendors.index', $this->shop->id));
+        $response->assertSessionHas('success');
+
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->firstOrFail();
+
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->firstOrFail();
+
+        $this->assertSame($cashHeader->id, $cashSetting->header_group_id);
+        $this->assertSame($creditHeader->id, $creditSetting->header_group_id);
     }
 
     public function test_shop_owner_cashbook_and_vendor_purchases_succeed_when_previous_purchasing_day_is_unfinalized(): void

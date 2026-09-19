@@ -24,7 +24,7 @@ class ShopLedgerEntrySetting extends Model
         'settlement_behavior', 'petty_behavior', 'company_pending_behavior',
         'generates_secondary_entry', 'secondary_entry_type_id',
         'secondary_amount_mode', 'secondary_amount_value', 'display_order',
-        'is_vendor_purchase', 'mirror_to_cashbook', 'vendor_access_mode', 'vendor_settlement_relation_id',
+        'is_vendor_purchase', 'vendor_purchase_payment_type', 'mirror_to_cashbook', 'vendor_access_mode', 'vendor_settlement_relation_id',
     ];
 
     protected $casts = [
@@ -152,5 +152,17 @@ class ShopLedgerEntrySetting extends Model
     public function isPastDaysAllowed(): bool
     {
         return ! $this->isTodayOnly();
+    }
+
+    public function isVendorPurchaseCash(): bool
+    {
+        return $this->is_vendor_purchase
+            && ($this->vendor_purchase_payment_type === 'cash' || $this->entryType?->code === 'vendor_purchase_cash');
+    }
+
+    public function isVendorPurchaseCredit(): bool
+    {
+        return $this->is_vendor_purchase
+            && ($this->vendor_purchase_payment_type === 'credit' || $this->entryType?->code === 'vendor_purchase_credit');
     }
 }

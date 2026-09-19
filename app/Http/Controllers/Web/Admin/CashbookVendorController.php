@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Shop;
 use App\Models\Supplier;
@@ -27,6 +29,8 @@ class CashbookVendorController extends Controller
     public function index(Request $request, string $shop): View
     {
         $shopModel = $this->resolveAuthorizedShop($request, $shop);
+        $this->shopSync->ensureVendorPurchaseForShop((int) $shopModel->id);
+
         $currentShopProfile = $this->resolveShopProfile($shopModel);
         $shopKey = $currentShopProfile?->slug ?: (string) $shopModel->id;
 
@@ -49,6 +53,26 @@ class CashbookVendorController extends Controller
 
         $shopSuppliers = $query->paginate(25)->withQueryString();
 
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->with('headerGroup')
+            ->where('shop_id', $shopModel->id)
+            ->where('is_vendor_purchase', true)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->first();
+
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->with('headerGroup')
+            ->where('shop_id', $shopModel->id)
+            ->where('is_vendor_purchase', true)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->first();
+
+        $expenseHeaderGroups = ShopLedgerHeaderGroup::query()
+            ->where('shop_id', $shopModel->id)
+            ->where('enabled', true)
+            ->orderBy('display_order')
+            ->get();
+
         return view('admin.cashbook.settings.vendors.index', [
             'shop' => $shopModel,
             'currentShop' => $currentShopProfile ?? (object) [
@@ -64,6 +88,9 @@ class CashbookVendorController extends Controller
             'totalVendorsCount' => $shopModel->suppliers()->count(),
             'activeVendorsCount' => $shopModel->suppliers()->wherePivot('is_active', true)->count(),
             'vendorPurchaseEditWindow' => $this->purchaseService->getEditWindowConfig($shopModel),
+            'cashSetting' => $cashSetting,
+            'creditSetting' => $creditSetting,
+            'expenseHeaderGroups' => $expenseHeaderGroups,
         ]);
     }
 
@@ -92,6 +119,50 @@ class CashbookVendorController extends Controller
                 'success' => true,
                 'message' => $message,
                 'shop' => $shopModel,
+            ]);
+        }
+
+        return redirect()->back()->with('success', $message);
+    }
+
+    public function updateRouting(Request $request, string $shop): RedirectResponse|JsonResponse
+    {
+        $shopModel = $this->resolveAuthorizedShop($request, $shop);
+        $this->shopSync->ensureVendorPurchaseForShop((int) $shopModel->id);
+
+        $validated = $request->validate([
+            'cash_header_group_id' => ['nullable', 'integer', 'exists:shop_ledger_header_groups,id'],
+            'credit_header_group_id' => ['nullable', 'integer', 'exists:shop_ledger_header_groups,id'],
+        ]);
+
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopModel->id)
+            ->where('is_vendor_purchase', true)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->first();
+
+        if ($cashSetting) {
+            $cashSetting->update(['header_group_id' => $validated['cash_header_group_id'] ?: null]);
+        }
+
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopModel->id)
+            ->where('is_vendor_purchase', true)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->first();
+
+        if ($creditSetting) {
+            $creditSetting->update(['header_group_id' => $validated['credit_header_group_id'] ?: null]);
+        }
+
+        $message = "Vendor purchase routing headers updated for {$shopModel->name}.";
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'cash_header_group_id' => $cashSetting?->header_group_id,
+                'credit_header_group_id' => $creditSetting?->header_group_id,
             ]);
         }
 

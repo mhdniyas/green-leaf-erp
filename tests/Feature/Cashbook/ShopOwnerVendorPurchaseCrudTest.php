@@ -194,37 +194,52 @@ class ShopOwnerVendorPurchaseCrudTest extends TestCase
             'sync_status' => 'synced',
         ]);
 
-        $entryType = LedgerEntryType::query()->firstOrCreate(
-            ['code' => 'local_vendor_purchase'],
-            [
-                'name' => 'local_vendor_purchase',
-                'label' => 'Local Vendor Purchase',
-                'category' => 'expense',
-                'direction' => 'expense',
-                'affects_cash' => true,
-                'affects_income' => false,
-                'affects_sales' => false,
-                'is_active' => true,
-            ]
-        );
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->first();
 
-        $this->vendorCategory = ShopLedgerEntrySetting::query()->updateOrCreate(
-            ['shop_id' => $this->shop->id, 'entry_type_id' => $entryType->id],
-            [
+        if ($cashSetting) {
+            $cashSetting->update([
                 'header_group_id' => $this->cashPurchaseHeader->id,
                 'display_name' => 'Local Vendor Purchase',
-                'display_order' => 1,
-                'effective_from' => '2026-01-01',
-                'enabled' => true,
-                'default_funding_source' => 'sales',
-                'funding_source' => 'sales',
-                'affects_closing_balance' => true,
-                'is_vendor_purchase' => true,
-                'mirror_to_cashbook' => true,
-                'vendor_access_mode' => 'linked_create',
                 'vendor_settlement_relation_id' => $this->settlementRelation->id,
-            ]
-        );
+            ]);
+            $this->vendorCategory = $cashSetting;
+        } else {
+            $entryType = LedgerEntryType::query()->firstOrCreate(
+                ['code' => 'vendor_purchase_cash'],
+                [
+                    'name' => 'vendor_purchase_cash',
+                    'label' => 'Local Vendor Purchase',
+                    'category' => 'expense',
+                    'direction' => 'expense',
+                    'affects_cash' => true,
+                    'affects_income' => false,
+                    'affects_sales' => false,
+                    'is_active' => true,
+                ]
+            );
+
+            $this->vendorCategory = ShopLedgerEntrySetting::query()->updateOrCreate(
+                ['shop_id' => $this->shop->id, 'entry_type_id' => $entryType->id],
+                [
+                    'header_group_id' => $this->cashPurchaseHeader->id,
+                    'display_name' => 'Local Vendor Purchase',
+                    'display_order' => 1,
+                    'effective_from' => '2026-01-01',
+                    'enabled' => true,
+                    'default_funding_source' => 'sales',
+                    'funding_source' => 'sales',
+                    'affects_closing_balance' => true,
+                    'is_vendor_purchase' => true,
+                    'vendor_purchase_payment_type' => 'cash',
+                    'mirror_to_cashbook' => true,
+                    'vendor_access_mode' => 'linked_create',
+                    'vendor_settlement_relation_id' => $this->settlementRelation->id,
+                ]
+            );
+        }
     }
 
     public function test_create_vendor_purchase_works_and_mirrored_total_matches(): void
@@ -670,12 +685,24 @@ class ShopOwnerVendorPurchaseCrudTest extends TestCase
         // Check cashbookData API returns correct vendor_purchase_summaries
         $dataResponse = $this->actingAs($this->shopOwner)->getJson(route('shop-owner.cashbook.api.shop-data', ['date' => $today]));
         $dataResponse->assertOk();
-        $summary = $dataResponse->json('vendor_purchase_summaries.'.$this->vendorCategory->id);
-        $this->assertNotNull($summary);
-        $this->assertEquals(2, $summary['count']);
-        $this->assertEquals(2424.00, (float) $summary['cash_amount']);
-        $this->assertEquals(500.00, (float) $summary['credit_amount']);
-        $this->assertEquals(2924.00, (float) $summary['total_amount']);
+        $cashSummary = $dataResponse->json('vendor_purchase_summaries.'.$this->vendorCategory->id);
+        $this->assertNotNull($cashSummary);
+        $this->assertEquals(1, $cashSummary['count']);
+        $this->assertEquals(2424.00, (float) $cashSummary['cash_amount']);
+        $this->assertEquals(0.00, (float) $cashSummary['credit_amount']);
+        $this->assertEquals(2424.00, (float) $cashSummary['total_amount']);
+
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->firstOrFail();
+
+        $creditSummary = $dataResponse->json('vendor_purchase_summaries.'.$creditSetting->id);
+        $this->assertNotNull($creditSummary);
+        $this->assertEquals(1, $creditSummary['count']);
+        $this->assertEquals(0.00, (float) $creditSummary['cash_amount']);
+        $this->assertEquals(500.00, (float) $creditSummary['credit_amount']);
+        $this->assertEquals(500.00, (float) $creditSummary['total_amount']);
     }
 
     public function test_cashbook_open_vendor_purchase_query_redirects_to_dedicated_page(): void

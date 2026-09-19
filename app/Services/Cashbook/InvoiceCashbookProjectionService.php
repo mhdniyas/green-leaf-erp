@@ -58,13 +58,30 @@ class InvoiceCashbookProjectionService
                 ->first();
 
             if (! $transaction instanceof ShopLedgerTransaction) {
-                $transaction = new ShopLedgerTransaction([
-                    'shop_id' => $invoice->shop_id,
-                    'entry_type_id' => $purchaseBillType->id,
-                    'reference_type' => ShopInvoice::class,
-                    'reference_id' => $invoice->id,
-                    'entered_by' => $userId,
-                ]);
+                $unreferencedMatches = ShopLedgerTransaction::query()
+                    ->where('shop_id', $invoice->shop_id)
+                    ->where('business_date', $businessDate)
+                    ->where('entry_type_id', $purchaseBillType->id)
+                    ->whereNull('reference_type')
+                    ->where('status', '!=', TransactionStatus::Void->value)
+                    ->lockForUpdate()
+                    ->get();
+
+                if ($unreferencedMatches->count() === 1) {
+                    /** @var ShopLedgerTransaction $legacyTx */
+                    $legacyTx = $unreferencedMatches->first();
+                    $transaction = $legacyTx;
+                    $transaction->reference_type = ShopInvoice::class;
+                    $transaction->reference_id = $invoice->id;
+                } else {
+                    $transaction = new ShopLedgerTransaction([
+                        'shop_id' => $invoice->shop_id,
+                        'entry_type_id' => $purchaseBillType->id,
+                        'reference_type' => ShopInvoice::class,
+                        'reference_id' => $invoice->id,
+                        'entered_by' => $userId,
+                    ]);
+                }
             }
 
             $previousBusinessDate = $transaction->exists
@@ -192,5 +209,93 @@ class InvoiceCashbookProjectionService
             });
 
         return $summary;
+    }
+
+    /**
+     * Read-only audit preview for historical duplicate purchase_bill transactions.
+     *
+     * @return array<int, array{
+     *     shop_id: int,
+     *     shop_name: string,
+     *     business_date: string,
+     *     invoice_id: ?int,
+     *     invoice_number: ?string,
+     *     invoice_total: ?float,
+     *     referenced_tx_id: ?int,
+     *     referenced_amount: ?float,
+     *     unreferenced_tx_id: ?int,
+     *     unreferenced_amount: ?float,
+     *     amount_diff: ?float,
+     *     recommended_action: string
+     * }>
+     */
+    public function detectDuplicates(?string $from = null, ?string $to = null): array
+    {
+        $purchaseBillType = LedgerEntryType::query()->where('code', 'purchase_bill')->first();
+        if (! $purchaseBillType instanceof LedgerEntryType) {
+            return [];
+        }
+
+        $txs = ShopLedgerTransaction::query()
+            ->with(['shop'])
+            ->where('entry_type_id', $purchaseBillType->id)
+            ->where('status', '!=', TransactionStatus::Void->value)
+            ->when($from, fn ($q) => $q->whereDate('business_date', '>=', $from))
+            ->when($to, fn ($q) => $q->whereDate('business_date', '<=', $to))
+            ->orderBy('shop_id')
+            ->orderBy('business_date')
+            ->get();
+
+        $grouped = $txs->groupBy(fn (ShopLedgerTransaction $t): string => $t->shop_id.'_'.$t->business_date?->toDateString());
+        $duplicates = [];
+
+        foreach ($grouped as $group) {
+            if ($group->count() <= 1) {
+                continue;
+            }
+
+            $referenced = $group->firstWhere('reference_type', ShopInvoice::class);
+            $unreferenced = $group->first(fn (ShopLedgerTransaction $t): bool => empty($t->reference_type));
+
+            $shop = $group->first()->shop;
+            $shopName = $shop?->name ?? 'Shop #'.$group->first()->shop_id;
+            $bDate = $group->first()->business_date?->toDateString() ?? '';
+
+            $invoice = null;
+            if ($referenced && $referenced->reference_id) {
+                $invoice = ShopInvoice::find($referenced->reference_id);
+            } else {
+                $invoice = ShopInvoice::where('shop_id', $group->first()->shop_id)
+                    ->whereDate('business_date', $bDate)
+                    ->first();
+            }
+
+            $refAmt = $referenced ? (float) $referenced->amount : null;
+            $unrefAmt = $unreferenced ? (float) $unreferenced->amount : null;
+            $invTotal = $invoice ? (float) $invoice->final_total : null;
+            $diff = ($refAmt !== null && $unrefAmt !== null) ? abs($refAmt - $unrefAmt) : null;
+
+            $recommendedAction = 'Review and safely void redundant unreferenced transaction after manual approval.';
+            if ($diff !== null && $diff < 0.01) {
+                $recommendedAction = 'Exact duplicate: safe to void unreferenced transaction and retain invoice-linked projection.';
+            }
+
+            $duplicates[] = [
+                'shop_id' => (int) $group->first()->shop_id,
+                'shop_name' => $shopName,
+                'business_date' => $bDate,
+                'invoice_id' => $invoice?->id,
+                'invoice_number' => $invoice?->invoice_number,
+                'invoice_total' => $invTotal,
+                'referenced_tx_id' => $referenced?->id,
+                'referenced_amount' => $refAmt,
+                'unreferenced_tx_id' => $unreferenced?->id,
+                'unreferenced_amount' => $unrefAmt,
+                'amount_diff' => $diff,
+                'recommended_action' => $recommendedAction,
+            ];
+        }
+
+        return $duplicates;
     }
 }

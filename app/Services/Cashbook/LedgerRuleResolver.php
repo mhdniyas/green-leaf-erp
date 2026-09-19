@@ -37,26 +37,18 @@ class LedgerRuleResolver
             return $setting;
         }
 
-        // Check if an existing setting exists that can be activated
+        // Check if an existing setting exists (preserve its enabled/disabled state without mutating DB)
         $existing = ShopLedgerEntrySetting::query()
             ->where('shop_id', $shopId)
             ->where('entry_type_id', $entryTypeId)
             ->orderByDesc('version')
             ->first();
 
-        $entryType = LedgerEntryType::find($entryTypeId);
-
         if ($existing) {
-            $existing->update([
-                'enabled' => true,
-                'effective_from' => $existing->effective_from ?? '2026-01-01',
-                'settlement_behavior' => $this->defaultSettlementBehavior($entryType?->code, $existing->settlement_behavior),
-                'petty_behavior' => $this->defaultPettyBehavior($entryType?->code, $existing->petty_behavior),
-                'company_pending_behavior' => $this->defaultCompanyPendingBehavior($entryType?->code, $existing->company_pending_behavior),
-            ]);
-
-            return $existing->fresh();
+            return $existing;
         }
+
+        $entryType = LedgerEntryType::find($entryTypeId);
 
         if ($entryType) {
             $isIncome = $entryType->category === 'income';

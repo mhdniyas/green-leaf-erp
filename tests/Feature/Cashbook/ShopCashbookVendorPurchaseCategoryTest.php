@@ -118,14 +118,23 @@ class ShopCashbookVendorPurchaseCategoryTest extends TestCase
 
     public function test_vendor_purchase_appears_in_shop_categories_settings(): void
     {
-        $setting = ShopLedgerEntrySetting::query()
+        $cashSetting = ShopLedgerEntrySetting::query()
             ->where('shop_id', $this->shop->id)
-            ->whereHas('entryType', fn ($q) => $q->where('code', 'vendor_purchase'))
+            ->whereHas('entryType', fn ($q) => $q->where('code', 'vendor_purchase_cash'))
             ->first();
 
-        $this->assertNotNull($setting);
-        $this->assertTrue($setting->enabled);
-        $this->assertTrue($setting->include_in_expense);
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->whereHas('entryType', fn ($q) => $q->where('code', 'vendor_purchase_credit'))
+            ->first();
+
+        $this->assertNotNull($cashSetting);
+        $this->assertTrue($cashSetting->enabled);
+        $this->assertTrue($cashSetting->include_in_expense);
+
+        $this->assertNotNull($creditSetting);
+        $this->assertTrue($creditSetting->enabled);
+        $this->assertTrue($creditSetting->include_in_expense);
 
         // View shop categories settings page as admin
         $response = $this->actingAs($this->admin)->get(
@@ -133,7 +142,8 @@ class ShopCashbookVendorPurchaseCategoryTest extends TestCase
         );
 
         $response->assertOk();
-        $response->assertSee('Vendor Purchase');
+        $response->assertSee('Vendor Purchase - Cash');
+        $response->assertSee('Vendor Purchase - Credit');
     }
 
     public function test_vendor_purchase_can_be_placed_under_any_expense_header_group(): void
@@ -150,7 +160,7 @@ class ShopCashbookVendorPurchaseCategoryTest extends TestCase
 
         $setting = ShopLedgerEntrySetting::query()
             ->where('shop_id', $this->shop->id)
-            ->whereHas('entryType', fn ($q) => $q->where('code', 'vendor_purchase'))
+            ->whereHas('entryType', fn ($q) => $q->where('code', 'vendor_purchase_cash'))
             ->firstOrFail();
 
         $setting->update([
@@ -175,7 +185,7 @@ class ShopCashbookVendorPurchaseCategoryTest extends TestCase
 
         $setting = ShopLedgerEntrySetting::query()
             ->where('shop_id', $this->shop->id)
-            ->whereHas('entryType', fn ($q) => $q->where('code', 'vendor_purchase'))
+            ->whereHas('entryType', fn ($q) => $q->where('code', 'vendor_purchase_cash'))
             ->firstOrFail();
 
         $setting->update(['header_group_id' => $header->id]);
@@ -203,7 +213,7 @@ class ShopCashbookVendorPurchaseCategoryTest extends TestCase
         $this->assertInstanceOf(PurchaseInvoice::class, $invoice);
         $this->assertSame(310.0, (float) $invoice->amount);
 
-        // Verify ShopLedgerTransaction was posted with vendor_purchase code and net amount
+        // Verify ShopLedgerTransaction was posted with vendor_purchase_cash code and net amount
         $transaction = ShopLedgerTransaction::query()
             ->where('shop_id', $this->shop->id)
             ->where('reference_type', PurchaseInvoice::class)
@@ -211,7 +221,7 @@ class ShopCashbookVendorPurchaseCategoryTest extends TestCase
             ->first();
 
         $this->assertNotNull($transaction);
-        $this->assertSame('vendor_purchase', $transaction->entryType?->code);
+        $this->assertSame('vendor_purchase_cash', $transaction->entryType?->code);
         $this->assertSame(310.0, (float) $transaction->amount);
     }
 
@@ -247,7 +257,7 @@ class ShopCashbookVendorPurchaseCategoryTest extends TestCase
         $this->assertNotNull($tx);
         $this->assertSame(240.0, (float) $tx->amount);
         $this->assertSame('sales', $tx->funding_source);
-        $this->assertSame('vendor_purchase', $tx->entryType?->code);
+        $this->assertSame('vendor_purchase_cash', $tx->entryType?->code);
 
         // Ensure NO payable was created for cash purchase
         $this->assertDatabaseMissing('shop_vendor_payables', [

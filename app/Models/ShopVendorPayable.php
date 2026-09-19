@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,6 +21,7 @@ class ShopVendorPayable extends Model
         'shop_id',
         'supplier_id',
         'shop_ledger_entry_setting_id',
+        'original_header_group_id',
         'business_date',
         'original_amount',
         'paid_amount',
@@ -33,6 +35,7 @@ class ShopVendorPayable extends Model
     {
         return [
             'shop_ledger_entry_setting_id' => 'integer',
+            'original_header_group_id' => 'integer',
             'business_date' => 'date',
             'original_amount' => 'decimal:2',
             'paid_amount' => 'decimal:2',
@@ -65,6 +68,11 @@ class ShopVendorPayable extends Model
     public function shopLedgerEntrySetting(): BelongsTo
     {
         return $this->belongsTo(ShopLedgerEntrySetting::class, 'shop_ledger_entry_setting_id');
+    }
+
+    public function originalHeaderGroup(): BelongsTo
+    {
+        return $this->belongsTo(ShopLedgerHeaderGroup::class, 'original_header_group_id');
     }
 
     public function shop(): BelongsTo

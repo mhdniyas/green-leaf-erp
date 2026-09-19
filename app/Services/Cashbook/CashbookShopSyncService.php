@@ -308,7 +308,7 @@ class CashbookShopSyncService
             ]
         );
 
-        ShopLedgerEntrySetting::query()->updateOrCreate(
+        ShopLedgerEntrySetting::query()->firstOrCreate(
             [
                 'shop_id' => $shopId,
                 'entry_type_id' => $salaryType->id,
@@ -383,10 +383,10 @@ class CashbookShopSyncService
 
     public function ensureVendorPurchaseForShop(int $shopId): void
     {
-        $vendorPurchaseType = LedgerEntryType::firstOrCreate(
-            ['code' => 'vendor_purchase'],
+        $cashType = LedgerEntryType::firstOrCreate(
+            ['code' => 'vendor_purchase_cash'],
             [
-                'name' => 'Vendor Purchase',
+                'name' => 'Vendor Purchase - Cash',
                 'category' => 'expense',
                 'active' => true,
                 'is_system' => true,
@@ -394,16 +394,59 @@ class CashbookShopSyncService
             ]
         );
 
-        ShopLedgerEntrySetting::query()->firstOrCreate(
+        $creditType = LedgerEntryType::firstOrCreate(
+            ['code' => 'vendor_purchase_credit'],
             [
+                'name' => 'Vendor Purchase - Credit',
+                'category' => 'expense',
+                'active' => true,
+                'is_system' => true,
+                'display_order' => 20,
+            ]
+        );
+
+        // Find any existing legacy Vendor Purchase setting for this shop to carry forward settings
+        $legacyType = LedgerEntryType::where('code', 'vendor_purchase')->first();
+        $legacySetting = $legacyType
+            ? ShopLedgerEntrySetting::query()
+                ->with(['definedShopSuppliers'])
+                ->where('shop_id', $shopId)
+                ->where('entry_type_id', $legacyType->id)
+                ->first()
+            : null;
+
+        $enabled = $legacySetting ? (bool) $legacySetting->enabled : true;
+        $vendorAccessMode = $legacySetting?->vendor_access_mode ?: 'linked_create';
+        $vendorSettlementRelationId = $legacySetting?->vendor_settlement_relation_id;
+        $legacyHeaderGroupId = $legacySetting?->header_group_id;
+        $legacySupplierIds = $legacySetting ? $legacySetting->definedShopSuppliers->pluck('id')->all() : [];
+
+        // 1. Ensure Cash category
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopId)
+            ->where(function ($q) use ($cashType): void {
+                $q->where('entry_type_id', $cashType->id)
+                    ->orWhere(function ($sq): void {
+                        $sq->where('is_vendor_purchase', true)->where('vendor_purchase_payment_type', 'cash');
+                    });
+            })
+            ->first();
+
+        if (! $cashSetting) {
+            $cashSetting = ShopLedgerEntrySetting::create([
                 'shop_id' => $shopId,
-                'entry_type_id' => $vendorPurchaseType->id,
-            ],
-            [
+                'entry_type_id' => $cashType->id,
+                'display_name' => 'Vendor Purchase - Cash',
+                'header_group_id' => $legacyHeaderGroupId,
+                'is_vendor_purchase' => true,
+                'vendor_purchase_payment_type' => 'cash',
+                'vendor_access_mode' => $vendorAccessMode,
+                'vendor_settlement_relation_id' => $vendorSettlementRelationId,
+                'mirror_to_cashbook' => true,
                 'version' => 1,
                 'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
                 'effective_to' => null,
-                'enabled' => true,
+                'enabled' => $enabled,
                 'default_funding_source' => 'sales',
                 'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
                 'include_in_sales' => false,
@@ -414,7 +457,76 @@ class CashbookShopSyncService
                 'petty_behavior' => 'none',
                 'company_pending_behavior' => 'none',
                 'display_order' => 19,
-            ]
-        );
+            ]);
+
+            if (! empty($legacySupplierIds)) {
+                $cashSetting->definedShopSuppliers()->syncWithoutDetaching($legacySupplierIds);
+            }
+        } else {
+            $updates = [];
+            if (! $cashSetting->is_vendor_purchase) {
+                $updates['is_vendor_purchase'] = true;
+            }
+            if ($cashSetting->vendor_purchase_payment_type !== 'cash') {
+                $updates['vendor_purchase_payment_type'] = 'cash';
+            }
+            if ($updates !== []) {
+                $cashSetting->update($updates);
+            }
+        }
+
+        // 2. Ensure Credit category
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopId)
+            ->where(function ($q) use ($creditType): void {
+                $q->where('entry_type_id', $creditType->id)
+                    ->orWhere(function ($sq): void {
+                        $sq->where('is_vendor_purchase', true)->where('vendor_purchase_payment_type', 'credit');
+                    });
+            })
+            ->first();
+
+        if (! $creditSetting) {
+            $creditSetting = ShopLedgerEntrySetting::create([
+                'shop_id' => $shopId,
+                'entry_type_id' => $creditType->id,
+                'display_name' => 'Vendor Purchase - Credit',
+                'header_group_id' => $legacyHeaderGroupId,
+                'is_vendor_purchase' => true,
+                'vendor_purchase_payment_type' => 'credit',
+                'vendor_access_mode' => $vendorAccessMode,
+                'vendor_settlement_relation_id' => $vendorSettlementRelationId,
+                'mirror_to_cashbook' => false,
+                'version' => 1,
+                'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
+                'effective_to' => null,
+                'enabled' => $enabled,
+                'default_funding_source' => 'sales',
+                'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
+                'include_in_sales' => false,
+                'include_in_income' => false,
+                'include_in_expense' => true,
+                'include_in_pl' => true,
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+                'display_order' => 20,
+            ]);
+
+            if (! empty($legacySupplierIds)) {
+                $creditSetting->definedShopSuppliers()->syncWithoutDetaching($legacySupplierIds);
+            }
+        } else {
+            $updates = [];
+            if (! $creditSetting->is_vendor_purchase) {
+                $updates['is_vendor_purchase'] = true;
+            }
+            if ($creditSetting->vendor_purchase_payment_type !== 'credit') {
+                $updates['vendor_purchase_payment_type'] = 'credit';
+            }
+            if ($updates !== []) {
+                $creditSetting->update($updates);
+            }
+        }
     }
 }

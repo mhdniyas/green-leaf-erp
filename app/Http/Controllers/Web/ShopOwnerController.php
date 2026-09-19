@@ -1757,9 +1757,20 @@ class ShopOwnerController extends Controller
 
         $summaries = [];
         foreach ($vpSettings as $vpSetting) {
-            $invoicesForSetting = $invoices->filter(function (PurchaseInvoice $inv) use ($vpSetting, $vpSettings): bool {
+            $isCashSetting = $vpSetting->isVendorPurchaseCash();
+            $isCreditSetting = $vpSetting->isVendorPurchaseCredit();
+
+            $invoicesForSetting = $invoices->filter(function (PurchaseInvoice $inv) use ($vpSetting, $vpSettings, $isCashSetting, $isCreditSetting): bool {
                 if ($inv->shop_ledger_entry_setting_id) {
                     return (int) $inv->shop_ledger_entry_setting_id === (int) $vpSetting->id;
+                }
+
+                if ($isCashSetting) {
+                    return strcasecmp((string) $inv->payment_method, 'Cash') === 0;
+                }
+
+                if ($isCreditSetting) {
+                    return strcasecmp((string) $inv->payment_method, 'Credit') === 0;
                 }
 
                 return $vpSettings->count() === 1;
@@ -1773,13 +1784,20 @@ class ShopOwnerController extends Controller
                 ->filter(fn (PurchaseInvoice $inv): bool => strcasecmp((string) $inv->payment_method, 'Credit') === 0)
                 ->sum(fn (PurchaseInvoice $inv): float => (float) ($inv->amount - $inv->discount_amount));
 
+            $totalAmt = match (true) {
+                $isCashSetting => $cashAmt,
+                $isCreditSetting => $creditAmt,
+                default => $cashAmt + $creditAmt,
+            };
+
             $summaries[(int) $vpSetting->id] = [
                 'setting_id' => (int) $vpSetting->id,
                 'name' => $vpSetting->displayName(),
-                'total_amount' => round($cashAmt + $creditAmt, 2),
+                'total_amount' => round($totalAmt, 2),
                 'cash_amount' => round($cashAmt, 2),
                 'credit_amount' => round($creditAmt, 2),
                 'count' => $invoicesForSetting->count(),
+                'payment_type' => $vpSetting->vendor_purchase_payment_type,
             ];
         }
 

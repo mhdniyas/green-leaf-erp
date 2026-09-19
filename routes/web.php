@@ -994,6 +994,7 @@ Route::middleware('auth')->group(function () {
             Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
             Route::post('settings/shops/{shop}/toggle-purchasing', [CashbookController::class, 'toggleShopPurchasing'])->name('settings.shop.toggle-purchasing');
             Route::get('settings/shops/{shop}/vendors', [CashbookVendorController::class, 'index'])->name('settings.shop.vendors.index');
+            Route::post('settings/shops/{shop}/vendors/routing', [CashbookVendorController::class, 'updateRouting'])->name('settings.shop.vendors.update-routing');
             Route::post('settings/shops/{shop}/vendors/purchase-settings', [CashbookVendorController::class, 'updatePurchaseSettings'])->name('settings.shop.vendors.update-purchase-settings');
             Route::post('settings/shops/{shop}/vendors/toggle-creation-permission', [CashbookVendorController::class, 'toggleCreationPermission'])->name('settings.shop.vendors.toggle-creation-permission');
             Route::post('settings/shops/{shop}/vendors/link', [CashbookVendorController::class, 'link'])->name('settings.shop.vendors.link');

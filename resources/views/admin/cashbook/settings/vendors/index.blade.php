@@ -168,6 +168,81 @@
         </form>
     </div>
 
+    {{-- Vendor Purchase Routing Card --}}
+    <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+        <div class="flex items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-3">
+            <div class="flex items-center gap-3.5">
+                <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 border border-teal-200 shrink-0">
+                    <i data-lucide="split" class="h-5 w-5"></i>
+                </span>
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-teal-700">CASHBOOK ROUTING</span>
+                    <h3 class="text-sm font-black text-slate-950 mt-0.5">Vendor Purchase Routing</h3>
+                    <p class="text-xs text-slate-500 font-medium">Assign independent Cashbook headers for Cash and Credit vendor purchases.</p>
+                </div>
+            </div>
+        </div>
+
+        <form action="{{ route('admin.cashbook.settings.shop.vendors.update-routing', ['shop' => $shopKey]) }}" method="POST" class="space-y-4">
+            @csrf
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {{-- Cash Purchases Box --}}
+                <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+                            <span class="text-xs font-black uppercase tracking-wider text-slate-800">Cash Purchases</span>
+                        </div>
+                        <span class="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                            Category: {{ $cashSetting?->displayName() ?? 'Vendor Purchase - Cash' }}
+                        </span>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 mb-1">Cashbook Header</label>
+                        <select name="cash_header_group_id" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                            <option value="">(No Header Assigned)</option>
+                            @foreach($expenseHeaderGroups as $hg)
+                                <option value="{{ $hg->id }}" {{ (old('cash_header_group_id', $cashSetting?->header_group_id) == $hg->id) ? 'selected' : '' }}>
+                                    {{ $hg->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                {{-- Credit Purchases Box --}}
+                <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="h-2.5 w-2.5 rounded-full bg-cyan-500"></span>
+                            <span class="text-xs font-black uppercase tracking-wider text-slate-800">Credit Purchases</span>
+                        </div>
+                        <span class="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                            Category: {{ $creditSetting?->displayName() ?? 'Vendor Purchase - Credit' }}
+                        </span>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 mb-1">Cashbook Header</label>
+                        <select name="credit_header_group_id" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                            <option value="">(No Header Assigned)</option>
+                            @foreach($expenseHeaderGroups as $hg)
+                                <option value="{{ $hg->id }}" {{ (old('credit_header_group_id', $creditSetting?->header_group_id) == $hg->id) ? 'selected' : '' }}>
+                                    {{ $hg->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end pt-1">
+                <button type="submit" class="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 transition shadow-xs cursor-pointer">
+                    Save Routing Headers
+                </button>
+            </div>
+        </form>
+    </div>
+
     {{-- Stats & Filter Bar --}}
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div class="flex items-center gap-3">

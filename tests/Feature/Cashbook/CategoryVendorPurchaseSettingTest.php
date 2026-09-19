@@ -76,7 +76,7 @@ class CategoryVendorPurchaseSettingTest extends TestCase
 
         app(CashbookShopSyncService::class)->syncAndGetProfiles();
 
-        $entryType = LedgerEntryType::query()->where('category', 'expense')->firstOrFail();
+        $entryType = LedgerEntryType::query()->where('code', 'cash_purchase')->firstOrFail();
 
         $header1 = ShopLedgerHeaderGroup::query()->firstOrCreate([
             'shop_id' => $this->shop1->id,

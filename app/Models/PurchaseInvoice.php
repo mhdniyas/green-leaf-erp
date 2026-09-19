@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\Purchasing\InvoiceStatus;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use Database\Factories\PurchaseInvoiceFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -32,6 +33,7 @@ class PurchaseInvoice extends Model
         'supplier_id',
         'shop_id',
         'shop_ledger_entry_setting_id',
+        'original_header_group_id',
         'purchaser_cart_id',
         'business_day_id',
         'purchase_source',
@@ -186,6 +188,11 @@ class PurchaseInvoice extends Model
     public function shopLedgerEntrySetting(): BelongsTo
     {
         return $this->belongsTo(ShopLedgerEntrySetting::class, 'shop_ledger_entry_setting_id');
+    }
+
+    public function originalHeaderGroup(): BelongsTo
+    {
+        return $this->belongsTo(ShopLedgerHeaderGroup::class, 'original_header_group_id');
     }
 
     public function shopVendorPayable(): HasOne
