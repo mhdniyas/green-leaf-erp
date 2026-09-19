@@ -203,6 +203,14 @@
             <!-- PURCHASE (NESTED HIERARCHY) -->
             <x-sidebar-link :item="$purchaseSidebarItem" label-attribute="data-cashbook-sidebar-label" />
 
+            <!-- ACCOUNT BALANCE (NEW) -->
+            <div class="space-y-1">
+                <a href="{{ route('admin.cashbook.account-balance') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.account-balance*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="scale" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Account Balance</span>
+                </a>
+            </div>
+
             <!-- MONTHLY REPORTS (NESTED HIERARCHY) -->
             <x-sidebar-link :item="$monthlyReportsSidebarItem" label-attribute="data-cashbook-sidebar-label" />
 

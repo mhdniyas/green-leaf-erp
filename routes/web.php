@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
+use App\Http\Controllers\Web\Admin\AccountBalanceReportController;
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminAutoLoadAllController;
@@ -769,6 +770,7 @@ Route::middleware('auth')->group(function () {
             Route::get('cash-flow-tree/drilldown', [CashFlowTreeController::class, 'drilldown'])->name('cash-flow-tree.drilldown');
             Route::get('cash-flow-tree/edge-drilldown', [CashFlowTreeController::class, 'edgeDrilldown'])->name('cash-flow-tree.edge-drilldown');
             Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
+            Route::get('account-balance', [AccountBalanceReportController::class, 'index'])->name('account-balance');
             Route::get('monthly-closing-summary', [MonthlyClosingSummaryController::class, 'index'])->name('monthly-closing-summary.index');
             Route::get('monthly-closing-summary/shop/{shop}', [MonthlyClosingSummaryController::class, 'show'])->name('monthly-closing-summary.show');
             Route::get('overview-cards', [AdminCashbookReportsController::class, 'hub'])->name('reports.hub');
