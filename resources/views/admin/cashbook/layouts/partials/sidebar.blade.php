@@ -116,6 +116,82 @@
             ],
         ],
     ];
+    $isAccountBalanceActive = request()->routeIs('admin.cashbook.account-balance*');
+
+    $accountBalanceSidebarItem = [
+        'label' => 'Account Balance',
+        'href' => route('admin.cashbook.account-balance'),
+        'active' => $isAccountBalanceActive,
+        'icon' => '<svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.5H5.25A2.25 2.25 0 0 0 3 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 17.25V6.75A2.25 2.25 0 0 0 18.75 4.5Z" /></svg>',
+        'children' => [
+            [
+                'label' => '1. Accounts & Floating',
+                'href' => route('admin.cashbook.account-balance').'#section-accounts',
+                'active' => false,
+                'children' => [
+                    [
+                        'label' => 'Bank & Cash Breakdown',
+                        'href' => route('admin.cashbook.account-balance').'#section-accounts',
+                        'active' => false,
+                    ],
+                    [
+                        'label' => 'Floating In Money',
+                        'href' => route('admin.cashbook.account-balance').'#section-floating-in',
+                        'active' => false,
+                    ],
+                    [
+                        'label' => 'Floating Out Money',
+                        'href' => route('admin.cashbook.account-balance').'#section-floating-out',
+                        'active' => false,
+                    ],
+                ],
+            ],
+            [
+                'label' => '2. Receivables & Payables',
+                'href' => route('admin.cashbook.account-balance').'#section-receivables',
+                'active' => false,
+                'children' => [
+                    [
+                        'label' => 'Shop Receivables',
+                        'href' => route('admin.cashbook.account-balance').'#section-receivables',
+                        'active' => false,
+                    ],
+                    [
+                        'label' => 'Purchaser Payables & Payments',
+                        'href' => route('admin.cashbook.account-balance').'#section-purchasers',
+                        'active' => false,
+                    ],
+                    [
+                        'label' => 'Vendor Payables & Payments',
+                        'href' => route('admin.cashbook.account-balance').'#section-vendors',
+                        'active' => false,
+                    ],
+                    [
+                        'label' => 'Company Owes Shops & Petty',
+                        'href' => route('admin.cashbook.account-balance').'#section-company-owes-shops',
+                        'active' => false,
+                    ],
+                ],
+            ],
+            [
+                'label' => '3. Movements & Audit Log',
+                'href' => route('admin.cashbook.account-balance').'#section-movements',
+                'active' => false,
+                'children' => [
+                    [
+                        'label' => 'Period Movement Matrix',
+                        'href' => route('admin.cashbook.account-balance').'#section-movements',
+                        'active' => false,
+                    ],
+                    [
+                        'label' => 'All Contributing Transactions',
+                        'href' => route('admin.cashbook.account-balance').'#section-transactions',
+                        'active' => false,
+                    ],
+                ],
+            ],
+        ],
+    ];
 @endphp
 
 <!-- Mobile Overlay Backdrop -->
@@ -203,13 +279,8 @@
             <!-- PURCHASE (NESTED HIERARCHY) -->
             <x-sidebar-link :item="$purchaseSidebarItem" label-attribute="data-cashbook-sidebar-label" />
 
-            <!-- ACCOUNT BALANCE (NEW) -->
-            <div class="space-y-1">
-                <a href="{{ route('admin.cashbook.account-balance') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.account-balance*') ? 'active-sidebar' : '' }}">
-                    <i data-lucide="scale" class="w-4 h-4 text-emerald-600"></i>
-                    <span>Account Balance</span>
-                </a>
-            </div>
+            <!-- ACCOUNT BALANCE (NESTED HIERARCHY SUBSECTIONS) -->
+            <x-sidebar-link :item="$accountBalanceSidebarItem" label-attribute="data-cashbook-sidebar-label" />
 
             <!-- MONTHLY REPORTS (NESTED HIERARCHY) -->
             <x-sidebar-link :item="$monthlyReportsSidebarItem" label-attribute="data-cashbook-sidebar-label" />

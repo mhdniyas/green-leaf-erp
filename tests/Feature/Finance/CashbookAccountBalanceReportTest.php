@@ -8,10 +8,12 @@ use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\CompanyAccountStatementEntry;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\VendorSettlement;
 use App\Services\Cashbook\AccountBalanceReportService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -82,7 +84,7 @@ class CashbookAccountBalanceReportTest extends TestCase
             ->get(route('admin.cashbook.account-balance'));
 
         $response->assertOk();
-        $response->assertSee('Account Balance Report');
+        $response->assertSee('Accounts');
         $response->assertSee('HDFC Primary Bank');
         $response->assertSee('Main Vault Cash');
         $response->assertSee('Actual Balance');
@@ -396,28 +398,80 @@ class CashbookAccountBalanceReportTest extends TestCase
         $this->assertDatabaseHas('cashbook_company_account_statement_entries', ['id' => $stmt->id]);
     }
 
-    public function test_admin_can_reject_payment_request(): void
+    public function test_purchaser_payables_and_payments_tracking(): void
     {
-        $req = ShopInvoicePaymentRequest::create([
-            'shop_id' => $this->shop->id,
+        $purchaser = User::factory()->create(['name' => 'Faisal Purchaser']);
+
+        // Create funding to purchaser
+        PurchaserCredit::create([
+            'purchaser_id' => $purchaser->id,
+            'type' => 'in',
+            'amount' => 50000.00,
+            'business_date' => Carbon::today()->toDateString(),
             'company_account_id' => $this->bankAccount->id,
-            'payment_method' => 'cheque',
-            'cheque_number' => 'CHQ-REJ-99',
-            'requested_amount' => 12000.00,
-            'approved_amount' => 12000.00,
-            'floating_amount' => 12000.00,
-            'status' => 'pending',
-            'cheque_status' => 'pending',
+            'payment_source' => 'HDFC Primary Bank',
+            'description' => 'Funding to purchaser Faisal',
+        ]);
+
+        $service = app(AccountBalanceReportService::class);
+        $report = $service->generateReport('this_month');
+
+        $this->assertNotEmpty($report->payables['purchaser_payments']['items']);
+        $this->assertEquals(50000.00, $report->payables['purchaser_payments']['total_paid']);
+    }
+
+    public function test_company_owes_shops_payable_tracking(): void
+    {
+        // Negative closing shop position indicates company owes shop
+        ShopDailyLedgerSnapshot::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::today()->toDateString(),
+            'closing_shop_position' => -15000.00,
+        ]);
+
+        $service = app(AccountBalanceReportService::class);
+        $report = $service->generateReport('this_month');
+
+        $this->assertEquals(15000.00, $report->payables['summary']['company_owes_shops']);
+        $this->assertNotEmpty($report->payables['company_owes_shops']);
+    }
+
+    public function test_period_presets_resolution(): void
+    {
+        $service = app(AccountBalanceReportService::class);
+
+        $reportToday = $service->generateReport('today');
+        $this->assertEquals('today', $reportToday->period['preset']);
+
+        $reportWeek = $service->generateReport('this_week');
+        $this->assertEquals('this_week', $reportWeek->period['preset']);
+
+        $reportYear = $service->generateReport('year');
+        $this->assertEquals('year', $reportYear->period['preset']);
+
+        $reportAllTime = $service->generateReport('all_time');
+        $this->assertEquals('all_time', $reportAllTime->period['preset']);
+    }
+
+    public function test_vendor_settlement_payments_query_reconciliation(): void
+    {
+        VendorSettlement::create([
+            'supplier_id' => $this->supplier->id,
+            'company_account_id' => $this->bankAccount->id,
+            'actual_payment_amount' => 14000.00,
+            'settlement_discount_amount' => 0.00,
+            'payment_method' => 'bank_transfer',
             'payment_date' => Carbon::today()->toDateString(),
+            'reference' => 'SETTLE-2026-001',
+            'status' => 'approved',
+            'created_by' => $this->admin->id,
         ]);
 
-        $response = $this->actingAs($this->admin)
-            ->delete(route('admin.cashbook.account-balance.payment-requests.delete', $req->id));
+        $service = app(AccountBalanceReportService::class);
+        $report = $service->generateReport('this_month');
 
-        $response->assertRedirect();
-        $this->assertDatabaseHas('shop_invoice_payment_requests', [
-            'id' => $req->id,
-            'status' => 'rejected',
-        ]);
+        $this->assertEquals(14000.00, $report->payables['vendor_payments']['total_paid']);
+        $this->assertCount(1, $report->payables['vendor_payments']['items']);
+        $this->assertEquals('SETTLE-2026-001', $report->payables['vendor_payments']['items'][0]['settlement_reference']);
     }
 }

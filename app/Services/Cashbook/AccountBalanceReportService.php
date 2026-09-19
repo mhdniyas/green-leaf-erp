@@ -12,10 +12,12 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopInvoicePaymentRequest;
+use App\Models\ShopPettyCashExpense;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\VendorSettlement;
 use App\Services\Cashbook\DTO\AccountBalanceReportData;
+use App\Services\Finance\PurchaserSettlementService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Collection;
@@ -46,8 +48,57 @@ class AccountBalanceReportService
         $floatingInData = $this->calculateFloatingIn($startDate, $endDate);
         $floatingOutData = $this->calculateFloatingOut($startDate, $endDate);
         $receivablesData = $this->calculateReceivables($startDate, $endDate, $floatingInData['items']);
-        $payablesData = $this->calculatePayables($startDate, $endDate);
-        $movementsData = $this->calculatePeriodMovements($startDate, $endDate, $accountsData, $floatingInData, $floatingOutData, $receivablesData, $payablesData);
+        $purchaserPayablesData = $this->calculatePurchaserPayables($startDate, $endDate);
+        $purchaserPaymentsData = $this->calculatePurchaserPayments($startDate, $endDate);
+        $vendorPayablesData = $this->calculateVendorPayables($startDate, $endDate);
+        $vendorPaymentsData = $this->calculateVendorPayments($startDate, $endDate);
+        $companyOwesShopsData = $this->calculateCompanyOwesShops($startDate, $endDate);
+        $pettyPayablesData = $this->calculatePettyPayables($startDate, $endDate);
+        $otherPayablesData = $this->calculateOtherPayables($startDate, $endDate);
+
+        $totalPurchaserOutstanding = (float) $purchaserPayablesData['total_closing'];
+        $totalVendorOutstanding = (float) $vendorPayablesData['total_closing'];
+        $totalCompanyOwesShops = (float) $companyOwesShopsData['total_closing'];
+        $totalPettyPayables = (float) $pettyPayablesData['total_closing'];
+        $totalOtherPayables = (float) $otherPayablesData['total_closing'];
+
+        $totalPayables = round($totalPurchaserOutstanding + $totalVendorOutstanding + $totalCompanyOwesShops + $totalPettyPayables + $totalOtherPayables, 2);
+
+        $payablesStructured = [
+            'total_closing' => $totalPayables,
+            'summary' => [
+                'purchaser_outstanding' => $totalPurchaserOutstanding,
+                'vendor_outstanding' => $totalVendorOutstanding,
+                'company_owes_shops' => $totalCompanyOwesShops,
+                'petty_outstanding' => $totalPettyPayables,
+                'other_payables' => $totalOtherPayables,
+                'total_payables' => $totalPayables,
+            ],
+            'purchaser_payables' => $purchaserPayablesData['items'],
+            'purchaser_payments' => $purchaserPaymentsData,
+            'vendor_payables' => $vendorPayablesData['items'],
+            'vendor_payments' => $vendorPaymentsData,
+            'company_owes_shops' => $companyOwesShopsData['items'],
+            'petty_payables' => $pettyPayablesData['items'],
+            'other_payables' => $otherPayablesData['items'],
+            'items' => array_merge(
+                $purchaserPayablesData['items'],
+                $vendorPayablesData['items'],
+                $companyOwesShopsData['items'],
+                $pettyPayablesData['items'],
+                $otherPayablesData['items']
+            ),
+        ];
+
+        $movementsData = $this->calculatePeriodMovements(
+            $startDate,
+            $endDate,
+            $accountsData,
+            $floatingInData,
+            $floatingOutData,
+            $receivablesData,
+            $payablesStructured
+        );
         $transactionsCollection = $this->collectPeriodTransactions($startDate, $endDate);
 
         $totalActualBalance = round((float) array_sum(array_column($accountsData, 'closing_actual')), 2);
@@ -55,7 +106,6 @@ class AccountBalanceReportService
         $totalFloatingOut = round((float) $floatingOutData['total'], 2);
         $netFloating = round($totalFloatingIn - $totalFloatingOut, 2);
         $totalReceivables = round((float) $receivablesData['total_closing'], 2);
-        $totalPayables = round((float) $payablesData['total_closing'], 2);
         $expectedBalance = round($totalActualBalance + $totalFloatingIn - $totalFloatingOut, 2);
 
         $summary = [
@@ -87,8 +137,8 @@ class AccountBalanceReportService
             accounts: $accountsData,
             floatingIn: $floatingInData['items'],
             floatingOut: $floatingOutData['items'],
-            receivables: $receivablesData['items'],
-            payables: $payablesData['items'],
+            receivables: $receivablesData,
+            payables: $payablesStructured,
             movements: $movementsData,
             transactions: $transactionsCollection,
         );
@@ -109,41 +159,112 @@ class AccountBalanceReportService
     ): array {
         $today = Carbon::today();
 
-        // Determine active mode (Month | Day | Custom)
-        $mode = $periodMode ?: (match ($preset) {
-            'today', 'yesterday' => 'day',
-            'custom' => 'custom',
-            default => 'month',
-        });
+        switch ($preset) {
+            case 'today':
+                $startDate = $today->toDateString();
+                $endDate = $today->toDateString();
+                $mode = 'day';
+                $label = 'Today ('.$today->format('d M Y').')';
+                break;
 
-        if ($mode === 'day') {
-            $targetDate = $date ?: ($fromDate ?: ($preset === 'yesterday' ? $today->copy()->subDay()->toDateString() : $today->toDateString()));
-            $cDate = Carbon::parse($targetDate);
-            $startDate = $cDate->toDateString();
-            $endDate = $cDate->toDateString();
-            $label = $cDate->format('d M Y');
-            $monthStr = $cDate->format('Y-m');
-        } elseif ($mode === 'custom') {
-            $startDate = $fromDate ?: $today->copy()->startOfMonth()->toDateString();
-            $endDate = $toDate ?: $today->toDateString();
-            $label = Carbon::parse($startDate)->format('d M Y').' – '.Carbon::parse($endDate)->format('d M Y');
-            $monthStr = Carbon::parse($startDate)->format('Y-m');
-        } else {
-            // Month mode (default)
-            $mode = 'month';
-            $monthStr = $month ?: $today->format('Y-m');
-            try {
-                $cMonth = Carbon::createFromFormat('Y-m', $monthStr);
-            } catch (\Throwable) {
-                $cMonth = $today->copy();
-                $monthStr = $today->format('Y-m');
-            }
+            case 'yesterday':
+                $yesterday = $today->copy()->subDay();
+                $startDate = $yesterday->toDateString();
+                $endDate = $yesterday->toDateString();
+                $mode = 'day';
+                $label = 'Yesterday ('.$yesterday->format('d M Y').')';
+                break;
 
-            $startDate = $cMonth->copy()->startOfMonth()->toDateString();
-            $endDate = $cMonth->copy()->endOfMonth()->toDateString();
-            $label = $cMonth->format('F Y');
+            case 'day':
+                $targetDate = $date ?: ($fromDate ?: $today->toDateString());
+                $cDate = Carbon::parse($targetDate);
+                $startDate = $cDate->toDateString();
+                $endDate = $cDate->toDateString();
+                $mode = 'day';
+                $label = $cDate->format('d M Y');
+                break;
+
+            case 'this_week':
+                $startDate = $today->copy()->startOfWeek()->toDateString();
+                $endDate = $today->copy()->endOfWeek()->toDateString();
+                $mode = 'custom';
+                $label = 'This Week ('.Carbon::parse($startDate)->format('d M').' – '.Carbon::parse($endDate)->format('d M Y').')';
+                break;
+
+            case 'last_week':
+                $lastWeekStart = $today->copy()->subWeek()->startOfWeek();
+                $lastWeekEnd = $today->copy()->subWeek()->endOfWeek();
+                $startDate = $lastWeekStart->toDateString();
+                $endDate = $lastWeekEnd->toDateString();
+                $mode = 'custom';
+                $label = 'Last Week ('.$lastWeekStart->format('d M').' – '.$lastWeekEnd->format('d M Y').')';
+                break;
+
+            case 'last_month':
+                $lastMonth = $today->copy()->subMonth();
+                $startDate = $lastMonth->copy()->startOfMonth()->toDateString();
+                $endDate = $lastMonth->copy()->endOfMonth()->toDateString();
+                $mode = 'month';
+                $label = $lastMonth->format('F Y');
+                break;
+
+            case 'quarter':
+                $startDate = $today->copy()->startOfQuarter()->toDateString();
+                $endDate = $today->copy()->endOfQuarter()->toDateString();
+                $mode = 'custom';
+                $label = 'Q'.ceil($today->month / 3).' '.$today->year.' ('.Carbon::parse($startDate)->format('d M').' – '.Carbon::parse($endDate)->format('d M Y').')';
+                break;
+
+            case 'year':
+                $startDate = $today->copy()->startOfYear()->toDateString();
+                $endDate = $today->copy()->endOfYear()->toDateString();
+                $mode = 'custom';
+                $label = 'Year '.$today->year;
+                break;
+
+            case 'all_time':
+                $startDate = '2020-01-01';
+                $endDate = $today->toDateString();
+                $mode = 'custom';
+                $label = 'All Time (up to '.$today->format('d M Y').')';
+                break;
+
+            case 'custom':
+                $startDate = $fromDate ?: $today->copy()->startOfMonth()->toDateString();
+                $endDate = $toDate ?: $today->toDateString();
+                $mode = 'custom';
+                $label = Carbon::parse($startDate)->format('d M Y').' – '.Carbon::parse($endDate)->format('d M Y');
+                break;
+
+            case 'month':
+            case 'this_month':
+            default:
+                $mode = $periodMode ?: 'month';
+                if ($mode === 'day') {
+                    $targetDate = $date ?: ($fromDate ?: $today->toDateString());
+                    $cDate = Carbon::parse($targetDate);
+                    $startDate = $cDate->toDateString();
+                    $endDate = $cDate->toDateString();
+                    $label = $cDate->format('d M Y');
+                } elseif ($mode === 'custom') {
+                    $startDate = $fromDate ?: $today->copy()->startOfMonth()->toDateString();
+                    $endDate = $toDate ?: $today->toDateString();
+                    $label = Carbon::parse($startDate)->format('d M Y').' – '.Carbon::parse($endDate)->format('d M Y');
+                } else {
+                    $monthStrInput = $month ?: $today->format('Y-m');
+                    try {
+                        $cMonth = Carbon::createFromFormat('Y-m', $monthStrInput);
+                    } catch (\Throwable) {
+                        $cMonth = $today->copy();
+                    }
+                    $startDate = $cMonth->copy()->startOfMonth()->toDateString();
+                    $endDate = $cMonth->copy()->endOfMonth()->toDateString();
+                    $label = $cMonth->format('F Y');
+                }
+                break;
         }
 
+        $monthStr = Carbon::parse($startDate)->format('Y-m');
         $cMonthRef = Carbon::createFromFormat('Y-m', $monthStr);
         $prevMonth = $cMonthRef->copy()->subMonth()->format('Y-m');
         $nextMonth = $cMonthRef->copy()->addMonth()->format('Y-m');
@@ -552,17 +673,15 @@ class AccountBalanceReportService
     }
 
     /**
-     * Calculate Shop Receivables (Company is owed money).
-     * Applies Double-Count Prevention using Floating In allocations.
+     * Calculate Whole-Company Receivables (Shop Receivables + Other Receivables).
      *
      * @param  array<int, array<string, mixed>>  $floatingInItems
-     * @return array{total_closing: float, items: array<int, array<string, mixed>>}
+     * @return array{total_closing: float, items: array<int, array<string, mixed>>, shop_receivables: array<int, array<string, mixed>>, other_receivables: array<int, array<string, mixed>>}
      */
     private function calculateReceivables(string $startDate, string $endDate, array $floatingInItems): array
     {
         $shops = Shop::query()->where('status', 'active')->orderBy('name')->get();
 
-        // Index floating in per shop to prevent double counting
         $floatingByShop = [];
         foreach ($floatingInItems as $item) {
             $sId = $item['shop_id'] ?? null;
@@ -571,18 +690,16 @@ class AccountBalanceReportService
             }
         }
 
-        $items = [];
-        $totalClosing = 0.0;
+        $shopItems = [];
+        $totalShopClosing = 0.0;
 
         foreach ($shops as $shop) {
-            // Latest snapshot as of endDate
             $closingSnapshot = ShopDailyLedgerSnapshot::query()
                 ->where('shop_id', $shop->id)
                 ->whereDate('business_date', '<=', $endDate)
                 ->orderBy('business_date', 'desc')
                 ->first();
 
-            // Opening snapshot before startDate
             $openingSnapshot = ShopDailyLedgerSnapshot::query()
                 ->where('shop_id', $shop->id)
                 ->whereDate('business_date', '<', $startDate)
@@ -592,7 +709,6 @@ class AccountBalanceReportService
             $openingPosition = round((float) ($openingSnapshot?->closing_shop_position ?? 0.0), 2);
             $grossClosingPosition = round((float) ($closingSnapshot?->closing_shop_position ?? 0.0), 2);
 
-            // New receivables & received during period
             $periodTransactions = ShopLedgerTransaction::query()
                 ->where('shop_id', $shop->id)
                 ->whereBetween('business_date', [$startDate, $endDate])
@@ -607,27 +723,132 @@ class AccountBalanceReportService
                 ->whereIn('status', ['void', 'voided', 'reversed'])
                 ->sum('amount');
 
-            // DOUBLE-COUNT PREVENTION: Subtract floating in allocated to this shop's receivable
             $floatingInOffset = round((float) ($floatingByShop[$shop->id] ?? 0.0), 2);
-            $netClosingPosition = max(0.0, round($grossClosingPosition - $floatingInOffset, 2));
 
-            $items[] = [
+            $openingRec = max(0.0, $openingPosition);
+            $grossClosingRec = max(0.0, $grossClosingPosition);
+            $netClosingRec = max(0.0, round($grossClosingRec - $floatingInOffset, 2));
+
+            $shopItems[] = [
                 'party' => $shop->name.' ('.$shop->code.')',
                 'shop_id' => $shop->id,
                 'type' => 'Shop Receivable',
-                'opening_outstanding' => $openingPosition,
+                'opening_outstanding' => $openingRec,
                 'new_receivable' => round($newReceivable, 2),
                 'received' => round($received, 2),
                 'reversed' => round($reversed, 2),
                 'floating_in_offset' => $floatingInOffset,
-                'gross_closing' => $grossClosingPosition,
-                'closing_outstanding' => $netClosingPosition,
-                'status' => $netClosingPosition > 0 ? 'OUTSTANDING' : 'SETTLED',
+                'gross_closing' => $grossClosingRec,
+                'closing_outstanding' => $netClosingRec,
+                'status' => $netClosingRec > 0 ? 'OUTSTANDING' : 'SETTLED',
                 'reference' => 'SHOP-'.$shop->code,
                 'details_url' => route('admin.cashbook.shop.show', $shop->id),
             ];
 
-            $totalClosing += $netClosingPosition;
+            $totalShopClosing += $netClosingRec;
+        }
+
+        $otherReceivables = [];
+        $totalOtherClosing = 0.0;
+
+        $totalClosing = round($totalShopClosing + $totalOtherClosing, 2);
+
+        return [
+            'total_closing' => $totalClosing,
+            'shop_receivables' => $shopItems,
+            'other_receivables' => $otherReceivables,
+            'items' => array_merge($shopItems, $otherReceivables),
+        ];
+    }
+
+    /**
+     * Calculate Purchaser Payables (Company owes Purchasers or Purchaser Outstanding).
+     *
+     * @return array{total_closing: float, items: array<int, array<string, mixed>>}
+     */
+    private function calculatePurchaserPayables(string $startDate, string $endDate): array
+    {
+        $purchasers = User::query()
+            ->where(function ($q): void {
+                $q->whereHas('roles', fn ($r) => $r->where('name', 'purchaser'))
+                    ->orWhereIn('id', function ($sub): void {
+                        $sub->select('purchaser_id')->from('purchaser_credits')->distinct();
+                    })
+                    ->orWhereIn('id', function ($sub): void {
+                        $sub->select('purchaser_submitted_by')->from('purchase_invoices')->whereNotNull('purchaser_submitted_by')->distinct();
+                    });
+            })
+            ->orderBy('name')
+            ->get();
+
+        $items = [];
+        $totalClosing = 0.0;
+
+        /** @var PurchaserSettlementService $settlementService */
+        $settlementService = app(PurchaserSettlementService::class);
+
+        foreach ($purchasers as $purchaser) {
+            $purchaserId = (int) $purchaser->id;
+
+            $openingData = $settlementService->openingBalanceBefore($purchaserId, $startDate);
+            $openingAdvance = (float) $openingData['advance'];
+
+            $oldCreditInvoicesSum = (float) PurchaseInvoice::query()
+                ->leftJoin('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
+                ->whereNull('purchase_invoices.deleted_at')
+                ->where('purchase_invoices.status', '!=', 'cancelled')
+                ->whereRaw('(purchase_invoices.purchaser_submitted_by = ? OR purchaser_carts.user_id = ?)', [$purchaserId, $purchaserId])
+                ->whereRaw('COALESCE(DATE(purchaser_carts.business_date), DATE(purchase_invoices.created_at)) < ?', [$startDate])
+                ->selectRaw('COALESCE(SUM(purchase_invoices.amount - purchase_invoices.discount_amount - purchase_invoices.paid_amount), 0) as total')
+                ->value('total');
+
+            $openingOutstanding = round($oldCreditInvoicesSum - $openingAdvance, 2);
+
+            $periodCredits = PurchaserCredit::query()
+                ->where('purchaser_id', $purchaserId)
+                ->whereBetween('business_date', [$startDate, $endDate])
+                ->get();
+
+            $paid = (float) $periodCredits->filter(fn ($c) => $c->type === 'in')->sum('amount');
+            $returned = (float) $periodCredits->filter(fn ($c) => $c->type === 'out' && $c->purchase_invoice_id === null)->sum('amount');
+
+            $periodInvoices = PurchaseInvoice::query()
+                ->leftJoin('purchaser_carts', 'purchaser_carts.id', '=', 'purchase_invoices.purchaser_cart_id')
+                ->whereNull('purchase_invoices.deleted_at')
+                ->where('purchase_invoices.status', '!=', 'cancelled')
+                ->whereRaw('(purchase_invoices.purchaser_submitted_by = ? OR purchaser_carts.user_id = ?)', [$purchaserId, $purchaserId])
+                ->whereRaw('COALESCE(DATE(purchaser_carts.business_date), DATE(purchase_invoices.created_at)) >= ?', [$startDate])
+                ->whereRaw('COALESCE(DATE(purchaser_carts.business_date), DATE(purchase_invoices.created_at)) <= ?', [$endDate])
+                ->selectRaw('
+                    COALESCE(SUM(purchase_invoices.amount), 0) as gross_amount,
+                    COALESCE(SUM(purchase_invoices.discount_amount), 0) as discount_amount,
+                    COALESCE(SUM(purchase_invoices.paid_amount), 0) as paid_amount
+                ')
+                ->first();
+
+            $newBills = round((float) ($periodInvoices?->gross_amount ?? 0), 2);
+            $discounts = round((float) ($periodInvoices?->discount_amount ?? 0), 2);
+
+            $closingOutstanding = round($openingOutstanding + $newBills - $paid - $discounts + $returned, 2);
+
+            if (abs($openingOutstanding) > 0.01 || $newBills > 0 || $paid > 0 || abs($closingOutstanding) > 0.01) {
+                $items[] = [
+                    'party' => $purchaser->name,
+                    'purchaser_id' => $purchaserId,
+                    'type' => 'Purchaser Payable',
+                    'opening_outstanding' => $openingOutstanding,
+                    'new_liability' => $newBills,
+                    'paid' => round($paid, 2),
+                    'discount' => $discounts,
+                    'adjustment' => 0.0,
+                    'closing_outstanding' => $closingOutstanding,
+                    'status' => $closingOutstanding > 0 ? 'OUTSTANDING PAYABLE' : ($closingOutstanding < 0 ? 'ADVANCE HELD' : 'SETTLED'),
+                    'reference' => 'PURCHASER-'.$purchaserId,
+                    'details_url' => route('admin.cashbook.finance.purchasers'),
+                ];
+
+                $totalClosing += max(0.0, $closingOutstanding);
+            }
         }
 
         return [
@@ -637,13 +858,81 @@ class AccountBalanceReportService
     }
 
     /**
-     * Calculate Payables (Company owes money to vendors / parties).
+     * Calculate Purchaser Payments during selected period.
+     *
+     * @return array{total_paid: float, total_cleared: float, total_floating: float, total_unallocated: float, items: array<int, array<string, mixed>>}
+     */
+    private function calculatePurchaserPayments(string $startDate, string $endDate): array
+    {
+        $credits = PurchaserCredit::query()
+            ->with(['purchaser', 'companyAccount'])
+            ->where('type', 'in')
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->orderBy('business_date', 'desc')
+            ->get();
+
+        $items = [];
+        $totalPaid = 0.0;
+        $totalCleared = 0.0;
+        $totalFloating = 0.0;
+        $totalUnallocated = 0.0;
+
+        foreach ($credits as $credit) {
+            $amount = (float) $credit->amount;
+            $allocated = (float) PurchaserCredit::query()
+                ->where('purchaser_id', $credit->purchaser_id)
+                ->where('type', 'out')
+                ->whereNotNull('purchase_invoice_id')
+                ->where('created_at', '>=', $credit->created_at)
+                ->sum('amount');
+
+            $allocatedAmount = min($amount, $allocated);
+            $unallocatedAmount = max(0.0, round($amount - $allocatedAmount, 2));
+
+            $isCleared = (bool) ($credit->company_account_id !== null);
+            $statusStr = $isCleared ? 'CLEARED' : 'PENDING';
+
+            $items[] = [
+                'id' => 'purchaser_pay_'.$credit->id,
+                'date' => $credit->business_date->format('Y-m-d'),
+                'purchaser' => $credit->purchaser?->name ?: 'Purchaser #'.$credit->purchaser_id,
+                'from_account' => $credit->companyAccount?->name ?: ($credit->payment_source ?: 'Cash'),
+                'amount' => round($amount, 2),
+                'allocated_amount' => round($allocatedAmount, 2),
+                'unallocated_amount' => $unallocatedAmount,
+                'status' => $statusStr,
+                'clearance_status' => $isCleared ? 'CLEARED' : 'FLOATING',
+                'reference' => $credit->reference ?: 'CREDIT-'.$credit->id,
+                'notes' => $credit->description,
+                'details_url' => route('admin.cashbook.finance.purchasers'),
+            ];
+
+            $totalPaid += $amount;
+            if ($isCleared) {
+                $totalCleared += $amount;
+            } else {
+                $totalFloating += $amount;
+            }
+            $totalUnallocated += $unallocatedAmount;
+        }
+
+        return [
+            'total_paid' => round($totalPaid, 2),
+            'total_cleared' => round($totalCleared, 2),
+            'total_floating' => round($totalFloating, 2),
+            'total_unallocated' => round($totalUnallocated, 2),
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * Calculate Vendor Payables (Company owes Vendors).
      *
      * @return array{total_closing: float, items: array<int, array<string, mixed>>}
      */
-    private function calculatePayables(string $startDate, string $endDate): array
+    private function calculateVendorPayables(string $startDate, string $endDate): array
     {
-        $suppliers = Supplier::query()->orderBy('name')->take(50)->get();
+        $suppliers = Supplier::query()->orderBy('name')->get();
 
         $items = [];
         $totalClosing = 0.0;
@@ -655,7 +944,7 @@ class AccountBalanceReportService
                 ->where('status', '!=', 'cancelled')
                 ->get();
 
-            $openingPayable = round((float) $invoicesBeforeStart->sum(fn ($i) => (float) ($i->total_amount ?: $i->amount) - (float) $i->paid_amount), 2);
+            $openingPayable = round((float) $invoicesBeforeStart->sum(fn ($i) => (float) ($i->total_amount ?: $i->amount) - (float) $i->paid_amount - (float) $i->discount_amount), 2);
 
             $periodInvoices = PurchaseInvoice::query()
                 ->where('supplier_id', $supplier->id)
@@ -664,8 +953,9 @@ class AccountBalanceReportService
                 ->where('status', '!=', 'cancelled')
                 ->get();
 
-            $newPayable = round((float) $periodInvoices->sum(fn ($i) => (float) ($i->total_amount ?: $i->amount)), 2);
+            $newCreditPurchases = round((float) $periodInvoices->sum(fn ($i) => (float) ($i->total_amount ?: $i->amount)), 2);
             $paid = round((float) $periodInvoices->sum('paid_amount'), 2);
+            $discounts = round((float) $periodInvoices->sum('discount_amount'), 2);
             $reversed = round((float) PurchaseInvoice::query()
                 ->where('supplier_id', $supplier->id)
                 ->whereDate('created_at', '>=', $startDate)
@@ -673,17 +963,19 @@ class AccountBalanceReportService
                 ->where('status', 'cancelled')
                 ->sum('amount'), 2);
 
-            $closingPayable = max(0.0, round($openingPayable + $newPayable - $paid - $reversed, 2));
+            $closingPayable = max(0.0, round($openingPayable + $newCreditPurchases - $paid - $discounts - $reversed, 2));
 
-            if ($openingPayable > 0 || $newPayable > 0 || $closingPayable > 0) {
+            if ($openingPayable > 0 || $newCreditPurchases > 0 || $closingPayable > 0) {
                 $items[] = [
                     'party' => $supplier->name,
+                    'vendor_id' => $supplier->id,
                     'type' => 'Vendor Payable',
-                    'opening_payable' => $openingPayable,
-                    'new_payable' => $newPayable,
+                    'opening_outstanding' => $openingPayable,
+                    'new_credit_purchases' => $newCreditPurchases,
                     'paid' => $paid,
-                    'reversed' => $reversed,
-                    'closing_payable' => $closingPayable,
+                    'settlement_discount' => $discounts,
+                    'adjustment' => $reversed,
+                    'closing_outstanding' => $closingPayable,
                     'status' => $closingPayable > 0 ? 'PAYABLE OUTSTANDING' : 'PAID',
                     'reference' => 'VENDOR-'.$supplier->id,
                     'details_url' => route('admin.cashbook.finance.vendor-credit'),
@@ -700,13 +992,178 @@ class AccountBalanceReportService
     }
 
     /**
+     * Calculate Vendor Payments during selected period.
+     *
+     * @return array{total_paid: float, items: array<int, array<string, mixed>>}
+     */
+    private function calculateVendorPayments(string $startDate, string $endDate): array
+    {
+        $settlements = VendorSettlement::query()
+            ->with(['supplier', 'companyAccount', 'allocations.purchaseInvoice'])
+            ->whereBetween('payment_date', [$startDate, $endDate])
+            ->orderBy('payment_date', 'desc')
+            ->get();
+
+        $items = [];
+        $totalPaid = 0.0;
+
+        foreach ($settlements as $settlement) {
+            $amount = (float) $settlement->actual_payment_amount;
+            $allocated = (float) $settlement->allocations->sum('total_settled');
+
+            $invoiceRefs = $settlement->allocations
+                ->map(fn ($a) => $a->purchaseInvoice?->invoice_number)
+                ->filter()
+                ->implode(', ');
+
+            $items[] = [
+                'id' => 'vendor_settle_'.$settlement->id,
+                'date' => $settlement->payment_date ? $settlement->payment_date->format('Y-m-d') : '',
+                'vendor' => $settlement->supplier?->name ?: 'Vendor #'.$settlement->supplier_id,
+                'from_account' => $settlement->companyAccount?->name ?: 'Company Account',
+                'amount' => round($amount, 2),
+                'allocated' => round($allocated, 2),
+                'status' => strtoupper((string) ($settlement->reconciliation_status ?: $settlement->status)),
+                'settlement_reference' => $settlement->reference ?: 'SETTLE-'.$settlement->id,
+                'related_bills' => $invoiceRefs ?: 'General Settlement',
+                'details_url' => route('admin.cashbook.finance.vendor-credit'),
+            ];
+
+            $totalPaid += $amount;
+        }
+
+        return [
+            'total_paid' => round($totalPaid, 2),
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * Calculate Company Owes Shops (Negative shop closing positions).
+     *
+     * @return array{total_closing: float, items: array<int, array<string, mixed>>}
+     */
+    private function calculateCompanyOwesShops(string $startDate, string $endDate): array
+    {
+        $shops = Shop::query()->where('status', 'active')->orderBy('name')->get();
+
+        $items = [];
+        $totalClosing = 0.0;
+
+        foreach ($shops as $shop) {
+            $closingSnapshot = ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shop->id)
+                ->whereDate('business_date', '<=', $endDate)
+                ->orderBy('business_date', 'desc')
+                ->first();
+
+            $openingSnapshot = ShopDailyLedgerSnapshot::query()
+                ->where('shop_id', $shop->id)
+                ->whereDate('business_date', '<', $startDate)
+                ->orderBy('business_date', 'desc')
+                ->first();
+
+            $openingPos = (float) ($openingSnapshot?->closing_shop_position ?? 0.0);
+            $closingPos = (float) ($closingSnapshot?->closing_shop_position ?? 0.0);
+
+            $openingPayable = $openingPos < 0 ? abs($openingPos) : 0.0;
+            $closingPayable = $closingPos < 0 ? abs($closingPos) : 0.0;
+
+            if ($openingPayable > 0 || $closingPayable > 0) {
+                $periodTrans = ShopLedgerTransaction::query()
+                    ->where('shop_id', $shop->id)
+                    ->whereBetween('business_date', [$startDate, $endDate])
+                    ->whereNotIn('status', ['void', 'voided', 'reversed'])
+                    ->get();
+
+                $newOwed = (float) $periodTrans->filter(fn ($t) => $t->direction === 'income' || $t->payable_direction === 'minus')->sum('amount');
+                $paidToShop = (float) $periodTrans->filter(fn ($t) => $t->direction === 'expense' || $t->payable_direction === 'plus')->sum('amount');
+
+                $items[] = [
+                    'shop' => $shop->name.' ('.$shop->code.')',
+                    'shop_id' => $shop->id,
+                    'opening_payable' => round($openingPayable, 2),
+                    'new_amount_owed' => round($newOwed, 2),
+                    'paid_to_shop' => round($paidToShop, 2),
+                    'adjustment' => 0.0,
+                    'closing_payable' => round($closingPayable, 2),
+                    'view' => route('admin.cashbook.shop.show', $shop->id),
+                ];
+
+                $totalClosing += $closingPayable;
+            }
+        }
+
+        return [
+            'total_closing' => round($totalClosing, 2),
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * Calculate Petty / Reimbursement Payables.
+     *
+     * @return array{total_closing: float, items: array<int, array<string, mixed>>}
+     */
+    private function calculatePettyPayables(string $startDate, string $endDate): array
+    {
+        $pettyExpenses = ShopPettyCashExpense::query()
+            ->with(['shop'])
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->get();
+
+        $items = [];
+        $totalClosing = 0.0;
+
+        foreach ($pettyExpenses as $expense) {
+            $amount = (float) $expense->amount;
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $items[] = [
+                'party' => $expense->shop?->name ?: 'Shop #'.$expense->shop_id,
+                'source' => 'Shop Petty Expense ('.ucfirst((string) $expense->source).')',
+                'opening' => 0.0,
+                'created' => round($amount, 2),
+                'paid' => 0.0,
+                'adjustment' => 0.0,
+                'closing' => round($amount, 2),
+                'status' => 'PETTY EXPENSE RECORDED',
+                'reference' => 'PETTY-'.$expense->id,
+                'view' => $expense->shop_id ? route('admin.cashbook.shop.show', $expense->shop_id) : null,
+            ];
+
+            $totalClosing += $amount;
+        }
+
+        return [
+            'total_closing' => round($totalClosing, 2),
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * Calculate Other Payables (Any unmapped liabilities).
+     *
+     * @return array{total_closing: float, items: array<int, array<string, mixed>>}
+     */
+    private function calculateOtherPayables(string $startDate, string $endDate): array
+    {
+        return [
+            'total_closing' => 0.0,
+            'items' => [],
+        ];
+    }
+
+    /**
      * Calculate Period Movement matrix (Opening -> Activity -> Closing).
      *
      * @param  array<int, array<string, mixed>>  $accountsData
      * @param  array{total: float, items: array<int, array<string, mixed>>}  $floatingInData
      * @param  array{total: float, items: array<int, array<string, mixed>>}  $floatingOutData
      * @param  array{total_closing: float, items: array<int, array<string, mixed>>}  $receivablesData
-     * @param  array{total_closing: float, items: array<int, array<string, mixed>>}  $payablesData
+     * @param  array<string, mixed>  $payablesData
      * @return array<string, array{opening: float, activity: float, closing: float}>
      */
     private function calculatePeriodMovements(
@@ -726,7 +1183,27 @@ class AccountBalanceReportService
         $recClosing = round((float) $receivablesData['total_closing'], 2);
         $recActivity = round($recClosing - $recOpening, 2);
 
-        $payOpening = round((float) array_sum(array_column($payablesData['items'], 'opening_payable')), 2);
+        $purchaserItems = $payablesData['purchaser_payables'] ?? [];
+        $purchaserOpening = round((float) array_sum(array_column($purchaserItems, 'opening_outstanding')), 2);
+        $purchaserClosing = round((float) array_sum(array_column($purchaserItems, 'closing_outstanding')), 2);
+        $purchaserActivity = round($purchaserClosing - $purchaserOpening, 2);
+
+        $vendorItems = $payablesData['vendor_payables'] ?? [];
+        $vendorOpening = round((float) array_sum(array_column($vendorItems, 'opening_outstanding')), 2);
+        $vendorClosing = round((float) array_sum(array_column($vendorItems, 'closing_outstanding')), 2);
+        $vendorActivity = round($vendorClosing - $vendorOpening, 2);
+
+        $shopPayItems = $payablesData['company_owes_shops'] ?? [];
+        $shopPayOpening = round((float) array_sum(array_column($shopPayItems, 'opening_payable')), 2);
+        $shopPayClosing = round((float) array_sum(array_column($shopPayItems, 'closing_payable')), 2);
+        $shopPayActivity = round($shopPayClosing - $shopPayOpening, 2);
+
+        $pettyItems = $payablesData['petty_payables'] ?? [];
+        $pettyOpening = round((float) array_sum(array_column($pettyItems, 'opening')), 2);
+        $pettyClosing = round((float) array_sum(array_column($pettyItems, 'closing')), 2);
+        $pettyActivity = round($pettyClosing - $pettyOpening, 2);
+
+        $payOpening = round($purchaserOpening + $vendorOpening + $shopPayOpening + $pettyOpening, 2);
         $payClosing = round((float) $payablesData['total_closing'], 2);
         $payActivity = round($payClosing - $payOpening, 2);
 
@@ -739,15 +1216,40 @@ class AccountBalanceReportService
                 'activity' => $actualActivity,
                 'closing' => $actualClosing,
             ],
-            'receivables' => [
+            'total_receivables' => [
                 'opening' => $recOpening,
                 'activity' => $recActivity,
                 'closing' => $recClosing,
             ],
-            'payables' => [
+            'shop_receivables' => [
+                'opening' => $recOpening,
+                'activity' => $recActivity,
+                'closing' => $recClosing,
+            ],
+            'total_payables' => [
                 'opening' => $payOpening,
                 'activity' => $payActivity,
                 'closing' => $payClosing,
+            ],
+            'purchaser_payables' => [
+                'opening' => $purchaserOpening,
+                'activity' => $purchaserActivity,
+                'closing' => $purchaserClosing,
+            ],
+            'vendor_payables' => [
+                'opening' => $vendorOpening,
+                'activity' => $vendorActivity,
+                'closing' => $vendorClosing,
+            ],
+            'company_owes_shops' => [
+                'opening' => $shopPayOpening,
+                'activity' => $shopPayActivity,
+                'closing' => $shopPayClosing,
+            ],
+            'petty_payables' => [
+                'opening' => $pettyOpening,
+                'activity' => $pettyActivity,
+                'closing' => $pettyClosing,
             ],
             'floating_in' => [
                 'opening' => 0.0,
