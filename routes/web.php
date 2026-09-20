@@ -26,6 +26,7 @@ use App\Http\Controllers\Web\Admin\EmptyInventoryController;
 use App\Http\Controllers\Web\Admin\EnquiryController;
 use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
+use App\Http\Controllers\Web\Admin\Integrations\ZohoBooksIntegrationController;
 use App\Http\Controllers\Web\Admin\MonthlyClosingSummaryController;
 use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
 use App\Http\Controllers\Web\Admin\PurchaserMonthlySummaryController;
@@ -739,6 +740,17 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
+
+        // ── Zoho Books Integration ─────────────────────────────────────────
+        Route::prefix('integrations/zoho-books')->name('integrations.zoho-books.')->group(function () {
+            Route::get('/', [ZohoBooksIntegrationController::class, 'index'])->name('index');
+            Route::get('/connect', [ZohoBooksIntegrationController::class, 'connect'])->name('connect');
+            Route::get('/callback', [ZohoBooksIntegrationController::class, 'callback'])->name('callback');
+            Route::post('/disconnect', [ZohoBooksIntegrationController::class, 'disconnect'])->name('disconnect');
+            Route::match(['GET', 'POST'], '/test', [ZohoBooksIntegrationController::class, 'test'])->name('test');
+            Route::post('/select-organization', [ZohoBooksIntegrationController::class, 'selectOrganization'])->name('select-organization');
+        });
+        Route::get('integrations/zoho/callback', [ZohoBooksIntegrationController::class, 'callback'])->name('integrations.zoho.callback');
         Route::post('business-day/override', [BusinessDaySettingsController::class, 'overrideToday'])->name('business-day.override');
         Route::post('business-day/reset-override', [BusinessDaySettingsController::class, 'resetOverride'])->name('business-day.reset-override');
         Route::resource('users', UserController::class);

@@ -176,6 +176,12 @@
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 21V6.75A2.25 2.25 0 0 1 6.75 4.5h10.5a2.25 2.25 0 0 1 2.25 2.25V21M8.25 8.25h2.25m-2.25 3h2.25m-2.25 3h2.25m3-6h2.25m-2.25 3h2.25m-2.25 3h2.25" /></svg>',
         ];
         $adminItems[] = [
+            'label' => 'Zoho Books',
+            'href' => route('admin.integrations.zoho-books.index'),
+            'active' => request()->routeIs('admin.integrations.zoho-books.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>',
+        ];
+        $adminItems[] = [
             'label' => 'Database Backup',
             'href' => route('admin.backup.index'),
             'active' => request()->routeIs('admin.backup.*'),
