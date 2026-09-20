@@ -39,9 +39,38 @@ class ZohoOAuthService
         return route('admin.integrations.zoho-books.callback');
     }
 
+    public function getAccountsDomain(): string
+    {
+        $configured = config('services.zoho.accounts_url');
+
+        if (! empty($configured)) {
+            return rtrim((string) $configured, '/');
+        }
+
+        return self::DEFAULT_ACCOUNTS_DOMAIN;
+    }
+
     public function getScopes(): string
     {
         return (string) (config('services.zoho.scopes') ?: self::DEFAULT_SCOPES);
+    }
+
+    /**
+     * Get the query parameters for the authorization URL.
+     *
+     * @return array<string, string>
+     */
+    public function getAuthorizationParams(string $state): array
+    {
+        return [
+            'scope' => $this->getScopes(),
+            'client_id' => $this->getClientId(),
+            'state' => $state,
+            'response_type' => 'code',
+            'redirect_uri' => $this->getRedirectUri(),
+            'access_type' => 'offline',
+            'prompt' => 'consent',
+        ];
     }
 
     /**
@@ -49,17 +78,8 @@ class ZohoOAuthService
      */
     public function getAuthorizationUrl(string $state, ?string $accountsDomain = null): string
     {
-        $domain = rtrim($accountsDomain ?: self::DEFAULT_ACCOUNTS_DOMAIN, '/');
-
-        $params = [
-            'client_id' => $this->getClientId(),
-            'response_type' => 'code',
-            'redirect_uri' => $this->getRedirectUri(),
-            'scope' => $this->getScopes(),
-            'access_type' => 'offline',
-            'prompt' => 'consent',
-            'state' => $state,
-        ];
+        $domain = rtrim($accountsDomain ?: $this->getAccountsDomain(), '/');
+        $params = $this->getAuthorizationParams($state);
 
         return $domain.'/oauth/v2/auth?'.http_build_query($params);
     }

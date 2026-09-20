@@ -83,18 +83,27 @@ class ZohoBooksIntegrationTest extends TestCase
             ->get(route('admin.integrations.zoho-books.connect'));
 
         $response->assertRedirect();
-        $targetUrl = $response->headers->get('Location');
+        $targetUrl = (string) $response->headers->get('Location');
 
-        $this->assertStringContainsString('accounts.zoho.com/oauth/v2/auth', $targetUrl);
-        $this->assertStringContainsString('client_id=mock-zoho-client-id', $targetUrl);
-        $this->assertStringContainsString('redirect_uri='.urlencode('http://green-leaf-erp.test/admin/integrations/zoho-books/callback'), $targetUrl);
-        $this->assertStringContainsString('scope=ZohoBooks.fullaccess.READ', $targetUrl);
-        $this->assertStringContainsString('access_type=offline', $targetUrl);
-        $this->assertStringContainsString('prompt=consent', $targetUrl);
+        $parsedUrl = parse_url($targetUrl);
+        $this->assertStringContainsString('accounts.zoho.com', $parsedUrl['host'] ?? '');
+        $this->assertEquals('/oauth/v2/auth', $parsedUrl['path'] ?? '');
 
-        $sessionState = session('zoho_oauth_state');
-        $this->assertNotEmpty($sessionState);
-        $this->assertStringContainsString('state='.$sessionState, $targetUrl);
+        parse_str($parsedUrl['query'] ?? '', $queryParams);
+
+        $this->assertArrayHasKey('state', $queryParams);
+        $this->assertNotEmpty($queryParams['state']);
+        $this->assertEquals(session('zoho_oauth_state'), $queryParams['state']);
+        $this->assertEquals(config('services.zoho.redirect_uri'), $queryParams['redirect_uri']);
+        $this->assertEquals('code', $queryParams['response_type']);
+        $this->assertEquals('offline', $queryParams['access_type']);
+        $this->assertEquals('consent', $queryParams['prompt']);
+        $this->assertEquals('mock-zoho-client-id', $queryParams['client_id']);
+        $this->assertEquals('ZohoBooks.fullaccess.READ', $queryParams['scope']);
+
+        // Assert client secret is NEVER in the authorization URL
+        $this->assertStringNotContainsString('mock-zoho-client-secret', $targetUrl);
+        $this->assertArrayNotHasKey('client_secret', $queryParams);
     }
 
     public function test_callback_rejects_missing_or_invalid_oauth_state_and_does_not_clear_stored_state_on_mismatch(): void

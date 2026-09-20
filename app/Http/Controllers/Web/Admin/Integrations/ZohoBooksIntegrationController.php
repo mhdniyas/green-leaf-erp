@@ -62,14 +62,17 @@ class ZohoBooksIntegrationController extends Controller
         $request->session()->put('zoho_oauth_state', $state);
         $request->session()->save();
 
+        $authParams = $this->oauthService->getAuthorizationParams($state);
         $authUrl = $this->oauthService->getAuthorizationUrl($state);
 
         Log::info('Initiated Zoho OAuth connection flow', [
-            'session_state_present' => true,
+            'state_parameter_present' => ! empty($authParams['state']),
+            'redirect_uri' => $this->oauthService->getRedirectUri(),
+            'accounts_domain' => $this->oauthService->getAccountsDomain(),
+            'authorization_query_keys' => array_keys($authParams),
             'session_id' => $request->session()->getId(),
             'host' => $request->getHost(),
             'scheme' => $request->getScheme(),
-            'redirect_uri' => $this->oauthService->getRedirectUri(),
         ]);
 
         return redirect()->away($authUrl);
