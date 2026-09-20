@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'organization_id',
@@ -54,9 +55,33 @@ class ZohoBooksConnection extends Model
         return $this->belongsTo(User::class, 'connected_by');
     }
 
+    /**
+     * @return HasMany<ZohoBooksAccountMapping, $this>
+     */
+    public function mappings(): HasMany
+    {
+        return $this->hasMany(ZohoBooksAccountMapping::class, 'zoho_books_connection_id');
+    }
+
     public function isConnected(): bool
     {
         return $this->status === 'connected' && ! empty($this->refresh_token);
+    }
+
+    public function hasAccountantsReadScope(): bool
+    {
+        if (empty($this->scopes) || ! is_array($this->scopes)) {
+            return false;
+        }
+
+        foreach ($this->scopes as $scope) {
+            $trimmed = trim((string) $scope);
+            if ($trimmed === 'ZohoBooks.accountants.READ' || $trimmed === 'ZohoBooks.fullaccess.READ' || $trimmed === 'ZohoBooks.fullaccess.ALL') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isAccessTokenExpired(int $safetyBufferSeconds = 60): bool

@@ -183,7 +183,7 @@ class ZohoBooksIntegrationTest extends TestCase
                 'location' => 'US',
             ]));
 
-        $response->assertRedirect(route('admin.integrations.zoho-books.index'))
+        $response->assertRedirect(route('admin.integrations.zoho-books.index', ['tab' => 'mapping']))
             ->assertSessionHas('success');
 
         // Verify state is cleared after successful authorization
@@ -235,7 +235,7 @@ class ZohoBooksIntegrationTest extends TestCase
                 'code' => 'sample-auth-code-1',
                 'state' => 'single-use-state-999',
             ]))
-            ->assertRedirect(route('admin.integrations.zoho-books.index'))
+            ->assertRedirect(route('admin.integrations.zoho-books.index', ['tab' => 'mapping']))
             ->assertSessionHas('success');
 
         // Replay attempt fails because state was consumed
@@ -354,7 +354,7 @@ class ZohoBooksIntegrationTest extends TestCase
                 'organization_id' => '222',
             ]);
 
-        $response->assertRedirect(route('admin.integrations.zoho-books.index'))
+        $response->assertRedirect(route('admin.integrations.zoho-books.index', ['tab' => 'mapping']))
             ->assertSessionHas('success');
 
         $connection->refresh();

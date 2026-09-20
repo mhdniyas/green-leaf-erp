@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin\Integrations;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cashbook\LedgerEntryType;
 use App\Models\ZohoBooksConnection;
+use App\Services\Integrations\ZohoBooks\ZohoAccountMappingService;
+use App\Services\Integrations\ZohoBooks\ZohoChartOfAccountsService;
 use App\Services\Integrations\ZohoBooks\ZohoOAuthService;
 use App\Services\Integrations\ZohoBooks\ZohoOrganizationService;
 use Exception;
@@ -21,12 +24,15 @@ class ZohoBooksIntegrationController extends Controller
     public function __construct(
         private readonly ZohoOAuthService $oauthService,
         private readonly ZohoOrganizationService $organizationService,
+        private readonly ZohoChartOfAccountsService $chartOfAccountsService,
+        private readonly ZohoAccountMappingService $mappingService,
     ) {}
 
     public function index(Request $request): View
     {
         $this->authorizeAdmin($request);
 
+        $activeTab = $request->query('tab', 'connection');
         $connection = ZohoBooksConnection::query()->with('connectedByUser')->first();
         $availableOrganizations = [];
         $isConfigured = ! empty(config('services.zoho.client_id')) && ! empty(config('services.zoho.client_secret'));
@@ -39,12 +45,55 @@ class ZohoBooksIntegrationController extends Controller
             }
         }
 
+        // Data for Account Mapping tab
+        $entryTypes = collect();
+        $zohoAccounts = [];
+        $groupedZohoAccounts = [];
+        $mappings = collect();
+        $missingAccountantsScope = false;
+        $coaError = null;
+
+        if ($connection?->isConnected()) {
+            $missingAccountantsScope = ! $connection->hasAccountantsReadScope();
+
+            if (! $missingAccountantsScope) {
+                $entryTypes = LedgerEntryType::query()
+                    ->where('active', true)
+                    ->orderBy('display_order')
+                    ->orderBy('name')
+                    ->get();
+
+                try {
+                    $zohoAccounts = $this->chartOfAccountsService->getAccounts($connection);
+                    $groupedZohoAccounts = $this->chartOfAccountsService->groupAccountsByType($zohoAccounts);
+                    $mappings = $this->mappingService->getMappingsKeyedByEntryType($connection);
+                } catch (Exception $e) {
+                    $coaError = $e->getMessage();
+                }
+            }
+        }
+
+        $totalCategories = $entryTypes->count();
+        $mappedCount = $mappings->count();
+        $unmappedCount = max(0, $totalCategories - $mappedCount);
+
         return view('admin.integrations.zoho-books.index', [
+            'activeTab' => $activeTab,
             'connection' => $connection,
             'isConfigured' => $isConfigured,
             'availableOrganizations' => $availableOrganizations,
             'clientId' => config('services.zoho.client_id'),
             'redirectUri' => config('services.zoho.redirect_uri'),
+            // Mapping tab props
+            'entryTypes' => $entryTypes,
+            'zohoAccounts' => $zohoAccounts,
+            'groupedZohoAccounts' => $groupedZohoAccounts,
+            'mappings' => $mappings,
+            'missingAccountantsScope' => $missingAccountantsScope,
+            'coaError' => $coaError,
+            'totalCategories' => $totalCategories,
+            'mappedCount' => $mappedCount,
+            'unmappedCount' => $unmappedCount,
         ]);
     }
 
@@ -138,12 +187,12 @@ class ZohoBooksIntegrationController extends Controller
 
             if ($discovery['auto_selected']) {
                 return redirect()
-                    ->route('admin.integrations.zoho-books.index')
+                    ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
                     ->with('success', "Zoho Books connected successfully to organization: {$connection->organization_name}.");
             }
 
             return redirect()
-                ->route('admin.integrations.zoho-books.index')
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'connection'])
                 ->with('info', 'Zoho Books authorized. Please select which organization to link with Green Leaf ERP.');
         } catch (Exception $e) {
             return redirect()
@@ -166,13 +215,104 @@ class ZohoBooksIntegrationController extends Controller
             $this->organizationService->selectOrganization($connection, (string) $request->input('organization_id'));
 
             return redirect()
-                ->route('admin.integrations.zoho-books.index')
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
                 ->with('success', "Linked Zoho Books organization: {$connection->organization_name}.");
         } catch (Exception $e) {
             return redirect()
                 ->route('admin.integrations.zoho-books.index')
                 ->with('error', 'Failed to select organization: '.$e->getMessage());
         }
+    }
+
+    public function refreshAccounts(Request $request): RedirectResponse
+    {
+        $this->authorizeAdmin($request);
+
+        $connection = ZohoBooksConnection::query()->first();
+
+        if (! $connection || ! $connection->isConnected()) {
+            return redirect()
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                ->with('error', 'Zoho Books is not currently connected.');
+        }
+
+        try {
+            $accounts = $this->chartOfAccountsService->getAccounts($connection, forceRefresh: true);
+            $count = count($accounts);
+
+            return redirect()
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                ->with('success', "Chart of Accounts refreshed successfully from Zoho Books ({$count} accounts loaded).");
+        } catch (Exception $e) {
+            return redirect()
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                ->with('error', 'Failed to refresh Chart of Accounts: '.$e->getMessage());
+        }
+    }
+
+    public function saveMapping(Request $request): RedirectResponse
+    {
+        $this->authorizeAdmin($request);
+
+        $request->validate([
+            'ledger_entry_type_id' => 'required|integer|exists:ledger_entry_types,id',
+            'zoho_account_id' => 'required|string',
+        ]);
+
+        $connection = ZohoBooksConnection::query()->first();
+
+        if (! $connection || ! $connection->isConnected()) {
+            return redirect()
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                ->with('error', 'Zoho Books is not currently connected.');
+        }
+
+        try {
+            $allAccounts = $this->chartOfAccountsService->getAccounts($connection);
+            $zohoAccountId = (string) $request->input('zoho_account_id');
+            $accountData = $this->chartOfAccountsService->findAccount($allAccounts, $zohoAccountId);
+
+            if (! $accountData) {
+                return redirect()
+                    ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                    ->with('error', 'The selected Zoho account was not found in your Chart of Accounts.');
+            }
+
+            $mapping = $this->mappingService->mapAccount(
+                connection: $connection,
+                ledgerEntryTypeId: (int) $request->input('ledger_entry_type_id'),
+                zohoAccountId: $zohoAccountId,
+                zohoAccountData: $accountData,
+                user: $request->user(),
+            );
+
+            return redirect()
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                ->with('success', "Mapped category '{$mapping->entryType?->name}' to Zoho account '{$mapping->zoho_account_name}'.");
+        } catch (Exception $e) {
+            return redirect()
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                ->with('error', 'Failed to save mapping: '.$e->getMessage());
+        }
+    }
+
+    public function removeMapping(Request $request, int $ledgerEntryTypeId): RedirectResponse
+    {
+        $this->authorizeAdmin($request);
+
+        $connection = ZohoBooksConnection::query()->first();
+
+        if (! $connection) {
+            return redirect()
+                ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+                ->with('error', 'Zoho Books is not currently connected.');
+        }
+
+        $this->mappingService->removeMapping($connection, $ledgerEntryTypeId, $request->user());
+
+        return redirect()
+            ->route('admin.integrations.zoho-books.index', ['tab' => 'mapping'])
+            ->with('success', 'Zoho account mapping removed successfully.');
     }
 
     public function test(Request $request): JsonResponse|RedirectResponse

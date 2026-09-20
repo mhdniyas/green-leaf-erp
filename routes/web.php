@@ -749,6 +749,9 @@ Route::middleware('auth')->group(function () {
             Route::post('/disconnect', [ZohoBooksIntegrationController::class, 'disconnect'])->name('disconnect');
             Route::match(['GET', 'POST'], '/test', [ZohoBooksIntegrationController::class, 'test'])->name('test');
             Route::post('/select-organization', [ZohoBooksIntegrationController::class, 'selectOrganization'])->name('select-organization');
+            Route::post('/refresh-accounts', [ZohoBooksIntegrationController::class, 'refreshAccounts'])->name('refresh-accounts');
+            Route::post('/mappings', [ZohoBooksIntegrationController::class, 'saveMapping'])->name('mappings.save');
+            Route::delete('/mappings/{ledgerEntryTypeId}', [ZohoBooksIntegrationController::class, 'removeMapping'])->name('mappings.remove');
         });
         Route::get('integrations/zoho/callback', [ZohoBooksIntegrationController::class, 'callback'])->name('integrations.zoho.callback');
         Route::post('business-day/override', [BusinessDaySettingsController::class, 'overrideToday'])->name('business-day.override');
