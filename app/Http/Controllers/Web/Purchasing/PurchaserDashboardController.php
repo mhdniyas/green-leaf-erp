@@ -1208,6 +1208,18 @@ class PurchaserDashboardController extends Controller
 
         $totalCancelledCount = $cancelledInvoicesCount + $standaloneCancelledCarts->count();
 
+        $activeTab = $request->string('tab')->toString();
+
+        if (! in_array($activeTab, ['draft', 'pending', 'completed', 'cancelled'], true)) {
+            $activeTab = match (true) {
+                $request->has('cancelled_page') => 'cancelled',
+                $completedCarts->contains('id', $focusCartId) => 'completed',
+                $pendingCarts->contains('id', $focusCartId) => 'pending',
+                $cancelledCarts->contains('id', $focusCartId) || $cancelledInvoices->getCollection()->contains('purchaser_cart_id', $focusCartId) => 'cancelled',
+                default => 'draft',
+            };
+        }
+
         $probe?->checkpoint('split_tabs');
 
         $mergeSuggestions = $this->buildDraftMergeSuggestions($draftCarts);
