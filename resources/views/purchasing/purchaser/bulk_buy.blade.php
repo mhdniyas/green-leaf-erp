@@ -353,22 +353,6 @@
                 return label;
             }
 
-            function syncHiddenAddonInputs(renderedCardIds) {
-                if (!hiddenAddonsContainer) return;
-                hiddenAddonsContainer.innerHTML = '';
-                
-                const allAddonProducts = window.bulkBuyAddOnProducts || [];
-                allAddonProducts.forEach(product => {
-                    if (selectedProductIds.has(product.id) && !renderedCardIds.has(product.id)) {
-                        const input = document.createElement('input');
-                        input.type = 'hidden';
-                        input.name = 'product_ids[]';
-                        input.value = product.id;
-                        hiddenAddonsContainer.appendChild(input);
-                    }
-                });
-            }
-
             window.filterItems = function() {
                 const query = searchInput.value.toLowerCase().trim();
                 const category = filterSelect.value;
@@ -403,42 +387,9 @@
                     }
                 });
 
-                // 2. Filter & Render Bounded Add-ons (Max 30)
-                const renderedCardIds = new Set();
                 if (addonsContainer) {
                     addonsContainer.innerHTML = '';
-                    if (activeTab === 'addons') {
-                        const allAddons = window.bulkBuyAddOnProducts || [];
-                        const matchingAddons = allAddons.filter(product => {
-                            const name = product.name.toLowerCase();
-                            const sku = product.sku.toLowerCase();
-                            const cat = product.category_name;
-
-                            const matchSearch = name.includes(query) || sku.includes(query);
-                            let matchFilter = false;
-
-                            if (category === 'All' || category === 'Frequent') {
-                                matchFilter = true;
-                            } else {
-                                matchFilter = (cat || '').toLowerCase() === (category || '').toLowerCase();
-                            }
-
-                            return matchSearch && matchFilter;
-                        });
-
-                        visibleCount += matchingAddons.length;
-
-                        // Render top 30 bounded cards
-                        const boundedSlice = matchingAddons.slice(0, 30);
-                        boundedSlice.forEach(product => {
-                            renderedCardIds.add(product.id);
-                            const card = createAddOnCard(product);
-                            addonsContainer.appendChild(card);
-                        });
-                    }
                 }
-
-                syncHiddenAddonInputs(renderedCardIds);
 
                 if (visibleCount === 0) {
                     noResultsMsg.classList.remove('hidden');
