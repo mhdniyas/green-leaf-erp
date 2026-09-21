@@ -6,11 +6,17 @@ namespace Tests\Feature\Cashbook;
 
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Product;
+use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCart;
+use App\Models\PurchaserCartItem;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\User;
+use App\Services\Cashbook\PaymentsSettings\ShopPaymentsReportConfigService;
 use App\Services\Cashbook\ShopSalesReportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
@@ -392,7 +398,7 @@ class ShopSalesReportTest extends TestCase
         $response->assertSee('Cashbook Overview');
         $response->assertSee('Sales (₹)', false);
         $response->assertSee('Rent (₹)', false);
-        $response->assertSee('Cash Purchase (₹)', false);
+        $response->assertSee('Purchase (₹)', false);
         $response->assertSee('Other Expense (₹)', false);
         $response->assertSee('Net Balance (₹)', false);
 
@@ -423,5 +429,466 @@ class ShopSalesReportTest extends TestCase
         $response->assertSee('Yesterday');
         $response->assertSee('Up to Today');
         $response->assertSee('Up to Yesterday');
+    }
+
+    public function test_cash_purchase_visible_label_becomes_purchase(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.cashbook.shop.show', ['shop' => $this->shop1->shop_id, 'month' => '2026-09']));
+
+        $response->assertStatus(200);
+        $response->assertSee('Purchase (₹)', false);
+        $response->assertDontSee('Cash Purchase (₹)', false);
+    }
+
+    public function test_sales_daily_breakdown_sums_exactly_to_sales_table_value(): void
+    {
+        $type = LedgerEntryType::create(['code' => 'cash_sales_test', 'name' => 'Cash Sales Test', 'category' => 'income']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $type->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'sales',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $type->id,
+            'amount' => 12500.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $dailyRow = collect($report['daily_rows'])->firstWhere('date', '2026-09-15');
+        $this->assertNotNull($dailyRow);
+        $this->assertEquals(12500.00, $dailyRow['sales']);
+
+        $salesBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_TOTAL_SALES];
+        $this->assertEquals(12500.00, $salesBreakdown['total']);
+
+        $sourcesSum = array_sum(array_column($salesBreakdown['sources'], 'total'));
+        $this->assertEquals(12500.00, $sourcesSum);
+    }
+
+    public function test_rent_breakdown_sums_to_rent_value(): void
+    {
+        $rentType = LedgerEntryType::create(['code' => 'shop_rent_test', 'name' => 'Shop Rent Test', 'category' => 'expense']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $rentType->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'rent',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $rentType->id,
+            'amount' => 4000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $dailyRow = collect($report['daily_rows'])->firstWhere('date', '2026-09-15');
+        $this->assertEquals(4000.00, $dailyRow['rent']);
+
+        $rentBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_RENT_EXPENSE];
+        $this->assertEquals(4000.00, $rentBreakdown['total']);
+    }
+
+    public function test_purchase_breakdown_sums_to_purchase_value(): void
+    {
+        $purchaseType = LedgerEntryType::create(['code' => 'cash_purchase_test', 'name' => 'Cash Purchase Test', 'category' => 'expense']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $purchaseType->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'purchase',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $purchaseType->id,
+            'amount' => 15600.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $dailyRow = collect($report['daily_rows'])->firstWhere('date', '2026-09-15');
+        $this->assertEquals(15600.00, $dailyRow['purchase']);
+
+        $purchaseBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+        $this->assertEquals(15600.00, $purchaseBreakdown['total']);
+    }
+
+    public function test_other_expenses_breakdown_sums_to_other_expenses_value(): void
+    {
+        $expenseType = LedgerEntryType::create(['code' => 'mess_expense_test', 'name' => 'Mess Expense Test', 'category' => 'expense']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $expenseType->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'other_expense',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $expenseType->id,
+            'amount' => 4260.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $dailyRow = collect($report['daily_rows'])->firstWhere('date', '2026-09-15');
+        $this->assertEquals(4260.00, $dailyRow['other_expense']);
+
+        $otherBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_OTHER_EXPENSE];
+        $this->assertEquals(4260.00, $otherBreakdown['total']);
+    }
+
+    public function test_header_source_expands_into_its_categories(): void
+    {
+        $header = ShopLedgerHeaderGroup::create([
+            'shop_id' => $this->shop1->shop_id,
+            'name' => 'Sales Header',
+            'code' => 'sales_header',
+            'type' => 'income',
+            'display_order' => 1,
+        ]);
+
+        $type1 = LedgerEntryType::create(['code' => 'cash_sales_h1', 'name' => 'Cash Sales', 'category' => 'income']);
+        $type2 = LedgerEntryType::create(['code' => 'paytm_sales_h2', 'name' => 'Paytm', 'category' => 'income']);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $type1->id,
+            'header_group_id' => $header->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'sales',
+        ]);
+
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $type2->id,
+            'header_group_id' => $header->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'sales',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $type1->id,
+            'amount' => 12000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $type2->id,
+            'amount' => 10450.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $dailyRow = collect($report['daily_rows'])->firstWhere('date', '2026-09-15');
+        $salesBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_TOTAL_SALES];
+
+        $headerSource = collect($salesBreakdown['sources'])->firstWhere('type', 'header');
+        $this->assertNotNull($headerSource);
+        $this->assertEquals('Sales Header', $headerSource['name']);
+        $this->assertEquals(22450.00, $headerSource['total']);
+        $this->assertCount(2, $headerSource['categories']);
+    }
+
+    public function test_direct_non_header_category_appears_independently(): void
+    {
+        $type = LedgerEntryType::create(['code' => 'other_sales_ind', 'name' => 'Other Sales Category', 'category' => 'income']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $type->id,
+            'header_group_id' => null,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'sales',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'entry_type_id' => $type->id,
+            'amount' => 2000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $dailyRow = collect($report['daily_rows'])->firstWhere('date', '2026-09-15');
+        $salesBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_TOTAL_SALES];
+
+        $categorySource = collect($salesBreakdown['sources'])->firstWhere('type', 'category');
+        $this->assertNotNull($categorySource);
+        $this->assertEquals('Other Sales Category', $categorySource['name']);
+        $this->assertEquals(2000.00, $categorySource['total']);
+    }
+
+    public function test_product_total_expands_into_products_when_product_tagging_exists(): void
+    {
+        $product1 = Product::factory()->create(['name' => 'Tomato', 'sku' => 'TOM-1', 'unit' => 'kg', 'is_active' => true]);
+        $product2 = Product::factory()->create(['name' => 'Onion', 'sku' => 'ONI-1', 'unit' => 'kg', 'is_active' => true]);
+
+        $cart = PurchaserCart::create([
+            'cart_number' => 'CART-001',
+            'user_id' => $this->admin->id,
+            'destination_shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'status' => 'approved',
+        ]);
+
+        PurchaseInvoice::factory()->create([
+            'shop_id' => $this->shop1->shop_id,
+            'purchaser_cart_id' => $cart->id,
+            'invoice_number' => 'PINV-001',
+            'amount' => 4200.00,
+            'status' => 'approved',
+        ]);
+
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $product1->id,
+            'quantity' => 10,
+            'unit_price' => 240.00,
+            'line_total' => 2400.00,
+        ]);
+
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $product2->id,
+            'quantity' => 10,
+            'unit_price' => 180.00,
+            'line_total' => 1800.00,
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $purchaseBreakdown = $report['summary_breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+        $productSource = collect($purchaseBreakdown['sources'])->firstWhere('type', 'product_total');
+
+        $this->assertNotNull($productSource);
+        $this->assertNotEmpty($productSource['products']);
+
+        $tomato = collect($productSource['products'])->firstWhere('name', 'Tomato');
+        $this->assertNotNull($tomato);
+        $this->assertEquals(2400.00, $tomato['total']);
+
+        $onion = collect($productSource['products'])->firstWhere('name', 'Onion');
+        $this->assertNotNull($onion);
+        $this->assertEquals(1800.00, $onion['total']);
+    }
+
+    public function test_shop_without_product_tagging_does_not_show_fake_product_rows(): void
+    {
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop2->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $purchaseBreakdown = $report['summary_breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+        $productSource = collect($purchaseBreakdown['sources'])->firstWhere('type', 'product_total');
+
+        if ($productSource) {
+            $this->assertEmpty($productSource['products']);
+        }
+    }
+
+    public function test_product_data_from_shop_a_cannot_appear_for_shop_b(): void
+    {
+        $product = Product::factory()->create(['name' => 'Potato', 'sku' => 'POT-1', 'unit' => 'kg', 'is_active' => true]);
+
+        $cartShop1 = PurchaserCart::create([
+            'cart_number' => 'CART-SHOP1',
+            'user_id' => $this->admin->id,
+            'destination_shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-15',
+            'status' => 'approved',
+        ]);
+
+        PurchaseInvoice::factory()->create([
+            'shop_id' => $this->shop1->shop_id,
+            'purchaser_cart_id' => $cartShop1->id,
+            'invoice_number' => 'PINV-SHOP1',
+            'amount' => 1500.00,
+            'status' => 'approved',
+        ]);
+
+        PurchaserCartItem::create([
+            'purchaser_cart_id' => $cartShop1->id,
+            'product_id' => $product->id,
+            'quantity' => 10,
+            'unit_price' => 150.00,
+            'line_total' => 1500.00,
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $reportShop2 = $service->generate($this->shop2->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $purchaseBreakdownShop2 = $reportShop2['summary_breakdowns'][ShopPaymentsReportConfigService::HEADING_CASH_PURCHASE];
+        $productSourceShop2 = collect($purchaseBreakdownShop2['sources'])->firstWhere('type', 'product_total');
+
+        if ($productSourceShop2) {
+            $potatoInShop2 = collect($productSourceShop2['products'])->firstWhere('name', 'Potato');
+            $this->assertNull($potatoInShop2);
+        }
+    }
+
+    public function test_monthly_popup_total_equals_monthly_card(): void
+    {
+        $salesType = LedgerEntryType::create(['code' => 'cash_sales_m', 'name' => 'Cash Sales M', 'category' => 'income']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $salesType->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'sales',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-10',
+            'entry_type_id' => $salesType->id,
+            'amount' => 5000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-20',
+            'entry_type_id' => $salesType->id,
+            'amount' => 7000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $this->assertEquals(12000.00, $report['summary']['total_sales']);
+        $this->assertEquals(12000.00, $report['summary_breakdowns'][ShopPaymentsReportConfigService::HEADING_TOTAL_SALES]['total']);
+    }
+
+    public function test_monthly_card_equals_sum_of_daily_values(): void
+    {
+        $salesType = LedgerEntryType::create(['code' => 'cash_sales_d', 'name' => 'Cash Sales D', 'category' => 'income']);
+        ShopLedgerEntrySetting::create([
+            'shop_id' => $this->shop1->shop_id,
+            'entry_type_id' => $salesType->id,
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'sales_report_bucket' => 'sales',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-05',
+            'entry_type_id' => $salesType->id,
+            'amount' => 3000.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $this->shop1->shop_id,
+            'business_date' => '2026-09-12',
+            'entry_type_id' => $salesType->id,
+            'amount' => 4500.00,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'status' => 'approved',
+        ]);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $sumDailySales = array_sum(array_column($report['daily_rows'], 'sales'));
+        $this->assertEquals(7500.00, $sumDailySales);
+        $this->assertEquals(7500.00, $report['summary']['total_sales']);
+    }
+
+    public function test_balance_popup_uses_sales_minus_rent_minus_purchase_minus_other_expenses(): void
+    {
+        $salesType = LedgerEntryType::create(['code' => 'cash_sales_b', 'name' => 'Cash Sales B', 'category' => 'income']);
+        $rentType = LedgerEntryType::create(['code' => 'rent_b', 'name' => 'Rent B', 'category' => 'expense']);
+        $purchaseType = LedgerEntryType::create(['code' => 'purchase_b', 'name' => 'Purchase B', 'category' => 'expense']);
+        $otherType = LedgerEntryType::create(['code' => 'other_b', 'name' => 'Other B', 'category' => 'expense']);
+
+        ShopLedgerEntrySetting::create(['shop_id' => $this->shop1->shop_id, 'entry_type_id' => $salesType->id, 'version' => 1, 'effective_from' => '2026-01-01', 'enabled' => true, 'sales_report_bucket' => 'sales']);
+        ShopLedgerEntrySetting::create(['shop_id' => $this->shop1->shop_id, 'entry_type_id' => $rentType->id, 'version' => 1, 'effective_from' => '2026-01-01', 'enabled' => true, 'sales_report_bucket' => 'rent']);
+        ShopLedgerEntrySetting::create(['shop_id' => $this->shop1->shop_id, 'entry_type_id' => $purchaseType->id, 'version' => 1, 'effective_from' => '2026-01-01', 'enabled' => true, 'sales_report_bucket' => 'purchase']);
+        ShopLedgerEntrySetting::create(['shop_id' => $this->shop1->shop_id, 'entry_type_id' => $otherType->id, 'version' => 1, 'effective_from' => '2026-01-01', 'enabled' => true, 'sales_report_bucket' => 'other_expense']);
+
+        ShopLedgerTransaction::create(['shop_id' => $this->shop1->shop_id, 'business_date' => '2026-09-20', 'entry_type_id' => $salesType->id, 'amount' => 35500.00, 'direction' => 'income', 'funding_source' => 'sales', 'status' => 'approved']);
+        ShopLedgerTransaction::create(['shop_id' => $this->shop1->shop_id, 'business_date' => '2026-09-20', 'entry_type_id' => $rentType->id, 'amount' => 4000.00, 'direction' => 'expense', 'funding_source' => 'sales', 'status' => 'approved']);
+        ShopLedgerTransaction::create(['shop_id' => $this->shop1->shop_id, 'business_date' => '2026-09-20', 'entry_type_id' => $purchaseType->id, 'amount' => 15600.00, 'direction' => 'expense', 'funding_source' => 'sales', 'status' => 'approved']);
+        ShopLedgerTransaction::create(['shop_id' => $this->shop1->shop_id, 'business_date' => '2026-09-20', 'entry_type_id' => $otherType->id, 'amount' => 4260.00, 'direction' => 'expense', 'funding_source' => 'sales', 'status' => 'approved']);
+
+        $service = app(ShopSalesReportService::class);
+        $report = $service->generate($this->shop1->shop_id, '2026-09-01', '2026-09-30', 'month', '2026-09');
+
+        $dailyRow = collect($report['daily_rows'])->firstWhere('date', '2026-09-20');
+        $balanceBreakdown = $dailyRow['breakdowns'][ShopPaymentsReportConfigService::HEADING_NET_OPERATING_BALANCE];
+
+        $this->assertTrue($balanceBreakdown['is_balance']);
+        $this->assertEquals(11640.00, $balanceBreakdown['total']);
+        $this->assertEquals(35500.00, $balanceBreakdown['sales']);
+        $this->assertEquals(4000.00, $balanceBreakdown['rent']);
+        $this->assertEquals(15600.00, $balanceBreakdown['purchase']);
+        $this->assertEquals(4260.00, $balanceBreakdown['other_expense']);
     }
 }

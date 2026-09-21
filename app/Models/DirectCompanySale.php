@@ -28,6 +28,7 @@ class DirectCompanySale extends Model
     {
         static::creating(function (self $sale): void {
             $sale->public_uuid ??= (string) Str::uuid();
+            $sale->request_uuid ??= (string) Str::uuid();
         });
     }
 

@@ -10,8 +10,19 @@ use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopCashbookRelationItem;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProfile;
+use App\Models\Shop;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsAdvancedSettingsService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsAllocationSettingsService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsCompanyCollectionsService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsCompanyToShopService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsPettySettingsService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsSettingsOverviewService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsSettlementSettingsService;
+use App\Services\Cashbook\PaymentsSettings\PaymentsShopToCompanyService;
+use App\Services\Cashbook\PaymentsSettings\ShopPaymentsReportConfigService;
 use App\Services\Cashbook\ShopSettlementService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +32,19 @@ use Illuminate\View\View;
 
 class CashbookSettlementController extends Controller
 {
-    public function __construct(private readonly CashbookShopSyncService $shopSync, private readonly ShopSettlementService $settlements) {}
+    public function __construct(
+        private readonly CashbookShopSyncService $shopSync,
+        private readonly ShopSettlementService $settlements,
+        private readonly ?PaymentsSettingsOverviewService $overviewService = null,
+        private readonly ?PaymentsCompanyCollectionsService $companyCollectionsService = null,
+        private readonly ?PaymentsShopToCompanyService $shopToCompanyService = null,
+        private readonly ?PaymentsCompanyToShopService $companyToShopService = null,
+        private readonly ?PaymentsPettySettingsService $pettyService = null,
+        private readonly ?PaymentsSettlementSettingsService $settlementSettingsService = null,
+        private readonly ?PaymentsAllocationSettingsService $allocationSettingsService = null,
+        private readonly ?ShopPaymentsReportConfigService $reportConfigService = null,
+        private readonly ?PaymentsAdvancedSettingsService $advancedService = null,
+    ) {}
 
     public function index(Request $request, string $shop): View
     {
@@ -260,8 +283,39 @@ class CashbookSettlementController extends Controller
         $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
         abort_unless($currentShop, 404);
 
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
         $shopKey = $currentShop->slug ?: $currentShop->shop_id;
-        $relations = $this->settlements->settlements((int) $currentShop->shop_id);
+        $month = (string) $request->input('month', now()->format('Y-m'));
+        try {
+            $monthDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+        } catch (\Throwable) {
+            $month = now()->format('Y-m');
+            $monthDate = now()->startOfMonth();
+        }
+        $startDate = $monthDate->copy()->startOfMonth()->toDateString();
+        $endDate = $monthDate->copy()->endOfMonth()->toDateString();
+
+        $overviewService = $this->overviewService ?? app(PaymentsSettingsOverviewService::class);
+        $companyCollectionsService = $this->companyCollectionsService ?? app(PaymentsCompanyCollectionsService::class);
+        $shopToCompanyService = $this->shopToCompanyService ?? app(PaymentsShopToCompanyService::class);
+        $companyToShopService = $this->companyToShopService ?? app(PaymentsCompanyToShopService::class);
+        $pettyService = $this->pettyService ?? app(PaymentsPettySettingsService::class);
+        $settlementSettingsService = $this->settlementSettingsService ?? app(PaymentsSettlementSettingsService::class);
+        $allocationSettingsService = $this->allocationSettingsService ?? app(PaymentsAllocationSettingsService::class);
+        $reportConfigService = $this->reportConfigService ?? app(ShopPaymentsReportConfigService::class);
+        $advancedService = $this->advancedService ?? app(PaymentsAdvancedSettingsService::class);
+
+        $overviewData = $overviewService->getOverviewData($shopModel, $startDate, $endDate);
+        $collectionsData = $companyCollectionsService->getViewModel($shopModel, $startDate, $endDate);
+        $shopToCompanyData = $shopToCompanyService->getViewModel($shopModel, $startDate, $endDate);
+        $companyToShopData = $companyToShopService->getViewModel($shopModel, $startDate, $endDate);
+        $pettyData = $pettyService->getViewModel($shopModel, $startDate, $endDate);
+        $settlementData = $settlementSettingsService->getViewModel($shopModel, $startDate, $endDate);
+        $allocationData = $allocationSettingsService->getViewModel($shopModel, $startDate, $endDate);
+        $reportHeadingsData = $reportConfigService->calculateReport($shopModel, $startDate, $endDate, $month);
+        $advancedData = $advancedService->getViewModel($shopModel);
+
+        $relations = $settlementData['relations'];
         $entrySettings = $currentShop->entrySettings()
             ->where('enabled', true)
             ->with(['entryType', 'companyAccount', 'headerGroup'])
@@ -272,19 +326,182 @@ class CashbookSettlementController extends Controller
         $paymentConfig = $currentShop->getPaymentConfiguration();
         $paymentConfig['expense_allocation'] = $this->settlements->expenseAllocationConfiguration($currentShop);
 
-        $startDate = now()->startOfMonth()->toDateString();
-        $endDate = now()->endOfMonth()->toDateString();
-        $paymentsSummary = $this->settlements->calculateShopPayments((int) $currentShop->shop_id, $startDate, $endDate);
-
         return view('admin.cashbook.settings.payments.index', [
             'shops' => $shops,
             'currentShop' => $currentShop,
+            'shopModel' => $shopModel,
             'shopKey' => $shopKey,
+            'month' => $month,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
             'relations' => $relations,
             'entrySettings' => $entrySettings,
             'expenseEntrySettings' => $expenseEntrySettings,
             'paymentConfig' => $paymentConfig,
-            'paymentsSummary' => $paymentsSummary,
+            'overviewData' => $overviewData,
+            'collectionsData' => $collectionsData,
+            'shopToCompanyData' => $shopToCompanyData,
+            'companyToShopData' => $companyToShopData,
+            'pettyData' => $pettyData,
+            'settlementData' => $settlementData,
+            'allocationData' => $allocationData,
+            'reportHeadingsData' => $reportHeadingsData,
+            'advancedData' => $advancedData,
+        ]);
+    }
+
+    public function saveCompanyCollections(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $service = $this->companyCollectionsService ?? app(PaymentsCompanyCollectionsService::class);
+        $service->saveMappings($shopModel, (array) $request->input('mappings', []), (int) $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Company collections configuration saved successfully.',
+        ]);
+    }
+
+    public function saveShopToCompany(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'allowed_methods' => ['nullable', 'array'],
+            'allowed_methods.*' => ['string', 'in:cash,online_upi,cheque,bank_transfer,other'],
+            'default_account_id' => ['nullable', 'integer'],
+            'paid_relation_id' => ['nullable', 'integer'],
+        ]);
+
+        $service = $this->shopToCompanyService ?? app(PaymentsShopToCompanyService::class);
+        $service->saveSettings($shopModel, $validated, (int) $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Shop to Company payment settings saved successfully.',
+        ]);
+    }
+
+    public function savePetty(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'allow_company_to_petty' => ['required', 'boolean'],
+            'shop_owner_view_petty' => ['required', 'boolean'],
+            'allow_expenses_from_petty' => ['required', 'boolean'],
+        ]);
+
+        $service = $this->pettyService ?? app(PaymentsPettySettingsService::class);
+        $service->saveSettings($shopModel, $validated, (int) $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Petty cash settings saved successfully.',
+        ]);
+    }
+
+    public function saveSettlement(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'relation_id' => ['required', 'integer'],
+            'items' => ['present', 'array'],
+            'items.*.type' => ['required', 'in:header,category,settlement'],
+            'items.*.id' => ['required', 'integer'],
+            'items.*.role' => ['required', 'in:add,subtract'],
+        ]);
+
+        $service = $this->settlementSettingsService ?? app(PaymentsSettlementSettingsService::class);
+        $service->saveRelationItems($shopModel, (int) $validated['relation_id'], (array) $validated['items'], (int) $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Settlement relation items saved successfully.',
+        ]);
+    }
+
+    public function saveAllocation(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $validated = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'auto_allocate' => ['required', 'boolean'],
+            'category_ids' => ['present', 'array'],
+            'category_ids.*' => ['integer'],
+            'default_category_id' => ['nullable', 'integer'],
+            'payable_relation_id' => ['nullable', 'integer'],
+            'paid_relation_id' => ['nullable', 'integer'],
+        ]);
+
+        $service = $this->allocationSettingsService ?? app(PaymentsAllocationSettingsService::class);
+        $service->saveSettings($shopModel, $validated, (int) $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment allocation settings saved successfully.',
+        ]);
+    }
+
+    public function saveReportHeadings(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $month = (string) $request->input('month', now()->format('Y-m'));
+        $headings = (array) $request->input('headings', []);
+
+        $service = $this->reportConfigService ?? app(ShopPaymentsReportConfigService::class);
+        $saved = $service->saveConfigurationForMonth((int) $shopModel->id, $month, $headings, (int) $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Monthly Sales Report headings saved for month {$month}.",
+            'headings' => $saved,
+        ]);
+    }
+
+    public function saveAdvanced(Request $request, string $shop): JsonResponse
+    {
+        abort_unless($request->user() && ($request->user()->isMainAdmin() || $request->user()->hasRole('admin')), 403);
+        $shops = $this->shopSync->syncAndGetProfiles();
+        $currentShop = $shops->first(fn (ShopLedgerProfile $profile): bool => in_array($shop, [(string) $profile->shop_id, $profile->slug, $profile->uuid, $profile->code], true));
+        abort_unless($currentShop, 404);
+        $shopModel = Shop::query()->findOrFail($currentShop->shop_id);
+
+        $service = $this->advancedService ?? app(PaymentsAdvancedSettingsService::class);
+        $service->saveSettings($shopModel, (array) $request->input('settings', []), (int) $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Advanced technical settings saved successfully.',
         ]);
     }
 

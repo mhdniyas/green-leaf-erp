@@ -9,11 +9,16 @@ use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
+use App\Services\Cashbook\PaymentsSettings\ShopPaymentsReportConfigService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 
 class ShopSalesReportService
 {
+    public function __construct(
+        private readonly ?ShopPaymentsReportConfigService $reportConfigService = null,
+    ) {}
+
     /**
      * Generate complete read-only Sales Report for a shop over the specified period.
      *
@@ -99,86 +104,45 @@ class ShopSalesReportService
         $periodDates = CarbonPeriod::create($startDate, $endDate);
         $dailyRows = [];
 
-        $totalSales = 0.0;
-        $totalRent = 0.0;
-        $totalPurchase = 0.0;
-        $totalOtherExpense = 0.0;
+        $configService = $this->reportConfigService ?? app(ShopPaymentsReportConfigService::class);
+        $reportCalc = $configService->calculateReport($shopId, $startDate, $endDate, $monthStr);
 
-        foreach ($periodDates as $dateCarbon) {
-            $dateStr = $dateCarbon->toDateString();
+        $totalSales = $reportCalc['summary']['total_sales'];
+        $totalRent = $reportCalc['summary']['total_rent'];
+        $totalPurchase = $reportCalc['summary']['total_purchase'];
+        $totalOtherExpense = $reportCalc['summary']['total_other_expense'];
+        $totalExpenses = $reportCalc['summary']['total_expenses'];
+        $netTotal = $reportCalc['summary']['net_total'];
+
+        // Attach transaction day details to daily_rows for drawer inspection
+        $dailyRows = [];
+        $headings = $reportCalc['headings'];
+        foreach ($reportCalc['daily_rows'] as $dRow) {
+            $dateStr = $dRow['date'];
             $dayTxs = $txsByDate->get($dateStr, collect());
-
-            $daySales = 0.0;
-            $dayRent = 0.0;
-            $dayPurchase = 0.0;
-            $dayOtherExpense = 0.0;
             $dayDetails = [];
 
             foreach ($dayTxs as $tx) {
-                /** @var ShopLedgerTransaction $tx */
                 $setting = $settingsByEntryTypeId->get($tx->entry_type_id);
                 $bucket = $setting ? $setting->resolveSalesReportBucket() : $this->fallbackBucketForTx($tx);
-
-                $amount = round((float) $tx->amount, 2);
-
                 if ($bucket === 'ignore') {
                     continue;
                 }
-
-                match ($bucket) {
-                    'sales' => $daySales += $amount,
-                    'rent' => $dayRent += $amount,
-                    'purchase' => $dayPurchase += $amount,
-                    'other_expense' => $dayOtherExpense += $amount,
-                    default => null,
-                };
 
                 $dayDetails[] = [
                     'id' => $tx->id,
                     'entry_type_id' => $tx->entry_type_id,
                     'name' => (string) ($setting?->displayName() ?: $tx->entryType?->name ?: 'Entry #'.$tx->id),
                     'bucket' => $bucket,
-                    'amount' => $amount,
+                    'amount' => round((float) $tx->amount, 2),
                     'funding_source' => (string) ($tx->funding_source ?: 'sales'),
                     'notes' => $tx->notes,
                 ];
             }
 
-            $daySales = round($daySales, 2);
-            $dayRent = round($dayRent, 2);
-            $dayPurchase = round($dayPurchase, 2);
-            $dayOtherExpense = round($dayOtherExpense, 2);
-            $dayTotalExpenses = round($dayRent + $dayPurchase + $dayOtherExpense, 2);
-            $dayNetBalance = round($daySales - $dayTotalExpenses, 2);
-
-            $dailyRows[] = [
-                'date' => $dateStr,
-                'formatted_date' => $dateCarbon->format('d M Y'),
-                'day_name' => $dateCarbon->format('l'),
-                'sales' => $daySales,
-                'rent' => $dayRent,
-                'purchase' => $dayPurchase,
-                'other_expense' => $dayOtherExpense,
-                'total_expenses' => $dayTotalExpenses,
-                'net_balance' => $dayNetBalance,
-                'details' => $dayDetails,
-            ];
-
-            $totalSales += $daySales;
-            $totalRent += $dayRent;
-            $totalPurchase += $dayPurchase;
-            $totalOtherExpense += $dayOtherExpense;
+            $dRow['details'] = $dayDetails;
+            $dailyRows[] = $dRow;
         }
-
-        // Default sort latest date on top (descending)
-        usort($dailyRows, fn (array $a, array $b): int => strcmp($b['date'], $a['date']));
-
-        $totalSales = round($totalSales, 2);
-        $totalRent = round($totalRent, 2);
-        $totalPurchase = round($totalPurchase, 2);
-        $totalOtherExpense = round($totalOtherExpense, 2);
-        $totalExpenses = round($totalRent + $totalPurchase + $totalOtherExpense, 2);
-        $netTotal = round($totalSales - $totalExpenses, 2);
 
         $formattedRange = $startDate === $endDate
             ? Carbon::parse($startDate)->format('d M Y')
@@ -209,6 +173,7 @@ class ShopSalesReportService
                 'gl_bills_total' => $glBillsTotal,
             ],
             'daily_rows' => $dailyRows,
+            'summary_breakdowns' => $reportCalc['summary_breakdowns'] ?? [],
             'bucket_totals' => [
                 'sales' => $totalSales,
                 'rent' => $totalRent,

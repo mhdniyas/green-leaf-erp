@@ -82,48 +82,93 @@
     <!-- 5 Key Summary Cards Grid -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <!-- 1. TOTAL SALES -->
-        <div class="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-teal-50/50 p-4 shadow-2xs">
-            <span class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Total Sales</span>
-            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-emerald-900">
+        <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
+             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['total_sales'] ?? [])) }}"
+             onclick="openBreakdownFromEl(this)"
+             class="group rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-teal-50/50 p-4 shadow-2xs hover:border-emerald-400 hover:shadow-md transition cursor-pointer">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase tracking-wider text-emerald-800">Total Sales</span>
+                <svg class="w-3.5 h-3.5 text-emerald-600 opacity-60 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            </div>
+            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-emerald-900 group-hover:underline">
                 ₹{{ number_format($salesSummary['total_sales'], 2) }}
             </div>
-            <span class="mt-1 block text-[10px] font-bold text-emerald-700">Cashbook Sales Bucket</span>
+            <span class="mt-1 block text-[10px] font-bold text-emerald-700">View split &rarr;</span>
         </div>
 
         <!-- 2. RENT -->
-        <div class="rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50/80 to-pink-50/50 p-4 shadow-2xs">
-            <span class="text-[10px] font-black uppercase tracking-wider text-rose-800">Rent Expense</span>
-            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-rose-900">
+        <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
+             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['rent_expense'] ?? [])) }}"
+             onclick="openBreakdownFromEl(this)"
+             class="group rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50/80 to-pink-50/50 p-4 shadow-2xs hover:border-rose-400 hover:shadow-md transition cursor-pointer">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase tracking-wider text-rose-800">Rent Expense</span>
+                <svg class="w-3.5 h-3.5 text-rose-600 opacity-60 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            </div>
+            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-rose-900 group-hover:underline">
                 ₹{{ number_format($salesSummary['total_rent'], 2) }}
             </div>
-            <span class="mt-1 block text-[10px] font-bold text-rose-700">Shop Rent Entries</span>
+            <span class="mt-1 block text-[10px] font-bold text-rose-700">View split &rarr;</span>
         </div>
 
-        <!-- 3. CASH PURCHASE -->
-        <div class="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-4 shadow-2xs">
-            <span class="text-[10px] font-black uppercase tracking-wider text-amber-900">Cash Purchase</span>
-            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-amber-950">
+        <!-- 3. PURCHASE -->
+        <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
+             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['cash_purchase'] ?? [])) }}"
+             onclick="openBreakdownFromEl(this)"
+             class="group rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-4 shadow-2xs hover:border-amber-400 hover:shadow-md transition cursor-pointer">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase tracking-wider text-amber-900">Purchase</span>
+                <svg class="w-3.5 h-3.5 text-amber-700 opacity-60 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            </div>
+            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-amber-950 group-hover:underline">
                 ₹{{ number_format($salesSummary['total_purchase'], 2) }}
             </div>
-            <span class="mt-1 block text-[10px] font-bold text-amber-800">Direct Vendor Purchases</span>
+            <span class="mt-1 block text-[10px] font-bold text-amber-800">View split &rarr;</span>
         </div>
 
         <!-- 4. OTHER EXPENSE -->
-        <div class="rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50/80 to-indigo-50/50 p-4 shadow-2xs">
-            <span class="text-[10px] font-black uppercase tracking-wider text-purple-900">Other Expense</span>
-            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-purple-950">
+        <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
+             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['other_expense'] ?? [])) }}"
+             onclick="openBreakdownFromEl(this)"
+             class="group rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50/80 to-indigo-50/50 p-4 shadow-2xs hover:border-purple-400 hover:shadow-md transition cursor-pointer">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase tracking-wider text-purple-900">Other Expense</span>
+                <svg class="w-3.5 h-3.5 text-purple-700 opacity-60 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            </div>
+            <div class="mt-1 text-lg sm:text-xl font-black font-mono text-purple-950 group-hover:underline">
                 ₹{{ number_format($salesSummary['total_other_expense'], 2) }}
             </div>
-            <span class="mt-1 block text-[10px] font-bold text-purple-800">Operational Expenses</span>
+            <span class="mt-1 block text-[10px] font-bold text-purple-800">View split &rarr;</span>
         </div>
 
         <!-- 5. NET BALANCE -->
-        <div class="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50/80 to-blue-50/50 p-4 shadow-2xs">
-            <span class="text-[10px] font-black uppercase tracking-wider text-sky-900">Net Operating Balance</span>
-            <div class="mt-1 text-lg sm:text-xl font-black font-mono {{ $salesSummary['net_total'] >= 0 ? 'text-sky-950' : 'text-rose-700' }}">
+        <div data-period="{{ $salesReport['period']['label'] ?? '' }}"
+             data-breakdown="{{ e(json_encode($salesReport['summary_breakdowns']['net_operating_balance'] ?? [])) }}"
+             onclick="openBreakdownFromEl(this)"
+             class="group rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50/80 to-blue-50/50 p-4 shadow-2xs hover:border-sky-400 hover:shadow-md transition cursor-pointer">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase tracking-wider text-sky-900">Net Operating Balance</span>
+                <svg class="w-3.5 h-3.5 text-sky-700 opacity-60 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            </div>
+            <div class="mt-1 text-lg sm:text-xl font-black font-mono {{ $salesSummary['net_total'] >= 0 ? 'text-sky-950' : 'text-rose-700' }} group-hover:underline">
                 ₹{{ number_format($salesSummary['net_total'], 2) }}
             </div>
-            <span class="mt-1 block text-[10px] font-bold text-sky-800">Sales &minus; Expenses</span>
+            <span class="mt-1 block text-[10px] font-bold text-sky-800">Calculation &rarr;</span>
         </div>
 
         <!-- 6. GL BILLS (Informational Reference) -->
@@ -151,7 +196,7 @@
                         <th class="px-4 py-3 cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 1)" title="Sort by Day">Day <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
                         <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 2)" title="Sort by Sales">Sales (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
                         <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 3)" title="Sort by Rent">Rent (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
-                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 4)" title="Sort by Cash Purchase">Cash Purchase (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
+                        <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 4)" title="Sort by Purchase">Purchase (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
                         <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 5)" title="Sort by Other Expense">Other Expense (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
                         <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 6)" title="Sort by Total Expenses">Total Expenses (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
                         <th class="px-4 py-3 text-right cursor-pointer select-none hover:bg-slate-800 transition" onclick="sortVanillaTable('sales-report-table', 7)" title="Sort by Net Balance">Net Balance (₹) <span class="sort-icon ml-1 text-[9px] opacity-70">↕</span></th>
@@ -162,13 +207,71 @@
                         <tr class="hover:bg-slate-50/80 transition">
                             <td class="px-4 py-3 font-bold font-sans text-slate-900" data-date-raw="{{ $row['date'] }}">{{ $row['formatted_date'] }}</td>
                             <td class="px-4 py-3 font-sans text-slate-500">{{ $row['day_name'] }}</td>
-                            <td class="px-4 py-3 text-right font-bold text-emerald-700">₹{{ number_format($row['sales'], 2) }}</td>
-                            <td class="px-4 py-3 text-right text-rose-700">₹{{ number_format($row['rent'], 2) }}</td>
-                            <td class="px-4 py-3 text-right text-amber-700">₹{{ number_format($row['purchase'], 2) }}</td>
-                            <td class="px-4 py-3 text-right text-purple-700">₹{{ number_format($row['other_expense'], 2) }}</td>
+                            <td class="px-4 py-3 text-right font-bold text-emerald-700 hover:bg-emerald-50/80 hover:underline cursor-pointer group"
+                                data-period="{{ $row['formatted_date'] }}"
+                                data-breakdown="{{ e(json_encode($row['breakdowns']['total_sales'] ?? [])) }}"
+                                onclick="openBreakdownFromEl(this)"
+                                title="Click to view Sales breakdown for {{ $row['formatted_date'] }}">
+                                <span class="inline-flex items-center gap-1">
+                                    ₹{{ number_format($row['sales'], 2) }}
+                                    <svg class="w-3 h-3 text-emerald-600 opacity-0 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-right text-rose-700 hover:bg-rose-50/80 hover:underline cursor-pointer group"
+                                data-period="{{ $row['formatted_date'] }}"
+                                data-breakdown="{{ e(json_encode($row['breakdowns']['rent_expense'] ?? [])) }}"
+                                onclick="openBreakdownFromEl(this)"
+                                title="Click to view Rent breakdown for {{ $row['formatted_date'] }}">
+                                <span class="inline-flex items-center gap-1">
+                                    ₹{{ number_format($row['rent'], 2) }}
+                                    <svg class="w-3 h-3 text-rose-600 opacity-0 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-right text-amber-700 hover:bg-amber-50/80 hover:underline cursor-pointer group"
+                                data-period="{{ $row['formatted_date'] }}"
+                                data-breakdown="{{ e(json_encode($row['breakdowns']['cash_purchase'] ?? [])) }}"
+                                onclick="openBreakdownFromEl(this)"
+                                title="Click to view Purchase breakdown for {{ $row['formatted_date'] }}">
+                                <span class="inline-flex items-center gap-1">
+                                    ₹{{ number_format($row['purchase'], 2) }}
+                                    <svg class="w-3 h-3 text-amber-700 opacity-0 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-right text-purple-700 hover:bg-purple-50/80 hover:underline cursor-pointer group"
+                                data-period="{{ $row['formatted_date'] }}"
+                                data-breakdown="{{ e(json_encode($row['breakdowns']['other_expense'] ?? [])) }}"
+                                onclick="openBreakdownFromEl(this)"
+                                title="Click to view Other Expenses breakdown for {{ $row['formatted_date'] }}">
+                                <span class="inline-flex items-center gap-1">
+                                    ₹{{ number_format($row['other_expense'], 2) }}
+                                    <svg class="w-3 h-3 text-purple-700 opacity-0 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                </span>
+                            </td>
                             <td class="px-4 py-3 text-right font-bold text-slate-900">₹{{ number_format($row['total_expenses'], 2) }}</td>
-                            <td class="px-4 py-3 text-right font-bold {{ $row['net_balance'] >= 0 ? 'text-blue-700' : 'text-rose-700' }}">
-                                ₹{{ number_format($row['net_balance'], 2) }}
+                            <td class="px-4 py-3 text-right font-bold {{ $row['net_balance'] >= 0 ? 'text-blue-700' : 'text-rose-700' }} hover:bg-blue-50/80 hover:underline cursor-pointer group"
+                                data-period="{{ $row['formatted_date'] }}"
+                                data-breakdown="{{ e(json_encode($row['breakdowns']['net_operating_balance'] ?? [])) }}"
+                                onclick="openBreakdownFromEl(this)"
+                                title="Click to view Balance calculation for {{ $row['formatted_date'] }}">
+                                <span class="inline-flex items-center gap-1">
+                                    ₹{{ number_format($row['net_balance'], 2) }}
+                                    <svg class="w-3 h-3 text-blue-600 opacity-0 group-hover:opacity-100 transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                </span>
                             </td>
                         </tr>
                     @empty
@@ -272,6 +375,20 @@
             }
         });
     })();
+
+    function openBreakdownFromEl(el) {
+        if (!el) return;
+        const period = el.getAttribute('data-period') || '';
+        const rawJson = el.getAttribute('data-breakdown') || '{}';
+        try {
+            const data = JSON.parse(rawJson);
+            if (typeof window.openReportBreakdownModal === 'function') {
+                window.openReportBreakdownModal(period, data);
+            }
+        } catch (e) {
+            console.error('Failed to parse breakdown JSON:', e);
+        }
+    }
 
     function shareSalesReport(shopName, periodRange, salesTotal, netTotal) {
         const textToShare = `Sales Report — ${shopName}\nPeriod: ${periodRange}\nTotal Sales: ₹${salesTotal}\nNet Balance: ₹${netTotal}`;

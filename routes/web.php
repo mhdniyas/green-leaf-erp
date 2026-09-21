@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\AdminProductPurchaserAllotmentController;
 use App\Http\Controllers\Web\Admin\AdminPurchaserBusinessDayController;
 use App\Http\Controllers\Web\Admin\AdminShopPurchasingVerificationController;
+use App\Http\Controllers\Web\Admin\CashbookCategoryController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CashbookSettlementController;
 use App\Http\Controllers\Web\Admin\CashbookVendorController;
@@ -24,8 +25,11 @@ use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
 use App\Http\Controllers\Web\Admin\EmptyInventoryController;
 use App\Http\Controllers\Web\Admin\EnquiryController;
+use App\Http\Controllers\Web\Admin\FinalReportSettingsController;
 use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
+use App\Http\Controllers\Web\Admin\GreenLeafMonthlyReportController;
+use App\Http\Controllers\Web\Admin\GreenLeafMonthlyReportExportController;
 use App\Http\Controllers\Web\Admin\Integrations\ZohoBooksIntegrationController;
 use App\Http\Controllers\Web\Admin\MonthlyClosingSummaryController;
 use App\Http\Controllers\Web\Admin\PurchaseProductFilterController;
@@ -779,6 +783,22 @@ Route::middleware('auth')->group(function () {
         // Completely isolated from the ShopOwner accounting screens.
         // All routes are guarded at controller level by ensureMainAdmin().
         Route::prefix('cashbook')->name('cashbook.')->group(function () {
+            // ── Categories Unified Management ─────────────────────────────
+            Route::prefix('categories')->name('categories.')->group(function () {
+                Route::get('/', [CashbookCategoryController::class, 'index'])->name('index');
+                Route::get('/create', [CashbookCategoryController::class, 'create'])->name('create');
+                Route::post('/', [CashbookCategoryController::class, 'store'])->name('store');
+                Route::get('/{category}', [CashbookCategoryController::class, 'show'])->name('show');
+                Route::post('/{category}/update-global', [CashbookCategoryController::class, 'updateGlobal'])->name('update-global');
+                Route::post('/{category}/assign-shops', [CashbookCategoryController::class, 'assignShops'])->name('assign-shops');
+                Route::post('/{category}/shops/{shop}/basic-header', [CashbookCategoryController::class, 'updateShopBasicHeader'])->name('shop.basic-header');
+                Route::post('/{category}/shops/{shop}/settlement', [CashbookCategoryController::class, 'updateShopSettlement'])->name('shop.settlement');
+                Route::post('/{category}/shops/{shop}/company-relation', [CashbookCategoryController::class, 'updateShopCompanyRelation'])->name('shop.company-relation');
+                Route::post('/{category}/shops/{shop}/vendor-relation', [CashbookCategoryController::class, 'updateShopVendorRelation'])->name('shop.vendor-relation');
+                Route::post('/{category}/shops/{shop}/reports', [CashbookCategoryController::class, 'updateShopReports'])->name('shop.reports');
+                Route::post('/{category}/shops/{shop}/advanced', [CashbookCategoryController::class, 'updateShopAdvanced'])->name('shop.advanced');
+            });
+
             // ── Page routes ─────────────────────────────────────────────────
             Route::get('/', [CashbookController::class, 'index'])->name('index');
             Route::get('cash-flow-tree', [CashFlowTreeController::class, 'index'])->name('cash-flow-tree.index');
@@ -799,6 +819,27 @@ Route::middleware('auth')->group(function () {
             Route::get('reports/gl-bills/export/csv', [AdminCashbookReportsController::class, 'glBillsExportCsv'])->name('reports.gl-bills.export.csv');
             Route::get('reports/gl-bills/export/pdf', [AdminCashbookReportsController::class, 'glBillsExportPdf'])->name('reports.gl-bills.export.pdf');
             Route::get('warehouse-sales', [AdminCashbookReportsController::class, 'warehouseSales'])->name('warehouse-sales');
+
+            // ── Green Leaf Monthly Reports ────────────────────────────────────
+            Route::prefix('reports/monthly')->name('monthly-report.')->group(function () {
+                Route::get('/', [GreenLeafMonthlyReportController::class, 'overview'])->name('overview');
+                Route::get('/sale-split', [GreenLeafMonthlyReportController::class, 'saleSplit'])->name('sale-split');
+                Route::get('/other-expenses', [GreenLeafMonthlyReportController::class, 'otherExpenses'])->name('other-expenses');
+                Route::get('/expense-report', [GreenLeafMonthlyReportController::class, 'expenseReport'])->name('expense-report');
+                Route::get('/drilldown', [GreenLeafMonthlyReportController::class, 'drilldown'])->name('drilldown');
+                Route::get('/{report}/export/csv', [GreenLeafMonthlyReportExportController::class, 'exportCsv'])->name('export.csv');
+                Route::get('/{report}/export/excel', [GreenLeafMonthlyReportExportController::class, 'exportExcel'])->name('export.excel');
+                Route::get('/{report}/export/pdf', [GreenLeafMonthlyReportExportController::class, 'exportPdf'])->name('export.pdf');
+            });
+
+            // ── Final Report Settings ─────────────────────────────────────────
+            Route::prefix('settings/final-report')->name('settings.final-report.')->group(function () {
+                Route::get('/', [FinalReportSettingsController::class, 'index'])->name('index');
+                Route::match(['POST', 'PUT'], '/shop-headings', [FinalReportSettingsController::class, 'updateShopHeadings'])->name('shop-headings');
+                Route::match(['POST', 'PUT'], '/product-groups', [FinalReportSettingsController::class, 'updateProductGroups'])->name('product-groups');
+                Route::match(['POST', 'PUT'], '/expense-mappings', [FinalReportSettingsController::class, 'updateExpenseMappings'])->name('expense-mappings');
+                Route::get('/readiness', [FinalReportSettingsController::class, 'readiness'])->name('readiness');
+            });
             // Purchaser Business Days (Admin Cashbook Oversight)
             Route::prefix('purchaser-business-days')->name('purchaser-business-days.')->group(function () {
                 Route::get('/', [AdminPurchaserBusinessDayController::class, 'index'])->name('index');
@@ -1041,6 +1082,13 @@ Route::middleware('auth')->group(function () {
             Route::post('settings/shops/{shop}/settlements/{settlement}/set-payment-paid', [CashbookSettlementController::class, 'setDefaultPaymentPaid'])->name('settings.shop.settlements.set-payment-paid');
             Route::get('settings/shops/{shop}/payments', [CashbookSettlementController::class, 'paymentsIndex'])->name('settings.shop.payments.index');
             Route::post('settings/shops/{shop}/payments-configuration', [CashbookSettlementController::class, 'savePaymentsConfiguration'])->name('settings.shop.payments-configuration.save');
+            Route::post('settings/shops/{shop}/payments/company-collections', [CashbookSettlementController::class, 'saveCompanyCollections'])->name('settings.shop.payments.company-collections.save');
+            Route::post('settings/shops/{shop}/payments/shop-to-company', [CashbookSettlementController::class, 'saveShopToCompany'])->name('settings.shop.payments.shop-to-company.save');
+            Route::post('settings/shops/{shop}/payments/petty', [CashbookSettlementController::class, 'savePetty'])->name('settings.shop.payments.petty.save');
+            Route::post('settings/shops/{shop}/payments/settlement', [CashbookSettlementController::class, 'saveSettlement'])->name('settings.shop.payments.settlement.save');
+            Route::post('settings/shops/{shop}/payments/allocation', [CashbookSettlementController::class, 'saveAllocation'])->name('settings.shop.payments.allocation.save');
+            Route::post('settings/shops/{shop}/payments/report-headings', [CashbookSettlementController::class, 'saveReportHeadings'])->name('settings.shop.payments.report-headings.save');
+            Route::post('settings/shops/{shop}/payments/advanced', [CashbookSettlementController::class, 'saveAdvanced'])->name('settings.shop.payments.advanced.save');
             Route::get('settings/shops/{shop}/demo', [CashbookController::class, 'shopDemoPage'])->name('settings.shop.demo');
             Route::get('settings/shops/{shop}/demo/real-data', [CashbookController::class, 'shopDemoRealData'])->name('settings.shop.demo.real-data');
             Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');
@@ -1234,6 +1282,9 @@ Route::middleware('auth')->group(function () {
             Route::get('staff/advance-payments', [StaffManagementController::class, 'advancePaymentsIndex'])->name('staff.advance-payments.index');
             Route::post('staff/payments', [StaffManagementController::class, 'storePayrollPayment'])->name('staff.payments.store');
             Route::post('staff/shop-staff-payments', [StaffManagementController::class, 'storeShopStaffPayment'])->name('staff.shop-staff-payments.store');
+            Route::post('staff/{employee:employee_code}/payments', [StaffManagementController::class, 'storeEmployeePayment'])->name('staff.employee-payments.store');
+            Route::put('staff/payments/{payment}', [StaffManagementController::class, 'updateShopStaffPayment'])->name('staff.shop-staff-payments.update');
+            Route::delete('staff/payments/{payment}', [StaffManagementController::class, 'destroyShopStaffPayment'])->name('staff.shop-staff-payments.destroy');
             Route::post('staff/contract-worker-payments', [StaffManagementController::class, 'storeContractWorkerPayment'])->name('staff.contract-worker-payments.store');
             Route::patch('staff/advance-requests/{advanceRequest}', [StaffManagementController::class, 'reviewEmployeeAdvance'])->name('staff.advance-requests.review');
             Route::put('staff/advance-requests/{advanceRequest}', [StaffManagementController::class, 'updateEmployeeAdvance'])->name('staff.advance-requests.update');

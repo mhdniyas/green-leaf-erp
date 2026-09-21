@@ -9,5 +9,9 @@
 
     <!-- SALES REPORT TAB SECTION -->
     @include('admin.cashbook.shops.partials.sales-report-section')
+
+    <!-- REUSABLE BREAKDOWN MODAL -->
+    @include('admin.cashbook.shops.partials.sales-report-breakdown-modal')
 </div>
 @endsection
+

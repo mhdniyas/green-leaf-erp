@@ -169,7 +169,7 @@ final class PurchaseReportingService
     }
 
     /** @param array<string, mixed> $filters */
-    private function filteredItems(array $filters): Builder
+    public function filteredItems(array $filters): Builder
     {
         $cartTotals = DB::table('purchaser_cart_items')
             ->selectRaw('purchaser_cart_id, SUM(CASE WHEN line_total > 0 THEN line_total ELSE quantity * unit_price END) as gross_total')

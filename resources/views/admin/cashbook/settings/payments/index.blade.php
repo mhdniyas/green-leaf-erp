@@ -3,31 +3,8 @@
 @section('title', $currentShop->name.' - Payments Settings')
 
 @section('content')
-@php
-    $payableConfig = $paymentConfig['payable'] ?? ['source' => 'settlement', 'category_ids' => [], 'settlement_id' => null];
-    $salesConfig = $paymentConfig['sales_collections'] ?? $paymentConfig['direct_to_company'] ?? $paymentConfig['paid'] ?? ['source' => 'settlement', 'direct_category_ids' => [], 'cash_category_ids' => [], 'settlement_id' => null];
-    $directConfig = $paymentConfig['direct_to_company'] ?? $paymentConfig['paid'] ?? ['source' => 'settlement', 'category_ids' => [], 'settlement_id' => null];
-    $payableSource = $payableConfig['source'] ?? 'settlement';
-    $salesSource = $salesConfig['source'] ?? ($directConfig['source'] ?? 'settlement');
-    $payableCategoryIds = array_map('intval', (array) ($payableConfig['category_ids'] ?? []));
-    $salesDirectCategoryIds = array_map('intval', (array) ($salesConfig['direct_category_ids'] ?? ($directConfig['category_ids'] ?? [])));
-    $salesCashCategoryIds = array_map('intval', (array) ($salesConfig['cash_category_ids'] ?? []));
-    $payableSettlementId = $payableConfig['settlement_id'] ?? null;
-    $salesSettlementId = $salesConfig['settlement_id'] ?? ($directConfig['settlement_id'] ?? null);
-    $paymentSettlementId = $paymentConfig['payment_settlement_id'] ?? $payableSettlementId ?? null;
-    $expenseAllocationConfig = $paymentConfig['expense_allocation'];
-    $expenseAllocationCategoryIds = array_map('intval', (array) $expenseAllocationConfig['category_ids']);
-    $expenseAllocationDefaultCategoryId = $expenseAllocationConfig['default_category_id'];
-    $pettyConfig = $paymentConfig['petty'] ?? [
-        'enabled' => false,
-        'allow_company_to_petty' => false,
-        'shop_owner_view_petty' => true,
-        'allow_expenses_from_petty' => true,
-    ];
-@endphp
-
-<div class="mx-auto max-w-6xl space-y-6">
-    {{-- Navigation Tabs --}}
+<div class="mx-auto max-w-7xl space-y-6">
+    {{-- Main Cashbook Settings Navigation --}}
     @include('admin.cashbook.settings.partials.tabs', [
         'activeTab' => 'payments',
         'shopKey' => $shopKey,
@@ -35,543 +12,499 @@
     ])
 
     {{-- Page Header --}}
-    <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div class="flex items-center gap-3.5">
+    <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div class="flex items-center gap-4">
             <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-800 border border-violet-200 shadow-2xs shrink-0">
                 <i data-lucide="wallet" class="h-6 w-6"></i>
             </span>
             <div>
                 <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-black uppercase tracking-widest text-violet-700">Dedicated Settings</span>
-                    <span class="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700 border border-emerald-200">Official Source</span>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-violet-700">Financial Hub</span>
+                    <span class="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700 border border-emerald-200">9 Core Bridges</span>
                 </div>
-                <h1 class="text-xl sm:text-2xl font-black text-slate-950 tracking-tight mt-0.5">SHOP PAYMENTS</h1>
-                <p class="text-xs text-slate-500 font-medium">Configure Payable targets (Auto Allocation), and Sales Collections for {{ $currentShop->name }}.</p>
+                <h1 class="text-xl sm:text-2xl font-black text-slate-950 tracking-tight mt-0.5">PAYMENTS SETTINGS</h1>
+                <p class="text-xs text-slate-500 font-medium">Shop ↔ Company ↔ Bank ↔ Petty ↔ Settlement ↔ Allocation ↔ Reports</p>
             </div>
         </div>
 
-        <div class="flex items-center gap-2 shrink-0">
-            <button type="button" onclick="savePaymentsSettings(event)" id="save-payments-settings-btn"
-                class="inline-flex items-center gap-2 rounded-xl bg-violet-700 px-5 py-3 text-xs font-black text-white hover:bg-violet-800 transition cursor-pointer shadow-sm active:scale-98">
-                <i data-lucide="check" class="h-4 w-4"></i>
-                <span>Save Payments Configuration</span>
+        {{-- Month Selector Form --}}
+        <form method="GET" action="{{ route('admin.cashbook.settings.shop.payments.index', $shopKey) }}" class="flex items-center gap-2 bg-slate-50 border border-slate-200 p-1.5 rounded-2xl">
+            <input type="hidden" name="tab" id="active-tab-param" value="{{ request('tab', 'overview') }}">
+            <span class="text-xs font-bold text-slate-500 pl-2">Period:</span>
+            <input type="month" name="month" value="{{ $month }}" onchange="this.form.submit()"
+                class="text-xs font-bold bg-white border border-slate-300 rounded-xl px-2.5 py-1 text-slate-800 focus:ring-violet-500">
+        </form>
+    </div>
+
+    {{-- 9 Section Navigation Tabs --}}
+    <div class="border-b border-slate-200 bg-white rounded-2xl p-1.5 shadow-2xs">
+        <nav class="flex items-center gap-1 overflow-x-auto text-xs font-bold scrollbar-none" id="payments-tabs-nav">
+            <button type="button" onclick="switchPaymentsTab('overview')" data-tab="overview"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="layout-dashboard" class="h-3.5 w-3.5"></i>
+                <span>Overview</span>
             </button>
-        </div>
+            <button type="button" onclick="switchPaymentsTab('company-collections')" data-tab="company-collections"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="building-2" class="h-3.5 w-3.5"></i>
+                <span>Company Collections</span>
+            </button>
+            <button type="button" onclick="switchPaymentsTab('shop-to-company')" data-tab="shop-to-company"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="arrow-up-right" class="h-3.5 w-3.5"></i>
+                <span>Shop → Company</span>
+            </button>
+            <button type="button" onclick="switchPaymentsTab('company-to-shop')" data-tab="company-to-shop"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="arrow-down-left" class="h-3.5 w-3.5"></i>
+                <span>Company → Shop</span>
+            </button>
+            <button type="button" onclick="switchPaymentsTab('petty')" data-tab="petty"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="coins" class="h-3.5 w-3.5"></i>
+                <span>Petty</span>
+            </button>
+            <button type="button" onclick="switchPaymentsTab('settlement')" data-tab="settlement"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="scale" class="h-3.5 w-3.5"></i>
+                <span>Settlement</span>
+            </button>
+            <button type="button" onclick="switchPaymentsTab('allocation')" data-tab="allocation"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="split" class="h-3.5 w-3.5"></i>
+                <span>Allocation</span>
+            </button>
+            <button type="button" onclick="switchPaymentsTab('reports')" data-tab="reports"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="file-text" class="h-3.5 w-3.5"></i>
+                <span>Reports</span>
+            </button>
+            <button type="button" onclick="switchPaymentsTab('advanced')" data-tab="advanced"
+                class="payments-tab-btn px-3 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5">
+                <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i>
+                <span>Advanced</span>
+            </button>
+        </nav>
     </div>
 
-    {{-- Three Pillars Grid: PAYABLE, SALES COLLECTIONS, MANUAL PAYMENTS --}}
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {{-- PILLAR 1: PAYABLE --}}
-        <div class="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-5">
-            <div class="space-y-4">
-                <div class="flex items-start justify-between border-b border-slate-100 pb-4">
-                    <div>
-                        <span class="text-[10px] font-black uppercase tracking-wider text-indigo-700">Auto Allocation Targets</span>
-                        <h2 class="text-base font-black text-slate-950">PAYABLE</h2>
-                        <p class="text-xs text-slate-500 mt-0.5">Expenses / obligations configured here define the exact Auto Allocation targets for this shop.</p>
-                    </div>
-                    <span class="rounded-lg bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700 shrink-0">
-                        Allocation Source
-                    </span>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 mb-2">Source:</label>
-                    <div class="grid grid-cols-2 gap-2">
-                        <label class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 text-xs font-bold text-slate-800 cursor-pointer hover:border-indigo-300 has-[:checked]:border-indigo-600 has-[:checked]:bg-indigo-50/60 transition">
-                            <input type="radio" name="payable_source" value="categories" @checked($payableSource === 'categories') onchange="togglePaymentsSource('payable', 'categories')" class="text-indigo-600 focus:ring-indigo-500">
-                            <span class="text-[11px] truncate">Selected Categories</span>
-                        </label>
-                        <label class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 text-xs font-bold text-slate-800 cursor-pointer hover:border-indigo-300 has-[:checked]:border-indigo-600 has-[:checked]:bg-indigo-50/60 transition">
-                            <input type="radio" name="payable_source" value="settlement" @checked($payableSource === 'settlement') onchange="togglePaymentsSource('payable', 'settlement')" class="text-indigo-600 focus:ring-indigo-500">
-                            <span class="text-[11px] truncate">Existing Settlement</span>
-                        </label>
-                    </div>
-                </div>
-
-                {{-- Payable: Categories Panel --}}
-                <div id="payable-categories-panel" class="{{ $payableSource === 'categories' ? '' : 'hidden' }} space-y-3 pt-1">
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold text-slate-700">Select Categories (mainly expenses):</span>
-                        <button type="button" onclick="selectAllPayableExpenseCategories()" class="text-[11px] font-bold text-indigo-700 hover:underline cursor-pointer">Select All Expenses</button>
-                    </div>
-                    <div class="max-h-72 overflow-y-auto space-y-1.5 rounded-xl border border-slate-200 bg-slate-50/40 p-2.5">
-                        @foreach($entrySettings as $setting)
-                            @php
-                                $isExpense = strtolower((string) ($setting->entryType?->category ?? '')) === 'expense' || (bool) $setting->include_in_expense;
-                            @endphp
-                            <label class="flex items-center justify-between gap-2 rounded-lg p-2 text-xs font-medium text-slate-800 hover:bg-white cursor-pointer {{ $isExpense ? 'bg-rose-50/40' : '' }}">
-                                <div class="flex items-center gap-2 min-w-0">
-                                    <input type="checkbox" name="payable_category_ids[]" value="{{ $setting->id }}" @checked(in_array((int) $setting->id, $payableCategoryIds, true)) data-is-expense="{{ $isExpense ? '1' : '0' }}" class="payable-category-checkbox rounded border-slate-300 text-indigo-600">
-                                    <span class="truncate font-bold">{{ $setting->displayName() }}</span>
-                                </div>
-                                <span class="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase {{ $isExpense ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600' }}">
-                                    {{ $setting->entryType?->category ?? 'other' }}
-                                </span>
-                            </label>
-                        @endforeach
-                    </div>
-                </div>
-
-                {{-- Payable: Settlement Panel --}}
-                <div id="payable-settlement-panel" class="{{ $payableSource === 'settlement' ? '' : 'hidden' }} space-y-2 pt-1">
-                    <label class="block text-xs font-bold text-slate-700">Select Existing Settlement:</label>
-                    <select id="payable_settlement_id" name="payable_settlement_id" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 focus:border-indigo-500 focus:outline-none">
-                        <option value="">-- Choose Settlement --</option>
-                        @foreach($relations as $rel)
-                            <option value="{{ $rel->id }}" @selected($payableSettlementId == $rel->id || (! $payableSettlementId && $rel->is_payment_payable))>
-                                {{ $rel->name }} ({{ $rel->items->count() }} items)
-                            </option>
-                        @endforeach
-                    </select>
-                    <p class="text-[11px] text-slate-500 font-medium">Reuses the settlement calculation engine configured in Settlements.</p>
-                </div>
-            </div>
-
-            <div class="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 flex items-center justify-between text-xs">
-                <span class="font-bold text-indigo-900">Current Month Payable:</span>
-                <span class="font-mono font-black text-indigo-950">₹{{ number_format($paymentsSummary['payable'] ?? 0) }}</span>
-            </div>
+    {{-- Section Tab Panels --}}
+    <div class="tab-panels space-y-6">
+        {{-- 1. Overview --}}
+        <div id="panel-overview" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.overview')
         </div>
 
-        {{-- PILLAR 2: SALES COLLECTIONS --}}
-        <div class="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-5">
-            <div class="space-y-4">
-                <div class="flex items-start justify-between border-b border-slate-100 pb-4">
-                    <div>
-                        <span class="text-[10px] font-black uppercase tracking-wider text-teal-700">Total Sales Split</span>
-                        <h2 class="text-base font-black text-slate-950">SALES COLLECTIONS</h2>
-                        <p class="text-xs text-slate-500 mt-0.5">Split sales into Direct to Company vs Cash retained at shop.</p>
-                    </div>
-                    <span class="rounded-lg bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] font-extrabold text-teal-700 shrink-0">
-                        Direct + Cash
-                    </span>
-                </div>
-
-                {{-- Source Radio --}}
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 mb-2">Source:</label>
-                    <div class="grid grid-cols-2 gap-2">
-                        <label class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 text-xs font-bold text-slate-800 cursor-pointer hover:border-teal-300 has-[:checked]:border-teal-600 has-[:checked]:bg-teal-50/60 transition">
-                            <input type="radio" name="sales_source" value="categories" @checked($salesSource === 'categories') onchange="togglePaymentsSource('sales', 'categories')" class="text-teal-600 focus:ring-teal-500">
-                            <span class="text-[11px] truncate">Selected Categories</span>
-                        </label>
-                        <label class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 text-xs font-bold text-slate-800 cursor-pointer hover:border-teal-300 has-[:checked]:border-teal-600 has-[:checked]:bg-teal-50/60 transition">
-                            <input type="radio" name="sales_source" value="settlement" @checked($salesSource === 'settlement') onchange="togglePaymentsSource('sales', 'settlement')" class="text-teal-600 focus:ring-teal-500">
-                            <span class="text-[11px] truncate">Existing Settlement</span>
-                        </label>
-                    </div>
-                </div>
-
-                {{-- Sales: Categories Panel with Direct vs Cash groupings --}}
-                <div id="sales-categories-panel" class="{{ $salesSource === 'categories' ? '' : 'hidden' }} space-y-4 pt-1">
-                    
-                    {{-- 1. Direct to Company Sub-section --}}
-                    <div class="space-y-1.5">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-extrabold text-teal-900 uppercase tracking-tight">Direct to Company (Bank / Digital)</span>
-                        </div>
-                        <p class="text-[11px] text-teal-700 font-medium">Card, Paytm, UPI etc. auto-received directly by company bank accounts.</p>
-                        
-                        <div class="max-h-44 overflow-y-auto space-y-1.5 rounded-xl border border-teal-200/80 bg-teal-50/30 p-2">
-                            @foreach($entrySettings as $setting)
-                                @php
-                                    $code = strtolower((string) ($setting->entryType?->code ?? ''));
-                                    $dispName = strtolower($setting->displayName());
-                                    $companyAccount = $setting->companyAccount;
-                                    $bankName = $companyAccount ? ($companyAccount->bank_name ?: $companyAccount->name) : null;
-                                    $isCash = $setting->company_account_id === null && (str_contains($code, 'cash') || str_contains($dispName, 'cash') || in_array($setting->default_funding_source, ['shop_cash', 'cash', 'sales'], true));
-                                @endphp
-                                @if(! $isCash)
-                                    <label class="flex items-center justify-between gap-2 rounded-lg p-1.5 text-xs font-medium text-slate-800 hover:bg-white cursor-pointer {{ $companyAccount ? 'bg-emerald-50/60' : '' }}">
-                                        <div class="flex items-center gap-2 min-w-0">
-                                            <input type="checkbox" name="sales_direct_category_ids[]" value="{{ $setting->id }}" @checked(in_array((int) $setting->id, $salesDirectCategoryIds, true)) class="sales-direct-checkbox rounded border-slate-300 text-teal-600">
-                                            <span class="truncate font-bold">{{ $setting->displayName() }}</span>
-                                        </div>
-                                        <div class="flex items-center gap-1 shrink-0">
-                                            @if($companyAccount)
-                                                <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-black uppercase bg-emerald-100 text-emerald-800">
-                                                    <i data-lucide="landmark" class="h-3 w-3"></i>
-                                                    {{ $bankName }}
-                                                </span>
-                                            @else
-                                                <span class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase bg-slate-100 text-slate-600">
-                                                    {{ $setting->entryType?->category ?? 'other' }}
-                                                </span>
-                                            @endif
-                                        </div>
-                                    </label>
-                                @endif
-                            @endforeach
-                        </div>
-                    </div>
-
-                    {{-- 2. Cash / Shop Collections Sub-section --}}
-                    <div class="space-y-1.5 pt-2 border-t border-slate-100">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-extrabold text-amber-900 uppercase tracking-tight">Cash / Shop Collections</span>
-                        </div>
-                        <p class="text-[11px] text-amber-700 font-medium">Stays with the shop and contributes directly to Shop Balance.</p>
-
-                        <div class="max-h-44 overflow-y-auto space-y-1.5 rounded-xl border border-amber-200/80 bg-amber-50/30 p-2">
-                            @foreach($entrySettings as $setting)
-                                @php
-                                    $code = strtolower((string) ($setting->entryType?->code ?? ''));
-                                    $dispName = strtolower($setting->displayName());
-                                    $isCash = $setting->company_account_id === null && (str_contains($code, 'cash') || str_contains($dispName, 'cash') || in_array($setting->default_funding_source, ['shop_cash', 'cash', 'sales'], true));
-                                @endphp
-                                @if($isCash || in_array((int) $setting->id, $salesCashCategoryIds, true))
-                                    <label class="flex items-center justify-between gap-2 rounded-lg p-1.5 text-xs font-medium text-slate-800 hover:bg-white cursor-pointer bg-amber-50/60">
-                                        <div class="flex items-center gap-2 min-w-0">
-                                            <input type="checkbox" name="sales_cash_category_ids[]" value="{{ $setting->id }}" @checked(in_array((int) $setting->id, $salesCashCategoryIds, true) || (empty($salesCashCategoryIds) && $isCash)) class="sales-cash-checkbox rounded border-slate-300 text-amber-600">
-                                            <span class="truncate font-bold">{{ $setting->displayName() }}</span>
-                                        </div>
-                                        <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase bg-amber-100 text-amber-800">
-                                            <i data-lucide="banknote" class="h-3 w-3"></i>
-                                            Stays with Shop
-                                        </span>
-                                    </label>
-                                @endif
-                            @endforeach
-                        </div>
-                    </div>
-
-                </div>
-
-                {{-- Sales: Settlement Panel --}}
-                <div id="sales-settlement-panel" class="{{ $salesSource === 'settlement' ? '' : 'hidden' }} space-y-2 pt-1">
-                    <label class="block text-xs font-bold text-slate-700">Select Existing Settlement:</label>
-                    <select id="sales_settlement_id" name="sales_settlement_id" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 focus:border-teal-500 focus:outline-none">
-                        <option value="">-- Choose Settlement --</option>
-                        @foreach($relations as $rel)
-                            <option value="{{ $rel->id }}" @selected($salesSettlementId == $rel->id || (! $salesSettlementId && $rel->is_payment_paid))>
-                                {{ $rel->name }} ({{ $rel->items->count() }} items)
-                            </option>
-                        @endforeach
-                    </select>
-                    <p class="text-[11px] text-slate-500 font-medium">Reuses the settlement calculation engine configured in Settlements.</p>
-                </div>
-            </div>
-
-            <div class="rounded-xl border border-teal-100 bg-teal-50/50 p-3 space-y-1 text-xs">
-                <div class="flex items-center justify-between">
-                    <span class="font-extrabold uppercase text-slate-900">Total Sales:</span>
-                    <span class="font-mono font-black text-slate-950">₹{{ number_format($paymentsSummary['total_sales'] ?? ($paymentsSummary['direct_to_company'] ?? 0)) }}</span>
-                </div>
-                <div class="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Direct to Company: ₹{{ number_format($paymentsSummary['direct_to_company'] ?? 0) }}</span>
-                    <span>Cash in Shop: ₹{{ number_format($paymentsSummary['cash_in_shop'] ?? 0) }}</span>
-                </div>
-            </div>
+        {{-- 2. Company Collections --}}
+        <div id="panel-company-collections" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.company-collections')
         </div>
 
-        {{-- PILLAR 3: MANUAL PAYMENTS --}}
-        <div class="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-5">
-            <div class="space-y-4">
-                <div class="flex items-start justify-between border-b border-slate-100 pb-4">
-                    <div>
-                        <span class="text-[10px] font-black uppercase tracking-wider text-amber-800">Shop &rarr; Company Remittances</span>
-                        <h2 class="text-base font-black text-slate-950">MANUAL PAYMENTS</h2>
-                        <p class="text-xs text-slate-500 mt-0.5">Shop Balance / Cash manually sent later to company.</p>
-                    </div>
-                    <span class="rounded-lg bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-extrabold text-amber-800 shrink-0">
-                        Existing Flow
-                    </span>
-                </div>
-
-                {{-- Explanation Box --}}
-                <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-2 text-xs text-slate-600 leading-relaxed font-medium">
-                    <div class="flex items-center gap-1.5 font-bold text-slate-900">
-                        <i data-lucide="check-circle" class="h-4 w-4 text-emerald-600"></i>
-                        No Duplicate Configuration Needed
-                    </div>
-                    <p>Uses the existing <code class="rounded bg-slate-200 px-1 py-0.5 font-mono text-[11px] text-slate-800">ShopInvoicePaymentRequest</code> flow.</p>
-                    <div class="rounded-xl border border-slate-200/80 bg-white p-2.5 space-y-1 font-mono text-[11px] text-slate-700">
-                        <div>Cash Sale &rarr; Stays with Shop</div>
-                        <div>&rarr; Becomes Shop Balance</div>
-                        <div>&rarr; Shop uses for Cash Purchase / Expenses</div>
-                        <div>&rarr; Remaining cash is manually paid to company</div>
-                    </div>
-                </div>
-
-                {{-- Current Month Breakdown --}}
-                <div class="space-y-2 pt-1">
-                    <span class="text-xs font-bold text-slate-700 block">Current Month Remittance Status:</span>
-                    <div class="grid grid-cols-2 gap-2">
-                        <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-2.5 text-center">
-                            <span class="text-[10px] font-black uppercase text-emerald-800 block">Received (Approved)</span>
-                            <span class="font-mono text-sm font-black text-emerald-950">₹{{ number_format($paymentsSummary['manual_received'] ?? 0) }}</span>
-                        </div>
-                        <div class="rounded-xl border border-amber-200 bg-amber-50/50 p-2.5 text-center">
-                            <span class="text-[10px] font-black uppercase text-amber-800 block">Pending Review</span>
-                            <span class="font-mono text-sm font-black text-amber-950">₹{{ number_format($paymentsSummary['manual_pending'] ?? 0) }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="pt-3 border-t border-slate-100">
-                <a href="{{ route('admin.cashbook.shop.accept-payment', $shopKey) }}"
-                   class="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 px-3.5 py-2.5 text-xs font-bold text-slate-800 transition">
-                    <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
-                    <span>Review Shop Payment Requests</span>
-                </a>
-            </div>
+        {{-- 3. Shop to Company --}}
+        <div id="panel-shop-to-company" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.shop-to-company')
         </div>
-    </div>
 
-    {{-- Expense Allocation Configuration --}}
-    <div class="rounded-3xl border border-amber-200 bg-white p-5 shadow-xs sm:p-6">
-        <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div class="max-w-xl space-y-2">
-                <span class="text-[10px] font-black uppercase tracking-wider text-amber-700">Payment Matching Rules</span>
-                <h2 class="text-lg font-black text-slate-950">EXPENSE ALLOCATION</h2>
-                <p class="text-xs font-medium text-slate-500">
-                    Manual and automatic payment allocation will clear only the selected expense categories for {{ $currentShop->name }}. Expenses are cleared oldest first.
-                </p>
-                <div class="flex flex-wrap gap-2 pt-1">
-                    <label class="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950">
-                        <input type="checkbox" id="expense_allocation_enabled" @checked($expenseAllocationConfig['enabled']) class="rounded border-amber-300 text-amber-600 focus:ring-amber-500">
-                        Enable expense allocation
-                    </label>
-                    <label class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950">
-                        <input type="checkbox" id="expense_auto_allocate" @checked($expenseAllocationConfig['auto_allocate']) class="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
-                        Enable auto allocation
-                    </label>
-                </div>
-            </div>
-
-            <div class="w-full space-y-4 lg:max-w-2xl">
-                <div class="space-y-2">
-                    <div class="flex items-center justify-between gap-3">
-                        <label class="text-xs font-black text-slate-700">Linked expense categories</label>
-                        <button type="button" onclick="selectAllExpenseAllocationCategories()" class="text-[11px] font-bold text-amber-700 hover:underline">Select all expenses</button>
-                    </div>
-                    <div class="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
-                        @forelse($expenseEntrySettings as $setting)
-                            <label class="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-800 hover:border-amber-300">
-                                <input type="checkbox" name="expense_allocation_category_ids[]" value="{{ $setting->id }}" @checked(in_array((int) $setting->id, $expenseAllocationCategoryIds, true)) class="expense-allocation-category rounded border-slate-300 text-amber-600 focus:ring-amber-500">
-                                <span class="truncate">{{ $setting->displayName() }}</span>
-                            </label>
-                        @empty
-                            <p class="col-span-full p-3 text-center text-xs font-bold text-slate-500">No enabled expense categories are configured for this shop.</p>
-                        @endforelse
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <label for="expense_allocation_default_category_id" class="text-xs font-black text-slate-700">Default uncategorized expense</label>
-                    <select id="expense_allocation_default_category_id" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 focus:border-amber-500 focus:ring-amber-500">
-                        <option value="">No default category</option>
-                        @foreach($expenseEntrySettings as $setting)
-                            <option value="{{ $setting->id }}" @selected((int) $expenseAllocationDefaultCategoryId === (int) $setting->id)>
-                                {{ in_array($setting->entryType?->code, ['other_expense', 'others'], true) ? 'Uncategorized Expense — ' : '' }}{{ $setting->displayName() }}
-                            </option>
-                        @endforeach
-                    </select>
-                    <p class="text-[11px] font-medium text-slate-500">Other Expense is selected automatically when no saved allocation configuration exists.</p>
-                </div>
-            </div>
+        {{-- 4. Company to Shop --}}
+        <div id="panel-company-to-shop" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.company-to-shop')
         </div>
-    </div>
 
-    {{-- PILLAR 4: PETTY CASH SETTINGS --}}
-    <div class="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-5">
-        <div class="space-y-4">
-            <div class="flex items-start justify-between border-b border-slate-100 pb-4">
-                <div class="flex items-center gap-3">
-                    <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs shrink-0">
-                        <i data-lucide="coins" class="h-5 w-5"></i>
-                    </span>
-                    <div>
-                        <span class="text-[10px] font-black uppercase tracking-wider text-purple-700">Shop Petty Cash</span>
-                        <h2 class="text-base font-black text-slate-950">PETTY SETTINGS</h2>
-                        <p class="text-xs text-slate-500 mt-0.5">Control petty cash funding, view permissions, and expense spending rules for this shop.</p>
-                    </div>
-                </div>
-                <span class="rounded-lg bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-extrabold text-purple-700 shrink-0">
-                    Petty Cash
-                </span>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
-                    <input type="checkbox" id="petty_enabled" @checked($pettyConfig['enabled']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
-                    <div>
-                        <span class="block text-xs font-black text-slate-900">Enable Petty</span>
-                        <span class="block text-[11px] text-slate-500 font-medium">Master toggle for shop petty cash features</span>
-                    </div>
-                </label>
-
-                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
-                    <input type="checkbox" id="petty_allow_company_to_petty" @checked($pettyConfig['allow_company_to_petty']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
-                    <div>
-                        <span class="block text-xs font-black text-slate-900">Allow Company → Petty</span>
-                        <span class="block text-[11px] text-slate-500 font-medium">Allow admin to fund petty from company accounts</span>
-                    </div>
-                </label>
-
-                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
-                    <input type="checkbox" id="petty_shop_owner_view_petty" @checked($pettyConfig['shop_owner_view_petty']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
-                    <div>
-                        <span class="block text-xs font-black text-slate-900">Shop Owner Can View Petty</span>
-                        <span class="block text-[11px] text-slate-500 font-medium">Display petty balance on shop owner dashboard</span>
-                    </div>
-                </label>
-
-                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 cursor-pointer hover:border-purple-300 transition">
-                    <input type="checkbox" id="petty_allow_expenses_from_petty" @checked($pettyConfig['allow_expenses_from_petty']) class="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4">
-                    <div>
-                        <span class="block text-xs font-black text-slate-900">Allow Expenses From Petty</span>
-                        <span class="block text-[11px] text-slate-500 font-medium">Permit cashbook expenses paid from petty cash</span>
-                    </div>
-                </label>
-            </div>
+        {{-- 5. Petty --}}
+        <div id="panel-petty" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.petty')
         </div>
-    </div>
 
-    {{-- LIVE FORMULA PREVIEW BANNER --}}
-    <div class="rounded-3xl border border-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 p-6 text-white shadow-md">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div class="space-y-1">
-                <span class="text-[10px] font-black uppercase tracking-widest text-emerald-400">LIVE EVALUATION PREVIEW</span>
-                <h3 class="text-base font-extrabold text-white">How This Evaluates on Shop Owner Payments</h3>
-                <p class="text-xs text-slate-300 font-medium">Both Shop Owner Payments and Admin Cashbook calculate using this exact formula.</p>
-            </div>
-            <div class="flex flex-wrap items-center gap-3 font-mono text-xs">
-                <div class="rounded-xl bg-white/10 px-3 py-2 text-center border border-white/10">
-                    <span class="block text-[10px] uppercase font-bold text-indigo-300">Payable</span>
-                    <span class="font-black text-white">₹{{ number_format($paymentsSummary['payable'] ?? 0) }}</span>
-                </div>
-                <span class="text-slate-400 font-black text-sm">−</span>
-                <div class="rounded-xl bg-white/10 px-3 py-2 text-center border border-white/10">
-                    <span class="block text-[10px] uppercase font-bold text-teal-300">Direct</span>
-                    <span class="font-black text-white">₹{{ number_format($paymentsSummary['direct_to_company'] ?? 0) }}</span>
-                </div>
-                <span class="text-slate-400 font-black text-sm">−</span>
-                <div class="rounded-xl bg-white/10 px-3 py-2 text-center border border-white/10">
-                    <span class="block text-[10px] uppercase font-bold text-emerald-300">Manual Rec.</span>
-                    <span class="font-black text-white">₹{{ number_format($paymentsSummary['manual_received'] ?? 0) }}</span>
-                </div>
-                <span class="text-slate-400 font-black text-sm">=</span>
-                <div class="rounded-xl bg-emerald-500/20 px-3.5 py-2 text-center border border-emerald-400/30">
-                    <span class="block text-[10px] uppercase font-bold text-emerald-300">Shop Balance</span>
-                    <span class="font-black text-emerald-200 text-sm">₹{{ number_format($paymentsSummary['shop_balance'] ?? 0) }}</span>
-                </div>
-            </div>
+        {{-- 6. Settlement --}}
+        <div id="panel-settlement" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.settlement')
+        </div>
+
+        {{-- 7. Allocation --}}
+        <div id="panel-allocation" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.allocation')
+        </div>
+
+        {{-- 8. Reports --}}
+        <div id="panel-reports" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.reports')
+        </div>
+
+        {{-- 9. Advanced --}}
+        <div id="panel-advanced" class="payments-panel hidden">
+            @include('admin.cashbook.settings.payments.partials.advanced')
         </div>
     </div>
 </div>
 
+{{-- Toast Container --}}
+<div id="payment-toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full"></div>
+
 <script>
-function togglePaymentsSource(type, source) {
-    const categoriesPanel = document.getElementById(`${type}-categories-panel`);
-    const settlementPanel = document.getElementById(`${type}-settlement-panel`);
-    if (source === 'categories') {
-        categoriesPanel?.classList.remove('hidden');
-        settlementPanel?.classList.add('hidden');
+// ==========================================
+// 1. TAB SWITCHING ENGINE
+// ==========================================
+function switchPaymentsTab(tabName) {
+    const validTabs = [
+        'overview',
+        'company-collections',
+        'shop-to-company',
+        'company-to-shop',
+        'petty',
+        'settlement',
+        'allocation',
+        'reports',
+        'advanced'
+    ];
+
+    if (!validTabs.includes(tabName)) {
+        tabName = 'overview';
+    }
+
+    // Update Tab Buttons UI
+    document.querySelectorAll('.payments-tab-btn').forEach(btn => {
+        if (btn.getAttribute('data-tab') === tabName) {
+            btn.className = 'payments-tab-btn px-3.5 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5 bg-violet-700 text-white shadow-xs font-black';
+        } else {
+            btn.className = 'payments-tab-btn px-3.5 py-2 rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold';
+        }
+    });
+
+    // Toggle Panels
+    document.querySelectorAll('.payments-panel').forEach(panel => {
+        panel.classList.add('hidden');
+    });
+
+    const activePanel = document.getElementById('panel-' + tabName);
+    if (activePanel) {
+        activePanel.classList.remove('hidden');
+    }
+
+    // Update URL hash without scroll
+    if (history.pushState) {
+        history.pushState(null, null, '#' + tabName);
     } else {
-        categoriesPanel?.classList.add('hidden');
-        settlementPanel?.classList.remove('hidden');
+        location.hash = '#' + tabName;
+    }
+
+    const activeInput = document.getElementById('active-tab-param');
+    if (activeInput) {
+        activeInput.value = tabName;
+    }
+
+    if (window.lucide) {
+        window.lucide.createIcons();
     }
 }
 
-function selectAllPayableExpenseCategories() {
-    document.querySelectorAll('.payable-category-checkbox[data-is-expense="1"]').forEach(cb => {
-        cb.checked = true;
-    });
-}
+// ==========================================
+// 2. REUSABLE VANILLA JS MODAL SYSTEM
+// ==========================================
+let activeModalId = null;
+let lastFocusedElement = null;
 
-function selectAllExpenseAllocationCategories() {
-    document.querySelectorAll('.expense-allocation-category').forEach(cb => {
-        cb.checked = true;
-    });
-}
+function openPaymentModal(modalId) {
+    const modal = document.querySelector(`[data-payment-modal="${modalId}"]`);
+    if (!modal) return;
 
-async function savePaymentsSettings(e) {
-    e.preventDefault();
-    const btn = document.getElementById('save-payments-settings-btn');
-    const originalText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = `<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i><span>Saving...</span>`;
-    if (window.lucide) lucide.createIcons();
+    lastFocusedElement = document.activeElement;
+    activeModalId = modalId;
 
-    const payableSource = document.querySelector('input[name="payable_source"]:checked')?.value || 'settlement';
-    const salesSource = document.querySelector('input[name="sales_source"]:checked')?.value || 'settlement';
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    modal.setAttribute('aria-hidden', 'false');
 
-    const payableCategoryIds = Array.from(document.querySelectorAll('input[name="payable_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
-    const salesDirectCategoryIds = Array.from(document.querySelectorAll('input[name="sales_direct_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
-    const salesCashCategoryIds = Array.from(document.querySelectorAll('input[name="sales_cash_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
-    const expenseAllocationCategoryIds = Array.from(document.querySelectorAll('input[name="expense_allocation_category_ids[]"]:checked')).map(cb => parseInt(cb.value));
+    // Trigger smooth enter transitions
+    requestAnimationFrame(() => {
+        modal.classList.remove('opacity-0');
+        modal.classList.add('opacity-100');
 
-    const payableSettlementId = document.getElementById('payable_settlement_id')?.value || null;
-    const salesSettlementId = document.getElementById('sales_settlement_id')?.value || null;
-
-    const salesPayload = {
-        source: salesSource,
-        direct_category_ids: salesDirectCategoryIds,
-        cash_category_ids: salesCashCategoryIds,
-        category_ids: salesDirectCategoryIds,
-        settlement_id: salesSettlementId
-    };
-
-    const payload = {
-        payable: {
-            source: payableSource,
-            category_ids: payableCategoryIds,
-            settlement_id: payableSettlementId
-        },
-        sales_collections: salesPayload,
-        direct_to_company: salesPayload,
-        paid: salesPayload,
-        expense_allocation: {
-            enabled: document.getElementById('expense_allocation_enabled')?.checked || false,
-            auto_allocate: document.getElementById('expense_auto_allocate')?.checked || false,
-            category_ids: expenseAllocationCategoryIds,
-            default_category_id: document.getElementById('expense_allocation_default_category_id')?.value || null
-        },
-        petty: {
-            enabled: document.getElementById('petty_enabled')?.checked || false,
-            allow_company_to_petty: document.getElementById('petty_allow_company_to_petty')?.checked || false,
-            shop_owner_view_petty: document.getElementById('petty_shop_owner_view_petty')?.checked || false,
-            allow_expenses_from_petty: document.getElementById('petty_allow_expenses_from_petty')?.checked || false
+        const panel = modal.querySelector('.payment-modal-panel');
+        if (panel) {
+            panel.classList.remove('scale-95', 'opacity-0');
+            panel.classList.add('scale-100', 'opacity-100');
         }
-    };
+    });
 
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
-    const url = '{{ route('admin.cashbook.settings.shop.payments-configuration.save', $shopKey) }}';
+    // Body scroll lock
+    document.body.style.overflow = 'hidden';
 
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': csrfToken,
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify(payload)
+    // Focus first input or button inside modal
+    setTimeout(() => {
+        const focusTarget = modal.querySelector('input:not([type="hidden"]), button, select');
+        if (focusTarget) focusTarget.focus();
+    }, 100);
+
+    if (window.lucide) window.lucide.createIcons();
+}
+
+function closePaymentModal(modalId) {
+    const targetId = modalId || activeModalId;
+    if (!targetId) return;
+
+    const modal = document.querySelector(`[data-payment-modal="${targetId}"]`);
+    if (!modal) return;
+
+    modal.classList.remove('opacity-100');
+    modal.classList.add('opacity-0');
+
+    const panel = modal.querySelector('.payment-modal-panel');
+    if (panel) {
+        panel.classList.remove('scale-100', 'opacity-100');
+        panel.classList.add('scale-95', 'opacity-0');
+    }
+
+    setTimeout(() => {
+        modal.classList.remove('flex');
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+        if (activeModalId === targetId) activeModalId = null;
+
+        if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+            lastFocusedElement.focus();
+        }
+    }, 200);
+}
+
+// Global modal click & escape handlers
+document.addEventListener('click', (e) => {
+    // Open trigger
+    const openBtn = e.target.closest('[data-payment-modal-open]');
+    if (openBtn) {
+        e.preventDefault();
+        const modalId = openBtn.getAttribute('data-payment-modal-open');
+        openPaymentModal(modalId);
+        return;
+    }
+
+    // Close trigger
+    const closeBtn = e.target.closest('[data-payment-modal-close]');
+    if (closeBtn) {
+        e.preventDefault();
+        const modal = closeBtn.closest('[data-payment-modal]');
+        if (modal) {
+            closePaymentModal(modal.getAttribute('data-payment-modal'));
+        }
+        return;
+    }
+
+    // Backdrop click
+    if (e.target.classList.contains('payment-modal-backdrop')) {
+        closePaymentModal(e.target.getAttribute('data-payment-modal'));
+    }
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        // If a custom-select dropdown is open, close that first
+        const openMenu = document.querySelector('.custom-select-menu:not(.hidden)');
+        if (openMenu) {
+            closeAllCustomSelects();
+            return;
+        }
+
+        if (activeModalId) {
+            closePaymentModal(activeModalId);
+        }
+    }
+});
+
+// ==========================================
+// 3. REUSABLE CUSTOM TAILWIND SELECT ENGINE
+// ==========================================
+function closeAllCustomSelects() {
+    document.querySelectorAll('[data-custom-select]').forEach(wrapper => {
+        const menu = wrapper.querySelector('.custom-select-menu');
+        const chevron = wrapper.querySelector('.custom-select-chevron');
+        const trigger = wrapper.querySelector('.custom-select-trigger');
+        if (menu && !menu.classList.contains('hidden')) {
+            menu.classList.remove('opacity-100', 'scale-100');
+            menu.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => menu.classList.add('hidden'), 150);
+            if (chevron) chevron.classList.remove('rotate-180');
+            if (trigger) trigger.setAttribute('aria-expanded', 'false');
+        }
+    });
+}
+
+document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('.custom-select-trigger');
+    const option = e.target.closest('.custom-select-option');
+    const isInsideSelect = e.target.closest('[data-custom-select]');
+
+    // Toggle custom select menu
+    if (trigger) {
+        e.preventDefault();
+        const wrapper = trigger.closest('[data-custom-select]');
+        const menu = wrapper.querySelector('.custom-select-menu');
+        const chevron = wrapper.querySelector('.custom-select-chevron');
+        const isCurrentlyOpen = menu && !menu.classList.contains('hidden');
+
+        closeAllCustomSelects();
+
+        if (!isCurrentlyOpen && menu) {
+            menu.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                menu.classList.remove('opacity-0', 'scale-95');
+                menu.classList.add('opacity-100', 'scale-100');
+            });
+            if (chevron) chevron.classList.add('rotate-180');
+            trigger.setAttribute('aria-expanded', 'true');
+
+            // Focus search input if present
+            const searchInput = menu.querySelector('.custom-select-search');
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.focus();
+                // Reset hidden options
+                menu.querySelectorAll('.custom-select-option').forEach(opt => opt.classList.remove('hidden'));
+            }
+        }
+        return;
+    }
+
+    // Option selected
+    if (option) {
+        e.preventDefault();
+        if (option.getAttribute('data-disabled') === 'true') return;
+
+        const wrapper = option.closest('[data-custom-select]');
+        const input = wrapper.querySelector('.custom-select-input') || wrapper.querySelector('input[type="hidden"]');
+        const labelSpan = wrapper.querySelector('.custom-select-label');
+        const val = option.getAttribute('data-value') || '';
+        const label = option.getAttribute('data-label') || '';
+
+        // Update hidden input
+        if (input) {
+            input.value = val;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // Update trigger label
+        if (labelSpan) {
+            labelSpan.textContent = label;
+            if (val === '') {
+                labelSpan.className = 'custom-select-label truncate text-slate-400 font-normal';
+            } else {
+                labelSpan.className = 'custom-select-label truncate text-slate-900 font-bold';
+            }
+        }
+
+        // Update selected checkmark UI inside menu
+        wrapper.querySelectorAll('.custom-select-option').forEach(opt => {
+            const isMatch = (opt.getAttribute('data-value') || '') === val;
+            if (isMatch) {
+                opt.className = 'custom-select-option flex items-center justify-between rounded-xl px-3 py-2 text-xs bg-violet-50 text-violet-800 font-black cursor-pointer';
+                if (!opt.querySelector('.custom-option-check')) {
+                    const check = document.createElement('i');
+                    check.setAttribute('data-lucide', 'check');
+                    check.className = 'custom-option-check h-3.5 w-3.5 text-violet-700 shrink-0';
+                    opt.appendChild(check);
+                }
+            } else {
+                opt.className = 'custom-select-option flex items-center justify-between rounded-xl px-3 py-2 text-xs hover:bg-violet-50/80 hover:text-violet-900 text-slate-800 font-semibold cursor-pointer';
+                const check = opt.querySelector('.custom-option-check');
+                if (check) check.remove();
+            }
         });
 
-        const data = await response.json();
-        if (response.ok && data.success) {
-            if (window.showToast) {
-                showToast(data.message || 'Payments configuration saved successfully.', 'success');
-            } else {
-                alert(data.message || 'Payments configuration saved successfully.');
-            }
-        } else {
-            alert(data.message || 'Failed to save payments configuration.');
-        }
-    } catch (err) {
-        console.error(err);
-        alert('An error occurred while saving payments configuration.');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-        if (window.lucide) lucide.createIcons();
+        closeAllCustomSelects();
+        if (window.lucide) window.lucide.createIcons();
+        return;
     }
-}
+
+    // Clicked outside any select -> close all
+    if (!isInsideSelect) {
+        closeAllCustomSelects();
+    }
+});
+
+// Search filtering
+document.addEventListener('input', (e) => {
+    if (e.target.classList.contains('custom-select-search')) {
+        const query = e.target.value.toLowerCase().trim();
+        const menu = e.target.closest('.custom-select-menu');
+        const options = menu.querySelectorAll('.custom-select-option');
+        const noResults = menu.querySelector('.custom-select-no-results');
+        let visibleCount = 0;
+
+        options.forEach(opt => {
+            const text = (opt.textContent || '').toLowerCase();
+            if (text.includes(query)) {
+                opt.classList.remove('hidden');
+                visibleCount++;
+            } else {
+                opt.classList.add('hidden');
+            }
+        });
+
+        if (noResults) {
+            if (visibleCount === 0) {
+                noResults.classList.remove('hidden');
+            } else {
+                noResults.classList.add('hidden');
+            }
+        }
+    }
+});
+
+// ==========================================
+// 4. REUSABLE TAILWIND TOAST NOTIFICATION
+// ==========================================
+window.showPaymentToast = function(message, type = 'success') {
+    const container = document.getElementById('payment-toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    const isSuccess = type === 'success';
+
+    toast.className = `pointer-events-auto flex items-center gap-3 rounded-2xl p-4 shadow-2xl border transition-all duration-300 transform translate-y-5 opacity-0 ${
+        isSuccess ? 'bg-slate-900 text-white border-slate-800' : 'bg-rose-900 text-white border-rose-800'
+    }`;
+
+    toast.innerHTML = `
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${isSuccess ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-300'}">
+            <i data-lucide="${isSuccess ? 'check-circle' : 'alert-circle'}" class="h-4 w-4"></i>
+        </div>
+        <div class="flex-1 text-xs font-bold">${message}</div>
+        <button type="button" class="text-slate-400 hover:text-white p-1" onclick="this.closest('.pointer-events-auto').remove()">
+            <i data-lucide="x" class="h-3.5 w-3.5"></i>
+        </button>
+    `;
+
+    container.appendChild(toast);
+    if (window.lucide) window.lucide.createIcons();
+
+    // Slide in
+    requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-5', 'opacity-0');
+        toast.classList.add('translate-y-0', 'opacity-100');
+    });
+
+    // Auto-remove after 3.5s
+    setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-5', 'opacity-0');
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
+};
+
+// ==========================================
+// 5. INITIALIZATION ON DOM READY
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+    // Resolve initial tab from URL hash or query param or default to overview
+    let initialTab = 'overview';
+    if (window.location.hash) {
+        initialTab = window.location.hash.replace('#', '');
+    } else {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('tab')) {
+            initialTab = urlParams.get('tab');
+        }
+    }
+    switchPaymentsTab(initialTab);
+});
 </script>
 @endsection

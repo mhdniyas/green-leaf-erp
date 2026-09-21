@@ -370,29 +370,40 @@
                             <span class="inline-block text-[9px] font-bold text-emerald-600">
                                 ✓ Cashbook Synced
                             </span>
-                            <div class="flex items-center justify-end gap-1.5 pt-0.5">
-                                <button type="button" 
-                                        onclick="openEditPaymentModal({{ json_encode([
-                                            'id' => $payment->id,
-                                            'employee_name' => $payment->employee?->name ?? 'Staff',
-                                            'amount' => (float) $payment->amount,
-                                            'paid_on' => $payment->paid_on?->format('Y-m-d') ?? today()->format('Y-m-d'),
-                                            'payment_type' => $payment->payment_type ?? 'salary',
-                                            'fund_source' => $payment->fund_source ?? 'sales',
-                                            'notes' => $payment->notes ?? '',
-                                            'update_url' => route('shop-owner.staff.payments.update', $payment),
-                                        ]) }})"
-                                        class="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition cursor-pointer">
-                                    Edit
-                                </button>
-                                <form action="{{ route('shop-owner.staff.payments.destroy', $payment) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this payment record? Any linked Cashbook entry will be detected during sync.');" class="inline">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" class="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100 hover:text-rose-900 transition cursor-pointer">
-                                        Delete
+                            @php($isTodayPayment = $payment->paid_on?->toDateString() === today()->toDateString())
+                            @php($canModifyPayment = $isTodayPayment || auth()->user()?->hasRole('admin'))
+                            @if($canModifyPayment)
+                                <div class="flex items-center justify-end gap-1.5 pt-0.5">
+                                    <button type="button" 
+                                            onclick="openEditPaymentModal({{ json_encode([
+                                                'id' => $payment->id,
+                                                'employee_name' => $payment->employee?->name ?? 'Staff',
+                                                'amount' => (float) $payment->amount,
+                                                'paid_on' => $payment->paid_on?->format('Y-m-d') ?? today()->format('Y-m-d'),
+                                                'payment_type' => $payment->payment_type ?? 'salary',
+                                                'fund_source' => $payment->fund_source ?? 'sales',
+                                                'notes' => $payment->notes ?? '',
+                                                'update_url' => route('shop-owner.staff.payments.update', $payment),
+                                            ]) }})"
+                                            class="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition cursor-pointer">
+                                        Edit
                                     </button>
-                                </form>
-                            </div>
+                                    <form action="{{ route('shop-owner.staff.payments.destroy', $payment) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this payment record? Any linked Cashbook entry will be removed.');" class="inline">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100 hover:text-rose-900 transition cursor-pointer">
+                                            Delete
+                                        </button>
+                                    </form>
+                                </div>
+                            @else
+                                <div class="flex items-center justify-end gap-1 pt-0.5 text-[10px] font-bold text-slate-400">
+                                    <svg class="h-3 w-3 inline text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                    <span>Read-only</span>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 @empty

@@ -87,6 +87,7 @@ class ProcurementExpenseController extends Controller
                 'user_id' => $request->user()->id,
                 'expense_date' => Carbon::parse((string) $validated['expense_date'])->toDateString(),
                 'category' => (string) $validated['category'],
+                'funding_source' => $validated['funding_source'] ?? ProcurementExpense::FUNDING_PURCHASER_ADVANCE,
                 'amount' => round((float) $validated['amount'], 2),
                 'note' => filled($validated['note'] ?? null) ? trim((string) $validated['note']) : null,
             ]);
@@ -114,6 +115,7 @@ class ProcurementExpenseController extends Controller
             $expense->update([
                 'expense_date' => $newDate->toDateString(),
                 'category' => (string) $validated['category'],
+                'funding_source' => $validated['funding_source'] ?? $expense->funding_source ?? ProcurementExpense::FUNDING_PURCHASER_ADVANCE,
                 'amount' => round((float) $validated['amount'], 2),
                 'note' => filled($validated['note'] ?? null) ? trim((string) $validated['note']) : null,
             ]);
@@ -154,6 +156,7 @@ class ProcurementExpenseController extends Controller
         return $request->validate([
             'expense_date' => ['required', 'date'],
             'category' => ['required', 'string', Rule::in(array_keys(ProcurementExpense::categories()))],
+            'funding_source' => ['nullable', 'string', Rule::in([ProcurementExpense::FUNDING_PURCHASER_ADVANCE, ProcurementExpense::FUNDING_COMPANY_CASH, ProcurementExpense::FUNDING_COMPANY_BANK])],
             'amount' => ['required', 'numeric', 'gt:0', 'max:999999999.99'],
             'note' => ['nullable', 'string', 'max:2000'],
         ]);

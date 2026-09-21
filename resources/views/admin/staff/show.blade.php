@@ -196,24 +196,38 @@
             @endforeach
         </section>
 
-        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" id="salary-advance-section">
             @php
                 $monthlyPayrollPaid = $monthlyPayrollItem?->paidAmount() ?? 0;
                 $monthlyOfficePaid = $monthlyPayrollItem?->officePaidAmount() ?? 0;
                 $monthlyShopPaid = $monthlyPayrollItem?->shopPaidAmount() ?? 0;
                 $monthlyPayrollRemaining = $monthlyPayrollItem?->remainingAmount() ?? 0;
+                $paymentsList = $shopStaffPayments ?? $recentShopStaffPayments;
             @endphp
-            <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
-                    <h2 class="text-xl font-black text-slate-950">Salary payments</h2>
-                    <p class="mt-1 text-sm font-semibold text-slate-500">{{ $selectedMonth->format('F Y') }} salary payment status and recent payment journal details.</p>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-xl font-black text-slate-950">Salary & Advance</h2>
+                        <span class="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-black text-emerald-800">HR Historical Control</span>
+                    </div>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">Record and manage staff payouts, advances, and linked cashbook transactions.</p>
                 </div>
-                <a href="{{ route('admin.staff.payments.index', ['payroll_month' => $selectedMonth->format('Y-m')]) }}" class="rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white">Open Payments</a>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" onclick="openAdminAddPaymentModal()" class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-emerald-700 active:scale-95 transition cursor-pointer">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        <span>+ Add Salary / Advance</span>
+                    </button>
+                    <a href="{{ route('admin.staff.payments.index', ['payroll_month' => $selectedMonth->format('Y-m')]) }}" class="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white hover:bg-slate-800 transition">
+                        Payroll Runs
+                    </a>
+                </div>
             </div>
 
             <div class="mt-5 grid gap-4 md:grid-cols-5">
                 <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Payroll amount</p>
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Payroll amount ({{ $selectedMonth->format('M Y') }})</p>
                     <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format((float) ($monthlyPayrollItem?->final_amount ?? 0), 2) }}</p>
                 </article>
                 <article class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
@@ -234,58 +248,98 @@
                 </article>
             </div>
 
-            <div class="mt-5 grid gap-4 lg:grid-cols-2">
-                <div class="overflow-x-auto rounded-2xl border border-slate-200">
-                    <table class="min-w-full text-left text-sm">
-                        <thead class="bg-slate-50 text-slate-500">
-                            <tr>
-                                <th class="px-3 py-3">Office Date</th>
-                                <th class="px-3 py-3">Method</th>
-                                <th class="px-3 py-3 text-right">Amount</th>
-                                <th class="px-3 py-3">Journal</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            @forelse($recentPayrollPayments as $payment)
-                                <tr>
-                                    <td class="px-3 py-3 font-bold text-slate-900">{{ $payment->paid_on->format('d M Y') }}</td>
-                                    <td class="px-3 py-3 capitalize">Office {{ $payment->payment_method }}</td>
-                                    <td class="px-3 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
-                                    <td class="px-3 py-3 text-sm font-semibold text-cyan-700">{{ $payment->journalEntry?->reference ?? 'Pending journal' }}</td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="4" class="px-3 py-6 text-center text-sm font-semibold text-slate-500">No office salary payments recorded yet.</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
+            {{-- PAYMENT HISTORY TABLE --}}
+            <div class="mt-6 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-black uppercase tracking-wider text-slate-900">Salary & Advance Payment History</h3>
+                        <p class="text-xs font-semibold text-slate-500 mt-0.5">Underlying ShopStaffPayment records with automatic Cashbook sync.</p>
+                    </div>
+                    <span class="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[10px] font-black text-slate-700">
+                        {{ $paymentsList->count() }} Records
+                    </span>
                 </div>
 
-                <div class="overflow-x-auto rounded-2xl border border-slate-200">
-                    <table class="min-w-full text-left text-sm">
-                        <thead class="bg-slate-50 text-slate-500">
+                <div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                    <table class="min-w-full text-left text-xs">
+                        <thead class="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                             <tr>
-                                <th class="px-3 py-3">Shop Date</th>
-                                <th class="px-3 py-3">Shop</th>
-                                <th class="px-3 py-3">Type</th>
+                                <th class="px-3 py-3">Date</th>
                                 <th class="px-3 py-3 text-right">Amount</th>
+                                <th class="px-3 py-3">Category</th>
+                                <th class="px-3 py-3">Fund Source</th>
+                                <th class="px-3 py-3">Shop</th>
+                                <th class="px-3 py-3">Notes</th>
+                                <th class="px-3 py-3">Created By</th>
+                                <th class="px-3 py-3">Created At</th>
+                                <th class="px-3 py-3 text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            @forelse($recentShopStaffPayments as $payment)
-                                <tr>
-                                    <td class="px-3 py-3 font-bold text-slate-900">{{ $payment->paid_on->format('d M Y') }}</td>
-                                    <td class="px-3 py-3 font-semibold text-slate-600">{{ $payment->shop?->name }}</td>
-                                    <td class="px-3 py-3 capitalize">
-                                        {{ $payment->payment_type }}
-                                        / {{ $payment->cashbookLine ? 'cashbook posted' : 'cashbook pending' }}
+                        <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
+                            @forelse($paymentsList as $payment)
+                                <tr class="hover:bg-slate-50/80 transition">
+                                    <td class="px-3 py-3 font-bold text-slate-950 whitespace-nowrap">
+                                        {{ $payment->paid_on?->format('d M Y') }}
                                     </td>
-                                    <td class="px-3 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
+                                    <td class="px-3 py-3 text-right font-black text-slate-950 whitespace-nowrap">
+                                        ₹{{ number_format((float) $payment->amount, 2) }}
+                                    </td>
+                                    <td class="px-3 py-3 whitespace-nowrap">
+                                        <span class="rounded px-2 py-0.5 text-[10px] font-black uppercase border {{ $payment->payment_type === 'advance' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800' }}">
+                                            {{ $payment->payment_type === 'advance' ? 'Staff Advance' : 'Salary' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-3 py-3 capitalize whitespace-nowrap">
+                                        {{ match($payment->fund_source) {
+                                            'sales' => 'Shop Sales',
+                                            'petty_cash', 'petty' => 'Petty Cash',
+                                            'company' => 'Company Account',
+                                            default => str_replace('_', ' ', (string) $payment->fund_source)
+                                        } }}
+                                    </td>
+                                    <td class="px-3 py-3 font-semibold text-slate-700 whitespace-nowrap">
+                                        {{ $payment->shop?->name ?? '—' }}
+                                    </td>
+                                    <td class="px-3 py-3 max-w-[200px] truncate text-slate-500">
+                                        {{ $payment->notes ?: '—' }}
+                                    </td>
+                                    <td class="px-3 py-3 text-slate-600 whitespace-nowrap">
+                                        {{ $payment->paidBy?->name ?? 'System' }}
+                                    </td>
+                                    <td class="px-3 py-3 text-slate-400 text-[11px] whitespace-nowrap">
+                                        {{ $payment->created_at?->format('d M Y, h:i A') ?? '—' }}
+                                    </td>
+                                    <td class="px-3 py-3 text-right whitespace-nowrap">
+                                        <div class="flex items-center justify-end gap-1.5">
+                                            <button type="button"
+                                                    onclick="openAdminEditPaymentModal({{ json_encode([
+                                                        'id' => $payment->id,
+                                                        'amount' => (float) $payment->amount,
+                                                        'paid_on' => $payment->paid_on?->format('Y-m-d') ?? today()->format('Y-m-d'),
+                                                        'payment_type' => $payment->payment_type ?? 'salary',
+                                                        'fund_source' => ($payment->fund_source === 'petty' ? 'petty_cash' : $payment->fund_source) ?? 'sales',
+                                                        'shop_id' => $payment->shop_id,
+                                                        'notes' => $payment->notes ?? '',
+                                                        'update_url' => route('admin.staff.shop-staff-payments.update', $payment),
+                                                    ]) }})"
+                                                    class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition cursor-pointer shadow-2xs">
+                                                Edit
+                                            </button>
+                                            <form action="{{ route('admin.staff.shop-staff-payments.destroy', $payment) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this payment record? Any linked Cashbook entry will be automatically removed and daily balances recalculated.');" class="inline">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 hover:text-rose-900 transition cursor-pointer shadow-2xs">
+                                                    Delete
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="4" class="px-3 py-6 text-center text-sm font-semibold text-slate-500">No shop salary or advance payments recorded yet.</td>
+                                    <td colspan="9" class="px-3 py-8 text-center text-xs font-semibold text-slate-400">
+                                        No salary or advance payments recorded yet for this staff member.
+                                    </td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -293,11 +347,11 @@
                 </div>
             </div>
 
-            <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <h3 class="text-sm font-black text-slate-950">Advance Details</h3>
+            <div class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <h3 class="text-sm font-black text-slate-950">Advance Requests & Status</h3>
                 <div class="mt-3 grid gap-3 md:grid-cols-2">
                     @forelse($employeeAdvanceRequests as $advanceRequest)
-                        <div class="rounded-xl border border-slate-200 bg-white p-3">
+                        <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
                             <div class="flex items-start justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-black text-slate-900">{{ $advanceRequest->shop?->name }}</p>
@@ -314,7 +368,7 @@
                             @endif
                         </div>
                     @empty
-                        <p class="text-sm font-semibold text-slate-500">No advance requests recorded for this employee.</p>
+                        <p class="text-xs font-semibold text-slate-500">No advance requests recorded for this employee.</p>
                     @endforelse
                 </div>
             </div>
@@ -793,6 +847,157 @@
         </section>
     </div>
 
+    {{-- Add Salary / Advance Modal --}}
+    <div id="admin-add-payment-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div class="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl transition-all border border-slate-200 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="text-sm font-black uppercase tracking-wider text-slate-900">Add Salary / Advance Payment</h3>
+                    <p class="text-xs font-semibold text-slate-500 mt-0.5">{{ $employee->name }} ({{ $employee->employee_code }})</p>
+                </div>
+                <button type="button" onclick="closeAdminAddPaymentModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <form action="{{ route('admin.staff.employee-payments.store', $employee->employee_code) }}" method="POST" class="space-y-3.5">
+                @csrf
+
+                <div>
+                    <label for="add-payment-amount" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Amount (₹) *</label>
+                    <input type="number" step="0.01" min="0.01" name="amount" id="add-payment-amount" required placeholder="0.00" class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label for="add-payment-date" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Date *</label>
+                        <input type="date" name="paid_on" id="add-payment-date" value="{{ today()->format('Y-m-d') }}" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                    </div>
+
+                    <div>
+                        <label for="add-payment-type" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Category *</label>
+                        <select name="payment_type" id="add-payment-type" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                            <option value="salary">Salary</option>
+                            <option value="advance">Staff Advance</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label for="add-payment-shop" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Shop Location *</label>
+                        <select name="shop_id" id="add-payment-shop" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                            @foreach($shops as $s)
+                                <option value="{{ $s->id }}" @selected($employee->default_shop_id == $s->id)>{{ $s->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="add-payment-fund-source" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Fund Source *</label>
+                        <select name="fund_source" id="add-payment-fund-source" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                            <option value="sales">Shop Cash / Sales</option>
+                            <option value="petty_cash">Petty Cash</option>
+                            <option value="company">Company Account</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="add-payment-notes" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Notes / Remarks</label>
+                    <textarea name="notes" id="add-payment-notes" rows="2" class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500" placeholder="Optional notes for payroll & cashbook"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                    <button type="button" onclick="closeAdminAddPaymentModal()" class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
+                        Cancel
+                    </button>
+                    <button type="submit" class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700 active:scale-95 transition cursor-pointer shadow-xs">
+                        Save Payment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- Edit Salary / Advance Modal --}}
+    <div id="admin-edit-payment-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div class="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl transition-all border border-slate-200 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="text-sm font-black uppercase tracking-wider text-slate-900">Edit Payment Record</h3>
+                    <p class="text-xs font-semibold text-slate-500 mt-0.5">Admin historical update with linked cashbook sync.</p>
+                </div>
+                <button type="button" onclick="closeAdminEditPaymentModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition cursor-pointer">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <form id="admin-edit-payment-form" method="POST" class="space-y-3.5">
+                @csrf
+                @method('PUT')
+
+                <div>
+                    <label for="admin-edit-payment-amount" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Amount (₹) *</label>
+                    <input type="number" step="0.01" min="0.01" name="amount" id="admin-edit-payment-amount" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label for="admin-edit-payment-date" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Date *</label>
+                        <input type="date" name="paid_on" id="admin-edit-payment-date" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                    </div>
+
+                    <div>
+                        <label for="admin-edit-payment-type" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Category *</label>
+                        <select name="payment_type" id="admin-edit-payment-type" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                            <option value="salary">Salary</option>
+                            <option value="advance">Staff Advance</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label for="admin-edit-payment-shop" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Shop Location *</label>
+                        <select name="shop_id" id="admin-edit-payment-shop" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                            @foreach($shops as $s)
+                                <option value="{{ $s->id }}">{{ $s->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="admin-edit-payment-fund-source" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Fund Source *</label>
+                        <select name="fund_source" id="admin-edit-payment-fund-source" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
+                            <option value="sales">Shop Cash / Sales</option>
+                            <option value="petty_cash">Petty Cash</option>
+                            <option value="company">Company Account</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="admin-edit-payment-notes" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Notes / Remarks</label>
+                    <textarea name="notes" id="admin-edit-payment-notes" rows="2" class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500" placeholder="Optional notes"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                    <button type="button" onclick="closeAdminEditPaymentModal()" class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer">
+                        Cancel
+                    </button>
+                    <button type="submit" class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700 active:scale-95 transition cursor-pointer shadow-xs">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     {{-- Crop Modal (Reused from Product Crop implementation: resources/views/inventory/products/create.blade.php) --}}
     <div id="crop-modal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
         <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
@@ -1024,6 +1229,37 @@
 
             const fileInput = document.getElementById(config.fileInputId);
             if (fileInput) fileInput.value = '';
+        }
+
+        function openAdminAddPaymentModal() {
+            const modal = document.getElementById('admin-add-payment-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeAdminAddPaymentModal() {
+            const modal = document.getElementById('admin-add-payment-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function openAdminEditPaymentModal(data) {
+            const modal = document.getElementById('admin-edit-payment-modal');
+            const form = document.getElementById('admin-edit-payment-form');
+            if (!modal || !form) return;
+
+            document.getElementById('admin-edit-payment-amount').value = data.amount;
+            document.getElementById('admin-edit-payment-date').value = data.paid_on;
+            document.getElementById('admin-edit-payment-type').value = data.payment_type;
+            document.getElementById('admin-edit-payment-shop').value = data.shop_id;
+            document.getElementById('admin-edit-payment-fund-source').value = (data.fund_source === 'petty' ? 'petty_cash' : data.fund_source);
+            document.getElementById('admin-edit-payment-notes').value = data.notes || '';
+            form.action = data.update_url;
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeAdminEditPaymentModal() {
+            const modal = document.getElementById('admin-edit-payment-modal');
+            if (modal) modal.classList.add('hidden');
         }
     </script>
 @endpush

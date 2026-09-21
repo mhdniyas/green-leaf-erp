@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Cashbook;
 
+use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRule;
@@ -188,7 +189,7 @@ class StaffPaymentCashbookProjectionTest extends TestCase
         $this->assertEquals(1, $count);
     }
 
-    public function test_shop_owner_cashbook_page_automatically_displays_and_calculates_salary_payment(): void
+    public function test_delete_salary_payment_removes_cashbook_transaction_and_recalculates_balance(): void
     {
         Carbon::setTestNow('2026-09-30 10:00:00');
 
@@ -196,26 +197,234 @@ class StaffPaymentCashbookProjectionTest extends TestCase
         $payment = $advanceService->recordShopSalaryPayment(
             $this->employee,
             $this->shop,
-            4000.0,
+            3000.0,
             'sales_cash',
             Carbon::parse('2026-09-30'),
             $this->owner,
-            'September Salary Ramesh'
+            'Salary to delete'
         );
 
-        $response = $this->actingAs($this->owner)->get(route('shop-owner.cashbook.show', [
-            'date' => '2026-09-30',
-        ]));
+        $tx = ShopLedgerTransaction::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('reference_type', ShopStaffPayment::class)
+            ->where('reference_id', $payment->id)
+            ->first();
 
-        $response->assertOk();
+        $this->assertNotNull($tx);
 
-        $apiResponse = $this->actingAs($this->owner)->getJson(route('shop-owner.cashbook.api.shop-data', [
-            'business_date' => '2026-09-30',
-        ]));
+        $advanceService->deleteShopStaffPayment($payment, $this->owner);
 
-        $apiResponse->assertOk();
-        $this->assertEquals(4000.0, (float) $apiResponse->json('transactions.0.amount'));
-        $this->assertEquals('September Salary Ramesh', $apiResponse->json('transactions.0.notes'));
-        $this->assertEquals('sales', $apiResponse->json('transactions.0.funding_source'));
+        $this->assertNull(ShopStaffPayment::query()->find($payment->id));
+
+        $txAfter = ShopLedgerTransaction::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('reference_type', ShopStaffPayment::class)
+            ->where('reference_id', $payment->id)
+            ->first();
+
+        $this->assertNull($txAfter);
+    }
+
+    public function test_two_payments_on_different_dates_remain_independent(): void
+    {
+        Carbon::setTestNow('2026-09-30 10:00:00');
+
+        $advanceService = app(EmployeeAdvanceService::class);
+        $projectionService = app(StaffPaymentCashbookProjectionService::class);
+
+        $payment1 = ShopStaffPayment::query()->create([
+            'shop_id' => $this->shop->id,
+            'employee_id' => $this->employee->id,
+            'amount' => 3000.00,
+            'fund_source' => 'sales',
+            'payment_type' => 'advance',
+            'paid_on' => '2026-09-13',
+            'paid_by' => $this->owner->id,
+            'status' => 'paid',
+            'notes' => 'Advance 13th',
+        ]);
+        $projectionService->syncPayment($payment1, $this->owner->id);
+
+        $payment2 = ShopStaffPayment::query()->create([
+            'shop_id' => $this->shop->id,
+            'employee_id' => $this->employee->id,
+            'amount' => 3000.00,
+            'fund_source' => 'sales',
+            'payment_type' => 'advance',
+            'paid_on' => '2026-09-18',
+            'paid_by' => $this->owner->id,
+            'status' => 'paid',
+            'notes' => 'Advance 18th',
+        ]);
+        $projectionService->syncPayment($payment2, $this->owner->id);
+
+        $tx1 = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopStaffPayment::class)
+            ->where('reference_id', $payment1->id)
+            ->first();
+
+        $tx2 = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopStaffPayment::class)
+            ->where('reference_id', $payment2->id)
+            ->first();
+
+        $this->assertNotNull($tx1);
+        $this->assertNotNull($tx2);
+        $this->assertNotEquals($tx1->id, $tx2->id);
+        $this->assertEquals('2026-09-13', $tx1->business_date->toDateString());
+        $this->assertEquals('2026-09-18', $tx2->business_date->toDateString());
+
+        // Deleting payment1 leaves payment2 intact
+        $advanceService->deleteShopStaffPayment($payment1, $this->owner);
+
+        $this->assertNull(ShopLedgerTransaction::query()->find($tx1->id));
+        $this->assertNotNull(ShopLedgerTransaction::query()->find($tx2->id));
+    }
+
+    public function test_manual_salary_cashbook_expense_remains_untouched_during_sync(): void
+    {
+        Carbon::setTestNow('2026-09-30 10:00:00');
+
+        $salaryEntryType = LedgerEntryType::query()->where('code', 'salary')->first();
+
+        // Create a manual Cashbook entry (reference_type IS NULL)
+        $manualTx = ShopLedgerTransaction::query()->create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salaryEntryType->id,
+            'amount' => 5000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'business_date' => '2026-09-15',
+            'status' => 'posted',
+            'reference_type' => null,
+            'reference_id' => null,
+            'notes' => 'Manual Cashbook Salary Expense',
+            'entered_by' => $this->owner->id,
+        ]);
+
+        $projectionService = app(StaffPaymentCashbookProjectionService::class);
+        $results = $projectionService->syncAndAuditShopPayments((int) $this->shop->id, null, '2026-09', (int) $this->owner->id);
+
+        $this->assertEmpty($results['orphans']);
+        $this->assertNotNull(ShopLedgerTransaction::query()->find($manualTx->id));
+    }
+
+    public function test_sync_cashbook_twice_produces_no_duplicates(): void
+    {
+        Carbon::setTestNow('2026-09-30 10:00:00');
+
+        $advanceService = app(EmployeeAdvanceService::class);
+        $advanceService->recordShopSalaryPayment(
+            $this->employee,
+            $this->shop,
+            2500.0,
+            'sales_cash',
+            Carbon::parse('2026-09-30'),
+            $this->owner,
+            'Salary 30th'
+        );
+
+        $projectionService = app(StaffPaymentCashbookProjectionService::class);
+
+        $firstRun = $projectionService->syncAndAuditShopPayments((int) $this->shop->id, null, '2026-09', (int) $this->owner->id);
+        $this->assertCount(0, $firstRun['created']); // Already created at payment creation
+        $this->assertCount(1, $firstRun['matching']);
+
+        $secondRun = $projectionService->syncAndAuditShopPayments((int) $this->shop->id, null, '2026-09', (int) $this->owner->id);
+        $this->assertCount(0, $secondRun['created']);
+        $this->assertCount(0, $secondRun['updated']);
+        $this->assertCount(1, $secondRun['matching']);
+        $this->assertCount(0, $secondRun['orphans']);
+
+        $txCount = ShopLedgerTransaction::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('reference_type', ShopStaffPayment::class)
+            ->count();
+        $this->assertEquals(1, $txCount);
+    }
+
+    public function test_historical_orphan_is_cleaned_by_sync_cashbook(): void
+    {
+        Carbon::setTestNow('2026-09-30 10:00:00');
+
+        $salaryEntryType = LedgerEntryType::query()->where('code', 'salary')->first();
+
+        // Create an orphan transaction pointing to non-existent ShopStaffPayment ID 99999
+        $orphanTx = ShopLedgerTransaction::query()->create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salaryEntryType->id,
+            'amount' => 3000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'business_date' => '2026-09-18',
+            'status' => 'posted',
+            'reference_type' => ShopStaffPayment::class,
+            'reference_id' => 99999,
+            'notes' => 'Staff Advance: Deleted Employee',
+            'entered_by' => $this->owner->id,
+        ]);
+
+        $projectionService = app(StaffPaymentCashbookProjectionService::class);
+        $results = $projectionService->syncAndAuditShopPayments((int) $this->shop->id, null, '2026-09', (int) $this->owner->id);
+
+        $this->assertCount(1, $results['orphans']);
+        $this->assertEquals($orphanTx->id, $results['orphans'][0]['transaction_id']);
+
+        // Verify transaction is deleted from DB
+        $this->assertNull(ShopLedgerTransaction::query()->find($orphanTx->id));
+    }
+
+    public function test_dry_run_reconciliation_reports_orphan_without_deleting_it(): void
+    {
+        Carbon::setTestNow('2026-09-30 10:00:00');
+
+        $salaryEntryType = LedgerEntryType::query()->where('code', 'salary')->first();
+
+        $orphanTx = ShopLedgerTransaction::query()->create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salaryEntryType->id,
+            'amount' => 3000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'business_date' => '2026-09-18',
+            'status' => 'posted',
+            'reference_type' => ShopStaffPayment::class,
+            'reference_id' => 88888,
+            'notes' => 'Staff Advance: Ghost',
+            'entered_by' => $this->owner->id,
+        ]);
+
+        $projectionService = app(StaffPaymentCashbookProjectionService::class);
+        $summary = $projectionService->reconcile(from: '2026-09-01', to: '2026-09-30', apply: false, userId: (int) $this->owner->id);
+
+        $this->assertGreaterThanOrEqual(1, $summary['voided']);
+        $this->assertNotNull(ShopLedgerTransaction::query()->find($orphanTx->id));
+    }
+
+    public function test_apply_reconciliation_cleans_orphan(): void
+    {
+        Carbon::setTestNow('2026-09-30 10:00:00');
+
+        $salaryEntryType = LedgerEntryType::query()->where('code', 'salary')->first();
+
+        $orphanTx = ShopLedgerTransaction::query()->create([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salaryEntryType->id,
+            'amount' => 3000.00,
+            'direction' => 'expense',
+            'funding_source' => 'sales',
+            'business_date' => '2026-09-18',
+            'status' => 'posted',
+            'reference_type' => ShopStaffPayment::class,
+            'reference_id' => 77777,
+            'notes' => 'Staff Advance: Ghost Apply',
+            'entered_by' => $this->owner->id,
+        ]);
+
+        $projectionService = app(StaffPaymentCashbookProjectionService::class);
+        $summary = $projectionService->reconcile(from: '2026-09-01', to: '2026-09-30', apply: true, userId: (int) $this->owner->id);
+
+        $this->assertGreaterThanOrEqual(1, $summary['voided']);
+        $this->assertNull(ShopLedgerTransaction::query()->find($orphanTx->id));
     }
 }

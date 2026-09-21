@@ -87,7 +87,7 @@
                     ][$childBadgeTone] ?? 'bg-orange-100 text-orange-800 ring-orange-200';
                     $hasSubChildren = ! empty($child['children']);
                 @endphp
-                <div x-data="{ childOpen: {{ $childActive ? 'true' : 'false' }} }}" class="space-y-1">
+                <div x-data="{ childOpen: {{ $childActive ? 'true' : 'false' }} }" class="space-y-1">
                     <div class="flex items-center justify-between group/child">
                         <a
                             href="{{ $child['href'] }}"

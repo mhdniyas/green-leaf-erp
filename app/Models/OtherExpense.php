@@ -21,6 +21,12 @@ class OtherExpense extends Model
 
     public const CategoryOther = 'other';
 
+    public const FUNDING_PURCHASER_ADVANCE = 'purchaser_advance';
+
+    public const FUNDING_COMPANY_CASH = 'company_cash';
+
+    public const FUNDING_COMPANY_BANK = 'company_bank';
+
     /**
      * @return array<string, string>
      */
@@ -41,6 +47,7 @@ class OtherExpense extends Model
         'company_accounting_entry_id',
         'expense_date',
         'category',
+        'funding_source',
         'amount',
         'note',
     ];

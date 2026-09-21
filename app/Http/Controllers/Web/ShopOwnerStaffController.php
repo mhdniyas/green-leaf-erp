@@ -1052,6 +1052,9 @@ class ShopOwnerStaffController extends Controller
         $ownedShops = $request->user()->ownedShopAssignments()->pluck('shop_id');
         abort_unless($ownedShops->contains($payment->shop_id), 403, 'This staff payment is outside your authorized shops.');
 
+        $isToday = $payment->paid_on?->toDateString() === today()->toDateString();
+        abort_unless($isToday || $request->user()->hasRole('admin'), 403, 'Historical staff payment records cannot be edited by shop owner.');
+
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'gt:0'],
             'paid_on' => ['required', 'date'],
@@ -1059,6 +1062,10 @@ class ShopOwnerStaffController extends Controller
             'fund_source' => ['required', 'in:sales,petty_cash,company,petty'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
+
+        if (! $request->user()->hasRole('admin') && Carbon::parse($validated['paid_on'])->toDateString() !== today()->toDateString()) {
+            abort(403, 'Shop owners can only update payments for the current business date.');
+        }
 
         $this->employeeAdvanceService->updateShopStaffPayment($payment, $validated, $request->user());
 
@@ -1077,6 +1084,9 @@ class ShopOwnerStaffController extends Controller
         $ownedShops = $request->user()->ownedShopAssignments()->pluck('shop_id');
         abort_unless($ownedShops->contains($payment->shop_id), 403, 'This staff payment is outside your authorized shops.');
 
+        $isToday = $payment->paid_on?->toDateString() === today()->toDateString();
+        abort_unless($isToday || $request->user()->hasRole('admin'), 403, 'Historical staff payment records cannot be deleted by shop owner.');
+
         $shopCode = $payment->shop?->code;
         $paidDate = $payment->paid_on?->toDateString();
 
@@ -1086,6 +1096,6 @@ class ShopOwnerStaffController extends Controller
             'shop' => $shopCode,
             'tab' => 'history',
             'date' => $paidDate,
-        ]))->with('success', 'Staff payment record deleted. Any remaining Cashbook entry will be detected during sync.');
+        ]))->with('success', 'Staff payment record deleted and Cashbook entry removed.');
     }
 }

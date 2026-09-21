@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -158,6 +159,11 @@ class Shop extends Model
     public function shopStaffPayments(): HasMany
     {
         return $this->hasMany(ShopStaffPayment::class);
+    }
+
+    public function ledgerEntrySettings(): HasMany
+    {
+        return $this->hasMany(ShopLedgerEntrySetting::class, 'shop_id');
     }
 
     public function advanceRequests(): HasMany

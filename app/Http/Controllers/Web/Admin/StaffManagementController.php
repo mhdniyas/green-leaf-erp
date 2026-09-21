@@ -390,6 +390,11 @@ class StaffManagementController extends Controller
             ->latest('id')
             ->limit(8)
             ->get();
+        $shopStaffPayments = $employee->shopStaffPayments()
+            ->with(['shop', 'paidBy', 'advanceRequest', 'cashbookLine.entry'])
+            ->latest('paid_on')
+            ->latest('id')
+            ->get();
         $recentShopStaffPayments = $employee->shopStaffPayments()
             ->with(['shop', 'paidBy', 'advanceRequest', 'cashbookLine.entry'])
             ->latest('paid_on')
@@ -425,6 +430,7 @@ class StaffManagementController extends Controller
             'monthlyPayrollItem' => $monthlyPayrollItem,
             'recentPayrollPayments' => $recentPayrollPayments,
             'recentShopStaffPayments' => $recentShopStaffPayments,
+            'shopStaffPayments' => $shopStaffPayments,
             'employeeAdvanceRequests' => $employeeAdvanceRequests,
             'leaveRequests' => $employee->leaveRequests()->with(['submittedBy.roles', 'submittedForShop', 'reviewedBy'])->latest('id')->limit(8)->get(),
         ]);
@@ -1429,6 +1435,88 @@ class StaffManagementController extends Controller
         return redirect()->route('admin.staff.payments.index', [
             'payroll_month' => $payment->paid_on->format('Y-m'),
         ])->with('success', 'Shop staff payment recorded and posted to shop cashbook.');
+    }
+
+    public function storeEmployeePayment(Request $request, Employee $employee): RedirectResponse
+    {
+        Gate::authorize('update', $employee);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'paid_on' => ['required', 'date'],
+            'payment_type' => ['required', 'in:salary,advance'],
+            'fund_source' => ['required', 'in:sales,petty_cash,company,petty'],
+            'shop_id' => ['required', 'exists:shops,id'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $shop = Shop::query()->findOrFail((int) $validated['shop_id']);
+
+        $this->employeeAdvanceService->recordAdminShopStaffPayment(
+            employee: $employee,
+            shop: $shop,
+            amount: (float) $validated['amount'],
+            paymentType: (string) $validated['payment_type'],
+            fundSource: (string) $validated['fund_source'],
+            paidOn: Carbon::parse((string) $validated['paid_on']),
+            actor: $request->user(),
+            notes: $validated['notes'] ?? null,
+        );
+
+        return redirect()->route('admin.staff.show', [
+            'employee' => $employee->employee_code,
+        ])->with('success', ucfirst((string) $validated['payment_type']).' payment recorded and posted to shop cashbook.');
+    }
+
+    public function updateShopStaffPayment(Request $request, ShopStaffPayment $payment): RedirectResponse
+    {
+        $payment->loadMissing(['employee']);
+        if ($payment->employee) {
+            Gate::authorize('update', $payment->employee);
+        } else {
+            Gate::authorize('create', PayrollRun::class);
+        }
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'paid_on' => ['required', 'date'],
+            'payment_type' => ['sometimes', 'in:salary,advance'],
+            'fund_source' => ['required', 'in:sales,petty_cash,company,petty'],
+            'shop_id' => ['sometimes', 'exists:shops,id'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $this->employeeAdvanceService->updateShopStaffPayment($payment, $validated, $request->user());
+
+        $employeeCode = $payment->employee?->employee_code;
+        if ($employeeCode) {
+            return redirect()->route('admin.staff.show', [
+                'employee' => $employeeCode,
+            ])->with('success', 'Payment record and cashbook transaction updated successfully.');
+        }
+
+        return back()->with('success', 'Payment record and cashbook transaction updated successfully.');
+    }
+
+    public function destroyShopStaffPayment(Request $request, ShopStaffPayment $payment): RedirectResponse
+    {
+        $payment->loadMissing(['employee']);
+        if ($payment->employee) {
+            Gate::authorize('update', $payment->employee);
+        } else {
+            Gate::authorize('create', PayrollRun::class);
+        }
+
+        $employeeCode = $payment->employee?->employee_code;
+        $this->employeeAdvanceService->deleteShopStaffPayment($payment, $request->user());
+
+        if ($employeeCode) {
+            return redirect()->route('admin.staff.show', [
+                'employee' => $employeeCode,
+            ])->with('success', 'Payment record deleted and cashbook adjusted.');
+        }
+
+        return back()->with('success', 'Payment record deleted and cashbook adjusted.');
     }
 
     public function reviewEmployeeAdvance(ReviewEmployeeAdvanceRequest $request, EmployeeAdvanceRequest $advanceRequest): RedirectResponse

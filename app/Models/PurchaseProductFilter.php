@@ -20,6 +20,7 @@ class PurchaseProductFilter extends Model
         'uuid',
         'name',
         'is_active',
+        'monthly_report_group',
         'created_by',
     ];
 
@@ -77,5 +78,10 @@ class PurchaseProductFilter extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    public function scopeMonthlyGroup(Builder $query, ?string $group): Builder
+    {
+        return $query->where('monthly_report_group', $group);
     }
 }

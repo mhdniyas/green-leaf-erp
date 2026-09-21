@@ -66,13 +66,14 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
     public function test_salary_update_appears_correctly_in_staff_history(): void
     {
+        $today = today()->toDateString();
         $payment = ShopStaffPayment::query()->create([
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'amount' => 3000.00,
             'fund_source' => 'sales',
             'payment_type' => 'salary',
-            'paid_on' => '2026-09-10',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
             'notes' => 'Original note',
@@ -82,7 +83,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
         $response = $this->actingAs($this->owner)->put(route('shop-owner.staff.payments.update', $payment), [
             'amount' => 3750.00,
-            'paid_on' => '2026-09-12',
+            'paid_on' => $today,
             'payment_type' => 'salary',
             'fund_source' => 'sales',
             'notes' => 'Updated salary notes',
@@ -91,7 +92,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         $response->assertRedirect();
         $fresh = $payment->fresh();
         $this->assertEquals(3750.00, (float) $fresh->amount);
-        $this->assertEquals('2026-09-12', $fresh->paid_on->toDateString());
+        $this->assertEquals($today, $fresh->paid_on->toDateString());
         $this->assertEquals('salary', $fresh->payment_type);
         $this->assertEquals('Updated salary notes', $fresh->notes);
 
@@ -107,13 +108,14 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
     public function test_salary_update_updates_the_same_cashbook_entry(): void
     {
+        $today = today()->toDateString();
         $payment = ShopStaffPayment::query()->create([
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'amount' => 2000.00,
             'fund_source' => 'sales',
             'payment_type' => 'salary',
-            'paid_on' => '2026-09-10',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
         ]);
@@ -123,7 +125,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
         $this->actingAs($this->owner)->put(route('shop-owner.staff.payments.update', $payment), [
             'amount' => 2800.00,
-            'paid_on' => '2026-09-14',
+            'paid_on' => $today,
             'payment_type' => 'salary',
             'fund_source' => 'sales',
             'notes' => 'Adjusted salary',
@@ -138,18 +140,19 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         $this->assertCount(1, $txs);
         $this->assertEquals($initialTx->id, $txs->first()->id);
         $this->assertEquals(2800.00, (float) $txs->first()->amount);
-        $this->assertEquals('2026-09-14', $txs->first()->business_date->toDateString());
+        $this->assertEquals($today, $txs->first()->business_date->toDateString());
     }
 
     public function test_advance_update_appears_correctly_in_staff_history(): void
     {
+        $today = today()->toDateString();
         $payment = ShopStaffPayment::query()->create([
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'amount' => 1000.00,
             'fund_source' => 'sales',
             'payment_type' => 'advance',
-            'paid_on' => '2026-09-05',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
             'notes' => 'Early advance',
@@ -159,7 +162,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
         $response = $this->actingAs($this->owner)->put(route('shop-owner.staff.payments.update', $payment), [
             'amount' => 1400.00,
-            'paid_on' => '2026-09-08',
+            'paid_on' => $today,
             'payment_type' => 'advance',
             'fund_source' => 'petty_cash',
             'notes' => 'Increased advance',
@@ -168,7 +171,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         $response->assertRedirect();
         $fresh = $payment->fresh();
         $this->assertEquals(1400.00, (float) $fresh->amount);
-        $this->assertEquals('2026-09-08', $fresh->paid_on->toDateString());
+        $this->assertEquals($today, $fresh->paid_on->toDateString());
         $this->assertEquals('advance', $fresh->payment_type);
         $this->assertEquals('petty_cash', $fresh->fund_source);
         $this->assertEquals('Increased advance', $fresh->notes);
@@ -185,13 +188,14 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
     public function test_advance_update_updates_the_same_cashbook_entry(): void
     {
+        $today = today()->toDateString();
         $payment = ShopStaffPayment::query()->create([
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'amount' => 1200.00,
             'fund_source' => 'sales',
             'payment_type' => 'advance',
-            'paid_on' => '2026-09-05',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
         ]);
@@ -201,7 +205,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
         $this->actingAs($this->owner)->put(route('shop-owner.staff.payments.update', $payment), [
             'amount' => 1800.00,
-            'paid_on' => '2026-09-09',
+            'paid_on' => $today,
             'payment_type' => 'advance',
             'fund_source' => 'petty_cash',
             'notes' => 'Advance updated',
@@ -216,32 +220,32 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         $this->assertCount(1, $txs);
         $this->assertEquals($initialTx->id, $txs->first()->id);
         $this->assertEquals(1800.00, (float) $txs->first()->amount);
-        $this->assertEquals('2026-09-09', $txs->first()->business_date->toDateString());
+        $this->assertEquals($today, $txs->first()->business_date->toDateString());
         $this->assertEquals(FundingSource::Petty->value, $txs->first()->funding_source);
     }
 
     public function test_staff_history_date_equals_cashbook_date(): void
     {
+        $today = today()->toDateString();
         $payment = ShopStaffPayment::query()->create([
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'amount' => 2200.00,
             'fund_source' => 'sales',
             'payment_type' => 'salary',
-            'paid_on' => '2026-09-02',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
         ]);
 
         app(StaffPaymentCashbookProjectionService::class)->syncPayment($payment, $this->owner->id);
 
-        $newDate = '2026-09-17';
         $this->actingAs($this->owner)->put(route('shop-owner.staff.payments.update', $payment), [
             'amount' => 2200.00,
-            'paid_on' => $newDate,
+            'paid_on' => $today,
             'payment_type' => 'salary',
             'fund_source' => 'sales',
-            'notes' => 'Date shift',
+            'notes' => 'Date verified',
         ]);
 
         $payment->refresh();
@@ -250,20 +254,21 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
             ->where('reference_id', $payment->id)
             ->firstOrFail();
 
-        $this->assertEquals($newDate, $payment->paid_on->toDateString());
-        $this->assertEquals($newDate, $tx->business_date->toDateString());
+        $this->assertEquals($today, $payment->paid_on->toDateString());
+        $this->assertEquals($today, $tx->business_date->toDateString());
         $this->assertEquals($payment->paid_on->toDateString(), $tx->business_date->toDateString());
     }
 
     public function test_no_duplicate_cashbook_entries_after_repeated_updates(): void
     {
+        $today = today()->toDateString();
         $payment = ShopStaffPayment::query()->create([
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'amount' => 1000.00,
             'fund_source' => 'sales',
             'payment_type' => 'salary',
-            'paid_on' => '2026-09-01',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
         ]);
@@ -272,10 +277,10 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
         // Perform 4 repeated updates with different values
         $updates = [
-            ['amount' => 1200.00, 'paid_on' => '2026-09-02', 'payment_type' => 'advance', 'fund_source' => 'petty_cash'],
-            ['amount' => 1500.00, 'paid_on' => '2026-09-05', 'payment_type' => 'salary', 'fund_source' => 'sales'],
-            ['amount' => 1800.00, 'paid_on' => '2026-09-08', 'payment_type' => 'advance', 'fund_source' => 'company'],
-            ['amount' => 2100.00, 'paid_on' => '2026-09-12', 'payment_type' => 'salary', 'fund_source' => 'sales'],
+            ['amount' => 1200.00, 'paid_on' => $today, 'payment_type' => 'advance', 'fund_source' => 'petty_cash'],
+            ['amount' => 1500.00, 'paid_on' => $today, 'payment_type' => 'salary', 'fund_source' => 'sales'],
+            ['amount' => 1800.00, 'paid_on' => $today, 'payment_type' => 'advance', 'fund_source' => 'company'],
+            ['amount' => 2100.00, 'paid_on' => $today, 'payment_type' => 'salary', 'fund_source' => 'sales'],
         ];
 
         foreach ($updates as $data) {
@@ -297,18 +302,19 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
             ->first();
 
         $this->assertEquals(2100.00, (float) $finalTx->amount);
-        $this->assertEquals('2026-09-12', $finalTx->business_date->toDateString());
+        $this->assertEquals($today, $finalTx->business_date->toDateString());
     }
 
     public function test_amount_category_and_fund_source_changes_are_synchronized(): void
     {
+        $today = today()->toDateString();
         $payment = ShopStaffPayment::query()->create([
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'amount' => 1100.00,
             'fund_source' => 'sales',
             'payment_type' => 'salary',
-            'paid_on' => '2026-09-03',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
             'notes' => 'Original salary',
@@ -318,7 +324,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
         $this->actingAs($this->owner)->put(route('shop-owner.staff.payments.update', $payment), [
             'amount' => 2220.00,
-            'paid_on' => '2026-09-18',
+            'paid_on' => $today,
             'payment_type' => 'advance',
             'fund_source' => 'petty_cash',
             'notes' => 'Converted to advance with petty cash',
@@ -330,13 +336,14 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
             ->firstOrFail();
 
         $this->assertEquals(2220.00, (float) $tx->amount);
-        $this->assertEquals('2026-09-18', $tx->business_date->toDateString());
+        $this->assertEquals($today, $tx->business_date->toDateString());
         $this->assertEquals(FundingSource::Petty->value, $tx->funding_source);
         $this->assertEquals('Converted to advance with petty cash', $tx->notes);
     }
 
     public function test_shop_authorization_boundaries_are_enforced(): void
     {
+        $today = today()->toDateString();
         $otherShop = Shop::query()->create([
             'name' => 'Other Shop',
             'code' => 'OTHER_SHOP',
@@ -357,7 +364,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
             'amount' => 1000.00,
             'fund_source' => 'sales',
             'payment_type' => 'salary',
-            'paid_on' => '2026-09-01',
+            'paid_on' => $today,
             'paid_by' => $this->owner->id,
             'status' => 'paid',
         ]);
@@ -365,7 +372,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         // Other owner attempts to update payment of first shop
         $response = $this->actingAs($otherOwner)->put(route('shop-owner.staff.payments.update', $payment), [
             'amount' => 9999.00,
-            'paid_on' => '2026-09-01',
+            'paid_on' => $today,
             'payment_type' => 'salary',
             'fund_source' => 'sales',
         ]);
@@ -378,6 +385,51 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
 
         // Verify payment was not modified
         $this->assertEquals(1000.00, (float) $payment->fresh()->amount);
+    }
+
+    public function test_shop_owner_cannot_update_historical_yesterday_payment(): void
+    {
+        $yesterday = today()->subDay()->toDateString();
+        $payment = ShopStaffPayment::query()->create([
+            'shop_id' => $this->shop->id,
+            'employee_id' => $this->employee->id,
+            'amount' => 1500.00,
+            'fund_source' => 'sales',
+            'payment_type' => 'salary',
+            'paid_on' => $yesterday,
+            'paid_by' => $this->owner->id,
+            'status' => 'paid',
+        ]);
+
+        $response = $this->actingAs($this->owner)->put(route('shop-owner.staff.payments.update', $payment), [
+            'amount' => 2000.00,
+            'paid_on' => $yesterday,
+            'payment_type' => 'salary',
+            'fund_source' => 'sales',
+        ]);
+
+        $response->assertForbidden();
+        $this->assertEquals(1500.00, (float) $payment->fresh()->amount);
+    }
+
+    public function test_shop_owner_cannot_delete_historical_yesterday_payment(): void
+    {
+        $yesterday = today()->subDay()->toDateString();
+        $payment = ShopStaffPayment::query()->create([
+            'shop_id' => $this->shop->id,
+            'employee_id' => $this->employee->id,
+            'amount' => 1500.00,
+            'fund_source' => 'sales',
+            'payment_type' => 'salary',
+            'paid_on' => $yesterday,
+            'paid_by' => $this->owner->id,
+            'status' => 'paid',
+        ]);
+
+        $response = $this->actingAs($this->owner)->delete(route('shop-owner.staff.payments.destroy', $payment));
+
+        $response->assertForbidden();
+        $this->assertNotNull(ShopStaffPayment::query()->find($payment->id));
     }
 
     public function test_salary_tab_defaults_to_give_advance_mode(): void
@@ -394,5 +446,35 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         $response->assertSee('advance-request-form');
         $response->assertDontSee('id="advance-request-form" class="space-y-4 hidden"', false);
         $response->assertSee('id="salary-payment-form" class="space-y-4 hidden"', false);
+    }
+
+    public function test_delete_staff_payment_via_web_endpoint_removes_cashbook_entry(): void
+    {
+        $today = today()->toDateString();
+        $payment = ShopStaffPayment::query()->create([
+            'shop_id' => $this->shop->id,
+            'employee_id' => $this->employee->id,
+            'amount' => 3000.00,
+            'fund_source' => 'sales',
+            'payment_type' => 'salary',
+            'paid_on' => $today,
+            'paid_by' => $this->owner->id,
+            'status' => 'paid',
+            'notes' => 'Salary to destroy',
+        ]);
+
+        app(StaffPaymentCashbookProjectionService::class)->syncPayment($payment, $this->owner->id);
+
+        $tx = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopStaffPayment::class)
+            ->where('reference_id', $payment->id)
+            ->first();
+        $this->assertNotNull($tx);
+
+        $response = $this->actingAs($this->owner)->delete(route('shop-owner.staff.payments.destroy', $payment));
+        $response->assertRedirect();
+
+        $this->assertNull(ShopStaffPayment::query()->find($payment->id));
+        $this->assertNull(ShopLedgerTransaction::query()->find($tx->id));
     }
 }

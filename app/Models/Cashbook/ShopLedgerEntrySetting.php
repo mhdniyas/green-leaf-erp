@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Cashbook;
 
+use App\Models\Shop;
 use App\Models\ShopSupplier;
 use App\Services\Cashbook\CashFlowResolutionService;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,7 +25,7 @@ class ShopLedgerEntrySetting extends Model
         'settlement_behavior', 'petty_behavior', 'company_pending_behavior',
         'generates_secondary_entry', 'secondary_entry_type_id',
         'secondary_amount_mode', 'secondary_amount_value', 'display_order',
-        'is_vendor_purchase', 'vendor_purchase_payment_type', 'mirror_to_cashbook', 'vendor_access_mode', 'vendor_settlement_relation_id', 'sales_report_bucket',
+        'is_vendor_purchase', 'vendor_purchase_payment_type', 'mirror_to_cashbook', 'vendor_access_mode', 'vendor_settlement_relation_id', 'sales_report_bucket', 'monthly_report_bucket',
     ];
 
     protected $casts = [
@@ -49,6 +50,11 @@ class ShopLedgerEntrySetting extends Model
         'generates_secondary_entry' => 'boolean',
         'secondary_amount_value' => 'decimal:4',
     ];
+
+    public function shop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class, 'shop_id');
+    }
 
     public function entryType(): BelongsTo
     {
@@ -200,5 +206,23 @@ class ShopLedgerEntrySetting extends Model
         }
 
         return 'ignore';
+    }
+
+    public function resolveMonthlyReportBucket(): ?string
+    {
+        if ($this->monthly_report_bucket !== null && trim((string) $this->monthly_report_bucket) !== '') {
+            return strtolower(trim((string) $this->monthly_report_bucket));
+        }
+
+        // Default fallback mapping
+        $salesBucket = $this->resolveSalesReportBucket();
+
+        return match ($salesBucket) {
+            'sales' => 'other_sale',
+            'rent' => 'rent',
+            'purchase' => 'other_product_expense',
+            'other_expense' => 'other_expense',
+            default => 'ignore',
+        };
     }
 }

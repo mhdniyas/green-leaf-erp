@@ -95,15 +95,36 @@
         ],
     ];
 
-    $isMonthlyReportsActive = request()->routeIs('admin.cashbook.monthly-closing-summary*')
+    $isMonthlyReportsActive = request()->routeIs('admin.cashbook.monthly-report.*')
+        || request()->routeIs('admin.cashbook.monthly-closing-summary*')
         || request()->routeIs('admin.cashbook.finance.purchase.monthly-summary*');
 
     $monthlyReportsSidebarItem = [
         'label' => 'Monthly Reports',
-        'href' => route('admin.cashbook.monthly-closing-summary.index'),
+        'href' => route('admin.cashbook.monthly-report.overview'),
         'active' => $isMonthlyReportsActive,
         'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" /></svg>',
         'children' => [
+            [
+                'label' => 'Green Leaf Monthly Report',
+                'href' => route('admin.cashbook.monthly-report.overview'),
+                'active' => request()->routeIs('admin.cashbook.monthly-report.overview'),
+            ],
+            [
+                'label' => 'Monthly Sale Split',
+                'href' => route('admin.cashbook.monthly-report.sale-split'),
+                'active' => request()->routeIs('admin.cashbook.monthly-report.sale-split'),
+            ],
+            [
+                'label' => 'Other Expense',
+                'href' => route('admin.cashbook.monthly-report.other-expenses'),
+                'active' => request()->routeIs('admin.cashbook.monthly-report.other-expenses'),
+            ],
+            [
+                'label' => 'Expense Report',
+                'href' => route('admin.cashbook.monthly-report.expense-report'),
+                'active' => request()->routeIs('admin.cashbook.monthly-report.expense-report'),
+            ],
             [
                 'label' => 'Shop Monthly Closing',
                 'href' => route('admin.cashbook.monthly-closing-summary.index'),
@@ -399,9 +420,17 @@
             <!-- SETTINGS -->
             <div class="space-y-1">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">SETTINGS</span>
+                <a href="{{ route('admin.cashbook.categories.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.categories.*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="layers" class="w-4 h-4"></i>
+                    <span>Cashbook Categories</span>
+                </a>
                 <a href="{{ route('admin.cashbook.settings') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.settings') || request()->routeIs('admin.cashbook.settings.shop') ? 'active-sidebar' : '' }}">
                     <i data-lucide="settings" class="w-4 h-4"></i>
                     <span>Settings</span>
+                </a>
+                <a href="{{ route('admin.cashbook.settings.final-report.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.settings.final-report.*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="file-check" class="w-4 h-4"></i>
+                    <span>Final Report Settings</span>
                 </a>
             </div>
 

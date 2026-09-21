@@ -8,8 +8,10 @@ use App\Enums\Cashbook\FundingSource;
 use App\Enums\Cashbook\LedgerDirection;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopDailyLedgerSnapshot;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\ShopStaffPayment;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -66,11 +68,15 @@ class StaffPaymentCashbookProjectionService
 
         return DB::transaction(function () use ($payment, $entryType, $businessDate, $amount, $shouldVoid, $userId, $setting): ShopLedgerTransaction {
             $transaction = ShopLedgerTransaction::query()
-                ->where('shop_id', $payment->shop_id)
                 ->where('reference_type', ShopStaffPayment::class)
                 ->where('reference_id', $payment->id)
                 ->lockForUpdate()
                 ->first();
+
+            $previousShopId = $transaction?->exists ? (int) $transaction->shop_id : null;
+            $previousBusinessDate = $transaction?->exists
+                ? $transaction->business_date?->toDateString()
+                : null;
 
             if (! $transaction instanceof ShopLedgerTransaction) {
                 $transaction = new ShopLedgerTransaction([
@@ -81,10 +87,6 @@ class StaffPaymentCashbookProjectionService
                     'entered_by' => $userId ?? $payment->paid_by,
                 ]);
             }
-
-            $previousBusinessDate = $transaction->exists
-                ? $transaction->business_date?->toDateString()
-                : null;
 
             $fundingSource = match ((string) $payment->fund_source) {
                 'petty_cash', 'petty' => FundingSource::Petty,
@@ -100,6 +102,7 @@ class StaffPaymentCashbookProjectionService
             $notes = filled($payment->notes) ? $payment->notes : $defaultNotes;
 
             $transaction->fill([
+                'shop_id' => (int) $payment->shop_id,
                 'business_date' => $businessDate,
                 'entry_type_id' => $entryType->id,
                 'amount' => $amount,
@@ -125,9 +128,14 @@ class StaffPaymentCashbookProjectionService
             ]);
 
             $transaction->save();
-            $this->balanceCalculator->recalculate((int) $payment->shop_id, $businessDate);
+
+            if ($previousShopId !== null && $previousShopId !== (int) $payment->shop_id) {
+                $this->recalculateBalancesFromDate($previousShopId, $previousBusinessDate ?? $businessDate);
+            }
+
+            $this->recalculateBalancesFromDate((int) $payment->shop_id, $businessDate);
             if ($previousBusinessDate !== null && $previousBusinessDate !== $businessDate) {
-                $this->balanceCalculator->recalculate((int) $payment->shop_id, $previousBusinessDate);
+                $this->recalculateBalancesFromDate((int) $payment->shop_id, $previousBusinessDate);
             }
 
             return $transaction->fresh('entryType');
@@ -210,6 +218,41 @@ class StaffPaymentCashbookProjectionService
                 }
             });
 
+        // Detect & Clean Orphan ShopLedgerTransactions (where reference_type is ShopStaffPayment but source payment no longer exists)
+        $orphanTxQuery = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopStaffPayment::class)
+            ->whereNotNull('reference_id')
+            ->whereNotIn('status', [TransactionStatus::Void->value, 'void', 'reversed'])
+            ->when($from, fn ($query) => $query->whereDate('business_date', '>=', $from))
+            ->when($to, fn ($query) => $query->whereDate('business_date', '<=', $to));
+
+        $allPaymentIds = ShopStaffPayment::query()->pluck('id')->all();
+
+        $orphanTxs = $orphanTxQuery->get()->filter(function (ShopLedgerTransaction $tx) use ($allPaymentIds): bool {
+            return ! in_array((int) $tx->reference_id, $allPaymentIds, true);
+        });
+
+        foreach ($orphanTxs as $orphanTx) {
+            $summary['checked']++;
+            $summary['voided']++;
+
+            if (! $apply) {
+                continue;
+            }
+
+            try {
+                $txDate = $orphanTx->business_date?->toDateString();
+                $txShopId = (int) $orphanTx->shop_id;
+                $orphanTx->delete();
+                if ($txDate !== null) {
+                    $this->recalculateBalancesFromDate($txShopId, $txDate);
+                }
+            } catch (Throwable) {
+                $summary['voided']--;
+                $summary['failed']++;
+            }
+        }
+
         return $summary;
     }
 
@@ -248,7 +291,8 @@ class StaffPaymentCashbookProjectionService
         } elseif (filled($month)) {
             $startOfMonth = Carbon::parse($month)->startOfMonth()->toDateString();
             $endOfMonth = Carbon::parse($month)->endOfMonth()->toDateString();
-            $query->whereBetween('paid_on', [$startOfMonth, $endOfMonth]);
+            $query->whereDate('paid_on', '>=', $startOfMonth)
+                ->whereDate('paid_on', '<=', $endOfMonth);
         }
 
         $payments = $query->orderBy('id')->get();
@@ -347,19 +391,21 @@ class StaffPaymentCashbookProjectionService
             }
         }
 
-        // Detect Orphan Cashbook Entries (references non-existent ShopStaffPayment)
+        // Detect & Clean Orphan Cashbook Entries (references non-existent ShopStaffPayment)
         $orphanQuery = ShopLedgerTransaction::query()
             ->with(['entryType'])
             ->where('shop_id', $shopId)
             ->where('reference_type', ShopStaffPayment::class)
-            ->where('status', '!=', TransactionStatus::Void->value);
+            ->whereNotNull('reference_id')
+            ->whereNotIn('status', [TransactionStatus::Void->value, 'void', 'reversed']);
 
         if (filled($date)) {
             $orphanQuery->whereDate('business_date', $date);
         } elseif (filled($month)) {
             $startOfMonth = Carbon::parse($month)->startOfMonth()->toDateString();
             $endOfMonth = Carbon::parse($month)->endOfMonth()->toDateString();
-            $orphanQuery->whereBetween('business_date', [$startOfMonth, $endOfMonth]);
+            $orphanQuery->whereDate('business_date', '>=', $startOfMonth)
+                ->whereDate('business_date', '<=', $endOfMonth);
         }
 
         $allStaffPaymentsForShop = ShopStaffPayment::query()->where('shop_id', $shopId)->pluck('id')->all();
@@ -377,6 +423,12 @@ class StaffPaymentCashbookProjectionService
                 'category' => $orphanTx->entryType?->name ?? 'Salary / Advance',
                 'notes' => (string) ($orphanTx->notes ?? 'Orphan staff payment record'),
             ];
+
+            $txDate = $orphanTx->business_date?->toDateString();
+            $orphanTx->delete();
+            if ($txDate !== null) {
+                $this->recalculateBalancesFromDate($shopId, $txDate);
+            }
         }
 
         return $results;
@@ -397,9 +449,27 @@ class StaffPaymentCashbookProjectionService
         $transaction->delete();
 
         if ($businessDate !== null) {
-            $this->balanceCalculator->recalculate($shopId, $businessDate);
+            $this->recalculateBalancesFromDate($shopId, $businessDate);
         }
 
         return true;
+    }
+
+    public function recalculateBalancesFromDate(int $shopId, string $businessDate): void
+    {
+        $dates = ShopDailyLedgerSnapshot::query()
+            ->where('shop_id', $shopId)
+            ->whereDate('business_date', '>=', $businessDate)
+            ->orderBy('business_date')
+            ->pluck('business_date')
+            ->map(fn ($d): string => $d instanceof CarbonInterface ? $d->toDateString() : (string) $d)
+            ->push($businessDate)
+            ->unique()
+            ->sort()
+            ->values();
+
+        foreach ($dates as $date) {
+            $this->balanceCalculator->recalculate($shopId, $date);
+        }
     }
 }

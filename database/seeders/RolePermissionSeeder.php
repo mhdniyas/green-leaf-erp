@@ -82,6 +82,12 @@ class RolePermissionSeeder extends Seeder
             'accounting.invoice.approve',
             'accounting.purchaser-cash.manage',
 
+            // Cashbook Monthly Report
+            'cashbook.monthly-report.view',
+            'cashbook.monthly-report.export',
+            'cashbook.monthly-report.settings.view',
+            'cashbook.monthly-report.settings.manage',
+
             // Finance V2
             'finance.dashboard.view',
             'finance.payments.view',
@@ -228,6 +234,9 @@ class RolePermissionSeeder extends Seeder
                 'accounting.report.export',
                 'accounting.dashboard.view',
                 'accounting.invoice.approve',
+                'cashbook.monthly-report.view',
+                'cashbook.monthly-report.export',
+                'cashbook.monthly-report.settings.view',
                 'finance.dashboard.view',
                 'finance.payments.view',
                 'finance.payments.create',

@@ -130,7 +130,7 @@ final class PurchaserFinanceService
                 SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as remaining_advance
             ")
             ->when($startDate !== '', fn (Builder $query) => $query->whereDate('business_date', '>=', $startDate))
-            ->when($endDate !== '', fn (Builder $query) => $query->whereDate('business_date', '<', $endDate))
+            ->when($endDate !== '', fn (Builder $query) => $query->whereDate('business_date', '<=', $endDate))
             ->groupBy('purchaser_id');
     }
 
