@@ -417,7 +417,16 @@
                 </a>
             </div>
 
-            <!-- SETTINGS -->
+            
+            <!-- ASSETS -->
+            <div class="space-y-1">
+                <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">ASSETS</span>
+                <a href="{{ route('admin.cashbook.assets.trays.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.assets.trays*') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="inbox" class="w-4 h-4 text-blue-600"></i>
+                    <span>Trays</span>
+                </a>
+            </div>
+            
             <div class="space-y-1">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">SETTINGS</span>
                 <a href="{{ route('admin.cashbook.categories.index') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.categories.*') ? 'active-sidebar' : '' }}">

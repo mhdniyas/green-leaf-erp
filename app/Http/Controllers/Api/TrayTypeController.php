@@ -28,6 +28,9 @@ class TrayTypeController extends Controller
             'data' => $types->map(fn (TrayType $type) => [
                 'id' => $type->id,
                 'name' => $type->name,
+                'total_owned' => (int) $type->total_owned,
+                'with_shops' => $type->with_shops,
+                'in_warehouse' => $type->in_warehouse,
                 'is_active' => (bool) $type->is_active,
             ]),
         ]);
@@ -40,11 +43,13 @@ class TrayTypeController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'total_owned' => 'nullable|integer|min:0',
             'is_active' => 'nullable|boolean',
         ]);
 
         $trayType = TrayType::create([
             'name' => trim($validated['name']),
+            'total_owned' => (int) ($validated['total_owned'] ?? 0),
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
@@ -54,23 +59,29 @@ class TrayTypeController extends Controller
             'data' => [
                 'id' => $trayType->id,
                 'name' => $trayType->name,
+                'total_owned' => (int) $trayType->total_owned,
                 'is_active' => (bool) $trayType->is_active,
             ],
         ], 201);
     }
 
     /**
-     * Update an existing tray type (rename or enable/disable).
+     * Update an existing tray type (rename, total_owned, or enable/disable).
      */
     public function update(Request $request, TrayType $trayType): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
+            'total_owned' => 'nullable|integer|min:0',
             'is_active' => 'nullable|boolean',
         ]);
 
         if (array_key_exists('name', $validated)) {
             $trayType->name = trim($validated['name']);
+        }
+
+        if (array_key_exists('total_owned', $validated)) {
+            $trayType->total_owned = (int) $validated['total_owned'];
         }
 
         if (array_key_exists('is_active', $validated)) {
@@ -85,6 +96,9 @@ class TrayTypeController extends Controller
             'data' => [
                 'id' => $trayType->id,
                 'name' => $trayType->name,
+                'total_owned' => (int) $trayType->total_owned,
+                'with_shops' => $trayType->with_shops,
+                'in_warehouse' => $trayType->in_warehouse,
                 'is_active' => (bool) $trayType->is_active,
             ],
         ]);

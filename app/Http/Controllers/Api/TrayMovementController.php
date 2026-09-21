@@ -17,6 +17,7 @@ class TrayMovementController extends Controller
 {
     /**
      * Get daily tray table overview for selected date.
+     * Table cells show NET = SENT - RETURNED.
      */
     public function index(Request $request): JsonResponse
     {
@@ -29,7 +30,9 @@ class TrayMovementController extends Controller
         $activeTypeIds = $trayTypes->pluck('id')->toArray();
         $dateTypeIds = TrayMovement::query()
             ->where('date', $date)
-            ->where('sent_qty', '>', 0)
+            ->where(function ($q) {
+                $q->where('sent_qty', '>', 0)->orWhere('returned_qty', '>', 0);
+            })
             ->pluck('tray_type_id')
             ->unique()
             ->toArray();
@@ -40,7 +43,7 @@ class TrayMovementController extends Controller
             $trayTypes = $trayTypes->concat($extraTypes)->sortBy('id')->values();
         }
 
-        // Get shops list (all active shops or shops with order/movements)
+        // Get shops list
         $shops = Shop::query()->orderBy('name')->get();
 
         // Fetch movements for the date
@@ -55,22 +58,30 @@ class TrayMovementController extends Controller
             $traysMap = $shopMovements->keyBy('tray_type_id');
 
             $traysList = [];
-            $totalSent = 0;
+            $totalNet = 0;
 
             foreach ($trayTypes as $type) {
-                $qty = (int) ($traysMap->has($type->id) ? $traysMap->get($type->id)->sent_qty : 0);
+                $movement = $traysMap->get($type->id);
+                $sent = (int) ($movement ? $movement->sent_qty : 0);
+                $returned = (int) ($movement ? $movement->returned_qty : 0);
+                $net = $sent - $returned;
+
                 $traysList[] = [
                     'tray_type_id' => $type->id,
-                    'quantity' => $qty,
+                    'name' => $type->name,
+                    'sent' => $sent,
+                    'returned' => $returned,
+                    'net' => $net,
+                    'quantity' => $net, // backward-compatible & matches NET spec
                 ];
-                $totalSent += $qty;
+                $totalNet += $net;
             }
 
             $shopsData[] = [
                 'shop_id' => $shop->id,
                 'shop_name' => $shop->name,
                 'trays' => $traysList,
-                'total' => $totalSent,
+                'total' => $totalNet,
             ];
         }
 
@@ -79,6 +90,7 @@ class TrayMovementController extends Controller
             'tray_types' => $trayTypes->map(fn ($type) => [
                 'id' => $type->id,
                 'name' => $type->name,
+                'total_owned' => (int) $type->total_owned,
             ])->values(),
             'shops' => $shopsData,
         ]);
@@ -195,7 +207,7 @@ class TrayMovementController extends Controller
     }
 
     /**
-     * Get current tray balance for a shop.
+     * Get current tray balance for a shop across all history.
      */
     public function balance(Request $request): JsonResponse
     {
@@ -236,6 +248,7 @@ class TrayMovementController extends Controller
                 'name' => $type->name,
                 'sent' => $sent,
                 'returned' => $returned,
+                'held' => $bal,
                 'balance' => $bal,
             ];
         }
@@ -244,6 +257,7 @@ class TrayMovementController extends Controller
             'shop_id' => $shop->id,
             'shop_name' => $shop->name,
             'trays' => $traysResult,
+            'total_held' => $totalBalance,
             'total_balance' => $totalBalance,
         ]);
     }

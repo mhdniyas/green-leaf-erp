@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\AdminProductPurchaserAllotmentController;
 use App\Http\Controllers\Web\Admin\AdminPurchaserBusinessDayController;
 use App\Http\Controllers\Web\Admin\AdminShopPurchasingVerificationController;
+use App\Http\Controllers\Web\Admin\Cashbook\AdminTrayAssetController;
 use App\Http\Controllers\Web\Admin\CashbookCategoryController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CashbookSalaryController;
@@ -78,6 +79,11 @@ use App\Http\Controllers\Web\Purchasing\PurchasingBusinessDayController;
 use App\Http\Controllers\Web\Purchasing\ShopInvoiceController;
 use App\Http\Controllers\Web\Purchasing\ShopPriceGroupController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
+use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2BuyController;
+use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2CartController;
+use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2DailyController;
+use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2DashboardController;
+use App\Http\Controllers\Web\Purchasing\V2\PurchaserV2SearchController;
 use App\Http\Controllers\Web\RequisitionController;
 use App\Http\Controllers\Web\Sales\CustomerController;
 use App\Http\Controllers\Web\Sales\PaymentController;
@@ -836,6 +842,17 @@ Route::middleware('auth')->group(function () {
                 Route::get('/{report}/export/pdf', [GreenLeafMonthlyReportExportController::class, 'exportPdf'])->name('export.pdf');
             });
 
+            // ── Assets → Trays ────────────────────────────────────────────────
+            Route::prefix('assets/trays')->name('assets.trays.')->group(function () {
+                Route::get('/', [AdminTrayAssetController::class, 'index'])->name('index');
+                Route::post('/', [AdminTrayAssetController::class, 'store'])->name('store');
+                Route::get('/{trayType}', [AdminTrayAssetController::class, 'show'])->name('show');
+                Route::get('/{trayType}/edit', [AdminTrayAssetController::class, 'edit'])->name('edit');
+                Route::put('/{trayType}', [AdminTrayAssetController::class, 'update'])->name('update');
+                Route::get('/shop/{shop}/date/{date}/edit', [AdminTrayAssetController::class, 'editShopDate'])->name('shop-date.edit');
+                Route::put('/shop/{shop}/date/{date}', [AdminTrayAssetController::class, 'updateShopDate'])->name('shop-date.update');
+            });
+
             // ── Final Report Settings ─────────────────────────────────────────
             Route::prefix('settings/final-report')->name('settings.final-report.')->group(function () {
                 Route::get('/', [FinalReportSettingsController::class, 'index'])->name('index');
@@ -1368,5 +1385,28 @@ Route::middleware('auth')->group(function () {
         Route::get('/matrix-print', [SortSheetController::class, 'segregationMatrixPrint'])->name('matrix-print');
         Route::get('/grid-print', [SortSheetController::class, 'segregationGridPrint'])->name('grid-print');
         Route::get('/print', [SortSheetController::class, 'segregationPdf'])->name('print');
+    });
+
+    // ── Purchaser V2 (Isolated High-Performance Architecture) ──────────────
+    Route::prefix('purchaser-v2')->name('purchaser-v2.')->group(function () {
+        Route::get('/', [PurchaserV2DashboardController::class, 'index'])->name('index');
+        Route::get('/dashboard', [PurchaserV2DashboardController::class, 'index'])->name('dashboard');
+        Route::get('/daily', [PurchaserV2DailyController::class, 'index'])->name('daily');
+        Route::get('/daily/products', [PurchaserV2DailyController::class, 'products'])->name('daily.products');
+        Route::get('/daily/products/{product}/detail', [PurchaserV2DailyController::class, 'productDetail'])->name('daily.product-detail');
+        Route::get('/products/search', [PurchaserV2SearchController::class, 'products'])->name('products.search');
+        Route::get('/buy', [PurchaserV2BuyController::class, 'index'])->name('buy');
+        Route::get('/buy/product-details', [PurchaserV2BuyController::class, 'productDetails'])->name('buy.product-details');
+        Route::post('/cart/store', [PurchaserV2BuyController::class, 'storeCart'])->name('cart.store');
+        Route::get('/cart', [PurchaserV2CartController::class, 'index'])->name('cart.index');
+        Route::get('/cart/{cart}/items', [PurchaserV2CartController::class, 'items'])->name('cart.items');
+        Route::patch('/cart/{cart}/items', [PurchaserV2CartController::class, 'updateItems'])->name('cart.items.update');
+        Route::delete('/cart/{cart}/items/{item}', [PurchaserV2CartController::class, 'destroyItem'])->name('cart.items.destroy');
+        Route::delete('/cart/{cart}', [PurchaserV2CartController::class, 'destroyCart'])->name('cart.destroy');
+        Route::get('/suppliers/search', [PurchaserV2CartController::class, 'searchSuppliers'])->name('suppliers.search');
+        Route::patch('/cart/{cart}/supplier', [PurchaserV2CartController::class, 'updateSupplier'])->name('cart.update-supplier');
+        Route::get('/cart/{cart}/price-hints', [PurchaserV2CartController::class, 'priceHints'])->name('cart.price-hints');
+        Route::post('/cart/{cart}/merge-drafts', [PurchaserV2CartController::class, 'mergeDrafts'])->name('cart.merge-drafts');
+        Route::get('/cart/{cart}/bill', [PurchaserV2CartController::class, 'bill'])->name('cart.bill');
     });
 });
