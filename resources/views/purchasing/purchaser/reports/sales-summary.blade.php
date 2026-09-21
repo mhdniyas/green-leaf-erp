@@ -9,7 +9,13 @@
                     <p class="mt-1 text-[10px] font-black uppercase text-amber-300">Filtered by purchaser settings</p>
                 @endif
             </div>
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('purchaser-v2.report') }}" class="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400 bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-500">
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span>V2 Daily Report (Beta)</span>
+                </a>
                 <a href="{{ route('purchaser.settings') }}" class="rounded-lg border border-emerald-500/60 bg-emerald-500 px-3 py-2 text-xs font-bold text-white">Settings</a>
                 <a href="{{ route('purchaser.reports.sales-summary.csv', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">CSV</a>
                 <a href="{{ route('purchaser.reports.sales-summary.excel', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">Excel</a>

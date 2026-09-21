@@ -138,46 +138,8 @@
                         </div>
                     </div>
 
-                    <footer class="pt-3 text-center">
-                        <p class="text-xs font-black text-slate-800">Thank You</p>
-                    </footer>
-                </div>
-            </section>
-
-            <section class="mx-auto w-full max-w-[36rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-sm print:hidden">
-                <div>
-                    <label for="notes" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Notes</label>
-                    <input id="notes" type="text" name="notes" value="{{ old('notes', $cart->notes) }}" placeholder="Optional note..." class="mt-1 h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
-                </div>
-            </section>
-
-            <input type="hidden" id="paid_amount" name="paid_amount" value="{{ old('paid_amount', $cart->paid_amount ?? 0) }}">
-            <input type="hidden" id="discount_amount" name="discount_amount" value="{{ old('discount_amount', $cart->discount_amount ?? 0) }}">
-            <input type="hidden" id="payment_method" name="payment_method" value="{{ old('payment_method', $cart->payment_method ?: 'Cash') }}">
-            <input type="hidden" id="payment_note" name="payment_note" value="{{ old('payment_note', $cart->payment_note) }}">
-
-            <div class="sticky bottom-20 z-20 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur print:hidden sm:static sm:mx-auto sm:w-full sm:max-w-[36rem]">
-                <div class="flex items-center gap-2">
-                    <a href="{{ route('purchaser.history', ['date' => $date]) }}" class="inline-flex h-11 w-24 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">History</a>
-                    <button type="button" onclick="openBillPaymentModal()" class="inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-xs font-black text-white shadow-sm hover:bg-teal-500 active:scale-95 transition-all">
-                        Save Prices & Pay
-                    </button>
-                </div>
-            </div>
-
-            <!-- Payment Update Modal for Bill Submission -->
-            <div id="payment-update-modal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs overscroll-none touch-none" onclick="if (event.target === this) closePaymentModal()">
-                <div class="w-full max-w-xs rounded-2xl border border-slate-200 bg-white p-4 shadow-xl text-xs font-semibold text-slate-800 touch-pan-y">
-                    <!-- Header -->
-                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <div>
-                            <h3 class="text-sm font-black text-slate-950">Submit Payment</h3>
-                            <p class="text-[11px] font-semibold text-slate-500 truncate mt-0.5">{{ $cart->cart_number }} • {{ $supplier?->name ?: 'Vendor pending' }}</p>
-                        </div>
-                        <button type="button" onclick="closePaymentModal()" class="text-slate-400 hover:text-slate-600 font-bold text-sm">✕</button>
-                    </div>
-
-                    <div class="mt-3 space-y-3">
+                    <!-- Payment Section (Moved directly from popup into inline page DOM) -->
+                    <div class="py-3 border-b border-dashed border-slate-400 space-y-3 text-xs font-semibold text-slate-800">
                         <!-- Total Amount & Balance Card -->
                         <div class="rounded-xl border border-slate-900 bg-slate-950 p-3 text-white shadow-xs space-y-1">
                             <div class="flex items-center justify-between">
@@ -249,15 +211,32 @@
                         <!-- Bill Ref No -->
                         <div>
                             <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Bill Ref No (Optional)</label>
-                            <input id="modal_bill_number" type="text" placeholder="Enter bill ref no" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none" oninput="window.syncBillNumber(this.value)">
+                            <input id="modal_bill_number" type="text" placeholder="Enter bill ref no" value="{{ old('bill_number', $cart->bill_number) }}" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none" oninput="window.syncBillNumber(this.value)">
                         </div>
 
+                        <!-- Submit Button -->
                         <button type="submit" class="h-10 w-full rounded-xl bg-teal-600 text-xs font-black text-white hover:bg-teal-500 active:scale-95 transition-all shadow-xs">
                             Submit Payment
                         </button>
                     </div>
+
+                    <footer class="pt-3 text-center">
+                        <p class="text-xs font-black text-slate-800">Thank You</p>
+                    </footer>
                 </div>
-            </div>
+            </section>
+
+            <section class="mx-auto w-full max-w-[36rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-sm print:hidden">
+                <div>
+                    <label for="notes" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Notes</label>
+                    <input id="notes" type="text" name="notes" value="{{ old('notes', $cart->notes) }}" placeholder="Optional note..." class="mt-1 h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                </div>
+            </section>
+
+            <input type="hidden" id="paid_amount" name="paid_amount" value="{{ old('paid_amount', $cart->paid_amount ?? 0) }}">
+            <input type="hidden" id="discount_amount" name="discount_amount" value="{{ old('discount_amount', $cart->discount_amount ?? 0) }}">
+            <input type="hidden" id="payment_method" name="payment_method" value="{{ old('payment_method', $cart->payment_method ?: 'Cash') }}">
+            <input type="hidden" id="payment_note" name="payment_note" value="{{ old('payment_note', $cart->payment_note) }}">
         </form>
     </div>
 
@@ -288,20 +267,14 @@
                 });
                 currentSubtotal = subtotal;
                 if (subtotalNode) subtotalNode.textContent = formatCurrency(subtotal);
+                const totalNode = document.getElementById('payment-modal-total');
+                if (totalNode) totalNode.textContent = formatCurrency(subtotal);
+                if (typeof window.updatePaymentModalStatus === 'function') {
+                    window.updatePaymentModalStatus();
+                }
             };
 
             priceInputs.forEach((input) => input.addEventListener('input', recalculateSubtotal));
-            recalculateSubtotal();
-
-            window.lockBackgroundScroll = () => {
-                document.documentElement.classList.add('overflow-hidden', 'touch-none');
-                document.body.classList.add('overflow-hidden', 'touch-none');
-            };
-
-            window.unlockBackgroundScroll = () => {
-                document.documentElement.classList.remove('overflow-hidden', 'touch-none');
-                document.body.classList.remove('overflow-hidden', 'touch-none');
-            };
 
             window.syncBillNumber = (val) => {
                 const hiddenInput = document.getElementById('bill_number_hidden');
@@ -360,47 +333,6 @@
                 }
 
                 window.updatePaymentModalStatus();
-            };
-
-            window.openBillPaymentModal = () => {
-                recalculateSubtotal();
-                userToggledDiffMode = false;
-
-                const hiddenBillInput = document.getElementById('bill_number_hidden');
-                const modalBillInput = document.getElementById('modal_bill_number');
-                if (hiddenBillInput && modalBillInput) {
-                    modalBillInput.value = hiddenBillInput.value || '';
-                }
-
-                const totalNode = document.getElementById('payment-modal-total');
-                if (totalNode) totalNode.textContent = formatCurrency(currentSubtotal);
-
-                const addPaidInput = document.getElementById('additional_paid_amount');
-                if (addPaidInput) addPaidInput.value = '';
-
-                const creditDiscInput = document.getElementById('credit_discount_input');
-                const creditNoteInput = document.getElementById('credit_discount_note_input');
-                if (creditDiscInput) creditDiscInput.value = '';
-                if (creditNoteInput) creditNoteInput.value = '';
-
-                selectPaymentMethod('Cash');
-                window.updatePaymentModalStatus();
-
-                const modal = document.getElementById('payment-update-modal');
-                if (modal) {
-                    lockBackgroundScroll();
-                    modal.classList.remove('hidden');
-                    modal.classList.add('flex');
-                }
-            };
-
-            window.closePaymentModal = () => {
-                unlockBackgroundScroll();
-                const modal = document.getElementById('payment-update-modal');
-                if (modal) {
-                    modal.classList.add('hidden');
-                    modal.classList.remove('flex');
-                }
             };
 
             window.updatePaymentModalStatus = () => {
@@ -504,7 +436,7 @@
                     hiddenBillInput.value = modalBillInput.value;
                 }
 
-                const submitBtn = btn || document.getElementById('confirm-submit-btn') || document.querySelector('#paymentModal button[onclick*="submitBillPaymentForm"]');
+                const submitBtn = btn || document.getElementById('confirm-submit-btn') || document.querySelector('button[type="submit"]');
                 if (submitBtn) {
                     submitBtn.disabled = true;
                     submitBtn.classList.add('opacity-50', 'pointer-events-none');
@@ -517,6 +449,10 @@
             document.getElementById('additional_paid_amount')?.addEventListener('input', window.updatePaymentModalStatus);
             document.getElementById('credit_discount_input')?.addEventListener('input', window.updatePaymentModalStatus);
             document.getElementById('credit_discount_note_input')?.addEventListener('input', window.updatePaymentModalStatus);
+
+            // Initial load execution
+            selectPaymentMethod('{{ old('payment_method', $cart->payment_method ?: 'Cash') }}');
+            recalculateSubtotal();
         })();
     </script>
 </x-layouts.app>

@@ -82,6 +82,21 @@ class PurchaserCart extends Model
         return 'cart_number';
     }
 
+    public function resolveRouteBindingQuery($query, $value, $field = null)
+    {
+        if ($field) {
+            return parent::resolveRouteBindingQuery($query, $value, $field);
+        }
+
+        if (is_numeric($value)) {
+            return $query->where(function ($q) use ($value): void {
+                $q->where('id', $value)->orWhere('cart_number', (string) $value);
+            });
+        }
+
+        return $query->where('cart_number', $value);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

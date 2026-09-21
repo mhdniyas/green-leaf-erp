@@ -387,4 +387,23 @@ class PurchaserCartRevertAndInvoiceCancellationTest extends TestCase
             return $first !== null && ! $first->relationLoaded('items');
         });
     }
+
+    public function test_vendors_view_resolves_active_tab_defaults_and_explicit_tabs(): void
+    {
+        $today = app(PurchaserBusinessDayService::class)->operationalDate();
+
+        // Default tab without parameter
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d')]));
+
+        $response->assertOk();
+        $response->assertViewHas('activeTab', 'draft');
+
+        // Explicit tab parameter
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.vendors', ['date' => $today->format('Y-m-d'), 'tab' => 'pending']));
+
+        $response->assertOk();
+        $response->assertViewHas('activeTab', 'pending');
+    }
 }

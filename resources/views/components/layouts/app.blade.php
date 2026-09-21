@@ -232,45 +232,34 @@
     }
     $purchaserMobileNavItems = [
         [
-            'label' => 'Daily',
+            'label' => 'Demand',
             'route' => 'purchaser.daily',
             'active' => request()->routeIs('purchaser.daily') || request()->routeIs('purchaser.shop-orders.*'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7.5h16M4 12h16M4 16.5h10" /></svg>',
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>',
             'type' => 'link',
         ],
         [
             'label' => 'Cart',
             'route' => 'purchaser.vendors',
             'active' => request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>',
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>',
             'type' => 'center',
         ],
         [
-            'label' => 'Vendors',
-            'route' => 'purchaser.suppliers',
-            'active' => request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M5.25 21V8.25A2.25 2.25 0 017.5 6h9a2.25 2.25 0 012.25 2.25V21M9 9.75h6M9 13.5h6M9 17.25h3" /></svg>',
+            'label' => 'Bills',
+            'route' => 'purchaser.history',
+            'active' => request()->routeIs('purchaser.history'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Report',
+            'route' => 'purchaser.reports.item-summary',
+            'active' => request()->routeIs('purchaser.reports.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>',
             'type' => 'link',
         ],
     ];
-    if ($currentUser?->can('purchaser.reports.sales.view')) {
-        $purchaserMobileNavItems[] = [
-            'label' => 'Sales',
-            'route' => 'purchaser.reports.sales-summary',
-            'active' => request()->routeIs('purchaser.reports.sales-summary'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 20.25h18M5.25 17.25V10.5h3v6.75m3 0V5.25h3v12m3 0V8.25h3v9" /></svg>',
-            'type' => 'link',
-        ];
-    }
-    if ($currentUser?->can('purchaser.reports.items.view')) {
-        $purchaserMobileNavItems[] = [
-            'label' => 'Items',
-            'route' => 'purchaser.reports.item-summary',
-            'active' => request()->routeIs('purchaser.reports.item-summary'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15M7.5 4.5v15" /></svg>',
-            'type' => 'link',
-        ];
-    }
     $warehouseReceiverMobileNavItems = [
         [
             'label' => 'Receive',
@@ -463,8 +452,30 @@
                 </x-nav-item>
             @elseif(auth()->user()->hasRole('purchaser'))
                 @php
-                    $isPurchaserActive = request()->routeIs('purchaser.*') || request()->routeIs('purchasing.business-days.*');
+                    $isPurchaserActive = request()->routeIs('purchaser.*') || request()->routeIs('purchasing.business-days.*') || request()->routeIs('purchaser-v2.*');
                 @endphp
+
+                {{-- Purchaser V2 Beta Access Card --}}
+                <div class="mb-2">
+                    <a href="{{ route('purchaser-v2.daily', ['date' => $navDate]) }}"
+                       class="group flex items-center justify-between rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50/60 p-3 text-xs font-bold text-emerald-950 shadow-sm transition-all hover:border-emerald-300 hover:shadow-md active:scale-98">
+                        <div class="flex items-center gap-2.5">
+                            <span class="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-600/30">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                            </span>
+                            <div>
+                                <p class="text-xs font-black text-slate-900 leading-tight">Purchaser V2</p>
+                                <p class="text-[10px] text-emerald-700 font-medium">Fast Mobile Workspace</p>
+                            </div>
+                        </div>
+                        <span class="rounded-full bg-emerald-600 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-sm">
+                            Beta
+                        </span>
+                    </a>
+                </div>
+
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
@@ -543,6 +554,12 @@
                         </div>
                         <div class="space-y-1">
                             <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">More</p>
+                            <x-nav-item href="{{ route('purchaser-v2.report', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser-v2.report')" :sub="true">
+                                <span class="flex items-center justify-between w-full">
+                                    <span>V2 Daily Report</span>
+                                    <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-800">Beta</span>
+                                </span>
+                            </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.bill-prices.index') }}" :active="request()->routeIs('purchaser.bill-prices.*')" :sub="true">
                                 Approval - Bill
                             </x-nav-item>
