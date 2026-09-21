@@ -11,17 +11,16 @@ use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
-use App\Repositories\Inventory\StockMovementRepository;
 use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 
 class DeliveryDashboardController extends Controller
 {
     public function __construct(
         private readonly ActiveShopResolver $activeShopResolver,
-        private readonly StockMovementRepository $stockMovements,
     ) {}
 
     /**
@@ -44,10 +43,8 @@ class DeliveryDashboardController extends Controller
         $ordersQuery = ShopOrder::whereDate('business_date', $date)
             ->with([
                 'shop',
-                'items.product.category',
-                'deliveredBy',
-                'invoice.items.product.category',
-                'invoice.items.orderItem',
+                'items.product:id,category_id',
+                'invoice',
             ]);
 
         if ($isShop && $shopId) {
@@ -116,25 +113,8 @@ class DeliveryDashboardController extends Controller
             ->whereDate('received_at', $date)
             ->where('status', 'pending_approval')
             ->count();
-        $stockByProduct = $this->stockMovements
-            ->currentStockByProductAndGrade($date)
-            ->groupBy('product_id');
-        $negativeProductCount = $stockByProduct
-            ->filter(fn ($rows) => (float) $rows->sum('current_stock') < -0.001)
-            ->count();
-        $belowBufferProductCount = $stockByProduct
-            ->filter(function ($rows): bool {
-                $totalStock = (float) $rows->sum('current_stock');
-                $bufferQty = (float) ($rows->first()->buffer_qty ?? 0);
 
-                return $bufferQty > 0 && $totalStock < $bufferQty;
-            })
-            ->count();
-        $carryoverProductCount = $stockByProduct
-            ->filter(fn ($rows): bool => (bool) ($rows->first()->carryover_enabled ?? false))
-            ->count();
-
-        $shopCards = $orders
+        $allShopCards = $orders
             ->map(function (ShopOrder $order): array {
                 $items = $order->items;
                 $totalItems = $items->count();
@@ -206,68 +186,19 @@ class DeliveryDashboardController extends Controller
             ])
             ->values();
 
-        $billDetails = $orders
-            ->flatMap(function (ShopOrder $order) use ($selectedCategoryId) {
-                $invoice = $order->invoice;
-
-                if ($invoice) {
-                    return $invoice->items
-                        ->filter(fn ($item): bool => ! $selectedCategoryId || (int) ($item->product?->category_id ?? 0) === $selectedCategoryId)
-                        ->map(function ($item) use ($order, $invoice): array {
-                            $product = $item->product;
-
-                            return [
-                                'shop_name' => $order->loadoutDisplayName(),
-                                'order_number' => $order->order_number,
-                                'invoice_number' => $invoice->invoice_number,
-                                'category_name' => $product?->category?->name ?? 'Uncategorized',
-                                'product_code' => $product?->sku ?? 'NO-CODE',
-                                'product_name' => $item->product_name ?: ($product?->name ?? 'Unknown Product'),
-                                'unit' => $item->unit,
-                                'approved_qty' => (float) $item->approved_qty,
-                                'loaded_qty' => (float) ($item->orderItem?->loaded_qty ?? $item->approved_qty),
-                                'delivered_qty' => (float) $item->delivered_qty,
-                                'shortage_qty' => (float) $item->shortage_qty,
-                                'excess_qty' => (float) $item->excess_qty,
-                                'unit_price' => (float) $item->unit_price,
-                                'line_total' => (float) $item->final_line_total,
-                                'locked' => $invoice->isFinalLocked(),
-                            ];
-                        });
-                }
-
-                return $order->items
-                    ->filter(fn (ShopOrderItem $item): bool => ! $selectedCategoryId || (int) ($item->product?->category_id ?? 0) === $selectedCategoryId)
-                    ->map(function (ShopOrderItem $item) use ($order): array {
-                        $product = $item->product;
-
-                        return [
-                            'shop_name' => $order->loadoutDisplayName(),
-                            'order_number' => $order->order_number,
-                            'invoice_number' => null,
-                            'category_name' => $product?->category?->name ?? 'Uncategorized',
-                            'product_code' => $product?->sku ?? 'NO-CODE',
-                            'product_name' => $product?->name ?? 'Unknown Product',
-                            'unit' => $item->unit,
-                            'approved_qty' => (float) ($item->approved_qty ?? $item->requested_qty),
-                            'loaded_qty' => (float) ($item->loaded_qty ?? 0),
-                            'delivered_qty' => (float) ($item->delivered_qty ?? 0),
-                            'shortage_qty' => (float) ($item->shortage_qty ?? 0),
-                            'excess_qty' => (float) ($item->excess_qty ?? 0),
-                            'unit_price' => (float) ($item->locked_selling_price ?? 0),
-                            'line_total' => (float) ($item->line_total ?? 0),
-                            'locked' => false,
-                        ];
-                    });
-            })
-            ->sortBy([
-                ['category_name', 'asc'],
-                ['product_code', 'asc'],
-                ['shop_name', 'asc'],
-            ])
-            ->values();
-
-        $billDetailsByCategory = $billDetails->groupBy('category_name');
+        $perPage = 20;
+        $currentPage = LengthAwarePaginator::resolveCurrentPage('orders_page');
+        $shopCards = new LengthAwarePaginator(
+            $allShopCards->forPage($currentPage, $perPage)->values(),
+            $allShopCards->count(),
+            $perPage,
+            $currentPage,
+            [
+                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'pageName' => 'orders_page',
+                'query' => $request->query(),
+            ]
+        );
 
         $shops = $orders
             ->pluck('shop')
@@ -300,7 +231,7 @@ class DeliveryDashboardController extends Controller
             ->where('shortage_qty', '>', 0.00)
             ->with(['order.shop', 'product']);
 
-        $shortageItems = $shortageQuery->get();
+        $shortageItems = $shortageQuery->paginate(20, ['*'], 'shortages_page');
 
         // Cash discrepancies: Delivered shop orders with non-zero cash discrepancy
         $discrepancyOrders = $orders->filter(function (ShopOrder $order): bool {
@@ -331,9 +262,6 @@ class DeliveryDashboardController extends Controller
                 'inTransitCount',
                 'receiveQueueCount',
                 'pendingGrnApprovalCount',
-                'negativeProductCount',
-                'belowBufferProductCount',
-                'carryoverProductCount',
                 'shopCards',
                 'totalShortageValue',
                 'totalCashCollected',
@@ -343,7 +271,6 @@ class DeliveryDashboardController extends Controller
                 'lastUpdatedAt',
                 'categories',
                 'shops',
-                'billDetailsByCategory',
                 'selectedCategoryId',
                 'selectedShopId',
                 'selectedStatus',

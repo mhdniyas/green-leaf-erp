@@ -251,6 +251,12 @@
                     </div>
                 @endforelse
             </div>
+
+            @if($shopCards->hasPages())
+                <div class="mt-5">
+                    {{ $shopCards->links() }}
+                </div>
+            @endif
         </section>
 
         <section class="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
