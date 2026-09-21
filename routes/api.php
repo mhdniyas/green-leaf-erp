@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Api\Purchasing\SupplierController;
 use App\Http\Controllers\Api\Purchasing\VendorAdvanceController;
+use App\Http\Controllers\Api\TrayMovementController;
+use App\Http\Controllers\Api\TrayTypeController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutSettingsController;
 use App\Http\Controllers\Api\Warehouse\WarehouseHomeSummaryController;
@@ -44,6 +46,15 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::get('/me', [ApiAuthController::class, 'me'])->name('auth.me');
             Route::post('/logout', [ApiAuthController::class, 'logout'])->name('auth.logout');
         });
+
+        // ── Tray Tracking ──────────────────────────────────────────────────────
+        Route::get('tray-types', [TrayTypeController::class, 'index'])->name('tray-types.index');
+        Route::post('tray-types', [TrayTypeController::class, 'store'])->name('tray-types.store');
+        Route::put('tray-types/{trayType}', [TrayTypeController::class, 'update'])->name('tray-types.update');
+        Route::get('trays', [TrayMovementController::class, 'index'])->name('trays.index');
+        Route::post('trays/loadout', [TrayMovementController::class, 'saveLoadout'])->name('trays.save-loadout');
+        Route::post('trays/return', [TrayMovementController::class, 'saveReturn'])->name('trays.save-return');
+        Route::get('trays/balance', [TrayMovementController::class, 'balance'])->name('trays.balance');
 
         // ── Purchaser Bill Price API ─────────────────────────────────────────
         Route::prefix('purchaser')->name('purchaser.')->group(function () {
