@@ -1,20 +1,4 @@
 <x-layouts.app title="Bulk Purchase" :show-mobile-nav="false">
-@php
-    $mappedAddOnProducts = $addOnProducts->map(function ($product) {
-        return [
-            'id' => (int) $product->id,
-            'name' => (string) $product->name,
-            'sku' => (string) $product->sku,
-            'category_name' => (string) ($product->category?->name ?? 'Other'),
-            'unit' => (string) $product->unit,
-        ];
-    })->values();
-@endphp
-
-<script>
-    window.bulkBuyAddOnProducts = @json($mappedAddOnProducts);
-</script>
-
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
@@ -92,10 +76,10 @@
                     Pending ({{ $pendingSummary->count() }})
                 </button>
                 <button type="button" onclick="switchTab('fulfilled')" id="tab-btn-fulfilled" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:bg-white/50 focus:outline-none">
-                    Fulfilled ({{ $fulfilledSummary->count() }})
+                    Fulfilled ({{ $fulfilledCount }})
                 </button>
                 <button type="button" onclick="switchTab('addons')" id="tab-btn-addons" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:bg-white/50 focus:outline-none">
-                    Add-ons ({{ $addOnProducts->count() }})
+                    Add-ons
                 </button>
             </div>
 
@@ -138,38 +122,7 @@
                     </label>
                 @endforeach
 
-                {{-- Fulfilled Carts --}}
-                @foreach ($fulfilledSummary as $summary)
-                    <label class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer"
-                           data-tab="fulfilled"
-                           data-name="{{ $summary['product_name'] }}"
-                           data-sku="{{ $summary['sku'] }}"
-                           data-category="{{ $summary['category_name'] }}"
-                           data-frequent="{{ $summary['is_frequent'] ? 'true' : 'false' }}">
-                        <div class="flex items-center gap-3">
-                            <div class="flex items-center shrink-0">
-                                <input type="checkbox" name="product_ids[]" value="{{ $summary['product_id'] }}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer">
-                            </div>
-                            <div class="min-w-0 flex-1">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <h3 class="min-w-0 break-words font-black text-slate-900 text-sm opacity-60">{{ $summary['product_name'] }}</h3>
-                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</span>
-                                    @if ($summary['draft_qty'] > 0)
-                                        <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-700">In Cart: {{ number_format($summary['draft_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                    @endif
-                                </div>
-                                <div class="mt-2 flex items-center gap-4 text-xs font-semibold text-slate-400">
-                                    <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                    <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
-                                    <span>Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
-                                    <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">Fulfilled</span>
-                                </div>
-                            </div>
-                        </div>
-                    </label>
-                @endforeach
-
-                {{-- Dynamic Add-on Products Container --}}
+                <div id="fulfilled-container" class="space-y-3"></div>
                 <div id="addons-container" class="space-y-3"></div>
             </div>
             
@@ -203,6 +156,15 @@
 
         function switchTab(tab) {
             activeTab = tab;
+
+            if (tab === 'fulfilled') {
+                const container = document.getElementById('fulfilled-container');
+                if (container && container.dataset.loaded !== 'true') {
+                    fetch(`{{ route('purchaser.bulk-buy.tabs.fulfilled') }}?date={{ $date }}&purchase_grade={{ $purchaseGrade }}`)
+                        .then(response => response.text())
+                        .then(html => { container.innerHTML = html; container.dataset.loaded = 'true'; window.filterItems?.(); });
+                }
+            }
             
             const tabs = ['pending', 'fulfilled', 'addons'];
             tabs.forEach(t => {
@@ -234,7 +196,8 @@
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('search-input');
             const filterSelect = document.getElementById('filter-select');
-            const staticItems = document.querySelectorAll('.product-item[data-tab="pending"], .product-item[data-tab="fulfilled"]');
+            const staticItems = document.querySelectorAll('.product-item[data-tab="pending"]');
+            const fulfilledContainer = document.getElementById('fulfilled-container');
             const addonsContainer = document.getElementById('addons-container');
             const hiddenAddonsContainer = document.getElementById('hidden-selected-addons-container');
             const selectionCount = document.getElementById('selection-count');
@@ -584,6 +547,20 @@
             });
 
             searchInput.addEventListener('input', window.filterItems);
+
+            let searchTimer;
+            searchInput.addEventListener('input', () => {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(async () => {
+                    if (activeTab !== 'addons') return;
+                    const params = new URLSearchParams({ q: searchInput.value, purchase_grade: '{{ $purchaseGrade }}' });
+                    const response = await fetch(`{{ route('purchaser.bulk-buy.product-search') }}?${params}`);
+                    const products = await response.json();
+                    addonsContainer.innerHTML = '';
+                    products.forEach(product => addonsContainer.appendChild(createAddOnCard(product)));
+                    updateSelectionCount();
+                }, 300);
+            });
 
             updateSelectionCount();
             window.filterItems();

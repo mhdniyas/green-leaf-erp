@@ -43,6 +43,7 @@ class LedgerEntryTypeSeeder extends Seeder
             ['code' => 'electricity',     'name' => 'Electricity',      'category' => 'expense'],
             ['code' => 'shop_deduct',     'name' => 'Shop Deduct',      'category' => 'expense'],
             ['code' => 'salary',          'name' => 'Salary',           'category' => 'expense'],
+            ['code' => 'staff_advance',    'name' => 'Staff Advance',    'category' => 'expense'],
             ['code' => 'other_expense',   'name' => 'Other Expense',    'category' => 'expense'],
             ['code' => 'expense_cp',      'name' => 'CP (Expense)',      'category' => 'expense'],
             ['code' => 'expense_rent',    'name' => 'Rent (Expense)',    'category' => 'expense'],

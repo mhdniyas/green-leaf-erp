@@ -16,9 +16,13 @@ use App\Models\PayrollRunItem;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopStaffPayment;
+use App\Models\StaffSyncFlag;
 use App\Models\User;
 use App\Services\Cashbook\BalanceCalculator;
+use App\Services\Cashbook\RelationSettlementCalculator;
+use App\Services\Cashbook\ShopSettlementService;
 use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
+use App\Services\Cashbook\StaffSalaryPaymentModeResolver;
 use App\Services\Finance\OwnedShopAccountingService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -37,6 +41,7 @@ class EmployeeAdvanceService
         private readonly PayrollPaymentService $payrollPaymentService,
         private readonly StaffPaymentCashbookProjectionService $staffPaymentProjectionService,
         private readonly BalanceCalculator $balanceCalculator,
+        private readonly StaffSalaryPaymentModeResolver $modeResolver = new StaffSalaryPaymentModeResolver(new ShopSettlementService(new RelationSettlementCalculator)),
     ) {}
 
     /**
@@ -203,7 +208,15 @@ class EmployeeAdvanceService
 
         $this->ensureShopEmployee($employee, $shop, $paidOn);
 
-        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $paidOn, $actor, $notes, $requestUuid, $effectivePayrollMonth): ShopStaffPayment {
+        $resolvedMode = $this->modeResolver->resolvePaymentMode(
+            (int) $shop->id,
+            'salary',
+            $fundSource,
+            $actor->hasRole('shop')
+        );
+        $storageFundSource = $resolvedMode->toStorageFundSource();
+
+        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $storageFundSource, $paidOn, $actor, $notes, $requestUuid, $effectivePayrollMonth): ShopStaffPayment {
             Employee::query()->where('id', $employee->id)->lockForUpdate()->first();
 
             if ($requestUuid !== null && trim($requestUuid) !== '') {
@@ -261,7 +274,7 @@ class EmployeeAdvanceService
                     'paid_on' => $paidOn->toDateString(),
                     'amount' => round($amount, 2),
                     'payment_type' => 'salary',
-                    'fund_source' => $fundSource,
+                    'fund_source' => $storageFundSource,
                     'status' => 'paid',
                     'notes' => $notes,
                     'request_uuid' => $requestUuid,
@@ -330,11 +343,19 @@ class EmployeeAdvanceService
 
         $this->ensureShopAdvanceEmployee($employee, $shop, $requestedOn);
 
+        $resolvedMode = $this->modeResolver->resolvePaymentMode(
+            (int) $shop->id,
+            'salary_advance',
+            $fundSource,
+            $actor->hasRole('shop')
+        );
+        $storageFundSource = $resolvedMode->toStorageFundSource();
+
         $month = $requestedOn->copy()->startOfMonth();
         $payrollMonth = CarbonImmutable::parse($month->toDateString());
         $calculationDate = CarbonImmutable::parse($requestedOn->toDateString());
 
-        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $requestedOn, $actor, $note, $payrollMonth, $calculationDate, $month, $requestUuid): EmployeeAdvanceRequest {
+        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $storageFundSource, $requestedOn, $actor, $note, $payrollMonth, $calculationDate, $month, $requestUuid): EmployeeAdvanceRequest {
             Employee::query()->where('id', $employee->id)->lockForUpdate()->first();
 
             if ($requestUuid !== null && trim($requestUuid) !== '') {
@@ -391,7 +412,8 @@ class EmployeeAdvanceService
                     'requested_amount' => round($amount, 2),
                     'eligible_amount' => $eligibleAmount,
                     'approved_amount' => $status === 'approved' ? round($amount, 2) : null,
-                    'fund_source' => $fundSource,
+                    'fund_source' => $storageFundSource,
+                    'approved_fund_source' => $storageFundSource,
                     'status' => $status,
                     'request_uuid' => $requestUuid,
                     'rule_snapshot' => [
@@ -833,9 +855,17 @@ class EmployeeAdvanceService
             ]);
         }
 
+        $resolvedMode = $this->modeResolver->resolvePaymentMode(
+            (int) $shop->id,
+            $paymentType,
+            $fundSource,
+            $actor->hasRole('shop')
+        );
+        $storageFundSource = $resolvedMode->toStorageFundSource();
+
         $month = $paidOn->copy()->startOfMonth();
 
-        return DB::transaction(function () use ($employee, $shop, $amount, $paymentType, $fundSource, $paidOn, $actor, $notes, $month): ShopStaffPayment {
+        return DB::transaction(function () use ($employee, $shop, $amount, $paymentType, $storageFundSource, $paidOn, $actor, $notes, $month): ShopStaffPayment {
             $payrollRunItem = $this->payrollService->ensurePayrollRunItem(
                 $employee,
                 $month,
@@ -854,8 +884,8 @@ class EmployeeAdvanceService
                     'payroll_month' => $month->toDateString(),
                     'requested_amount' => $amount,
                     'approved_amount' => $amount,
-                    'fund_source' => $fundSource,
-                    'approved_fund_source' => $fundSource,
+                    'fund_source' => $storageFundSource,
+                    'approved_fund_source' => $storageFundSource,
                     'status' => 'approved',
                     'review_note' => $notes,
                     'reviewed_at' => now(),
@@ -873,7 +903,7 @@ class EmployeeAdvanceService
                 'paid_on' => $paidOn->toDateString(),
                 'amount' => $amount,
                 'payment_type' => $paymentType,
-                'fund_source' => $fundSource,
+                'fund_source' => $storageFundSource,
                 'status' => 'paid',
                 'notes' => $notes,
             ]);
@@ -889,6 +919,8 @@ class EmployeeAdvanceService
             }
 
             $this->staffPaymentProjectionService->syncPayment($payment, (int) $actor->id);
+
+            app(StaffSyncFlagScannerService::class)->checkPayment($payment);
 
             return $payment->fresh(['employee', 'shop', 'payrollRunItem', 'advanceRequest', 'cashbookLine.entry']);
         }, 3);
@@ -919,13 +951,30 @@ class EmployeeAdvanceService
 
             $paidOn = isset($data['paid_on']) ? Carbon::parse((string) $data['paid_on']) : ($payment->paid_on ?? today());
             $paymentType = isset($data['payment_type']) ? (string) $data['payment_type'] : (string) $payment->payment_type;
-            $fundSource = isset($data['fund_source']) ? (string) $data['fund_source'] : (string) $payment->fund_source;
+            $rawFundSource = isset($data['fund_source']) ? (string) $data['fund_source'] : (string) $payment->fund_source;
             $notes = array_key_exists('notes', $data) ? $data['notes'] : $payment->notes;
 
             $previousPaidOn = $payment->paid_on ? Carbon::parse($payment->paid_on->toDateString()) : null;
             $previousShop = $payment->shop;
             $newShopId = isset($data['shop_id']) ? (int) $data['shop_id'] : (int) $payment->shop_id;
             $shop = Shop::query()->find($newShopId) ?? $previousShop;
+
+            $resolvedMode = $this->modeResolver->resolvePaymentMode(
+                (int) ($shop?->id ?? $payment->shop_id),
+                $paymentType,
+                $rawFundSource,
+                $actor->hasRole('shop')
+            );
+            $fundSource = $resolvedMode->toStorageFundSource();
+
+            $beforeState = [
+                'amount' => (float) $payment->amount,
+                'paid_on' => $payment->paid_on?->toDateString(),
+                'fund_source' => (string) $payment->fund_source,
+                'payment_type' => (string) $payment->payment_type,
+                'shop_id' => (int) $payment->shop_id,
+                'notes' => $payment->notes,
+            ];
 
             $payment->forceFill([
                 'shop_id' => $shop?->id ?? $payment->shop_id,
@@ -973,6 +1022,36 @@ class EmployeeAdvanceService
             }
 
             $this->staffPaymentProjectionService->syncPayment($payment, (int) $actor->id);
+
+            $afterState = [
+                'amount' => (float) $payment->amount,
+                'paid_on' => $payment->paid_on?->toDateString(),
+                'fund_source' => (string) $payment->fund_source,
+                'payment_type' => (string) $payment->payment_type,
+                'shop_id' => (int) $payment->shop_id,
+                'notes' => $payment->notes,
+                'settlement_relation_id' => $resolvedMode->settlementRelation?->id,
+                'settlement_relation_name' => $resolvedMode->settlementRelation?->name,
+            ];
+
+            activity('cashbook_salary_payment_correction')
+                ->performedOn($payment)
+                ->causedBy($actor)
+                ->withProperties([
+                    'shop_id' => $payment->shop_id,
+                    'shop_name' => $payment->shop?->name,
+                    'employee_id' => $payment->employee_id,
+                    'employee_name' => $payment->employee?->name,
+                    'payment_id' => $payment->id,
+                    'payment_type' => $payment->payment_type,
+                    'before' => $beforeState,
+                    'after' => $afterState,
+                    'changed_by' => $actor->name,
+                    'changed_at' => now()->toIso8601String(),
+                ])
+                ->log("Salary payment #{$payment->id} corrected/reclassified by {$actor->name}");
+
+            app(StaffSyncFlagScannerService::class)->checkPayment($payment);
 
             return $payment->fresh(['employee', 'shop', 'payrollRunItem', 'advanceRequest', 'cashbookLine.entry']);
         }, 3);
@@ -1024,6 +1103,11 @@ class EmployeeAdvanceService
                     }
                 }
             }
+
+            StaffSyncFlag::query()
+                ->where('source_type', ShopStaffPayment::class)
+                ->where('source_id', $payment->id)
+                ->delete();
 
             $payment->delete();
         }, 3);

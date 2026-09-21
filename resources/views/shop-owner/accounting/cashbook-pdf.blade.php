@@ -102,6 +102,36 @@
                     </div>
                 </div>
             @endif
+
+            @if(isset($salarySectionData) && $salarySectionData->hasAnyData())
+                <div class="border-t border-dashed border-slate-400 p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 mb-3">Salary</p>
+                    @foreach($salarySectionData->groups as $group)
+                        <div class="mb-3">
+                            <p class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400 mb-1">{{ $group->typeLabel }}</p>
+                            <table class="min-w-full text-xs border-collapse">
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach($group->transactions as $row)
+                                        <tr>
+                                            <td class="py-1 pr-3 font-semibold text-slate-800">{{ $row->employeeName }}</td>
+                                            <td class="py-1 pr-3 text-slate-500">{{ $row->fundingLabel }}</td>
+                                            <td class="py-1 text-right font-black text-slate-950">Rs. {{ number_format($row->amount, 2) }}</td>
+                                        </tr>
+                                    @endforeach
+                                    <tr class="border-t border-slate-200">
+                                        <td colspan="2" class="py-1 text-[9px] font-black uppercase text-slate-400">{{ $group->typeLabel }} Total</td>
+                                        <td class="py-1 text-right font-black text-slate-950">Rs. {{ number_format($group->total, 2) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    @endforeach
+                    <div class="flex justify-between border-t border-slate-400 pt-2 mt-2">
+                        <span class="text-xs font-black uppercase text-slate-700">Salary Section Total</span>
+                        <span class="text-xs font-black text-slate-950">Rs. {{ number_format($salarySectionData->grandTotal, 2) }}</span>
+                    </div>
+                </div>
+            @endif
         </section>
     </div>
 </body>

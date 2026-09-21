@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Staff;
 
+use App\Enums\Cashbook\SalaryHrTransactionType;
 use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Cashbook\ShopSalaryBridgeSetting;
 use App\Models\Employee;
 use App\Models\Shop;
 use App\Models\ShopStaffPayment;
@@ -54,6 +57,35 @@ class StaffCashbookSyncTest extends TestCase
             'employee_code' => 'EMP-RAMESH',
             'employment_status' => 'active',
             'verification_status' => 'approved',
+        ]);
+
+        $salaryType = LedgerEntryType::query()->where('code', 'salary')->firstOrFail();
+        $salarySetting = ShopLedgerEntrySetting::query()->firstOrCreate([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salaryType->id,
+        ], [
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'default_funding_source' => 'sales',
+        ]);
+
+        ShopSalaryBridgeSetting::query()->create([
+            'shop_id' => $this->shop->id,
+            'transaction_type' => SalaryHrTransactionType::Salary->value,
+            'shop_ledger_entry_setting_id' => $salarySetting->id,
+            'default_payment_mode' => 'sales_cash',
+            'allowed_payment_modes' => ['sales_cash'],
+            'is_enabled' => true,
+        ]);
+
+        ShopSalaryBridgeSetting::query()->create([
+            'shop_id' => $this->shop->id,
+            'transaction_type' => SalaryHrTransactionType::SalaryAdvance->value,
+            'shop_ledger_entry_setting_id' => $salarySetting->id,
+            'default_payment_mode' => 'sales_cash',
+            'allowed_payment_modes' => ['sales_cash'],
+            'is_enabled' => true,
         ]);
     }
 

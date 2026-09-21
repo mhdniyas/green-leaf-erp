@@ -277,9 +277,26 @@
                         </thead>
                         <tbody class="divide-y divide-slate-100 font-medium text-slate-800">
                             @forelse($paymentsList as $payment)
-                                <tr class="hover:bg-slate-50/80 transition">
+                                @php
+                                    $flagsForPayment = isset($paymentFlags) ? ($paymentFlags->get($payment->id) ?? collect()) : collect();
+                                    $firstFlag = $flagsForPayment->first();
+                                    $hasFlags = $flagsForPayment->isNotEmpty();
+                                @endphp
+                                <tr class="hover:bg-slate-50/80 transition {{ $hasFlags ? 'bg-rose-50/30' : '' }}">
                                     <td class="px-3 py-3 font-bold text-slate-950 whitespace-nowrap">
-                                        {{ $payment->paid_on?->format('d M Y') }}
+                                        <div class="flex items-center gap-1.5">
+                                            <span>{{ $payment->paid_on?->format('d M Y') }}</span>
+                                            @if($hasFlags)
+                                                <a href="{{ route('admin.staff.sync-flags.index', ['employee_id' => $employee->id]) }}" 
+                                                   class="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-black text-rose-700 border border-rose-200 hover:bg-rose-200 transition"
+                                                   title="🚩 {{ $flagsForPayment->count() }} issue{{ $flagsForPayment->count() > 1 ? 's' : '' }}: {{ $flagsForPayment->pluck('issue_title')->unique()->join(' · ') }} (Click to review)">
+                                                    <span>🚩</span>
+                                                    <span class="hidden xl:inline">
+                                                        {{ $flagsForPayment->count() > 1 ? $flagsForPayment->count().' issues' : $firstFlag->issue_title }}
+                                                    </span>
+                                                </a>
+                                            @endif
+                                        </div>
                                     </td>
                                     <td class="px-3 py-3 text-right font-black text-slate-950 whitespace-nowrap">
                                         ₹{{ number_format((float) $payment->amount, 2) }}
@@ -974,9 +991,9 @@
                     <div>
                         <label for="admin-edit-payment-fund-source" class="block text-[11px] font-bold uppercase tracking-wider text-slate-700">Fund Source *</label>
                         <select name="fund_source" id="admin-edit-payment-fund-source" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 shadow-2xs focus:border-emerald-500 focus:ring-emerald-500">
-                            <option value="sales">Shop Cash / Sales</option>
-                            <option value="petty_cash">Petty Cash</option>
-                            <option value="company">Company Account</option>
+                            <option value="sales_cash">Shop Cash / Sales Cash</option>
+                            <option value="petty">Petty Cash</option>
+                            <option value="company_payable">Company Payable</option>
                         </select>
                     </div>
                 </div>
@@ -991,7 +1008,7 @@
                         Cancel
                     </button>
                     <button type="submit" class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700 active:scale-95 transition cursor-pointer shadow-xs">
-                        Save Changes
+                        Save Correction
                     </button>
                 </div>
             </form>
@@ -1241,18 +1258,47 @@
             if (modal) modal.classList.add('hidden');
         }
 
+        let originalPaymentSource = null;
+        let originalPaymentAmount = null;
+
         function openAdminEditPaymentModal(data) {
             const modal = document.getElementById('admin-edit-payment-modal');
             const form = document.getElementById('admin-edit-payment-form');
             if (!modal || !form) return;
 
+            let source = data.fund_source;
+            if (source === 'sales') source = 'sales_cash';
+            if (source === 'petty_cash') source = 'petty';
+            if (source === 'company') source = 'company_payable';
+
+            originalPaymentSource = source;
+            originalPaymentAmount = data.amount;
+
             document.getElementById('admin-edit-payment-amount').value = data.amount;
             document.getElementById('admin-edit-payment-date').value = data.paid_on;
             document.getElementById('admin-edit-payment-type').value = data.payment_type;
             document.getElementById('admin-edit-payment-shop').value = data.shop_id;
-            document.getElementById('admin-edit-payment-fund-source').value = (data.fund_source === 'petty' ? 'petty_cash' : data.fund_source);
+            document.getElementById('admin-edit-payment-fund-source').value = source;
             document.getElementById('admin-edit-payment-notes').value = data.notes || '';
             form.action = data.update_url;
+
+            form.onsubmit = function (e) {
+                const newSource = document.getElementById('admin-edit-payment-fund-source').value;
+                const newAmount = document.getElementById('admin-edit-payment-amount').value;
+                if (originalPaymentSource && newSource !== originalPaymentSource) {
+                    const sourceLabels = {
+                        sales_cash: 'Sales Cash',
+                        petty: 'Petty Cash',
+                        company_payable: 'Company Payable'
+                    };
+                    const msg = `Change payment source?\n\nAmount: ₹${newAmount}\nFrom: ${sourceLabels[originalPaymentSource] || originalPaymentSource}\nTo: ${sourceLabels[newSource] || newSource}\n\nThis will recalculate the affected Cashbook balances.`;
+                    if (!confirm(msg)) {
+                        e.preventDefault();
+                        return false;
+                    }
+                }
+                return true;
+            };
 
             modal.classList.remove('hidden');
         }

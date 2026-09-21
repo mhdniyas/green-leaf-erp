@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Staff;
 
 use App\Enums\Cashbook\FundingSource;
+use App\Enums\Cashbook\SalaryHrTransactionType;
+use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Cashbook\ShopSalaryBridgeSetting;
 use App\Models\Employee;
 use App\Models\Shop;
 use App\Models\ShopStaffPayment;
@@ -62,6 +66,48 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         ]);
 
         app(CashbookShopSyncService::class)->syncAndGetProfiles();
+
+        $salaryType = LedgerEntryType::query()->where('code', 'salary')->firstOrFail();
+        $advanceType = LedgerEntryType::query()->where('code', 'staff_advance')->first()
+            ?? $salaryType;
+
+        $salarySetting = ShopLedgerEntrySetting::query()->firstOrCreate([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $salaryType->id,
+        ], [
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'default_funding_source' => 'sales',
+        ]);
+
+        $advanceSetting = ShopLedgerEntrySetting::query()->firstOrCreate([
+            'shop_id' => $this->shop->id,
+            'entry_type_id' => $advanceType->id,
+        ], [
+            'version' => 1,
+            'effective_from' => '2026-01-01',
+            'enabled' => true,
+            'default_funding_source' => 'sales',
+        ]);
+
+        ShopSalaryBridgeSetting::query()->create([
+            'shop_id' => $this->shop->id,
+            'transaction_type' => SalaryHrTransactionType::Salary->value,
+            'shop_ledger_entry_setting_id' => $salarySetting->id,
+            'default_payment_mode' => 'sales_cash',
+            'allowed_payment_modes' => ['sales_cash', 'petty', 'company_payable'],
+            'is_enabled' => true,
+        ]);
+
+        ShopSalaryBridgeSetting::query()->create([
+            'shop_id' => $this->shop->id,
+            'transaction_type' => SalaryHrTransactionType::SalaryAdvance->value,
+            'shop_ledger_entry_setting_id' => $advanceSetting->id,
+            'default_payment_mode' => 'sales_cash',
+            'allowed_payment_modes' => ['sales_cash', 'petty', 'company_payable'],
+            'is_enabled' => true,
+        ]);
     }
 
     public function test_salary_update_appears_correctly_in_staff_history(): void
@@ -173,7 +219,7 @@ class StaffSalaryAdvanceUpdateTest extends TestCase
         $this->assertEquals(1400.00, (float) $fresh->amount);
         $this->assertEquals($today, $fresh->paid_on->toDateString());
         $this->assertEquals('advance', $fresh->payment_type);
-        $this->assertEquals('petty_cash', $fresh->fund_source);
+        $this->assertEquals('petty', $fresh->fund_source);
         $this->assertEquals('Increased advance', $fresh->notes);
 
         $historyResponse = $this->actingAs($this->owner)->get(route('shop-owner.staff.index', [

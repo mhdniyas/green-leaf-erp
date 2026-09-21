@@ -13,7 +13,7 @@ class StoreShopStaffSalaryPaymentRequest extends FormRequest
     {
         if (! $this->has('fund_source') || empty($this->input('fund_source'))) {
             $this->merge([
-                'fund_source' => 'petty_cash',
+                'fund_source' => 'sales_cash',
             ]);
         }
     }
@@ -34,7 +34,7 @@ class StoreShopStaffSalaryPaymentRequest extends FormRequest
             'paid_on' => ['required', 'date'],
             'payroll_month' => ['nullable', 'string', 'max:7'],
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'fund_source' => ['required', 'string', Rule::in(['petty_cash', 'sales_income'])],
+            'fund_source' => ['required', 'string', Rule::in(['sales_cash', 'petty', 'company_payable', 'sales_income', 'petty_cash'])],
             'notes' => ['nullable', 'string', 'max:1000'],
             'request_uuid' => ['required', 'string', 'uuid'],
         ];

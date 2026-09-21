@@ -106,8 +106,10 @@
                     <tr>
                         <th scope="col" class="sticky left-0 z-30 min-w-36 sm:min-w-44 max-w-44 border-b border-r border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.35)]">Employee</th>
                         @foreach($monthDays as $day)
-                            @php($isToday = $day->isSameDay(today()))
-                            @php($isSelected = $day->isSameDay($selectedDate))
+                            @php
+                                $isToday = $day->isSameDay(today());
+                                $isSelected = $day->isSameDay($selectedDate);
+                            @endphp
                             <th scope="col"
                                 @if($isToday || (!$calendarMonth->isSameMonth(today()) && $isSelected)) id="history-today-column" @endif
                                 data-date="{{ $day->toDateString() }}"
@@ -120,8 +122,10 @@
                 </thead>
                 <tbody>
                     @forelse($historyEmployees as $employee)
-                        @php($employeeAttendance = $monthlyAttendanceByEmployee->get($employee->id, collect()))
-                        @php($selectedAttendance = $employeeAttendance->get($selectedDate->toDateString()))
+                        @php
+                            $employeeAttendance = $monthlyAttendanceByEmployee->get($employee->id, collect());
+                            $selectedAttendance = $employeeAttendance->get($selectedDate->toDateString());
+                        @endphp
                         <tr class="group">
                             <th scope="row" class="sticky left-0 z-20 border-b border-r border-slate-200 bg-white px-2.5 py-1.5 shadow-[4px_0_6px_-4px_rgba(15,23,42,0.35)] group-hover:bg-slate-50">
                                 <span class="block max-w-32 sm:max-w-40 truncate text-[11px] font-bold text-slate-950 leading-tight">{{ $employee->name }}</span>
@@ -143,17 +147,19 @@
                                         data-notes="{{ e($selectedAttendance?->notes ?? '') }}">Details</button>
                             </th>
                             @foreach($monthDays as $day)
-                                @php($attendance = $employeeAttendance->get($day->toDateString()))
-                                @php($status = $attendance?->status)
-                                @php($statusStyles = match($status) {
-                                    'present' => ['P', 'Present', 'bg-emerald-600 text-white hover:bg-emerald-700'],
-                                    'absent' => ['A', 'Absent', 'bg-rose-600 text-white hover:bg-rose-700'],
-                                    'half_day' => ['H', 'Half Day', 'bg-orange-500 text-white hover:bg-orange-600'],
-                                    'leave' => ['L', 'Leave', 'bg-slate-950 text-white hover:bg-black'],
-                                    default => ['—', 'Not Marked', 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700'],
-                                })
-                                @php($isToday = $day->isSameDay(today()))
-                                @php($isSelected = $day->isSameDay($selectedDate))
+                                @php
+                                    $attendance = $employeeAttendance->get($day->toDateString());
+                                    $status = $attendance?->status;
+                                    $statusStyles = match($status) {
+                                        'present' => ['P', 'Present', 'bg-emerald-600 text-white hover:bg-emerald-700'],
+                                        'absent' => ['A', 'Absent', 'bg-rose-600 text-white hover:bg-rose-700'],
+                                        'half_day' => ['H', 'Half Day', 'bg-orange-500 text-white hover:bg-orange-600'],
+                                        'leave' => ['L', 'Leave', 'bg-slate-950 text-white hover:bg-black'],
+                                        default => ['—', 'Not Marked', 'bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700'],
+                                    };
+                                    $isToday = $day->isSameDay(today());
+                                    $isSelected = $day->isSameDay($selectedDate);
+                                @endphp
                                 <td class="border-b border-r border-slate-200 p-0.5 text-center {{ $isToday ? 'bg-emerald-50/75' : ($isSelected ? 'bg-emerald-50/40' : ($day->isWeekend() ? 'bg-slate-50' : 'bg-white')) }}">
                                     <button type="button"
                                             class="js-history-open-details flex h-5 w-5 sm:h-5.5 sm:w-5.5 mx-auto items-center justify-center rounded text-[10px] font-black leading-none transition focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer {{ $statusStyles[2] }}"
@@ -253,7 +259,9 @@
     </div>
 
     @if(session('sync_results'))
-        @php($syncRes = session('sync_results'))
+        @php
+            $syncRes = session('sync_results');
+        @endphp
         <article class="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm space-y-3">
             <div class="flex items-center justify-between border-b border-emerald-200/60 pb-2.5">
                 <div class="flex items-center gap-2">
@@ -352,6 +360,11 @@
 
             <div class="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
                 @forelse($recentPayrollPayments as $payment)
+                    @php
+                        $flagsForPayment = isset($paymentFlags) ? ($paymentFlags->get($payment->id) ?? collect()) : collect();
+                        $firstFlag = $flagsForPayment->first();
+                        $hasFlags = $flagsForPayment->isNotEmpty();
+                    @endphp
                     <div class="py-2.5 flex items-center justify-between text-xs gap-3">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5">
@@ -359,6 +372,13 @@
                                 <span class="rounded px-1.5 py-0.2 text-[9px] font-black uppercase border {{ $payment->payment_type === 'advance' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800' }}">
                                     {{ $payment->payment_type ?? 'salary' }}
                                 </span>
+                                @if(auth()->user()?->hasRole('admin') && $hasFlags)
+                                    <span class="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.2 text-[9px] font-black text-rose-700 border border-rose-200 cursor-help"
+                                          title="🚩 {{ $flagsForPayment->count() }} issue{{ $flagsForPayment->count() > 1 ? 's' : '' }}: {{ $flagsForPayment->pluck('issue_title')->unique()->join(' · ') }}">
+                                        <span>🚩</span>
+                                        <span class="hidden sm:inline">{{ $flagsForPayment->count() > 1 ? $flagsForPayment->count().' issues' : $firstFlag->issue_title }}</span>
+                                    </span>
+                                @endif
                             </div>
                             <p class="text-[10px] font-semibold text-slate-400 mt-0.5 truncate">
                                 Paid: {{ $payment->paid_on?->format('d M Y') }} · Source: {{ str_replace('_', ' ', (string) $payment->fund_source) }}
@@ -367,11 +387,19 @@
                         </div>
                         <div class="text-right shrink-0 space-y-1">
                             <p class="font-black text-slate-950">₹{{ number_format((float) $payment->amount, 2) }}</p>
-                            <span class="inline-block text-[9px] font-bold text-emerald-600">
-                                ✓ Cashbook Synced
-                            </span>
-                            @php($isTodayPayment = $payment->paid_on?->toDateString() === today()->toDateString())
-                            @php($canModifyPayment = $isTodayPayment || auth()->user()?->hasRole('admin'))
+                            @if(auth()->user()?->hasRole('admin') && $hasFlags)
+                                <span class="inline-block text-[9px] font-black text-rose-600" title="{{ $flagsForPayment->pluck('issue_title')->unique()->join(' · ') }}">
+                                    🚩 {{ $flagsForPayment->count() > 1 ? $flagsForPayment->count().' Issues' : 'Sync Issue' }}
+                                </span>
+                            @else
+                                <span class="inline-block text-[9px] font-bold text-emerald-600">
+                                    ✓ Cashbook Synced
+                                </span>
+                            @endif
+                            @php
+                                $isTodayPayment = $payment->paid_on?->toDateString() === today()->toDateString();
+                                $canModifyPayment = $isTodayPayment || auth()->user()?->hasRole('admin');
+                            @endphp
                             @if($canModifyPayment)
                                 <div class="flex items-center justify-end gap-1.5 pt-0.5">
                                     <button type="button" 
@@ -442,9 +470,9 @@
                             @endif
                         </div>
                         <div class="text-right shrink-0">
-                            @if($request->approval_status === 'approved')
+                            @if($request->status === 'approved')
                                 <span class="rounded px-2 py-0.5 text-[9px] font-black uppercase border border-emerald-200 bg-emerald-50 text-emerald-800">Approved</span>
-                            @elseif($request->approval_status === 'rejected')
+                            @elseif($request->status === 'rejected')
                                 <span class="rounded px-2 py-0.5 text-[9px] font-black uppercase border border-rose-200 bg-rose-50 text-rose-800">Rejected</span>
                             @else
                                 <span class="rounded px-2 py-0.5 text-[9px] font-black uppercase border border-amber-200 bg-amber-50 text-amber-800">Pending HR</span>

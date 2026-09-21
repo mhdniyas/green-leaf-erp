@@ -2,8 +2,8 @@
     $step = $summary['unit'] === 'kg' ? '0.5' : '1';
     $isDirectCatalog = (bool) ($summary['is_direct_catalog'] ?? false);
     $isGradeBCatalog = (bool) ($summary['is_grade_b_catalog'] ?? false);
-    $directPurchaseCount = collect($summary['shop_details'])->where('is_direct_purchase', true)->count();
-    $shopDemandCount = count($summary['shop_details']) - $directPurchaseCount;
+    $directPurchaseCount = collect($summary['shop_details'] ?? [])->where('is_direct_purchase', true)->count();
+    $shopDemandCount = count($summary['shop_details'] ?? []) - $directPurchaseCount;
     $purchaseSource = $directPurchaseCount > 0
         ? ($shopDemandCount > 0 ? 'mixed' : 'green_leaf_direct_purchase')
         : 'shop_order';
@@ -93,13 +93,13 @@
 
             <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                 <div class="flex flex-wrap items-center gap-2">
-                    @foreach ($summary['quantity_buckets'] as $bucket)
+                    @foreach (($summary['quantity_buckets'] ?? []) as $bucket)
                         <span class="inline-flex rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-700">{{ $bucket['formatted'] }} x {{ $bucket['count'] }}</span>
                     @endforeach
                 </div>
-                @if(! empty($summary['measure_breakdown']))
+                @if(! empty($summary['measure_breakdown'] ?? []))
                     <div class="mt-2 flex flex-wrap gap-1.5">
-                        @foreach($summary['measure_breakdown'] as $measure)
+                        @foreach(($summary['measure_breakdown'] ?? []) as $measure)
                             <span class="inline-flex rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-600 shadow-sm">
                                 {{ number_format((float) $measure['requested_qty'], 2) }} {{ $measure['label'] }}
                                 @if(strtoupper((string) $measure['label']) !== strtoupper((string) $summary['unit']))
@@ -120,4 +120,3 @@
     </div>
     @endunless
 </article>
-

@@ -9,6 +9,9 @@
     const initialTxAmounts = @json($initialTxAmounts);
     const initialTxNotes = @json($initialTxNotes);
     const initialProductRows = @json($initialProductRows ?? []);
+    // ShopLedgerEntrySetting IDs owned by the SALARY section.
+    // These are excluded from renderReportBreakdown to prevent double display.
+    const salarySectionSettingIds = @json($salarySectionData->excludedSettingIds ?? []);
     const shopName = @json($shop->name);
 
     const isPurchasingEnabled = @json($shop->isPurchasingEnabled());
@@ -1028,6 +1031,8 @@
             let hTotal = 0;
 
             const settingLines = (h.setting_ids || []).map(sId => {
+                // Skip settings owned by the SALARY section — they appear in their own section.
+                if (salarySectionSettingIds.includes(sId)) return '';
                 const amt = parseFloat(activeDayData[sId]) || 0;
                 if (amt <= 0) return '';
                 const s = settings.find(item => item.id === sId);

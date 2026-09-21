@@ -31,6 +31,10 @@
                class="px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap {{ $activeTab === 'payments' ? 'bg-white text-slate-950 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-950' }}">
                 Payments
             </a>
+            <a href="{{ route('admin.cashbook.settings.shop.salary.index', $resolvedShopKey) }}"
+               class="px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap {{ $activeTab === 'salary' ? 'bg-white text-slate-950 shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-950' }}">
+                Salary
+            </a>
         </div>
     </div>
 </div>

@@ -261,15 +261,18 @@
                         </a>
                     </div>
                 </div>
-                <div class="grid grid-cols-3 gap-2">
-                    <a href="{{ route('admin.cashbook.settings.shop.vendors.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2.5 text-center text-xs font-bold text-amber-800 hover:bg-amber-100 transition">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <a href="{{ route('admin.cashbook.settings.shop.vendors.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-amber-200 bg-amber-50 px-2 py-2 text-center text-xs font-bold text-amber-800 hover:bg-amber-100 transition">
                         Vendors
                     </a>
-                    <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-2.5 text-center text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition">
+                    <a href="{{ route('admin.cashbook.settings.shop.settlements.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-indigo-200 bg-indigo-50 px-2 py-2 text-center text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition">
                         Settlements
                     </a>
-                    <a href="{{ route('admin.cashbook.settings.shop.payments.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2.5 text-center text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition">
+                    <a href="{{ route('admin.cashbook.settings.shop.payments.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-center text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition">
                         Payments
+                    </a>
+                    <a href="{{ route('admin.cashbook.settings.shop.salary.index', $shop->slug ?: $shop->shop_id) }}" class="block rounded-xl border border-purple-200 bg-purple-50 px-2 py-2 text-center text-xs font-bold text-purple-800 hover:bg-purple-100 transition">
+                        Salary
                     </a>
                 </div>
             </div>

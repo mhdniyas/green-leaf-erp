@@ -270,12 +270,19 @@
         ];
     })->values()->all();
 
-    // Map today's existing transactions to initial JS state
+    // Map today's existing transactions to initial JS state.
+    // Salary-owned transactions (reference_type = ShopStaffPayment) are rendered
+    // in the dedicated SALARY section partial and must not be double-counted here.
+    $salaryExcludedTxIds = $salarySectionData->excludedTxIds ?? [];
     $initialTxAmounts = [];
     $initialTxNotes = [];
     if (isset($todayTransactions) && $todayTransactions->isNotEmpty()) {
         foreach ($todayTransactions as $tx) {
             if ($tx->status === 'void' || $tx->status === \App\Enums\Cashbook\TransactionStatus::Void->value) {
+                continue;
+            }
+            // Skip salary-owned transactions — they belong to the SALARY section.
+            if (in_array($tx->id, $salaryExcludedTxIds, true)) {
                 continue;
             }
             if ($tx->entry_type_id) {
@@ -352,8 +359,12 @@
     {{-- MAIN CASHBOOK DASHBOARD VIEW --}}
     <div id="cashbook-dashboard-view" @class(['space-y-3 sm:space-y-4', 'hidden' => $isReportTab])>
         @include('shop-owner.cashbook.partials.header')
+        @include('shop-owner.cashbook.partials.daily-overview')
         @include('shop-owner.cashbook.partials.header-bill-list')
         @include('shop-owner.cashbook.partials.vendor-purchase-section')
+        @if($salarySectionData->hasAnyData())
+            @include('shop-owner.cashbook.partials.salary-section', ['salarySectionData' => $salarySectionData])
+        @endif
         @include('shop-owner.cashbook.partials.position-summary')
     </div>
 

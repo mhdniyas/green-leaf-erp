@@ -21,7 +21,9 @@ use App\Models\LeaveType;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
+use App\Models\StaffSyncFlag;
 use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
+use App\Services\Cashbook\StaffSalaryPaymentModeResolver;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeAdvanceService;
 use App\Services\HR\ImageUploadService;
@@ -252,7 +254,28 @@ class ShopOwnerStaffController extends Controller
             ->paginate(8, ['*'], 'staff_payments_page')
             ->withQueryString();
 
+        $paymentIds = $recentPayrollPayments->pluck('id')->all();
+        $paymentFlags = StaffSyncFlag::query()
+            ->open()
+            ->where('source_type', ShopStaffPayment::class)
+            ->whereIn('source_id', $paymentIds)
+            ->get()
+            ->groupBy('source_id');
+
+        $modeResolver = app(StaffSalaryPaymentModeResolver::class);
+        $salaryModeConfig = $selectedShop !== null
+            ? $modeResolver->resolveAllowedModesForShop($selectedShop->id, 'salary', true)
+            : ['allowed_modes' => ['sales_cash'], 'default_mode' => 'sales_cash'];
+        $advanceModeConfig = $selectedShop !== null
+            ? $modeResolver->resolveAllowedModesForShop($selectedShop->id, 'salary_advance', true)
+            : ['allowed_modes' => ['sales_cash'], 'default_mode' => 'sales_cash'];
+
         return view('shop-owner.staff.index', [
+            'salaryAllowedModes' => $salaryModeConfig['allowed_modes'],
+            'salaryDefaultMode' => $salaryModeConfig['default_mode'],
+            'advanceAllowedModes' => $advanceModeConfig['allowed_modes'],
+            'advanceDefaultMode' => $advanceModeConfig['default_mode'],
+            'paymentFlags' => $paymentFlags,
             'selectedDate' => $selectedDate,
             'calendarMonth' => $calendarMonth,
             'selectedTab' => $selectedTab,
@@ -999,9 +1022,15 @@ class ShopOwnerStaffController extends Controller
         );
 
         $totalActions = count($results['created']) + count($results['updated']) + count($results['orphans']);
+        $skippedCount = count($results['skipped'] ?? []);
+
         $message = $totalActions > 0
             ? "Cashbook sync completed for {$selectedShop->name}."
             : "Cashbook sync completed for {$selectedShop->name}: All records are matching.";
+
+        if ($skippedCount > 0) {
+            $message .= " ({$skippedCount} payment(s) skipped — Salary Settings category not configured).";
+        }
 
         return redirect()->route('shop-owner.staff.index', array_filter([
             'shop' => $selectedShop->code,

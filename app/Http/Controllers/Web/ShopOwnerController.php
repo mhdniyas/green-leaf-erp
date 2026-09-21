@@ -42,6 +42,7 @@ use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
+use App\Services\Cashbook\ShopCashbookSalarySectionService;
 use App\Services\Cashbook\ShopSettlementService;
 use App\Services\Cashbook\StaffPaymentCashbookProjectionService;
 use App\Services\Finance\CompanyPayableService;
@@ -85,6 +86,7 @@ class ShopOwnerController extends Controller
         private readonly StaffPaymentCashbookProjectionService $staffPaymentCashbookProjectionService,
         private readonly ShopSettlementService $shopSettlementService,
         private readonly ShopVendorReportService $vendorReportService,
+        private readonly ShopCashbookSalarySectionService $shopCashbookSalarySectionService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -1409,6 +1411,9 @@ class ShopOwnerController extends Controller
 
         $vendorPurchaseSummaries = $this->getVendorPurchaseSummaries($shop, $date, $settings);
 
+        $salarySectionData = $this->shopCashbookSalarySectionService
+            ->getSalarySection($shop, $syncStartDate, $syncEndDate);
+
         return view('shop-owner.cashbook.index', [
             'shop' => $shop,
             'selectedDate' => Carbon::parse($date),
@@ -1431,6 +1436,7 @@ class ShopOwnerController extends Controller
             'startDate' => $startDate,
             'endDate' => $endDate,
             'selectedMonth' => $month,
+            'salarySectionData' => $salarySectionData,
         ]);
     }
 

@@ -168,6 +168,22 @@
         </div>
     </div>
 
+    @php
+        $mappedDailySummary = $dailySummary->keyBy('product_id')->map(function ($item) {
+            return [
+                'product_id' => (int) $item['product_id'], 'product_name' => (string) $item['product_name'],
+                'unit' => (string) $item['unit'], 'category_name' => (string) ($item['category_name'] ?? 'Other'),
+                'total_approved_qty' => (float) $item['total_approved_qty'], 'remaining_qty' => (float) $item['remaining_qty'],
+                'draft_qty' => (float) $item['draft_qty'], 'bought_qty' => (float) $item['bought_qty'],
+                'order_date_formatted' => \Illuminate\Support\Carbon::parse($item['order_date'])->format('d M Y'),
+                'order_date_ymd' => \Illuminate\Support\Carbon::parse($item['order_date'])->format('Y-m-d'),
+                'draft_purchasers' => $item['draft_purchasers'] ?? [], 'quantity_buckets' => $item['quantity_buckets'] ?? [],
+                'measure_breakdown' => $item['measure_breakdown'] ?? [], 'shop_details' => $item['shop_details'] ?? [],
+            ];
+        });
+    @endphp
+    <script>window.purchaserDailyDemandData = @json($mappedDailySummary);</script>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             setDailyPurchaseGrade(@js($purchaseGrade));
@@ -422,32 +438,6 @@
             </div>
         </div>
     </div>
-
-    @php
-        $mappedDailySummary = $dailySummary->keyBy('product_id')->map(function ($item) use ($date) {
-            return [
-                'product_id' => (int) $item['product_id'],
-                'product_name' => (string) $item['product_name'],
-                'unit' => (string) $item['unit'],
-                'category_name' => (string) ($item['category_name'] ?? 'Other'),
-                'total_approved_qty' => (float) $item['total_approved_qty'],
-                'remaining_qty' => (float) $item['remaining_qty'],
-                'draft_qty' => (float) $item['draft_qty'],
-                'bought_qty' => (float) $item['bought_qty'],
-                'order_date_formatted' => \Illuminate\Support\Carbon::parse($item['order_date'])->format('d M Y'),
-                'order_date_ymd' => \Illuminate\Support\Carbon::parse($item['order_date'])->format('Y-m-d'),
-                'draft_purchasers' => $item['draft_purchasers'] ?? [],
-                'quantity_buckets' => $item['quantity_buckets'] ?? [],
-                'measure_breakdown' => $item['measure_breakdown'] ?? [],
-                'shop_details' => $item['shop_details'] ?? [],
-            ];
-        });
-    @endphp
-
-    <script>
-        // Store daily summary data for details modal populate
-        window.purchaserDailyDemandData = @json($mappedDailySummary);
-    </script>
 
     <script>
         let currentModalBasis = 'kg';

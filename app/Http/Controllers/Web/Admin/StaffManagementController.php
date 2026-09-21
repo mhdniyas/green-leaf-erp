@@ -41,6 +41,7 @@ use App\Models\PayrollRunItem;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
+use App\Models\StaffSyncFlag;
 use App\Models\User;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\ContractWorkerPaymentService;
@@ -407,7 +408,21 @@ class StaffManagementController extends Controller
             ->limit(8)
             ->get();
 
+        $paymentIds = $shopStaffPayments->pluck('id')->all();
+        $syncFlags = StaffSyncFlag::query()
+            ->open()
+            ->where(function (Builder $query) use ($paymentIds, $employee): void {
+                $query->where(function (Builder $q) use ($paymentIds): void {
+                    $q->where('source_type', ShopStaffPayment::class)
+                        ->whereIn('source_id', $paymentIds);
+                })->orWhere('employee_id', $employee->id);
+            })
+            ->get();
+        $paymentFlags = $syncFlags->where('source_type', ShopStaffPayment::class)->groupBy('source_id');
+
         return view('admin.staff.show', [
+            'paymentFlags' => $paymentFlags,
+            'syncFlags' => $syncFlags,
             'employee' => $employee,
             'selectedMonth' => $selectedMonth,
             'calendarDays' => $this->buildCalendarDays($selectedMonth, $attendanceRecords),
@@ -1445,7 +1460,7 @@ class StaffManagementController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
             'paid_on' => ['required', 'date'],
             'payment_type' => ['required', 'in:salary,advance'],
-            'fund_source' => ['required', 'in:sales,petty_cash,company,petty'],
+            'fund_source' => ['required', 'in:sales,petty_cash,company,petty,sales_cash,company_payable'],
             'shop_id' => ['required', 'exists:shops,id'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
@@ -1481,7 +1496,7 @@ class StaffManagementController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
             'paid_on' => ['required', 'date'],
             'payment_type' => ['sometimes', 'in:salary,advance'],
-            'fund_source' => ['required', 'in:sales,petty_cash,company,petty'],
+            'fund_source' => ['required', 'in:sales,petty_cash,company,petty,sales_cash,company_payable'],
             'shop_id' => ['sometimes', 'exists:shops,id'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);

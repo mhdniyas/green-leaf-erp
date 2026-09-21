@@ -145,29 +145,58 @@
             </div>
 
             {{-- Visible Funding Source Selection --}}
+            @php
+                $salModes = $salaryAllowedModes ?? ['sales_cash', 'petty', 'company_payable'];
+                $salDefault = $salaryDefaultMode ?? ($salModes[0] ?? 'sales_cash');
+                $selectedSalSource = old('fund_source', $salDefault);
+                if ($selectedSalSource === 'sales_income') $selectedSalSource = 'sales_cash';
+                if ($selectedSalSource === 'petty_cash') $selectedSalSource = 'petty';
+            @endphp
             <fieldset class="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
                 <legend class="text-xs font-black uppercase tracking-wider text-slate-700 px-1">Funding Source</legend>
-                <div class="grid grid-cols-2 gap-3 mt-1">
-                    <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
-                        <input type="radio" name="fund_source" value="sales_income" id="sal_fund_sales"
-                                class="text-emerald-600 focus:ring-emerald-500"
-                                {{ old('fund_source', 'sales_income') === 'sales_income' ? 'checked' : '' }}>
-                        <div>
-                            <span class="block text-xs font-black text-slate-900">Sales Cash</span>
-                            <span class="block text-[10px] font-medium text-slate-500">From shop daily sales till</span>
-                        </div>
-                    </label>
+                @if(empty($salModes))
+                    <div class="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 font-medium">
+                        No payment modes are configured for Salary under Cashbook Salary Settings for this shop.
+                    </div>
+                @else
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-1">
+                        @if(in_array('sales_cash', $salModes, true))
+                            <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
+                                <input type="radio" name="fund_source" value="sales_cash" id="sal_fund_sales"
+                                        class="text-emerald-600 focus:ring-emerald-500"
+                                        {{ $selectedSalSource === 'sales_cash' ? 'checked' : '' }}>
+                                <div>
+                                    <span class="block text-xs font-black text-slate-900">Sales Cash</span>
+                                    <span class="block text-[10px] font-medium text-slate-500">Shop daily sales</span>
+                                </div>
+                            </label>
+                        @endif
 
-                    <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
-                        <input type="radio" name="fund_source" value="petty_cash" id="sal_fund_petty"
-                                class="text-emerald-600 focus:ring-emerald-500"
-                                {{ old('fund_source') === 'petty_cash' ? 'checked' : '' }}>
-                        <div>
-                            <span class="block text-xs font-black text-slate-900">Petty Cash</span>
-                            <span class="block text-[10px] font-medium text-slate-500">From shop petty float</span>
-                        </div>
-                    </label>
-                </div>
+                        @if(in_array('petty', $salModes, true))
+                            <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
+                                <input type="radio" name="fund_source" value="petty" id="sal_fund_petty"
+                                        class="text-emerald-600 focus:ring-emerald-500"
+                                        {{ $selectedSalSource === 'petty' ? 'checked' : '' }}>
+                                <div>
+                                    <span class="block text-xs font-black text-slate-900">Petty Cash</span>
+                                    <span class="block text-[10px] font-medium text-slate-500">Shop petty float</span>
+                                </div>
+                            </label>
+                        @endif
+
+                        @if(in_array('company_payable', $salModes, true))
+                            <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
+                                <input type="radio" name="fund_source" value="company_payable" id="sal_fund_company"
+                                        class="text-emerald-600 focus:ring-emerald-500"
+                                        {{ $selectedSalSource === 'company_payable' ? 'checked' : '' }}>
+                                <div>
+                                    <span class="block text-xs font-black text-slate-900">Company Payable</span>
+                                    <span class="block text-[10px] font-medium text-slate-500">Shop settlement</span>
+                                </div>
+                            </label>
+                        @endif
+                    </div>
+                @endif
                 @error('fund_source')
                     <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p>
                 @enderror
@@ -260,29 +289,58 @@
             <div id="adv_decision_box" class="hidden rounded-xl border p-3 text-xs" data-advance-decision></div>
 
             {{-- Visible Funding Source Selection --}}
+            @php
+                $advModes = $advanceAllowedModes ?? ['sales_cash', 'petty', 'company_payable'];
+                $advDefault = $advanceDefaultMode ?? ($advModes[0] ?? 'sales_cash');
+                $selectedAdvSource = old('fund_source', $advDefault);
+                if ($selectedAdvSource === 'sales_income') $selectedAdvSource = 'sales_cash';
+                if ($selectedAdvSource === 'petty_cash') $selectedAdvSource = 'petty';
+            @endphp
             <fieldset class="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
                 <legend class="text-xs font-black uppercase tracking-wider text-slate-700 px-1">Funding Source</legend>
-                <div class="grid grid-cols-2 gap-3 mt-1">
-                    <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
-                        <input type="radio" name="fund_source" value="sales_income" id="adv_fund_sales"
-                               class="text-emerald-600 focus:ring-emerald-500"
-                               {{ old('fund_source', 'sales_income') === 'sales_income' ? 'checked' : '' }}>
-                        <div>
-                            <span class="block text-xs font-black text-slate-900">Sales Cash</span>
-                            <span class="block text-[10px] font-medium text-slate-500">From shop daily sales till</span>
-                        </div>
-                    </label>
+                @if(empty($advModes))
+                    <div class="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 font-medium">
+                        No payment modes are configured for Salary Advance under Cashbook Salary Settings for this shop.
+                    </div>
+                @else
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-1">
+                        @if(in_array('sales_cash', $advModes, true))
+                            <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
+                                <input type="radio" name="fund_source" value="sales_cash" id="adv_fund_sales"
+                                       class="text-emerald-600 focus:ring-emerald-500"
+                                       {{ $selectedAdvSource === 'sales_cash' ? 'checked' : '' }}>
+                                <div>
+                                    <span class="block text-xs font-black text-slate-900">Sales Cash</span>
+                                    <span class="block text-[10px] font-medium text-slate-500">Shop daily sales</span>
+                                </div>
+                            </label>
+                        @endif
 
-                    <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
-                        <input type="radio" name="fund_source" value="petty_cash" id="adv_fund_petty"
-                               class="text-emerald-600 focus:ring-emerald-500"
-                               {{ old('fund_source') === 'petty_cash' ? 'checked' : '' }}>
-                        <div>
-                            <span class="block text-xs font-black text-slate-900">Petty Cash</span>
-                            <span class="block text-[10px] font-medium text-slate-500">From shop petty float</span>
-                        </div>
-                    </label>
-                </div>
+                        @if(in_array('petty', $advModes, true))
+                            <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
+                                <input type="radio" name="fund_source" value="petty" id="adv_fund_petty"
+                                       class="text-emerald-600 focus:ring-emerald-500"
+                                       {{ $selectedAdvSource === 'petty' ? 'checked' : '' }}>
+                                <div>
+                                    <span class="block text-xs font-black text-slate-900">Petty Cash</span>
+                                    <span class="block text-[10px] font-medium text-slate-500">Shop petty float</span>
+                                </div>
+                            </label>
+                        @endif
+
+                        @if(in_array('company_payable', $advModes, true))
+                            <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5 cursor-pointer hover:border-emerald-400 transition">
+                                <input type="radio" name="fund_source" value="company_payable" id="adv_fund_company"
+                                       class="text-emerald-600 focus:ring-emerald-500"
+                                       {{ $selectedAdvSource === 'company_payable' ? 'checked' : '' }}>
+                                <div>
+                                    <span class="block text-xs font-black text-slate-900">Company Payable</span>
+                                    <span class="block text-[10px] font-medium text-slate-500">Shop settlement</span>
+                                </div>
+                            </label>
+                        @endif
+                    </div>
+                @endif
                 @error('fund_source')
                     <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p>
                 @enderror

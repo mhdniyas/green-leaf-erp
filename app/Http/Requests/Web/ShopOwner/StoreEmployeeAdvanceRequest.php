@@ -13,7 +13,7 @@ class StoreEmployeeAdvanceRequest extends FormRequest
     {
         if (! $this->has('fund_source') || empty($this->input('fund_source'))) {
             $this->merge([
-                'fund_source' => 'petty_cash',
+                'fund_source' => 'sales_cash',
             ]);
         }
     }
@@ -33,7 +33,7 @@ class StoreEmployeeAdvanceRequest extends FormRequest
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'requested_on' => ['required', 'date'],
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'fund_source' => ['required', 'string', Rule::in(['petty_cash', 'sales_income'])],
+            'fund_source' => ['required', 'string', Rule::in(['sales_cash', 'petty', 'company_payable', 'sales_income', 'petty_cash'])],
             'request_note' => ['nullable', 'string', 'max:1000'],
             'request_uuid' => ['required', 'string', 'uuid'],
         ];
