@@ -44,7 +44,7 @@ class TrayMovementController extends Controller
         }
 
         // Get shops list
-        $shops = Shop::query()->orderBy('name')->get();
+        $shops = Shop::query()->where('status', 'active')->orderBy('name')->get();
 
         // Fetch movements for the date
         $movements = TrayMovement::query()
