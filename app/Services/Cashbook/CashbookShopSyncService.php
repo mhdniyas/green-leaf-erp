@@ -418,6 +418,15 @@ class CashbookShopSyncService
                 ->first()
             : null;
 
+        if (! $legacySetting) {
+            $legacySetting = ShopLedgerEntrySetting::query()
+                ->with(['definedShopSuppliers'])
+                ->where('shop_id', $shopId)
+                ->where('is_vendor_purchase', true)
+                ->whereNull('vendor_purchase_payment_type')
+                ->first();
+        }
+
         $existingCash = ShopLedgerEntrySetting::query()
             ->where('shop_id', $shopId)
             ->where(function ($q) use ($cashType): void {

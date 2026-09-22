@@ -777,6 +777,20 @@ class ShopPurchaseController extends Controller
         $paymentMethod = (string) ($validated['payment_method'] ?? 'Cash');
         $explicitSettingId = ! empty($validated['shop_ledger_entry_setting_id']) ? (int) $validated['shop_ledger_entry_setting_id'] : null;
 
+        $explicitSetting = null;
+        if ($explicitSettingId) {
+            $explicitSetting = ShopLedgerEntrySetting::query()->with('definedShopSuppliers')->find($explicitSettingId);
+            if (! $explicitSetting || (int) $explicitSetting->shop_id !== (int) $shop->id) {
+                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category does not belong to this shop.');
+            }
+            if (! $explicitSetting->enabled) {
+                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category is disabled.');
+            }
+            if (! $explicitSetting->is_vendor_purchase) {
+                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'Vendor purchasing is not enabled for this category.');
+            }
+        }
+
         /** @var ShopLedgerEntrySetting|null $categorySetting */
         $categorySetting = $this->purchaseService->resolveVendorPurchaseCategorySetting($shop, $paymentMethod, $explicitSettingId);
 
@@ -795,7 +809,10 @@ class ShopPurchaseController extends Controller
         $validated['shop_ledger_entry_setting_id'] = $categorySetting->id;
         $categorySetting->loadMissing('definedShopSuppliers');
 
-        $validationTarget = $categorySetting;
+        $validationTarget = ($explicitSetting && in_array($explicitSetting->vendor_access_mode, ['defined_only', 'linked_only'], true))
+            ? $explicitSetting
+            : $categorySetting;
+
         $mode = $validationTarget->vendor_access_mode ?: 'linked_create';
 
             if ($mode === 'defined_only') {
