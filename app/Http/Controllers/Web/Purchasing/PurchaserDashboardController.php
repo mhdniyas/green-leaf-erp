@@ -693,7 +693,7 @@ class PurchaserDashboardController extends Controller
             ? $dailySummary->where('is_direct_catalog', true)->pluck('product_id')->all()
             : [];
         $orderedSummary = $purchaseGrade === 'B' ? $dailySummary->where('has_grade_b_order', true) : $dailySummary;
-        $pendingSummary = $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] > 0)->take(50)->values();
+        $pendingSummary = $orderedSummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] > 0)->values();
         $quickFilters = $this->quickFiltersForPurchaser($user);
 
         return view('purchasing.purchaser.bulk_buy', [
