@@ -510,6 +510,8 @@ class PurchaserBulkBuyOptimizedTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        PurchaserCart::query()->delete();
+
         $countCartsBefore = PurchaserCart::query()
             ->where('user_id', $this->purchaser->id)
             ->whereNull('supplier_id')
@@ -589,6 +591,8 @@ class PurchaserBulkBuyOptimizedTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        PurchaserCart::query()->delete();
 
         // Seed an existing draft cart for this user/date/grade (no supplier)
         $existingCart = PurchaserCart::query()->create([
