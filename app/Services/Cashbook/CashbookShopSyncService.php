@@ -405,6 +405,9 @@ class CashbookShopSyncService
             ]
         );
 
+        $shop = Shop::find($shopId);
+        $shopPurchasingActive = $shop ? (bool) $shop->shop_purchasing_enabled : true;
+
         // Find any existing legacy Vendor Purchase setting for this shop to carry forward settings
         $legacyType = LedgerEntryType::where('code', 'vendor_purchase')->first();
         $legacySetting = $legacyType
@@ -415,14 +418,7 @@ class CashbookShopSyncService
                 ->first()
             : null;
 
-        $enabled = $legacySetting ? (bool) $legacySetting->enabled : true;
-        $vendorAccessMode = $legacySetting?->vendor_access_mode ?: 'linked_create';
-        $vendorSettlementRelationId = $legacySetting?->vendor_settlement_relation_id;
-        $legacyHeaderGroupId = $legacySetting?->header_group_id;
-        $legacySupplierIds = $legacySetting ? $legacySetting->definedShopSuppliers->pluck('id')->all() : [];
-
-        // 1. Ensure Cash category
-        $cashSetting = ShopLedgerEntrySetting::query()
+        $existingCash = ShopLedgerEntrySetting::query()
             ->where('shop_id', $shopId)
             ->where(function ($q) use ($cashType): void {
                 $q->where('entry_type_id', $cashType->id)
@@ -431,6 +427,34 @@ class CashbookShopSyncService
                     });
             })
             ->first();
+
+        $existingCredit = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shopId)
+            ->where(function ($q) use ($creditType): void {
+                $q->where('entry_type_id', $creditType->id)
+                    ->orWhere(function ($sq): void {
+                        $sq->where('is_vendor_purchase', true)->where('vendor_purchase_payment_type', 'credit');
+                    });
+            })
+            ->first();
+
+        if ($legacySetting) {
+            $masterEnabled = (bool) $legacySetting->enabled;
+        } elseif ($existingCash || $existingCredit) {
+            $masterEnabled = (bool) (($existingCash?->enabled ?? false) || ($existingCredit?->enabled ?? false));
+        } else {
+            $masterEnabled = $shopPurchasingActive;
+        }
+
+        $vendorAccessMode = $legacySetting?->vendor_access_mode
+            ?: ($existingCash?->vendor_access_mode ?: ($existingCredit?->vendor_access_mode ?: 'linked_create'));
+        $vendorSettlementRelationId = $legacySetting?->vendor_settlement_relation_id
+            ?? ($existingCash?->vendor_settlement_relation_id ?? $existingCredit?->vendor_settlement_relation_id);
+        $legacyHeaderGroupId = $legacySetting?->header_group_id;
+        $legacySupplierIds = $legacySetting ? $legacySetting->definedShopSuppliers->pluck('id')->all() : [];
+
+        // 1. Ensure Cash category
+        $cashSetting = $existingCash;
 
         if (! $cashSetting) {
             $cashSetting = ShopLedgerEntrySetting::create([
@@ -446,7 +470,7 @@ class CashbookShopSyncService
                 'version' => 1,
                 'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
                 'effective_to' => null,
-                'enabled' => $enabled,
+                'enabled' => $masterEnabled,
                 'default_funding_source' => 'sales',
                 'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
                 'include_in_sales' => false,
@@ -464,6 +488,9 @@ class CashbookShopSyncService
             }
         } else {
             $updates = [];
+            if ((bool) $cashSetting->enabled !== $masterEnabled) {
+                $updates['enabled'] = $masterEnabled;
+            }
             if (! $cashSetting->is_vendor_purchase) {
                 $updates['is_vendor_purchase'] = true;
             }
@@ -476,15 +503,7 @@ class CashbookShopSyncService
         }
 
         // 2. Ensure Credit category
-        $creditSetting = ShopLedgerEntrySetting::query()
-            ->where('shop_id', $shopId)
-            ->where(function ($q) use ($creditType): void {
-                $q->where('entry_type_id', $creditType->id)
-                    ->orWhere(function ($sq): void {
-                        $sq->where('is_vendor_purchase', true)->where('vendor_purchase_payment_type', 'credit');
-                    });
-            })
-            ->first();
+        $creditSetting = $existingCredit;
 
         if (! $creditSetting) {
             $creditSetting = ShopLedgerEntrySetting::create([
@@ -500,7 +519,7 @@ class CashbookShopSyncService
                 'version' => 1,
                 'effective_from' => self::DEFAULT_EFFECTIVE_FROM,
                 'effective_to' => null,
-                'enabled' => $enabled,
+                'enabled' => $masterEnabled,
                 'default_funding_source' => 'sales',
                 'allowed_funding_sources' => ['sales', 'petty', 'company', 'company_later'],
                 'include_in_sales' => false,
@@ -518,6 +537,9 @@ class CashbookShopSyncService
             }
         } else {
             $updates = [];
+            if ((bool) $creditSetting->enabled !== $masterEnabled) {
+                $updates['enabled'] = $masterEnabled;
+            }
             if (! $creditSetting->is_vendor_purchase) {
                 $updates['is_vendor_purchase'] = true;
             }

@@ -920,4 +920,137 @@ class ShopCashbookVendorPurchaseCategoryFlowTest extends TestCase
             ],
         ], $purchaserUser);
     }
+
+    public function test_url_legacy_category_id_does_not_break_cash_save_and_routes_to_split_cash_setting(): void
+    {
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->firstOrFail();
+
+        $legacySetting = $this->vendorCategoryLinkedCreate;
+
+        // Submitting with legacy category ID and payment_method = Cash
+        $response = $this->actingAs($this->shopUser)->postJson(route('shop-owner.purchasing.store'), [
+            'shop_ledger_entry_setting_id' => $legacySetting->id,
+            'supplier_id' => $this->activeVendor1->id,
+            'payment_method' => 'Cash',
+            'business_date' => '2026-09-21',
+            'bill_number' => 'TEST-SPLIT-CASH',
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 1, 'unit_price' => 21.00, 'total_price' => 21.00],
+            ],
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $this->assertSame((int) $cashSetting->id, (int) $response->json('invoice.shop_ledger_entry_setting_id'));
+    }
+
+    public function test_credit_purchase_routes_to_split_credit_setting(): void
+    {
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->firstOrFail();
+
+        // Submitting with no category ID and payment_method = Credit
+        $response = $this->actingAs($this->shopUser)->postJson(route('shop-owner.purchasing.store'), [
+            'supplier_id' => $this->activeVendor1->id,
+            'payment_method' => 'Credit',
+            'business_date' => '2026-09-21',
+            'bill_number' => 'TEST-SPLIT-CREDIT',
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 2, 'unit_price' => 50.00, 'total_price' => 100.00],
+            ],
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $this->assertSame((int) $creditSetting->id, (int) $response->json('invoice.shop_ledger_entry_setting_id'));
+    }
+
+    public function test_sync_reconciles_split_settings_enabled_lifecycle_with_shop_purchasing_master_state(): void
+    {
+        $syncService = app(CashbookShopSyncService::class);
+
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->firstOrFail();
+
+        $creditSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'credit')
+            ->firstOrFail();
+
+        $this->assertTrue((bool) $cashSetting->enabled);
+        $this->assertTrue((bool) $creditSetting->enabled);
+
+        // 1. Manually disable cash setting (simulating dormant state)
+        $cashSetting->update(['enabled' => false]);
+        $this->assertFalse((bool) $cashSetting->fresh()->enabled);
+
+        // 2. Running sync must reconcile cash setting back to enabled
+        $syncService->ensureVendorPurchaseForShop((int) $this->shop->id);
+        $this->assertTrue((bool) $cashSetting->fresh()->enabled);
+        $this->assertTrue((bool) $creditSetting->fresh()->enabled);
+
+        // 3. When legacy setting is disabled (Vendor Purchase toggled OFF)
+        $this->vendorCategoryLinkedCreate->update(['enabled' => false]);
+        $syncService->ensureVendorPurchaseForShop((int) $this->shop->id);
+
+        $this->assertFalse((bool) $cashSetting->fresh()->enabled);
+        $this->assertFalse((bool) $creditSetting->fresh()->enabled);
+
+        // 4. When legacy setting is re-enabled (Vendor Purchase toggled ON)
+        $this->vendorCategoryLinkedCreate->update(['enabled' => true]);
+        $syncService->ensureVendorPurchaseForShop((int) $this->shop->id);
+
+        $this->assertTrue((bool) $cashSetting->fresh()->enabled);
+        $this->assertTrue((bool) $creditSetting->fresh()->enabled);
+
+        // 5. Verify same rows are reused without duplicates
+        $this->assertSame(1, ShopLedgerEntrySetting::query()->where('shop_id', $this->shop->id)->where('vendor_purchase_payment_type', 'cash')->count());
+        $this->assertSame(1, ShopLedgerEntrySetting::query()->where('shop_id', $this->shop->id)->where('vendor_purchase_payment_type', 'credit')->count());
+    }
+
+    public function test_disabled_master_vendor_purchase_rejects_purchase(): void
+    {
+        $syncService = app(CashbookShopSyncService::class);
+        $this->vendorCategoryLinkedCreate->update(['enabled' => false]);
+        $syncService->ensureVendorPurchaseForShop((int) $this->shop->id);
+
+        $response = $this->actingAs($this->shopUser)->postJson(route('shop-owner.purchasing.store'), [
+            'supplier_id' => $this->activeVendor1->id,
+            'payment_method' => 'Cash',
+            'business_date' => '2026-09-21',
+            'items' => [
+                ['product_id' => $this->product->id, 'quantity' => 1, 'unit_price' => 21.00, 'total_price' => 21.00],
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJson([
+            'success' => false,
+            'message' => 'The selected category is disabled.',
+        ]);
+    }
+
+    public function test_existing_report_category_filter_continues_working_with_selected_date(): void
+    {
+        $cashSetting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $this->shop->id)
+            ->where('vendor_purchase_payment_type', 'cash')
+            ->firstOrFail();
+
+        $response = $this->actingAs($this->shopUser)->get(route('shop-owner.cashbook.vendor-purchases', [
+            'category_id' => $cashSetting->id,
+            'date' => '2026-09-21',
+        ]));
+
+        $response->assertOk();
+        $response->assertViewIs('shop-owner.cashbook.vendor-purchases.index');
+        $response->assertSee('21 Sep 2026');
+    }
 }

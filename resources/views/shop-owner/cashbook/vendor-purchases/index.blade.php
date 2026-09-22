@@ -500,8 +500,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('open') === 'new') {
-            const catId = urlParams.get('category_id');
-            openVendorPurchaseModal(catId);
+            openVendorPurchaseModal();
         }
     });
 

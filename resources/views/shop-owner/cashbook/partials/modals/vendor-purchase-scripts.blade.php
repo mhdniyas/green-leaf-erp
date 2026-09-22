@@ -787,7 +787,6 @@
         }
 
         const payload = {
-            shop_ledger_entry_setting_id: catId ? parseInt(catId, 10) : null,
             supplier_id: parseInt(supplierId, 10),
             payment_method: paymentMethod,
             business_date: selectedBusinessDate,

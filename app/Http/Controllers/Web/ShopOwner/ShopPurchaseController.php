@@ -777,87 +777,57 @@ class ShopPurchaseController extends Controller
         $paymentMethod = (string) ($validated['payment_method'] ?? 'Cash');
         $explicitSettingId = ! empty($validated['shop_ledger_entry_setting_id']) ? (int) $validated['shop_ledger_entry_setting_id'] : null;
 
-        $explicitSetting = null;
-        if ($explicitSettingId) {
-            $explicitSetting = ShopLedgerEntrySetting::query()->with('definedShopSuppliers')->find($explicitSettingId);
-            if (! $explicitSetting || (int) $explicitSetting->shop_id !== (int) $shop->id) {
-                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category does not belong to this shop.');
-            }
-            if (! $explicitSetting->enabled) {
-                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category is disabled.');
-            }
-            if (! $explicitSetting->is_vendor_purchase) {
-                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'Vendor purchasing is not enabled for this category.');
-            }
-        }
-
         /** @var ShopLedgerEntrySetting|null $categorySetting */
         $categorySetting = $this->purchaseService->resolveVendorPurchaseCategorySetting($shop, $paymentMethod, $explicitSettingId);
-        if ($categorySetting) {
-            $validated['shop_ledger_entry_setting_id'] = $categorySetting->id;
-            $categorySetting->loadMissing('definedShopSuppliers');
+
+        if (! $categorySetting || (int) $categorySetting->shop_id !== (int) $shop->id) {
+            $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category does not belong to this shop.');
         }
 
-        $validationTarget = $explicitSetting ?? $categorySetting;
+        if (! $categorySetting->enabled) {
+            $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category is disabled.');
+        }
 
-        if ($validationTarget) {
-            if (! $validationTarget->enabled) {
-                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'The selected category is disabled.');
-            }
+        if (! $categorySetting->is_vendor_purchase) {
+            $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'Vendor purchasing is not enabled for this category.');
+        }
 
-            if (! $validationTarget->is_vendor_purchase) {
-                $this->rejectAccess($request, 'shop_ledger_entry_setting_id', 'Vendor purchasing is not enabled for this category.');
-            }
+        $validated['shop_ledger_entry_setting_id'] = $categorySetting->id;
+        $categorySetting->loadMissing('definedShopSuppliers');
 
-            $mode = $validationTarget->vendor_access_mode ?: 'linked_create';
+        $validationTarget = $categorySetting;
+        $mode = $validationTarget->vendor_access_mode ?: 'linked_create';
 
             if ($mode === 'defined_only') {
-                if (! empty($validated['new_supplier_name'])) {
-                    $this->rejectAccess($request, 'new_supplier_name', 'Vendor creation is not permitted for this category.');
+            if (! empty($validated['new_supplier_name'])) {
+                $this->rejectAccess($request, 'new_supplier_name', 'Vendor creation is not permitted for this category.');
+            }
+
+            if (! empty($validated['supplier_id'])) {
+                $shopSupplier = ShopSupplier::query()
+                    ->where('shop_id', (int) $shop->id)
+                    ->where('supplier_id', (int) $validated['supplier_id'])
+                    ->where('is_active', true)
+                    ->first();
+
+                if (! $shopSupplier || ! $validationTarget->definedShopSuppliers->contains('id', $shopSupplier->id)) {
+                    $this->rejectAccess($request, 'supplier_id', "The selected vendor is not permitted for category '{$validationTarget->displayName()}'.");
                 }
+            }
+        } elseif ($mode === 'linked_only') {
+            if (! empty($validated['new_supplier_name'])) {
+                $this->rejectAccess($request, 'new_supplier_name', 'Vendor creation is not permitted for this category.');
+            }
 
-                if (! empty($validated['supplier_id'])) {
-                    $shopSupplier = ShopSupplier::query()
-                        ->where('shop_id', (int) $shop->id)
-                        ->where('supplier_id', (int) $validated['supplier_id'])
-                        ->where('is_active', true)
-                        ->first();
+            if (! empty($validated['supplier_id'])) {
+                $isActiveLinked = ShopSupplier::query()
+                    ->where('shop_id', (int) $shop->id)
+                    ->where('supplier_id', (int) $validated['supplier_id'])
+                    ->where('is_active', true)
+                    ->exists();
 
-                    if (! $shopSupplier || ! $validationTarget->definedShopSuppliers->contains('id', $shopSupplier->id)) {
-                        $this->rejectAccess($request, 'supplier_id', "The selected vendor is not permitted for category '{$validationTarget->displayName()}'.");
-                    }
-                }
-            } elseif ($mode === 'linked_only') {
-                if (! empty($validated['new_supplier_name'])) {
-                    $this->rejectAccess($request, 'new_supplier_name', 'Vendor creation is not permitted for this category.');
-                }
-
-                if (! empty($validated['supplier_id'])) {
-                    $isActiveLinked = ShopSupplier::query()
-                        ->where('shop_id', (int) $shop->id)
-                        ->where('supplier_id', (int) $validated['supplier_id'])
-                        ->where('is_active', true)
-                        ->exists();
-
-                    if (! $isActiveLinked) {
-                        $this->rejectAccess($request, 'supplier_id', 'The selected vendor is not active for this shop.');
-                    }
-                }
-            } else {
-                if (! empty($validated['new_supplier_name']) && ! $shop->isVendorCreationAllowed()) {
-                    $this->rejectAccess($request, 'new_supplier_name', 'Vendor creation is not permitted for this shop.');
-                }
-
-                if (! empty($validated['supplier_id'])) {
-                    $isActiveLinked = ShopSupplier::query()
-                        ->where('shop_id', (int) $shop->id)
-                        ->where('supplier_id', (int) $validated['supplier_id'])
-                        ->where('is_active', true)
-                        ->exists();
-
-                    if (! $isActiveLinked) {
-                        $this->rejectAccess($request, 'supplier_id', 'The selected vendor is not active for this shop.');
-                    }
+                if (! $isActiveLinked) {
+                    $this->rejectAccess($request, 'supplier_id', 'The selected vendor is not active for this shop.');
                 }
             }
         } else {
@@ -866,13 +836,13 @@ class ShopPurchaseController extends Controller
             }
 
             if (! empty($validated['supplier_id'])) {
-                $isLinked = ShopSupplier::query()
+                $isActiveLinked = ShopSupplier::query()
                     ->where('shop_id', (int) $shop->id)
                     ->where('supplier_id', (int) $validated['supplier_id'])
                     ->where('is_active', true)
                     ->exists();
 
-                if (! $isLinked) {
+                if (! $isActiveLinked) {
                     $this->rejectAccess($request, 'supplier_id', 'The selected vendor is not active for this shop.');
                 }
             }
