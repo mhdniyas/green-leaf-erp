@@ -613,6 +613,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/bulk-buy/details', [PurchaserDashboardController::class, 'bulkBuyDetails'])->name('purchaser.bulk-buy.details');
     Route::get('/purchaser/bulk-buy/tabs/fulfilled', [PurchaserDashboardController::class, 'bulkBuyFulfilled'])->name('purchaser.bulk-buy.tabs.fulfilled');
     Route::get('/purchaser/bulk-buy/product-search', [PurchaserDashboardController::class, 'bulkBuyProductSearch'])->name('purchaser.bulk-buy.product-search');
+    Route::post('/purchaser/bulk-buy/add-ons', [PurchaserDashboardController::class, 'storeBulkBuyAddons'])->name('purchaser.bulk-buy.add-ons.store');
+    Route::post('/purchaser/bulk-buy/add-ons-to-cart', [PurchaserDashboardController::class, 'storeAddonsToCart'])->name('purchaser.bulk-buy.add-ons-to-cart.store');
     Route::get('/purchaser/cart', [PurchaserDashboardController::class, 'cart'])->name('purchaser.cart');
     Route::get('/purchaser/vendors', [PurchaserDashboardController::class, 'vendors'])->name('purchaser.vendors');
     Route::get('/purchaser/vendors/tabs/pending', [PurchaserDashboardController::class, 'vendorsPendingTab'])->name('purchaser.vendors.tabs.pending');

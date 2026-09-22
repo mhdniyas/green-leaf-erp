@@ -1,5 +1,5 @@
 <x-layouts.app title="Bulk Purchase">
-    <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
+    <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 pb-24 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4 lg:pb-6">
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
 
@@ -41,7 +41,7 @@
                     </div>
                 </div>
 
-                {{-- Horizontal Category Pills (Matching Add-ons) --}}
+                {{-- Horizontal Category Pills --}}
                 <div class="-mx-1 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 pb-1">
                     <button type="button" data-category-pill="All" onclick="selectCategoryPill('All', this)" class="category-pill snap-start shrink-0 rounded-full bg-teal-600 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-white shadow-xs transition">
                         All
@@ -63,7 +63,6 @@
         <form action="{{ route('purchaser.bulk-buy.details') }}" method="GET" id="bulk-buy-form" class="pb-24">
             <input type="hidden" name="date" value="{{ $date }}">
             <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
-            <div id="hidden-selected-addons-container"></div>
             
             {{-- Professional Tabs switcher --}}
             <div class="mb-3 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">
@@ -78,53 +77,82 @@
                 </button>
             </div>
 
-            {{-- Search product input (just above product list) --}}
+            {{-- Search product input --}}
             <div class="mb-3 relative">
                 <input id="search-input" type="search" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4 lg:py-3">
             </div>
 
             <div class="space-y-3" id="product-list">
-                {{-- Pending Carts --}}
-                @foreach ($pendingSummary as $summary)
-                    <label class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer"
-                           data-tab="pending"
-                           data-name="{{ $summary['product_name'] }}"
-                           data-sku="{{ $summary['sku'] }}"
-                           data-category="{{ $summary['category_name'] }}"
-                           data-frequent="{{ $summary['is_frequent'] ? 'true' : 'false' }}">
-                        <div class="flex items-center gap-3">
-                            <div class="flex items-center shrink-0">
-                                <input type="checkbox" name="product_ids[]" value="{{ $summary['product_id'] }}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer">
-                            </div>
-                            <div class="min-w-0 flex-1">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">{{ $summary['product_name'] }}</h3>
-                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</span>
-                                    @if ($summary['draft_qty'] > 0)
-                                        <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-700">In Cart: {{ number_format($summary['draft_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                    @endif
+                {{-- Pending Demand Items --}}
+                <div id="pending-container" class="space-y-3">
+                    @foreach ($pendingSummary as $summary)
+                        <label class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer"
+                               data-tab="pending"
+                               data-name="{{ $summary['product_name'] }}"
+                               data-sku="{{ $summary['sku'] }}"
+                               data-category="{{ $summary['category_name'] }}"
+                               data-frequent="{{ $summary['is_frequent'] ? 'true' : 'false' }}">
+                            <div class="flex items-center gap-3">
+                                <div class="flex items-center shrink-0">
+                                    <input type="checkbox" name="product_ids[]" value="{{ $summary['product_id'] }}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer">
                                 </div>
-                                <div class="mt-2 flex items-center gap-4 text-xs font-semibold text-slate-500">
-                                    <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                    <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
-                                    <span class="text-teal-600 font-bold">Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">{{ $summary['product_name'] }}</h3>
+                                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</span>
+                                        @if (! empty($summary['is_addon']))
+                                            <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-teal-700 font-bold border border-teal-200">ADD-ON</span>
+                                        @endif
+                                        @if ($summary['draft_qty'] > 0)
+                                            <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-700">In Cart: {{ number_format($summary['draft_qty'], 1) }} {{ $summary['unit'] }}</span>
+                                        @endif
+                                    </div>
+                                    <div class="mt-2 flex items-center gap-4 text-xs font-semibold text-slate-500">
+                                        <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
+                                        <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
+                                        <span class="text-teal-600 font-bold">Left: {{ number_format($summary['remaining_qty'], 1) }}</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </label>
-                @endforeach
+                        </label>
+                    @endforeach
+                </div>
 
-                <div id="fulfilled-container" class="space-y-3"></div>
-                <div id="addons-container" class="space-y-3"></div>
+                {{-- Fulfilled Demand Container (Lazy Loaded) --}}
+                <div id="fulfilled-container" class="space-y-3 hidden"></div>
+
+                {{-- Add-ons Product Picker Container (Lazy Loaded) --}}
+                <div id="addons-container" class="space-y-3 hidden">
+                    <div id="addons-list" class="space-y-3"></div>
+                    
+                    {{-- Skeleton / Loading indicator --}}
+                    <div id="addons-loading" class="hidden py-8 text-center">
+                        <div class="inline-flex items-center gap-2 text-sm font-bold text-slate-500">
+                            <svg class="h-5 w-5 animate-spin text-teal-600" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                            </svg>
+                            <span>Loading products...</span>
+                        </div>
+                    </div>
+
+                    {{-- Load More button --}}
+                    <div id="addons-load-more-wrap" class="hidden pt-3 text-center">
+                        <button type="button" id="addons-load-more-btn" onclick="loadMoreAddons()" class="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 text-xs font-black uppercase tracking-wider text-slate-700 shadow-xs transition hover:bg-slate-50 hover:border-slate-300">
+                            <span>Load More Products</span>
+                        </button>
+                    </div>
+                </div>
             </div>
             
             <div id="no-results-msg" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4 lg:py-12">
                 No products match the selected filters.
             </div>
 
-            {{-- Sticky bottom bar --}}
-            <div class="sticky bottom-20 lg:bottom-4 z-40 mt-6 bg-white/95 backdrop-blur-md border border-slate-200 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.08)] rounded-2xl">
-                <div class="mx-auto flex max-w-full items-center justify-between gap-3 lg:max-w-6xl">
+            {{-- Sticky/Fixed bottom bar --}}
+            <div id="bulk-buy-bottom-wrapper" class="hidden lg:block fixed inset-x-3 bottom-[max(env(safe-area-inset-bottom),0.75rem)] z-50 bg-white/95 backdrop-blur-md border border-slate-200 p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] rounded-2xl lg:sticky lg:inset-x-auto lg:bottom-4 lg:z-40 lg:mt-6 lg:shadow-[0_8px_30px_rgba(0,0,0,0.08)] transition-all duration-200">
+                {{-- Standard Bulk Buy Selection Bar (for Pending & Fulfilled) --}}
+                <div id="bulk-buy-bottom-bar" class="mx-auto flex max-w-full items-center justify-between gap-3 lg:max-w-6xl">
                     <div>
                         <p class="text-xs font-black text-slate-500 uppercase">Selection</p>
                         <p class="text-sm font-black text-slate-900" id="selection-count">0 items selected</p>
@@ -138,6 +166,28 @@
                         </button>
                     </div>
                 </div>
+
+                {{-- Add-ons Picker Action Bar (for Add-ons Tab) --}}
+                <div id="addons-bottom-bar" class="hidden mx-auto flex max-w-full items-center justify-between gap-3 lg:max-w-6xl">
+                    <p class="text-2xl font-black text-slate-900" id="addons-selection-count">0</p>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="clearAddonSelections()" class="inline-flex h-11 items-center justify-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-200">
+                            Clear
+                        </button>
+                        <button type="button" id="add-to-demand-btn" onclick="submitAddonsToDemand()" disabled class="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-teal-600 px-5 text-sm font-black text-white shadow-xs transition hover:bg-teal-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                            </svg>
+                            Demand
+                        </button>
+                        <button type="button" id="add-to-cart-btn" onclick="submitAddonsToCart()" disabled class="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-5 text-sm font-black text-white shadow-xs transition hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.849-7.083a49.477 49.477 0 0 0-16.364-1.81 49.83 49.83 0 0 0-3.048.307m1.394 7.583L7.5 14.25" />
+                            </svg>
+                            Cart
+                        </button>
+                    </div>
+                </div>
             </div>
         </form>
     </div>
@@ -145,34 +195,28 @@
     <script>
         let activeTab = 'pending';
         const selectedProductIds = new Set();
+        const selectedAddons = new Map(); // productId => { product, qty }
+        let addonsCurrentPage = 1;
+        let addonsHasMore = false;
+        let addonsLoading = false;
+        let addonsLoadedOnce = false;
 
-        function switchTab(tab) {
-            activeTab = tab;
-
-            if (tab === 'fulfilled') {
-                const container = document.getElementById('fulfilled-container');
-                if (container && container.dataset.loaded !== 'true') {
-                    fetch(`{{ route('purchaser.bulk-buy.tabs.fulfilled') }}?date={{ $date }}&purchase_grade={{ $purchaseGrade }}`)
-                        .then(response => response.text())
-                        .then(html => { container.innerHTML = html; container.dataset.loaded = 'true'; window.filterItems?.(); });
-                }
-            }
-            
-            const tabs = ['pending', 'fulfilled', 'addons'];
-            tabs.forEach(t => {
-                const btn = document.getElementById(`tab-btn-${t}`);
-                if (t === tab) {
-                    btn.classList.add('bg-white', 'text-slate-900', 'shadow-xs');
-                    btn.classList.remove('text-slate-600', 'hover:bg-white/50');
+        function syncMobileBuyNavigation() {
+            const hasSelection = selectedProductIds.size > 0 || selectedAddons.size > 0;
+            const wrapper = document.getElementById('bulk-buy-bottom-wrapper');
+            if (wrapper) {
+                if (hasSelection) {
+                    wrapper.classList.remove('hidden');
                 } else {
-                    btn.classList.remove('bg-white', 'text-slate-900', 'shadow-xs');
-                    btn.classList.add('text-slate-600', 'hover:bg-white/50');
+                    wrapper.classList.add('hidden');
                 }
-            });
-
-            if (window.filterItems) {
-                window.filterItems();
             }
+
+            window.dispatchEvent(new CustomEvent('purchaser:buy-selection-change', {
+                detail: {
+                    hasSelection: hasSelection,
+                },
+            }));
         }
 
         function escapeHtml(str) {
@@ -185,19 +229,352 @@
                 .replace(/'/g, '&#039;');
         }
 
+        function switchTab(tab) {
+            activeTab = tab;
+
+            const tabs = ['pending', 'fulfilled', 'addons'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tab-btn-${t}`);
+                if (btn) {
+                    if (t === tab) {
+                        btn.classList.add('bg-white', 'text-slate-900', 'shadow-xs');
+                        btn.classList.remove('text-slate-600', 'hover:bg-white/50');
+                    } else {
+                        btn.classList.remove('bg-white', 'text-slate-900', 'shadow-xs');
+                        btn.classList.add('text-slate-600', 'hover:bg-white/50');
+                    }
+                }
+            });
+
+            const pendingContainer = document.getElementById('pending-container');
+            const fulfilledContainer = document.getElementById('fulfilled-container');
+            const addonsContainer = document.getElementById('addons-container');
+            const bulkBuyBottomBar = document.getElementById('bulk-buy-bottom-bar');
+            const addonsBottomBar = document.getElementById('addons-bottom-bar');
+
+            if (tab === 'pending') {
+                if (pendingContainer) pendingContainer.classList.remove('hidden');
+                if (fulfilledContainer) fulfilledContainer.classList.add('hidden');
+                if (addonsContainer) addonsContainer.classList.add('hidden');
+                if (bulkBuyBottomBar) bulkBuyBottomBar.classList.remove('hidden');
+                if (addonsBottomBar) addonsBottomBar.classList.add('hidden');
+            } else if (tab === 'fulfilled') {
+                if (pendingContainer) pendingContainer.classList.add('hidden');
+                if (fulfilledContainer) fulfilledContainer.classList.remove('hidden');
+                if (addonsContainer) addonsContainer.classList.add('hidden');
+                if (bulkBuyBottomBar) bulkBuyBottomBar.classList.remove('hidden');
+                if (addonsBottomBar) addonsBottomBar.classList.add('hidden');
+
+                if (fulfilledContainer && fulfilledContainer.dataset.loaded !== 'true') {
+                    window.showLoader?.();
+                    fetch(`{{ route('purchaser.bulk-buy.tabs.fulfilled') }}?date={{ $date }}&purchase_grade={{ $purchaseGrade }}`)
+                        .then(response => response.text())
+                        .then(html => {
+                            fulfilledContainer.innerHTML = html;
+                            fulfilledContainer.dataset.loaded = 'true';
+                            window.filterItems?.();
+                        })
+                        .finally(() => {
+                            window.hideLoader?.();
+                        });
+                }
+            } else if (tab === 'addons') {
+                if (pendingContainer) pendingContainer.classList.add('hidden');
+                if (fulfilledContainer) fulfilledContainer.classList.add('hidden');
+                if (addonsContainer) addonsContainer.classList.remove('hidden');
+                if (bulkBuyBottomBar) bulkBuyBottomBar.classList.add('hidden');
+                if (addonsBottomBar) addonsBottomBar.classList.remove('hidden');
+
+                if (!addonsLoadedOnce) {
+                    fetchAddons(1, true);
+                }
+            }
+
+            if (window.filterItems) {
+                window.filterItems();
+            }
+        }
+
+        async function fetchAddons(page = 1, reset = false) {
+            if (addonsLoading) return;
+            addonsLoading = true;
+
+            const searchInput = document.getElementById('search-input');
+            const filterSelect = document.getElementById('filter-select');
+            const loadingIndicator = document.getElementById('addons-loading');
+            const loadMoreWrap = document.getElementById('addons-load-more-wrap');
+            const addonsList = document.getElementById('addons-list');
+            const noResultsMsg = document.getElementById('no-results-msg');
+
+            if (loadingIndicator) loadingIndicator.classList.remove('hidden');
+            if (reset && addonsList) {
+                addonsList.innerHTML = '';
+            }
+
+            const query = searchInput ? searchInput.value.trim() : '';
+            const category = filterSelect ? filterSelect.value : 'All';
+
+            const params = new URLSearchParams({
+                page: page,
+                limit: 24,
+                purchase_grade: '{{ $purchaseGrade }}',
+            });
+
+            if (query) {
+                params.append('q', query);
+            }
+            if (category && category !== 'All') {
+                params.append('category', category);
+            }
+
+            try {
+                const response = await fetch(`{{ route('purchaser.bulk-buy.product-search') }}?${params.toString()}`);
+                const result = await response.json();
+                
+                const products = Array.isArray(result) ? result : (result.data || []);
+                addonsCurrentPage = result.current_page || page;
+                addonsHasMore = Boolean(result.has_more);
+                addonsLoadedOnce = true;
+
+                if (reset && products.length === 0) {
+                    if (noResultsMsg) {
+                        noResultsMsg.classList.remove('hidden');
+                        noResultsMsg.textContent = 'No add-on products match the selected filters.';
+                    }
+                } else {
+                    if (noResultsMsg && activeTab === 'addons') {
+                        noResultsMsg.classList.add('hidden');
+                    }
+                    products.forEach(product => {
+                        const card = createAddonPickerCard(product);
+                        addonsList.appendChild(card);
+                    });
+                }
+
+                if (loadMoreWrap) {
+                    if (addonsHasMore) {
+                        loadMoreWrap.classList.remove('hidden');
+                    } else {
+                        loadMoreWrap.classList.add('hidden');
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load add-on products:', err);
+            } finally {
+                addonsLoading = false;
+                if (loadingIndicator) loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        function loadMoreAddons() {
+            if (!addonsHasMore || addonsLoading) return;
+            fetchAddons(addonsCurrentPage + 1, false);
+        }
+
+        function createAddonPickerCard(product) {
+            const isSelected = selectedAddons.has(product.id);
+            const selectedData = selectedAddons.get(product.id);
+            const qtyVal = isSelected ? selectedData.qty : '';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = `product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border ${isSelected ? 'border-teal-500 bg-teal-50/20 ring-1 ring-teal-500' : 'border-slate-200 bg-white'} p-3.5 shadow-sm transition hover:border-teal-200`;
+            wrapper.dataset.productId = product.id;
+
+            wrapper.innerHTML = `
+                <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                        <input type="checkbox" class="addon-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer" ${isSelected ? 'checked' : ''}>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h3 class="font-black text-slate-900 text-sm truncate">${escapeHtml(product.name)}</h3>
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">${escapeHtml(product.category_name || 'Other')}</span>
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">${escapeHtml(product.sku)}</span>
+                            </div>
+                            <p class="text-xs font-semibold text-slate-500 mt-0.5">Unit: <span class="font-bold text-slate-700">${escapeHtml(product.unit)}</span></p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <div class="relative flex items-center">
+                            <input type="number" step="any" min="0.1" placeholder="Qty" value="${qtyVal}" class="addon-qty-input w-24 h-10 rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 shadow-xs focus:border-teal-500 focus:ring-1 focus:ring-teal-500 focus:outline-none">
+                            <span class="ml-1.5 text-xs font-bold text-slate-500 uppercase">${escapeHtml(product.unit)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const checkbox = wrapper.querySelector('.addon-checkbox');
+            const qtyInput = wrapper.querySelector('.addon-qty-input');
+
+            function syncSelectionState() {
+                const num = parseFloat(qtyInput.value);
+                if (checkbox.checked) {
+                    const finalQty = !isNaN(num) && num > 0 ? num : 1;
+                    if (isNaN(num) || num <= 0) {
+                        qtyInput.value = finalQty;
+                    }
+                    selectedAddons.set(product.id, { product, qty: finalQty });
+                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-teal-500 bg-teal-50/20 ring-1 ring-teal-500 p-3.5 shadow-sm transition hover:border-teal-200';
+                } else {
+                    selectedAddons.delete(product.id);
+                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
+                }
+                updateAddonsSelectionCount();
+            }
+
+            checkbox.addEventListener('change', () => {
+                syncSelectionState();
+                if (checkbox.checked) {
+                    qtyInput.focus();
+                    qtyInput.select();
+                }
+            });
+
+            qtyInput.addEventListener('input', () => {
+                const num = parseFloat(qtyInput.value);
+                if (!isNaN(num) && num > 0) {
+                    checkbox.checked = true;
+                    selectedAddons.set(product.id, { product, qty: num });
+                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-teal-500 bg-teal-50/20 ring-1 ring-teal-500 p-3.5 shadow-sm transition hover:border-teal-200';
+                } else {
+                    checkbox.checked = false;
+                    selectedAddons.delete(product.id);
+                    wrapper.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
+                }
+                updateAddonsSelectionCount();
+            });
+
+            return wrapper;
+        }
+
+        function updateAddonsSelectionCount() {
+            const count = selectedAddons.size;
+            const countEl = document.getElementById('addons-selection-count');
+            const demandBtn = document.getElementById('add-to-demand-btn');
+            const cartBtn = document.getElementById('add-to-cart-btn');
+
+            if (countEl) {
+                countEl.textContent = count;
+            }
+            if (demandBtn) {
+                demandBtn.disabled = count === 0;
+            }
+            if (cartBtn) {
+                cartBtn.disabled = count === 0;
+            }
+
+            syncMobileBuyNavigation();
+        }
+
+        function clearAddonSelections() {
+            selectedAddons.clear();
+            document.querySelectorAll('.addon-picker-card').forEach(card => {
+                const cb = card.querySelector('.addon-checkbox');
+                const qi = card.querySelector('.addon-qty-input');
+                if (cb) cb.checked = false;
+                if (qi) qi.value = '';
+                card.className = 'product-item addon-picker-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:border-teal-200';
+            });
+            updateAddonsSelectionCount();
+        }
+
+        async function submitAddonsToDemand() {
+            if (selectedAddons.size === 0) return;
+
+            const items = Array.from(selectedAddons.values()).map(entry => ({
+                product_id: entry.product.id,
+                quantity: entry.qty,
+            }));
+
+            window.showLoader?.();
+
+            try {
+                const response = await fetch('{{ route('purchaser.bulk-buy.add-ons.store') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    },
+                    body: JSON.stringify({
+                        date: '{{ $date }}',
+                        purchase_grade: '{{ $purchaseGrade }}',
+                        items: items,
+                    }),
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    if (result.redirect_url) {
+                        window.location.href = result.redirect_url;
+                    } else {
+                        window.location.reload();
+                    }
+                } else {
+                    window.hideLoader?.();
+                    alert(result.message || 'Failed to add items to demand. Please try again.');
+                }
+            } catch (err) {
+                window.hideLoader?.();
+                console.error('Error adding direct purchase add-ons:', err);
+                alert('A network error occurred while adding to demand.');
+            }
+        }
+
+        async function submitAddonsToCart() {
+            if (selectedAddons.size === 0) return;
+
+            const items = Array.from(selectedAddons.values()).map(entry => ({
+                product_id: entry.product.id,
+                quantity: entry.qty,
+            }));
+
+            window.showLoader?.();
+
+            try {
+                const response = await fetch('{{ route('purchaser.bulk-buy.add-ons-to-cart.store') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    },
+                    body: JSON.stringify({
+                        date: '{{ $date }}',
+                        purchase_grade: '{{ $purchaseGrade }}',
+                        items: items,
+                    }),
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    if (result.redirect_url) {
+                        window.location.href = result.redirect_url;
+                    } else {
+                        window.location.reload();
+                    }
+                } else {
+                    window.hideLoader?.();
+                    alert(result.message || 'Failed to add items to cart. Please try again.');
+                }
+            } catch (err) {
+                window.hideLoader?.();
+                console.error('Error adding add-ons to cart:', err);
+                alert('A network error occurred while adding to cart.');
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('search-input');
             const filterSelect = document.getElementById('filter-select');
             const staticItems = document.querySelectorAll('.product-item[data-tab="pending"]');
-            const fulfilledContainer = document.getElementById('fulfilled-container');
-            const addonsContainer = document.getElementById('addons-container');
-            const hiddenAddonsContainer = document.getElementById('hidden-selected-addons-container');
             const selectionCount = document.getElementById('selection-count');
             const nextBtn = document.getElementById('next-btn');
             const noResultsMsg = document.getElementById('no-results-msg');
 
-            // Initialize selectedProductIds from any pre-checked checkboxes
-            document.querySelectorAll('.product-checkbox:checked').forEach(cb => {
+            // Initialize selectedProductIds from any pre-checked checkboxes in Pending
+            document.querySelectorAll('#pending-container .product-checkbox:checked').forEach(cb => {
                 selectedProductIds.add(Number(cb.value));
             });
 
@@ -212,7 +589,7 @@
                     document.querySelectorAll('.custom-select-options').forEach(el => {
                         if (el !== optionsList) {
                             el.classList.add('hidden');
-                            const otherTrigger = el.closest('.custom-select-container').querySelector('.custom-select-trigger svg');
+                            const otherTrigger = el.closest('.custom-select-container')?.querySelector('.custom-select-trigger svg');
                             if (otherTrigger) otherTrigger.classList.remove('rotate-180');
                         }
                     });
@@ -260,7 +637,7 @@
                     document.querySelectorAll('.custom-select-options').forEach(el => {
                         el.classList.add('hidden');
                         const container = el.closest('.custom-select-container');
-                        const arrow = container.querySelector('.custom-select-trigger svg');
+                        const arrow = container?.querySelector('.custom-select-trigger svg');
                         if (arrow) arrow.classList.remove('rotate-180');
                     });
                 }
@@ -292,70 +669,25 @@
                 }
             };
 
-            function createAddOnCard(product) {
-                const isChecked = selectedProductIds.has(product.id);
-                const label = document.createElement('label');
-                label.className = 'product-item addon-dynamic-card block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer';
-                label.dataset.tab = 'addons';
-                label.dataset.name = product.name;
-                label.dataset.sku = product.sku;
-                label.dataset.category = product.category_name;
-                label.dataset.frequent = 'false';
-
-                const catName = product.category_name || 'Other';
-                const checkedAttr = isChecked ? 'checked' : '';
-
-                label.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        <div class="flex items-center shrink-0">
-                            <input type="checkbox" name="product_ids[]" value="${product.id}" class="product-checkbox h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer" ${checkedAttr}>
-                        </div>
-                        <div class="min-w-0 flex-1">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <h3 class="min-w-0 break-words font-black text-slate-900 text-sm">${escapeHtml(product.name)}</h3>
-                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">${escapeHtml(catName)}</span>
-                            </div>
-                            <div class="mt-2 flex items-center gap-4 text-xs font-semibold text-slate-500">
-                                <span>Unit: ${escapeHtml(product.unit)}</span>
-                                <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-teal-700">Add-on</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-
-                const cb = label.querySelector('.product-checkbox');
-                cb.addEventListener('change', () => {
-                    if (cb.checked) {
-                        selectedProductIds.add(product.id);
-                    } else {
-                        selectedProductIds.delete(product.id);
-                    }
-                    updateSelectionCount();
-                });
-
-                label.addEventListener('click', (e) => {
-                    if (e.target.closest('input[type="checkbox"]') || e.target.closest('a') || e.target.closest('button')) {
-                        return;
-                    }
-                    cb.checked = !cb.checked;
-                    cb.dispatchEvent(new Event('change'));
-                });
-
-                return label;
-            }
-
             window.filterItems = function() {
-                const query = searchInput.value.toLowerCase().trim();
-                const category = filterSelect.value;
+                if (activeTab === 'addons') {
+                    fetchAddons(1, true);
+                    return;
+                }
+
+                const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+                const category = filterSelect ? filterSelect.value : 'All';
                 let visibleCount = 0;
 
-                // 1. Filter Static Items (Pending & Fulfilled)
-                staticItems.forEach(item => {
-                    const name = item.dataset.name.toLowerCase();
-                    const sku = item.dataset.sku.toLowerCase();
-                    const itemCategory = item.dataset.category;
+                const targetItems = activeTab === 'fulfilled' 
+                    ? document.querySelectorAll('#fulfilled-container .product-item') 
+                    : staticItems;
+
+                targetItems.forEach(item => {
+                    const name = (item.dataset.name || '').toLowerCase();
+                    const sku = (item.dataset.sku || '').toLowerCase();
+                    const itemCategory = item.dataset.category || '';
                     const isFrequent = item.dataset.frequent === 'true';
-                    const itemTab = item.dataset.tab;
 
                     const matchSearch = name.includes(query) || sku.includes(query);
                     let matchFilter = false;
@@ -365,12 +697,10 @@
                     } else if (category === 'Frequent') {
                         matchFilter = isFrequent;
                     } else {
-                        matchFilter = (itemCategory || '').toLowerCase() === (category || '').toLowerCase();
+                        matchFilter = itemCategory.toLowerCase() === category.toLowerCase();
                     }
 
-                    const matchTab = itemTab === activeTab;
-
-                    if (matchSearch && matchFilter && matchTab) {
+                    if (matchSearch && matchFilter) {
                         item.classList.remove('hidden');
                         visibleCount++;
                     } else {
@@ -378,21 +708,19 @@
                     }
                 });
 
-                if (addonsContainer) {
-                    addonsContainer.innerHTML = '';
-                }
-
-                if (visibleCount === 0) {
-                    noResultsMsg.classList.remove('hidden');
-                    if (query === '' && category === 'All') {
-                        noResultsMsg.textContent = activeTab === 'addons' 
-                            ? 'No add-on products available.' 
-                            : (activeTab === 'fulfilled' ? 'No fulfilled products for this date.' : 'No pending products for this date.');
+                if (noResultsMsg) {
+                    if (visibleCount === 0) {
+                        noResultsMsg.classList.remove('hidden');
+                        if (query === '' && category === 'All') {
+                            noResultsMsg.textContent = activeTab === 'fulfilled' 
+                                ? 'No fulfilled products for this date.' 
+                                : 'No pending products for this date.';
+                        } else {
+                            noResultsMsg.textContent = 'No products match the selected filters.';
+                        }
                     } else {
-                        noResultsMsg.textContent = 'No products match the selected filters.';
+                        noResultsMsg.classList.add('hidden');
                     }
-                } else {
-                    noResultsMsg.classList.add('hidden');
                 }
 
                 updateSelectionCount();
@@ -400,8 +728,14 @@
 
             function updateSelectionCount() {
                 const checkedCount = selectedProductIds.size;
-                selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
-                nextBtn.disabled = checkedCount === 0;
+                if (selectionCount) {
+                    selectionCount.textContent = `${checkedCount} item${checkedCount !== 1 ? 's' : ''} selected`;
+                }
+                if (nextBtn) {
+                    nextBtn.disabled = checkedCount === 0;
+                }
+
+                syncMobileBuyNavigation();
             }
 
             // Bind change events on static checkboxes
@@ -429,23 +763,18 @@
                 });
             });
 
-            searchInput.addEventListener('input', window.filterItems);
-
             let searchTimer;
-            searchInput.addEventListener('input', () => {
-                clearTimeout(searchTimer);
-                searchTimer = setTimeout(async () => {
-                    if (activeTab !== 'addons') return;
-                    const params = new URLSearchParams({ q: searchInput.value, purchase_grade: '{{ $purchaseGrade }}' });
-                    const response = await fetch(`{{ route('purchaser.bulk-buy.product-search') }}?${params}`);
-                    const products = await response.json();
-                    addonsContainer.innerHTML = '';
-                    products.forEach(product => addonsContainer.appendChild(createAddOnCard(product)));
-                    updateSelectionCount();
-                }, 300);
-            });
+            if (searchInput) {
+                searchInput.addEventListener('input', () => {
+                    clearTimeout(searchTimer);
+                    searchTimer = setTimeout(() => {
+                        window.filterItems();
+                    }, 300);
+                });
+            }
 
             updateSelectionCount();
+            updateAddonsSelectionCount();
             window.filterItems();
         });
     </script>

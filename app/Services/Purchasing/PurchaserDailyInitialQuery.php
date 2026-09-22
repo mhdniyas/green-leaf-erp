@@ -40,7 +40,8 @@ class PurchaserDailyInitialQuery
             ->whereNull('deleted_at')
             ->whereHas('order', function ($query) use ($dateString): void {
                 $query->whereDate('business_date', $dateString)->where('state', 'approved');
-            });
+            })
+            ->with('order:id,order_source,business_date,created_at,submitted_at');
 
         if ($hasCategoryFilter && ! empty($assignedCatIds)) {
             $approvedQuery->whereIn('product_id', function ($query) use ($assignedCatIds): void {
@@ -51,17 +52,14 @@ class PurchaserDailyInitialQuery
             });
         }
 
-        /** @var Collection<int, float> $approvedQuantities */
-        $approvedQuantities = $approvedQuery
-            ->selectRaw('product_id, SUM(approved_qty) as total_approved_qty')
-            ->groupBy('product_id')
-            ->pluck('total_approved_qty', 'product_id');
+        /** @var Collection<int, Collection<int, ShopOrderItem>> $approvedItemsByProduct */
+        $approvedItemsByProduct = $approvedQuery->get()->groupBy('product_id');
 
-        if ($approvedQuantities->isEmpty()) {
+        if ($approvedItemsByProduct->isEmpty()) {
             return collect();
         }
 
-        $productIds = $approvedQuantities->keys()->all();
+        $productIds = $approvedItemsByProduct->keys()->map(fn ($id): int => (int) $id)->all();
 
         // 2. Grouped draft quantities by product_id
         /** @var Collection<int, float> $draftQuantities */
@@ -77,9 +75,9 @@ class PurchaserDailyInitialQuery
             ->groupBy('product_id')
             ->pluck('total_draft_qty', 'product_id');
 
-        // 3. Grouped submitted (bought) quantities by product_id
-        /** @var Collection<int, float> $submittedQuantities */
-        $submittedQuantities = PurchaserCartItem::query()
+        // 3. Grouped submitted (bought) quantities by product_id with cart timestamps
+        /** @var Collection<int, Collection<int, PurchaserCartItem>> $submittedCartsByProduct */
+        $submittedCartsByProduct = PurchaserCartItem::query()
             ->where('grade', 'A')
             ->whereIn('product_id', $productIds)
             ->whereHas('cart', function ($query) use ($dateString): void {
@@ -87,9 +85,9 @@ class PurchaserDailyInitialQuery
                     ->where('status', 'submitted')
                     ->where('purchase_grade', 'A');
             })
-            ->selectRaw('product_id, SUM(quantity) as total_bought_qty')
-            ->groupBy('product_id')
-            ->pluck('total_bought_qty', 'product_id');
+            ->with('cart:id,business_date,status,submitted_at,created_at')
+            ->get()
+            ->groupBy('product_id');
 
         // 4. Retrieve Product and Category details for demand products
         $products = Product::query()
@@ -100,17 +98,39 @@ class PurchaserDailyInitialQuery
 
         // 5. Combine and calculate metrics
         $items = collect();
-        foreach ($approvedQuantities as $productId => $approvedQty) {
+        foreach ($approvedItemsByProduct as $productId => $approvedItems) {
             /** @var Product|null $product */
             $product = $products->get($productId);
             if (! $product) {
                 continue;
             }
 
-            $approved = (float) $approvedQty;
-            $bought = (float) ($submittedQuantities->get($productId) ?? 0);
+            $productCarts = $submittedCartsByProduct->get($productId, collect());
+            $normalItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
+            $addonItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
+
+            $normalApproved = (float) $normalItems->sum('approved_qty');
+            $normalBought = (float) $productCarts->sum('quantity');
+            $normalRemaining = max(0, $normalApproved - $normalBought);
+
+            $addonRemaining = 0.0;
+            foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
+                $first = $orderItems->first();
+                $orderTime = $first->order->created_at ?? $first->order->submitted_at;
+                $addonApproved = (float) $orderItems->sum('approved_qty');
+                $addonCarts = $productCarts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
+                    $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+
+                    return $cartTime && $orderTime && $cartTime->gte($orderTime);
+                });
+                $addonBought = (float) $addonCarts->sum('quantity');
+                $addonRemaining += max(0, $addonApproved - $addonBought);
+            }
+
+            $approved = (float) $approvedItems->sum('approved_qty');
+            $bought = (float) $productCarts->sum('quantity');
             $draft = (float) ($draftQuantities->get($productId) ?? 0);
-            $remaining = max(0, $approved - $bought);
+            $remaining = $normalRemaining + $addonRemaining;
 
             // Filter ONLY pending products where purchasing work remains
             if ($remaining <= 0) {
@@ -165,7 +185,8 @@ class PurchaserDailyInitialQuery
             ->whereNull('deleted_at')
             ->whereHas('order', function ($query) use ($dateString): void {
                 $query->whereDate('business_date', $dateString)->where('state', 'approved');
-            });
+            })
+            ->with('order:id,order_source,business_date,created_at,submitted_at');
 
         if ($hasCategoryFilter && ! empty($assignedCatIds)) {
             $approvedQuery->whereIn('product_id', function ($query) use ($assignedCatIds): void {
@@ -176,12 +197,10 @@ class PurchaserDailyInitialQuery
             });
         }
 
-        $approvedQuantities = $approvedQuery
-            ->selectRaw('product_id, SUM(approved_qty) as total_approved_qty')
-            ->groupBy('product_id')
-            ->pluck('total_approved_qty', 'product_id');
+        /** @var Collection<int, Collection<int, ShopOrderItem>> $approvedItemsByProduct */
+        $approvedItemsByProduct = $approvedQuery->get()->groupBy('product_id');
 
-        if ($approvedQuantities->isEmpty()) {
+        if ($approvedItemsByProduct->isEmpty()) {
             return [
                 'products' => 0,
                 'approved_qty' => 0.0,
@@ -191,9 +210,9 @@ class PurchaserDailyInitialQuery
             ];
         }
 
-        $productIds = $approvedQuantities->keys()->all();
+        $productIds = $approvedItemsByProduct->keys()->map(fn ($id): int => (int) $id)->all();
 
-        $submittedQuantities = PurchaserCartItem::query()
+        $submittedCartsByProduct = PurchaserCartItem::query()
             ->where('grade', $purchaseGrade)
             ->whereIn('product_id', $productIds)
             ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
@@ -201,21 +220,44 @@ class PurchaserDailyInitialQuery
                     ->where('status', 'submitted')
                     ->where('purchase_grade', $purchaseGrade);
             })
-            ->selectRaw('product_id, SUM(quantity) as total_bought_qty')
-            ->groupBy('product_id')
-            ->pluck('total_bought_qty', 'product_id');
+            ->with('cart:id,business_date,status,submitted_at,created_at')
+            ->get()
+            ->groupBy('product_id');
 
-        $totalApproved = (float) $approvedQuantities->sum();
-        $totalBought = (float) $submittedQuantities->sum();
+        $totalApproved = 0.0;
+        $totalBought = 0.0;
         $totalRemaining = 0.0;
 
-        foreach ($approvedQuantities as $productId => $approvedQty) {
-            $bought = (float) ($submittedQuantities->get($productId) ?? 0);
-            $totalRemaining += max(0, (float) $approvedQty - $bought);
+        foreach ($approvedItemsByProduct as $productId => $approvedItems) {
+            $productCarts = $submittedCartsByProduct->get($productId, collect());
+            $normalItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
+            $addonItems = $approvedItems->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
+
+            $normalApproved = (float) $normalItems->sum('approved_qty');
+            $normalBought = (float) $productCarts->sum('quantity');
+            $normalRemaining = max(0, $normalApproved - $normalBought);
+
+            $addonRemaining = 0.0;
+            foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
+                $first = $orderItems->first();
+                $orderTime = $first->order->created_at ?? $first->order->submitted_at;
+                $addonApproved = (float) $orderItems->sum('approved_qty');
+                $addonCarts = $productCarts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
+                    $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+
+                    return $cartTime && $orderTime && $cartTime->gte($orderTime);
+                });
+                $addonBought = (float) $addonCarts->sum('quantity');
+                $addonRemaining += max(0, $addonApproved - $addonBought);
+            }
+
+            $totalApproved += (float) $approvedItems->sum('approved_qty');
+            $totalBought += (float) $productCarts->sum('quantity');
+            $totalRemaining += ($normalRemaining + $addonRemaining);
         }
 
         return [
-            'products' => $approvedQuantities->count(),
+            'products' => $approvedItemsByProduct->count(),
             'approved_qty' => $totalApproved,
             'bought_qty' => $totalBought,
             'remaining_qty' => $totalRemaining,
@@ -343,16 +385,16 @@ class PurchaserDailyInitialQuery
         }
 
         // 1. Grouped approved demand for selected product_ids
-        $approvedQuantities = ShopOrderItem::query()
+        $approvedItems = ShopOrderItem::query()
             ->where('product_grade', $purchaseGrade)
             ->whereNull('deleted_at')
             ->whereIn('product_id', $productIds)
             ->whereHas('order', function ($query) use ($dateString): void {
                 $query->whereDate('business_date', $dateString)->where('state', 'approved');
             })
-            ->selectRaw('product_id, SUM(approved_qty) as total_approved_qty')
-            ->groupBy('product_id')
-            ->pluck('total_approved_qty', 'product_id');
+            ->with('order:id,order_source,business_date,created_at,submitted_at')
+            ->get()
+            ->groupBy('product_id');
 
         // 2. Grouped draft quantities for selected product_ids
         $draftQuantities = PurchaserCartItem::query()
@@ -368,7 +410,7 @@ class PurchaserDailyInitialQuery
             ->pluck('total_draft_qty', 'product_id');
 
         // 3. Grouped submitted (bought) quantities for selected product_ids
-        $submittedQuantities = PurchaserCartItem::query()
+        $submittedCarts = PurchaserCartItem::query()
             ->where('grade', $purchaseGrade)
             ->whereIn('product_id', $productIds)
             ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
@@ -376,9 +418,9 @@ class PurchaserDailyInitialQuery
                     ->where('status', 'submitted')
                     ->where('purchase_grade', $purchaseGrade);
             })
-            ->selectRaw('product_id, SUM(quantity) as total_bought_qty')
-            ->groupBy('product_id')
-            ->pluck('total_bought_qty', 'product_id');
+            ->with('cart:id,business_date,status,submitted_at,created_at')
+            ->get()
+            ->groupBy('product_id');
 
         // 4. Retrieve Product, Category, and orderUnits
         $products = Product::query()
@@ -398,10 +440,34 @@ class PurchaserDailyInitialQuery
                 continue;
             }
 
-            $approved = (float) ($approvedQuantities->get($productId) ?? 0.0);
-            $bought = (float) ($submittedQuantities->get($productId) ?? 0.0);
+            $items = $approvedItems->get($productId, collect());
+            $carts = $submittedCarts->get($productId, collect());
+
+            $normalItems = $items->filter(fn (ShopOrderItem $i): bool => ! $i->order?->isAdminDirectPurchase());
+            $addonItems = $items->filter(fn (ShopOrderItem $i): bool => (bool) $i->order?->isAdminDirectPurchase());
+
+            $normalApproved = (float) $normalItems->sum('approved_qty');
+            $normalBought = (float) $carts->sum('quantity');
+            $normalRemaining = max(0, $normalApproved - $normalBought);
+
+            $addonRemaining = 0.0;
+            foreach ($addonItems->groupBy('shop_order_id') as $orderItems) {
+                $first = $orderItems->first();
+                $orderTime = $first->order->created_at ?? $first->order->submitted_at;
+                $addonApproved = (float) $orderItems->sum('approved_qty');
+                $addonCarts = $carts->filter(function (PurchaserCartItem $c) use ($orderTime): bool {
+                    $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+
+                    return $cartTime && $orderTime && $cartTime->gte($orderTime);
+                });
+                $addonBought = (float) $addonCarts->sum('quantity');
+                $addonRemaining += max(0, $addonApproved - $addonBought);
+            }
+
+            $approved = (float) $items->sum('approved_qty');
+            $bought = (float) $carts->sum('quantity');
             $draft = (float) ($draftQuantities->get($productId) ?? 0.0);
-            $remaining = max(0, $approved - $bought);
+            $remaining = $normalRemaining + $addonRemaining;
 
             $selectedSummary->push([
                 'product_id' => $product->id,

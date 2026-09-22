@@ -3,25 +3,27 @@
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
-            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                    <p class="text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">Stage 4</p>
-                    <h1 class="mt-1 text-xl font-black text-slate-950">Purchaser Carts</h1>
-                    <p class="mt-1 text-xs font-semibold text-slate-600">Only the active business-day carts live here. Old payment follow-up stays in Vendor Hub.</p>
-                </div>
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <a href="{{ route('purchaser.suppliers', ['date' => $date, 'tab' => 'pending']) }}" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700 hover:bg-white">
-                        <span>Vendor Hub</span>
-                        @if (($deadlineAlert['pending_total_count'] ?? 0) > 0)
-                            <span class="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-700">
-                                {{ $deadlineAlert['pending_total_count'] }}
-                            </span>
-                        @endif
-                    </a>
-                    <form action="{{ route('purchaser.vendors') }}" method="GET">
-                        <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:outline-none lg:rounded-2xl lg:px-4">
-                    </form>
+        <section class="overflow-hidden rounded-2xl bg-slate-955 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] lg:rounded-[2rem]">
+            <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-6 lg:py-5">
+                <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div class="min-w-0">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Stage 4 · Purchaser Operations</p>
+                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">Purchaser Carts & Bills</h1>
+                        <p class="mt-1.5 max-w-2xl text-xs font-medium text-slate-200 sm:text-sm">Manage daily draft carts, assign vendors, adjust quantities & prices, and process final bills.</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <a href="{{ route('purchaser.suppliers', ['date' => $date, 'tab' => 'pending']) }}" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-xs font-black text-white backdrop-blur transition hover:bg-white/20">
+                            <span>Vendor Hub</span>
+                            @if (($deadlineAlert['pending_total_count'] ?? 0) > 0)
+                                <span class="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white shadow-xs">
+                                    {{ $deadlineAlert['pending_total_count'] }}
+                                </span>
+                            @endif
+                        </a>
+                        <form action="{{ route('purchaser.vendors') }}" method="GET" class="shrink-0">
+                            <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-10 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-bold text-white backdrop-blur focus:bg-slate-900 focus:outline-none">
+                        </form>
+                    </div>
                 </div>
             </div>
         </section>
@@ -45,141 +47,267 @@
             </section>
         @endif
 
-        <div class="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 shadow-sm sm:grid-cols-4">
-            <button type="button" id="tab-draft-btn" onclick="switchVendorTab('draft')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
+        <div class="grid grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-slate-100/90 p-1.5 shadow-xs sm:grid-cols-4 lg:rounded-[1.5rem]">
+            <button type="button" id="tab-draft-btn" onclick="switchVendorTab('draft')" class="rounded-xl py-2.5 text-center text-xs font-black transition-all">
                 Draft ({{ $draftCarts->count() }})
             </button>
-            <button type="button" id="tab-pending-btn" onclick="switchVendorTab('pending')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
+            <button type="button" id="tab-pending-btn" onclick="switchVendorTab('pending')" class="rounded-xl py-2.5 text-center text-xs font-black transition-all">
                 Pending ({{ $pendingCount ?? $pendingCarts->count() }})
             </button>
-            <button type="button" id="tab-completed-btn" onclick="switchVendorTab('completed')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
+            <button type="button" id="tab-completed-btn" onclick="switchVendorTab('completed')" class="rounded-xl py-2.5 text-center text-xs font-black transition-all">
                 Completed ({{ $completedCount ?? $completedCarts->count() }})
             </button>
-            <button type="button" id="tab-cancelled-btn" onclick="switchVendorTab('cancelled')" class="rounded-xl py-2 text-center text-[10px] font-black sm:text-xs">
+            <button type="button" id="tab-cancelled-btn" onclick="switchVendorTab('cancelled')" class="rounded-xl py-2.5 text-center text-xs font-black transition-all">
                 Cancelled ({{ $totalCancelledCount ?? $cancelledCarts->count() }})
             </button>
         </div>
 
-        <div id="section-draft" class="space-y-3">
+        <div id="section-draft" class="space-y-4">
             @forelse ($draftCarts as $cart)
-                <article id="cart-card-{{ $cart->id }}" class="rounded-2xl border {{ $focusCartId === $cart->id ? 'border-teal-300 ring-2 ring-teal-100' : 'border-slate-200' }} bg-white p-3 shadow-sm">
-                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                        <div class="min-w-0">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }} · Grade {{ $cart->purchase_grade ?? 'A' }}</p>
-                            <div class="mt-1 flex items-center gap-2">
-                                <h3 class="truncate text-sm font-black text-slate-950">{{ $cart->supplier?->name ?: 'Supplier not selected' }}</h3>
-                                <button type="button" onclick="openChangeVendorModal(@js($cart->cart_number), 'draft', {{ $cart->id }})" class="text-slate-400 transition hover:text-slate-600" title="Assign Supplier">
-                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                    </svg>
-                                </button>
-                                @if ($cart->supplier)
-                                    <button
-                                        type="button"
-                                        onclick="openCartShareModal('{{ route('purchaser.carts.send', $cart) }}', {{ $cart->supplier_id }}, @js($cart->supplier->mobile_number), @js($cart->cart_number), {{ round((float) $cart->items->sum('line_total'), 2) }})"
-                                        class="text-emerald-600 transition hover:text-emerald-500"
-                                        title="Share Cart"
-                                    >
-                                        <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                                            <path d="M12.012 2c-5.506 0-9.969 4.471-9.969 9.986 0 1.764.459 3.419 1.258 4.873L2 22l5.304-1.393c1.42.776 3.033 1.213 4.708 1.213 5.506 0 9.969-4.473 9.969-9.987S17.518 2 12.012 2zm6.275 14.286c-.256.721-1.5 1.302-2.073 1.393-.509.079-1.18.149-3.414-.775-2.856-1.181-4.701-4.089-4.843-4.28-.143-.19-1.146-1.524-1.146-2.909 0-1.385.726-2.062.981-2.348.256-.286.561-.357.747-.357.187 0 .375.002.537.009.169.007.394-.063.616.48.226.552.773 1.895.84 2.03.067.137.112.296.022.477-.09.18-.135.295-.27.456-.135.161-.286.357-.406.48-.135.137-.278.286-.12.562.158.277.702 1.159 1.503 1.875.803.717 1.48.94 1.691 1.045.21.106.333.09.456-.053.123-.143.528-.616.67-.828.141-.21.282-.176.476-.105.195.07.1.24 1.233.805 1.133.565 1.2.94 1.2.94 0 .423-.88 1.163-1.136 1.884z"/>
-                                        </svg>
-                                    </button>
-                                @endif
+                <article id="cart-card-{{ $cart->id }}" class="overflow-hidden rounded-2xl border {{ $focusCartId === $cart->id ? 'border-teal-400 ring-2 ring-teal-200' : 'border-slate-200' }} bg-white shadow-sm transition-all duration-200 hover:shadow-md">
+                    {{-- Accordion Trigger Header --}}
+                    <div
+                        onclick="toggleCartCollapse({{ $cart->id }})"
+                        class="flex cursor-pointer items-center justify-between gap-3 bg-white p-4 transition hover:bg-slate-50/80 sm:px-5 select-none"
+                    >
+                        <div class="flex items-center gap-3 min-w-0">
+                            <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                            </span>
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <h3 class="truncate text-sm font-black text-slate-900">{{ $cart->supplier?->name ?: 'No Vendor Selected' }}</h3>
+                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase text-amber-800">Draft</span>
+                                    @if (($cart->purchase_grade ?? 'A') === 'B')
+                                        <span class="rounded-full bg-blue-100 px-2 py-0.5 text-[9px] font-black uppercase text-blue-800">Grade B</span>
+                                    @endif
+                                </div>
+                                <p class="mt-0.5 truncate text-[11px] font-semibold text-slate-500">
+                                    {{ $cart->cart_number }} • {{ $cart->items->count() }} item{{ $cart->items->count() !== 1 ? 's' : '' }}{{ $cart->supplier?->mobile_number ? ' • '.$cart->supplier->mobile_number : '' }}
+                                </p>
                             </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            @if (($mergeableDraftCounts[$cart->id] ?? 0) > 0)
-                                <form action="{{ route('purchaser.carts.merge-drafts', $cart) }}" method="POST">
-                                    @csrf
-                                    <button type="submit" class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black text-amber-700">
-                                        Merge {{ $mergeableDraftCounts[$cart->id] + 1 }}
-                                    </button>
-                                </form>
-                            @endif
-                            <button type="button" onclick="openCreateVendorModal(@js($cart->cart_number), 'draft', {{ $cart->id }})" class="rounded-full border border-teal-100 bg-teal-50 px-3 py-1 text-[10px] font-black text-teal-700">
-                                + New Supplier
-                            </button>
+
+                        <div class="flex items-center gap-3 shrink-0">
+                            <div class="text-right">
+                                <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Total</p>
+                                <p class="font-mono text-sm font-black text-slate-950 sm:text-base">
+                                    ₹<span id="header-total-{{ $cart->id }}">{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
+                                </p>
+                            </div>
+                            <div id="chevron-{{ $cart->id }}" class="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-transform duration-200 {{ $focusCartId === $cart->id || $loop->first ? 'rotate-180' : '' }}">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                            </div>
                         </div>
                     </div>
 
-                    @if (! $cart->supplier)
-                        <div class="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-xs font-bold text-rose-800">
-                            Supplier details required. Assign or create the vendor before bill processing.
-                        </div>
-                    @endif
-
-                    <form action="{{ route('purchaser.carts.items.update-all', $cart) }}" method="POST">
-                        @csrf
-                        @method('PATCH')
-                        <div class="mt-3 space-y-2">
-                            @forelse ($cart->items as $item)
-                                @php
-                                    $vendorPriceHint = $vendorPriceHintsByCart[$cart->id][$item->product_id] ?? 0;
-                                @endphp
-                                <div class="rounded-2xl bg-slate-50 p-3">
-                                    <div class="flex items-start justify-between gap-2">
-                                        <div class="min-w-0">
-                                            <div class="flex flex-wrap items-center gap-1.5">
-                                                <h4 class="truncate text-[11px] font-black text-slate-900">{{ $item->product->name }}</h4>
-                                                @if ($item->is_extra_purchase)
-                                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] text-amber-700">Extra</span>
-                                                @endif
-                                            </div>
-                                        </div>
-                                        <span class="text-xs font-black text-slate-900">₹<span id="total-{{ $item->id }}">{{ number_format((float) $item->quantity * (float) $item->unit_price, 2) }}</span></span>
-                                    </div>
-
-                                    <div class="mt-2 flex items-end justify-between gap-2">
-                                        <div class="flex flex-1 items-end gap-2">
-                                            <div class="flex flex-col gap-0.5">
-                                                <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Qty</span>
-                                                <div class="flex h-8 items-center overflow-hidden rounded-lg border border-slate-200 bg-white">
-                                                    <button type="button" onclick="this.nextElementSibling.stepDown(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">-</button>
-                                                    <input type="number" step="any" min="0.01" name="items[{{ $item->id }}][quantity]" id="quantity-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-full w-12 bg-transparent text-center text-[10px] font-black text-slate-900 focus:outline-none">
-                                                    <button type="button" onclick="this.previousElementSibling.stepUp(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">+</button>
-                                                </div>
-                                            </div>
-                                            <div class="flex flex-col gap-0.5">
-                                                <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Per {{ $item->product->unit }}</span>
-                                                <input type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
-                                                @if ($vendorPriceHint > 0)
-                                                    <span class="text-[8px] font-bold text-amber-700">Prev ₹{{ number_format((float) $vendorPriceHint, 2) }}</span>
-                                                @endif
-                                            </div>
-                                        </div>
-
-                                        <button type="button" onclick="confirmDeleteItem({{ $item->id }}, '{{ route('purchaser.cart-items.destroy', $item) }}')" class="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600" title="Delete">
-                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                            </svg>
-                                        </button>
+                    {{-- Collapsible Content Body --}}
+                    <div id="cart-body-{{ $cart->id }}" class="{{ $focusCartId === $cart->id || $loop->first ? '' : 'hidden' }} border-t border-dashed border-slate-200">
+                        {{-- Bill Header Info --}}
+                        <div class="border-b border-dashed border-slate-300 bg-slate-50/40 px-4 pt-4 pb-3 sm:px-6">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">BILL NO</p>
+                                    <p class="text-sm font-black text-slate-900">{{ $cart->bill_number ?: 'Pending' }}</p>
+                                    <div class="mt-1 space-y-0.5 text-[11px] font-semibold text-slate-500">
+                                        <p>Cart: {{ $cart->cart_number }}</p>
+                                        <p>Date: {{ $cart->business_date?->format('d M Y') ?: \Carbon\Carbon::parse($date)->format('d M Y') }}</p>
+                                        <p>Source: {{ $cart->purchaseSourceLabel() }}</p>
                                     </div>
                                 </div>
-                            @empty
-                                <p class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs font-bold text-slate-500">No products in this draft cart.</p>
-                            @endforelse
-                        </div>
-
-                        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                            <span class="text-[10px] font-bold text-slate-500">Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
-                            <div class="flex items-center gap-1.5">
-                                @if ($cart->items->isNotEmpty())
-                                    @if ($cart->supplier)
-                                        <button type="submit" name="action" value="process" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-4 text-xs font-black text-white hover:bg-teal-500">
-                                            Save & Process
-                                        </button>
-                                    @else
-                                        <button type="button" disabled class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600/50 px-4 text-xs font-black text-white cursor-not-allowed" title="Assign a supplier first">
-                                            Save & Process
-                                        </button>
-                                    @endif
+                                @if (($cart->purchase_grade ?? 'A') === 'B')
+                                    <span class="inline-flex rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-800">Grade B</span>
+                                @else
+                                    <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-800">Grade A</span>
                                 @endif
                             </div>
                         </div>
-                    </form>
+
+                        {{-- Vendor Info Section --}}
+                        <div class="border-b border-dashed border-slate-300 bg-slate-50/20 px-4 py-3 sm:px-6">
+                            <div class="flex flex-wrap items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">VENDOR</p>
+                                    <p class="mt-0.5 text-sm font-black text-slate-900">{{ $cart->supplier?->name ?: 'No vendor selected' }}</p>
+                                    <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $cart->supplier?->mobile_number ?: 'Select a vendor before submitting.' }}{{ $cart->supplier?->location ? ' • '.$cart->supplier->location : '' }}</p>
+                                    @if ($cart->supplier?->payment_terms)
+                                        <p class="text-[11px] font-semibold text-slate-500">Terms: {{ $cart->supplier->payment_terms }}</p>
+                                    @endif
+                                </div>
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                    @if ($cart->supplier && $cart->supplier->mobile_number)
+                                        @php
+                                            $supplierPhoneDigits = preg_replace('/\D+/', '', $cart->supplier->mobile_number);
+                                            $shareItemsText = $cart->items->map(fn($item, $idx) => ($idx+1).'. '.$item->product->name.': '.(float)$item->quantity.' '.$item->product->unit.' @ Rs. '.(float)$item->unit_price)->implode("\n");
+                                            $formattedDateStr = $cart->business_date?->format('d M Y') ?: \Carbon\Carbon::parse($date)->format('d M Y');
+                                            $shareMessage = "Green Leaf ERP - Purchase Order\nDate: {$formattedDateStr}\nCart: {$cart->cart_number}\n\n{$shareItemsText}\n\nTotal: Rs. ".number_format($cart->items->sum('line_total') - $cart->discount_amount, 2);
+                                            $waLink = 'https://wa.me/'.$supplierPhoneDigits.'?text='.rawurlencode($shareMessage);
+                                        @endphp
+                                        <a
+                                            href="{{ $waLink }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="inline-flex h-8 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-100"
+                                        >
+                                            <svg class="h-3.5 w-3.5 fill-current text-emerald-600" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.316 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.818-.981z"/></svg>
+                                            <span>Share</span>
+                                        </a>
+                                    @endif
+                                    @if (($mergeableDraftCounts[$cart->id] ?? 0) > 0)
+                                        <form action="{{ route('purchaser.carts.merge-drafts', $cart) }}" method="POST">
+                                            @csrf
+                                            <button type="submit" class="inline-flex h-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-[11px] font-bold text-amber-700 hover:bg-amber-100 transition">
+                                                Merge {{ $mergeableDraftCounts[$cart->id] + 1 }}
+                                            </button>
+                                        </form>
+                                    @endif
+                                    <button
+                                        type="button"
+                                        onclick="openChangeVendorModal(@js($cart->cart_number), 'draft', {{ $cart->id }})"
+                                        class="inline-flex h-8 items-center justify-center rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-700 hover:bg-teal-100 transition"
+                                    >
+                                        Change Vendor
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onclick="openCreateVendorModal(@js($cart->cart_number), 'draft', {{ $cart->id }})"
+                                        class="inline-flex h-8 items-center justify-center rounded-lg bg-teal-600 px-2.5 text-[11px] font-bold text-white hover:bg-teal-500 transition"
+                                    >
+                                        + New
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Form for Cart Items --}}
+                        <form action="{{ route('purchaser.carts.items.update-all', $cart) }}" method="POST">
+                            @csrf
+                            @method('PATCH')
+
+                            {{-- Receipt Items Table --}}
+                            <div class="overflow-x-auto px-4 py-2 sm:px-6">
+                                <table class="w-full text-left text-xs">
+                                    <thead class="border-b border-dashed border-slate-300 text-[10px] font-black uppercase text-slate-950">
+                                        <tr>
+                                            <th class="w-6 py-2 pr-1">SN</th>
+                                            <th class="py-2 pr-2">ITEM</th>
+                                            <th class="w-14 sm:w-16 py-2 pr-1 text-right">QTY</th>
+                                            <th class="w-16 sm:w-20 py-2 pr-1 text-right">PRICE</th>
+                                            <th class="w-20 py-2 text-right">AMT</th>
+                                            <th class="w-6 py-2 text-right"><span class="sr-only">Remove</span></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-dashed divide-slate-200/80">
+                                        @forelse ($cart->items as $item)
+                                            @php
+                                                $vendorPriceHint = $vendorPriceHintsByCart[$cart->id][$item->product_id] ?? 0;
+                                            @endphp
+                                            <tr class="align-top">
+                                                <td class="py-2.5 pr-1 text-[11px] font-bold text-slate-400">{{ $loop->iteration }}</td>
+                                                <td class="py-2.5 pr-2">
+                                                    <p class="font-bold text-slate-900 text-xs leading-snug break-words">{{ $item->product->name }}</p>
+                                                    <p class="mt-0.5 text-[10px] font-semibold text-slate-500">
+                                                        {{ $item->product->unit }}
+                                                        @if ($vendorPriceHint > 0)
+                                                            • Prev Rs. {{ number_format((float) $vendorPriceHint, 2) }}
+                                                        @endif
+                                                        @if ($item->is_extra_purchase)
+                                                            <span class="ml-1 inline-flex items-center rounded bg-amber-100 px-1 py-0.2 text-[8px] font-black uppercase text-amber-700">EXTRA</span>
+                                                        @endif
+                                                    </p>
+                                                </td>
+                                                <td class="py-2.5 pr-1 text-right">
+                                                    <input
+                                                        type="number"
+                                                        step="any"
+                                                        min="0.01"
+                                                        name="items[{{ $item->id }}][quantity]"
+                                                        id="quantity-{{ $item->id }}"
+                                                        value="{{ number_format((float) $item->quantity, 2, '.', '') }}"
+                                                        oninput="updateCartItemTotal({{ $item->id }}, {{ $cart->id }})"
+                                                        class="h-7 w-12 sm:w-14 rounded-md border border-slate-200 bg-slate-50 px-1 text-right font-mono text-xs font-bold text-slate-950 focus:bg-white focus:outline-none"
+                                                    >
+                                                </td>
+                                                <td class="py-2.5 pr-1 text-right">
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0.01"
+                                                        name="items[{{ $item->id }}][unit_price]"
+                                                        id="price-{{ $item->id }}"
+                                                        value="{{ number_format((float) $item->unit_price, 2, '.', '') }}"
+                                                        oninput="updateCartItemTotal({{ $item->id }}, {{ $cart->id }})"
+                                                        class="h-7 w-14 sm:w-16 rounded-md border border-slate-200 bg-slate-50 px-1 text-right font-mono text-xs font-bold text-slate-950 focus:bg-white focus:outline-none"
+                                                    >
+                                                </td>
+                                                <td class="py-2.5 text-right font-mono font-black text-slate-950 text-xs whitespace-nowrap">
+                                                    ₹<span id="total-{{ $item->id }}">{{ number_format((float) $item->quantity * (float) $item->unit_price, 2) }}</span>
+                                                </td>
+                                                <td class="py-2.5 pl-1 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onclick="confirmDeleteItem({{ $item->id }}, '{{ route('purchaser.cart-items.destroy', $item) }}')"
+                                                        class="inline-flex h-6 w-6 items-center justify-center rounded text-base font-bold text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition"
+                                                        title="Remove item"
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        @empty
+                                            <tr>
+                                                <td colspan="6" class="py-8 text-center text-xs font-bold text-slate-400">
+                                                    No products in this draft cart.
+                                                </td>
+                                            </tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {{-- Total Summary Row --}}
+                            <div class="border-t border-dashed border-slate-300 px-4 py-3 sm:px-6">
+                                <div class="flex items-center justify-between font-black text-slate-950">
+                                    <span class="text-xs uppercase tracking-wider text-slate-500">Total Bill</span>
+                                    <span class="font-mono text-base text-slate-950">
+                                        Total: ₹<span id="cart-total-{{ $cart->id }}">{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
+                                    </span>
+                                </div>
+                            </div>
+
+                            {{-- Bill Footer Actions --}}
+                            <div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/80 px-4 py-3 sm:px-6">
+                                <span class="text-[11px] font-bold text-slate-500">{{ $cart->items->count() }} item{{ $cart->items->count() !== 1 ? 's' : '' }}</span>
+                                <div class="flex items-center gap-2">
+                                    @if ($cart->items->isNotEmpty())
+                                        @if ($cart->supplier)
+                                            <button
+                                                type="submit"
+                                                name="action"
+                                                value="process"
+                                                class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-teal-600 px-4 text-xs font-black text-white shadow-xs transition hover:bg-teal-500 active:scale-95"
+                                            >
+                                                <span>Save & Process</span>
+                                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+                                            </button>
+                                        @else
+                                            <button
+                                                type="button"
+                                                disabled
+                                                class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600/50 px-4 text-xs font-black text-white cursor-not-allowed"
+                                                title="Assign a supplier first"
+                                            >
+                                                Save & Process
+                                            </button>
+                                        @endif
+                                    @endif
+                                </div>
+                            </div>
+                        </form>
+                    </div>
                 </article>
             @empty
-                <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">No draft carts for this business day.</p>
+                <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-10 text-center text-sm font-bold text-slate-500">No draft carts for this business day.</p>
             @endforelse
         </div>
 
@@ -416,8 +544,8 @@
                 }
 
                 button.className = key === tab
-                    ? 'rounded-xl bg-white py-2 text-center text-[10px] font-black text-slate-950 shadow-sm sm:text-xs'
-                    : 'rounded-xl py-2 text-center text-[10px] font-black text-slate-500 sm:text-xs';
+                    ? 'rounded-xl bg-white py-2.5 text-center text-xs font-black text-slate-950 shadow-sm'
+                    : 'rounded-xl py-2.5 text-center text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors';
             });
 
             Object.entries(tabSections).forEach(([key, section]) => {
@@ -431,6 +559,7 @@
             if (tab !== 'draft' && tabSections[tab] && tabSections[tab].dataset.loaded !== 'true') {
                 const url = tabUrls[tab];
                 if (url) {
+                    window.showLoader?.();
                     fetch(url)
                         .then(response => response.text())
                         .then(html => {
@@ -439,12 +568,34 @@
                         })
                         .catch(err => {
                             console.error('Failed to load tab:', err);
+                        })
+                        .finally(() => {
+                            window.hideLoader?.();
                         });
                 }
             }
         }
 
-        function updateCartItemTotal(itemId) {
+        function toggleCartCollapse(cartId) {
+            const body = document.getElementById(`cart-body-${cartId}`);
+            const chevron = document.getElementById(`chevron-${cartId}`);
+            if (! body) return;
+
+            const isHidden = body.classList.contains('hidden');
+            if (isHidden) {
+                body.classList.remove('hidden');
+                if (chevron) {
+                    chevron.classList.add('rotate-180');
+                }
+            } else {
+                body.classList.add('hidden');
+                if (chevron) {
+                    chevron.classList.remove('rotate-180');
+                }
+            }
+        }
+
+        function updateCartItemTotal(itemId, cartId = null) {
             const quantityInput = document.getElementById(`quantity-${itemId}`);
             const priceInput = document.getElementById(`price-${itemId}`);
             const totalNode = document.getElementById(`total-${itemId}`);
@@ -456,9 +607,32 @@
             const quantity = Number(quantityInput.value || 0);
             const price = Number(priceInput.value || 0);
             totalNode.textContent = (quantity * price).toFixed(2);
+
+            if (cartId) {
+                updateCartTotal(cartId);
+            }
         }
 
-        function updateProcessedItemTotal(itemId) {
+        function updateCartTotal(cartId) {
+            const cartCard = document.getElementById(`cart-card-${cartId}`);
+            if (! cartCard) return;
+
+            let sum = 0;
+            cartCard.querySelectorAll('[id^="total-"]').forEach(node => {
+                sum += Number(node.textContent || 0);
+            });
+            const formatted = sum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const cartTotalEl = document.getElementById(`cart-total-${cartId}`);
+            if (cartTotalEl) {
+                cartTotalEl.textContent = formatted;
+            }
+            const headerTotalEl = document.getElementById(`header-total-${cartId}`);
+            if (headerTotalEl) {
+                headerTotalEl.textContent = formatted;
+            }
+        }
+
+        function updateProcessedItemTotal(itemId, cartId = null) {
             const quantityInput = document.getElementById(`processed-qty-${itemId}`);
             const priceInput = document.getElementById(`processed-price-${itemId}`);
             const totalNode = document.getElementById(`processed-total-${itemId}`);
@@ -470,6 +644,25 @@
             const quantity = Number(quantityInput.value || 0);
             const price = Number(priceInput.value || 0);
             totalNode.textContent = (quantity * price).toFixed(2);
+
+            if (cartId) {
+                const cartCard = document.getElementById(`cart-card-${cartId}`);
+                if (cartCard) {
+                    let sum = 0;
+                    cartCard.querySelectorAll('[id^="processed-total-"]').forEach(node => {
+                        sum += Number(node.textContent || 0);
+                    });
+                    const formatted = sum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const processedCartTotalEl = document.getElementById(`processed-cart-total-${cartId}`);
+                    if (processedCartTotalEl) {
+                        processedCartTotalEl.textContent = formatted;
+                    }
+                    const headerTotalEl = document.getElementById(`header-total-${cartId}`);
+                    if (headerTotalEl) {
+                        headerTotalEl.textContent = formatted;
+                    }
+                }
+            }
         }
 
         function confirmDeleteItem(itemId, actionUrl, tab = '', cartId = '') {

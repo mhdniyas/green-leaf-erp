@@ -253,6 +253,7 @@
         [
             'label' => 'Buy',
             'route' => 'purchaser.bulk-buy',
+            'hide_when_purchasing' => true,
             'active' => request()->routeIs('purchaser.bulk-buy')
                 || request()->routeIs('purchaser.bulk-buy.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>',
@@ -952,7 +953,7 @@
         <x-impersonation-banner />
 
         {{-- Page content --}}
-        <main id="layout-page-main" class="w-full min-w-0 flex-1 px-3 {{ $showMobileBottomNav ? 'pb-40 lg:pb-6' : 'pb-16 lg:pb-6' }} {{ isset($actions) ? 'pt-28' : 'pt-20' }} sm:px-6 lg:p-6 lg:pt-6">
+        <main id="layout-page-main" class="w-full min-w-0 flex-1 px-3 {{ $showMobileBottomNav ? 'pb-28 lg:pb-6' : 'pb-16 lg:pb-6' }} {{ isset($actions) ? 'pt-28' : 'pt-20' }} sm:px-6 lg:p-6 lg:pt-6">
             {{ $slot }}
         </main>
     </div>
@@ -965,8 +966,8 @@
 @endif
 
 @if($showAdminMobileNav || $showStaffMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
-<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-0 z-[70] px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] lg:hidden">
-    <nav class="mx-auto flex min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl border border-white/60 bg-white/40 px-1.5 py-1.5 shadow-[0_-4px_20px_rgba(15,23,42,0.08),0_12px_40px_rgba(15,23,42,0.22)] backdrop-blur-xl dark:border-slate-700/40 dark:bg-slate-900/40">
+<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-0 z-[70] px-1 pb-[max(env(safe-area-inset-bottom),0.25rem)] lg:hidden">
+    <nav class="mx-auto flex min-h-11 w-full max-w-lg items-center gap-0.5 rounded-xl border border-white/60 bg-white/40 px-1 py-0.5 shadow-[0_-2px_12px_rgba(15,23,42,0.08),0_6px_20px_rgba(15,23,42,0.18)] backdrop-blur-xl dark:border-slate-700/40 dark:bg-slate-900/40">
         @php
             $mobileNavItems = match(true) {
                 $showAdminMobileNav => $adminMobileNavItems,
@@ -984,14 +985,15 @@
             @endphp
             <a
                 href="{{ $item['href'] ?? route($item['route'], $item['params'] ?? []) }}"
+                @if (! empty($item['hide_when_purchasing'])) data-mobile-nav-buy @endif
                 @class([
-                    'group relative flex min-h-[50px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xl border-0 px-0.5 font-bold transition-all duration-200',
+                    'group relative flex min-h-11 min-w-0 flex-1 items-center justify-center gap-0.5 rounded-lg border-0 px-0.5 font-bold transition-all duration-200',
                     'bg-cyan-500 text-white shadow-sm' => $isActive,
                     'bg-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200' => ! $isActive,
                 ])
                 title="{{ $item['label'] }}"
             >
-                <span class="relative shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px]">
+                <span class="relative shrink-0 [&_svg]:h-4 [&_svg]:w-4">
                     {!! $item['icon'] !!}
                     @if (isset($item['badge']) && $item['badge'] > 0)
                         <span class="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-1 ring-white">
@@ -1135,6 +1137,18 @@
             attributeFilter: ['class', 'style']
         });
     })();
+
+    window.addEventListener('purchaser:buy-selection-change', (event) => {
+        const hasSelection = Boolean(event.detail?.hasSelection);
+        const mobileNav = document.getElementById('layout-mobile-nav');
+        if (mobileNav) {
+            mobileNav.classList.toggle('hidden', hasSelection);
+        }
+
+        document.querySelectorAll('[data-mobile-nav-buy]').forEach((item) => {
+            item.classList.toggle('hidden', hasSelection);
+        });
+    });
 </script>
 @stack('scripts')
 <x-global-loader />

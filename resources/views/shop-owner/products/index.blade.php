@@ -280,25 +280,44 @@
                                 </h3>
                             </div>
 
-                            <div class="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1">
-                                <div class="min-w-0">
-                                    <span class="text-[8px] sm:text-[9px] font-bold text-slate-400 truncate block">
+                            <div class="mt-2 pt-1.5 border-t border-slate-100 flex flex-col gap-1.5">
+                                <div class="flex items-center justify-between gap-1 text-[8px] sm:text-[9px]">
+                                    <span class="font-bold text-slate-400 truncate">
                                         {{ $p['sku'] ?: '#' . $p['id'] }}
                                     </span>
-                                    <span class="text-[7.5px] sm:text-[8px] font-black text-emerald-700/80 block truncate">
+                                    <span class="font-black text-emerald-700/80 truncate">
                                         {{ $p['price_date'] }}
                                     </span>
                                 </div>
-                                <div class="text-right shrink-0">
-                                    @if ($isPublished || $p['selling_price'] > 0)
-                                        <span class="text-xs sm:text-sm font-black text-emerald-700">
-                                            ₹{{ number_format($p['selling_price'], 2) }}
+                                <div class="grid grid-cols-2 gap-1 pt-1 border-t border-slate-50 text-[9px] sm:text-[10px] items-start">
+                                    <div class="min-w-0">
+                                        @if ($isPublished || $p['selling_price'] > 0)
+                                            <span class="text-xs sm:text-sm font-black text-emerald-700 block truncate">
+                                                ₹{{ number_format($p['selling_price'], 2) }}
+                                            </span>
+                                        @else
+                                            <span class="text-[10px] font-extrabold text-amber-600 block leading-tight">
+                                                Updating
+                                            </span>
+                                        @endif
+                                        <span class="text-[7px] sm:text-[8px] font-bold text-slate-500 uppercase tracking-tight block leading-tight mt-0.5">
+                                            Supply Price
                                         </span>
-                                    @else
-                                        <span class="text-[10px] font-extrabold text-amber-600">
-                                            Updating
+                                    </div>
+                                    <div class="text-right min-w-0">
+                                        @if (!empty($p['minimum_mrp']) && $p['minimum_mrp'] > 0)
+                                            <span class="text-xs sm:text-sm font-black text-slate-900 block truncate">
+                                                ₹{{ number_format($p['minimum_mrp'], 2) }}
+                                            </span>
+                                        @else
+                                            <span class="text-xs sm:text-sm font-bold text-slate-400 block">
+                                                -
+                                            </span>
+                                        @endif
+                                        <span class="text-[7px] sm:text-[8px] font-bold text-slate-500 uppercase tracking-tight block leading-tight mt-0.5">
+                                            Min Retail Price
                                         </span>
-                                    @endif
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -694,19 +694,25 @@
 
         async function loadAndOpenPaymentModal(cartId) {
             try {
+                window.showLoader?.();
                 const details = await fetchCartDetails(cartId);
                 openPaymentModal(details.invoiceData, details.paymentActionUrl);
             } catch (e) {
                 alert('Could not load payment details. Please try again.');
+            } finally {
+                window.hideLoader?.();
             }
         }
 
         async function loadAndOpenMobileBillModal(cartId) {
             try {
+                window.showLoader?.();
                 const details = await fetchCartDetails(cartId);
                 openMobileBillModal(details.modalPayload);
             } catch (e) {
                 alert('Could not load bill details. Please try again.');
+            } finally {
+                window.hideLoader?.();
             }
         }
 

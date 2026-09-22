@@ -14,7 +14,6 @@ use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopCashbookRelation;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
-use App\Models\Cashbook\ShopDailyProductPrice;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerHeaderGroup;
 use App\Models\Cashbook\ShopLedgerProductEntry;
@@ -159,30 +158,15 @@ class ShopOwnerController extends Controller
             ->groupBy('product_id')
             ->map(fn ($rows) => $rows->first());
 
-        $shopDailyPrices = ShopDailyProductPrice::query()
-            ->where('shop_id', $activeShop->id)
-            ->whereDate('business_date', $targetBusinessDate)
-            ->whereIn('product_id', $pageProductIds)
-            ->get()
-            ->keyBy('product_id');
-
         $products->setCollection(
-            $products->getCollection()->map(function (Product $product) use ($currentApprovals, $previousApprovals, $shopDailyPrices, $groupName, $activeShop, $targetBusinessDate): array {
+            $products->getCollection()->map(function (Product $product) use ($currentApprovals, $previousApprovals, $groupName, $activeShop, $targetBusinessDate): array {
                 $currentApproval = $currentApprovals->get($product->id);
                 $previousApproval = $previousApprovals->get($product->id);
-                $shopCustomPrice = $shopDailyPrices->get($product->id);
 
                 $priceKey = 'price_'.strtolower($groupName);
 
                 $candidatePrices = [];
                 $priceUnit = $product->unit ?: 'kg';
-
-                if ($shopCustomPrice && (float) $shopCustomPrice->selling_price > 0) {
-                    $candidatePrices[] = (float) $shopCustomPrice->selling_price;
-                    if ($shopCustomPrice->price_unit) {
-                        $priceUnit = $shopCustomPrice->price_unit;
-                    }
-                }
 
                 if ($currentApproval && (float) ($currentApproval->$priceKey ?? 0) > 0) {
                     $candidatePrices[] = (float) $currentApproval->$priceKey;
@@ -209,11 +193,10 @@ class ShopOwnerController extends Controller
 
                 // Pick the max price among all valid shop & approval price sources
                 $sellingPrice = $candidatePrices !== [] ? max($candidatePrices) : 0.0;
+                $minimumMrp = $sellingPrice > 0.0 ? round($sellingPrice * 1.25, 2) : null;
 
                 $priceDate = null;
-                if ($shopCustomPrice && (float) $shopCustomPrice->selling_price > 0 && $shopCustomPrice->business_date) {
-                    $priceDate = Carbon::parse($shopCustomPrice->business_date)->format('d M');
-                } elseif ($currentApproval && (float) ($currentApproval->$priceKey ?? 0) > 0 && $currentApproval->business_date) {
+                if ($currentApproval && (float) ($currentApproval->$priceKey ?? 0) > 0 && $currentApproval->business_date) {
                     $priceDate = Carbon::parse($currentApproval->business_date)->format('d M');
                 } elseif ($previousApproval && (float) ($previousApproval->$priceKey ?? 0) > 0 && $previousApproval->business_date) {
                     $priceDate = Carbon::parse($previousApproval->business_date)->format('d M');
@@ -231,9 +214,9 @@ class ShopOwnerController extends Controller
                     'unit' => $priceUnit,
                     'image' => $product->image,
                     'selling_price' => $sellingPrice,
+                    'minimum_mrp' => $minimumMrp,
                     'price_date' => $priceDate,
                     'group_name' => $groupName,
-                    'has_custom_price' => $shopCustomPrice !== null,
                 ];
             })
         );

@@ -13,6 +13,8 @@
             $companyDetails['phone'] ?? null ? 'Phone: '.$companyDetails['phone'] : null,
             $companyDetails['email'] ?? null ? 'Email: '.$companyDetails['email'] : null,
         ])->filter()->values();
+        $formatBillValue = static fn (float $value, int $precision = 2): string => rtrim(rtrim(number_format($value, $precision, '.', ','), '0'), '.');
+        $formatBillInputValue = static fn (float $value, int $precision): string => rtrim(rtrim(number_format($value, $precision, '.', ''), '0'), '.');
     @endphp
 
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 sm:px-2 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
@@ -40,6 +42,20 @@
                 <input type="hidden" name="credit_approval_note" value="Requested from purchaser bill {{ $cart->cart_number }} for {{ $billDate->format('d M Y') }}.">
             </form>
         @endif
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm print:hidden">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Vendor</p>
+                    <p class="mt-1 truncate text-sm font-black text-slate-950">{{ $supplier?->name ?: 'No vendor selected' }}</p>
+                    <p class="mt-0.5 text-xs font-semibold text-slate-500">{{ $supplier?->mobile_number ?: 'Select a vendor before submitting this purchase.' }}</p>
+                </div>
+                <div class="flex shrink-0 gap-2">
+                    <button type="button" onclick="openVendorPicker()" class="inline-flex h-9 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-700 hover:bg-teal-100">{{ $supplier ? 'Change' : 'Select' }}</button>
+                    <button type="button" onclick="openVendorCreate()" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white hover:bg-teal-500">+ New</button>
+                </div>
+            </div>
+        </section>
 
         <form id="bill-main-form" action="{{ route('purchaser.carts.submit') }}" method="POST" onsubmit="if(this.dataset.submitting) return false; this.dataset.submitting='true';" class="space-y-4">
             @csrf
@@ -100,6 +116,7 @@
                                     <th class="w-12 py-1 pr-1 text-right">Qty</th>
                                     <th class="w-16 py-1 pr-1 text-right">Price</th>
                                     <th class="w-20 py-1 text-right">Amt</th>
+                                    <th class="w-8 py-1 text-right"><span class="sr-only">Remove</span></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -112,18 +129,23 @@
                                         <td class="py-2 pr-2">
                                             <p class="font-black text-slate-950">{{ $item->product->name }}</p>
                                             <p class="mt-0.5 text-[10px] font-semibold text-slate-500">
-                                                {{ $item->product->unit }}{{ $vendorPriceHint > 0 ? ' • Prev Rs. '.number_format((float) $vendorPriceHint, 2) : '' }}
+                                                {{ $item->product->unit }}{{ $vendorPriceHint > 0 ? ' • Prev Rs. '.$formatBillValue((float) $vendorPriceHint) : '' }}
                                                 @if (($item->grade ?? 'A') === 'B')
                                                     <span class="ml-1 inline-flex items-center rounded px-1 py-0.5 bg-blue-100 text-blue-700 font-black uppercase tracking-wide text-[9px]">Grade B</span>
                                                 @endif
                                             </p>
                                         </td>
-                                        <td class="py-2 pr-1 text-right font-bold">{{ number_format((float) $item->quantity, 2) }}</td>
                                         <td class="py-2 pr-1 text-right">
-                                            <input id="price-{{ $item->id }}" type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" value="{{ old("items.{$item->id}.unit_price", number_format((float) $item->unit_price, 2, '.', '')) }}" class="bill-price h-7 w-14 rounded-md border border-slate-200 bg-slate-50 px-1 text-right text-[11px] font-bold text-slate-950 focus:bg-white focus:outline-none" data-quantity="{{ number_format((float) $item->quantity, 3, '.', '') }}">
+                                            <input id="quantity-{{ $item->id }}" type="number" step="0.001" min="0.01" inputmode="decimal" name="items[{{ $item->id }}][quantity]" value="{{ $formatBillInputValue((float) old("items.{$item->id}.quantity", $item->quantity), 3) }}" class="bill-quantity h-7 w-12 rounded-md border border-slate-200 bg-slate-50 px-1 text-right text-[11px] font-bold text-slate-950 focus:bg-white focus:outline-none">
+                                        </td>
+                                        <td class="py-2 pr-1 text-right">
+                                            <input id="price-{{ $item->id }}" type="number" step="0.01" min="0.01" inputmode="decimal" name="items[{{ $item->id }}][unit_price]" value="{{ $formatBillInputValue((float) old("items.{$item->id}.unit_price", $item->unit_price), 2) }}" class="bill-price h-7 w-14 rounded-md border border-slate-200 bg-slate-50 px-1 text-right text-[11px] font-bold text-slate-950 focus:bg-white focus:outline-none" data-item-id="{{ $item->id }}">
                                         </td>
                                         <td class="py-2 text-right font-black text-slate-950">
-                                            <span class="bill-line-total">Rs. {{ number_format((float) $item->line_total, 2) }}</span>
+                                            <span class="bill-line-total">₹{{ $formatBillValue((float) $item->line_total) }}</span>
+                                        </td>
+                                        <td class="py-2 pl-1 text-right">
+                                            <button type="submit" form="bill-remove-{{ $item->id }}" class="h-7 w-7 rounded-md text-rose-600 hover:bg-rose-50" aria-label="Remove {{ $item->product->name }}" title="Remove item">×</button>
                                         </td>
                                     </tr>
                                 @endforeach
@@ -134,7 +156,7 @@
                     <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-3 text-[11px] font-bold text-slate-800 sm:max-w-[20rem]">
                         <div class="flex items-center justify-between font-black text-slate-950 text-sm">
                             <span>Total Bill</span>
-                            <span id="bill-subtotal" data-base-subtotal="{{ number_format($subtotal, 2, '.', '') }}">₹{{ number_format($subtotal, 2) }}</span>
+                            <span id="bill-subtotal" data-base-subtotal="{{ number_format($subtotal, 2, '.', '') }}">₹{{ $formatBillValue((float) $subtotal) }}</span>
                         </div>
                     </div>
 
@@ -144,19 +166,19 @@
                         <div class="rounded-xl border border-slate-900 bg-slate-950 p-3 text-white shadow-xs space-y-1">
                             <div class="flex items-center justify-between">
                                 <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Bill</span>
-                                <span id="payment-modal-total" class="font-mono text-base font-black text-white">₹0.00</span>
+                                <span id="payment-modal-total" class="font-mono text-base font-black text-white">₹0</span>
                             </div>
                             <div id="payment-modal-credit-discount-row" class="hidden flex items-center justify-between text-[11px] font-bold text-rose-400">
                                 <span>Discount</span>
-                                <span id="payment-modal-credit-discount" class="font-mono font-bold text-rose-400">-₹0.00</span>
+                                <span id="payment-modal-credit-discount" class="font-mono font-bold text-rose-400">-₹0</span>
                             </div>
                             <div id="payment-modal-credit-amount-row" class="hidden flex items-center justify-between text-[11px] font-bold text-teal-300">
                                 <span>Credit Amount</span>
-                                <span id="payment-modal-credit-amount" class="font-mono font-bold text-teal-300">₹0.00</span>
+                                <span id="payment-modal-credit-amount" class="font-mono font-bold text-teal-300">₹0</span>
                             </div>
                             <div class="flex items-center justify-between text-[11px] font-bold text-slate-300">
                                 <span>Remaining Balance</span>
-                                <span id="payment-modal-balance" class="font-mono font-black text-amber-400">₹0.00</span>
+                                <span id="payment-modal-balance" class="font-mono font-black text-amber-400">₹0</span>
                             </div>
                         </div>
 
@@ -170,7 +192,7 @@
                         <div id="diff-action-container" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
                             <div class="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-500">
                                 <span>Unpaid Difference</span>
-                                <span id="diff-amount-label" class="font-mono text-slate-900 font-bold">₹0.00</span>
+                                <span id="diff-amount-label" class="font-mono text-slate-900 font-bold">₹0</span>
                             </div>
                             <div class="grid grid-cols-2 gap-1.5">
                                 <button type="button" id="diff-btn-discount" onclick="setDiffMode('discount')" class="h-8 rounded-lg border text-[10px] font-black transition-all">
@@ -238,23 +260,69 @@
             <input type="hidden" id="payment_method" name="payment_method" value="{{ old('payment_method', $cart->payment_method ?: 'Cash') }}">
             <input type="hidden" id="payment_note" name="payment_note" value="{{ old('payment_note', $cart->payment_note) }}">
         </form>
+
+        @foreach ($cart->items as $item)
+            <form id="bill-remove-{{ $item->id }}" action="{{ route('purchaser.cart-items.destroy', $item) }}" method="POST" class="hidden" onsubmit="return confirm('Remove this item from the draft purchase?')">
+                @csrf
+                @method('DELETE')
+                <input type="hidden" name="return_to" value="bill">
+            </form>
+        @endforeach
+
+        <form id="bill-vendor-assign-form" action="{{ route('purchaser.carts.update-supplier', $cart) }}" method="POST" class="hidden">
+            @csrf
+            @method('PATCH')
+            <input type="hidden" name="return_to" value="bill">
+            <input id="bill-vendor-supplier-id" type="hidden" name="supplier_id">
+        </form>
+
+        <div id="bill-vendor-picker" class="fixed inset-0 z-50 hidden items-end bg-slate-950/50 p-3 sm:items-center sm:justify-center" onclick="if (event.target === this) closeBillVendorOverlays()">
+            <section class="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="bill-vendor-picker-title">
+                <div class="flex items-center justify-between gap-3">
+                    <h2 id="bill-vendor-picker-title" class="text-sm font-black text-slate-950">Select vendor</h2>
+                    <button type="button" onclick="closeBillVendorOverlays()" class="h-9 w-9 rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close vendor picker">×</button>
+                </div>
+                <input id="bill-vendor-search" type="search" inputmode="search" placeholder="Search vendor name or phone" class="mt-3 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold focus:border-teal-500 focus:bg-white focus:outline-none">
+                <div id="bill-vendor-results" class="mt-3 max-h-64 space-y-1 overflow-y-auto" aria-live="polite"></div>
+                <button type="button" onclick="openVendorCreate()" class="mt-3 h-10 w-full rounded-xl border border-teal-200 bg-teal-50 text-xs font-black text-teal-700">+ Create new vendor</button>
+            </section>
+        </div>
+
+        <div id="bill-vendor-create" class="fixed inset-0 z-50 hidden items-end bg-slate-950/50 p-3 sm:items-center sm:justify-center" onclick="if (event.target === this) closeBillVendorOverlays()">
+            <form action="{{ route('purchaser.carts.update-supplier', $cart) }}" method="POST" class="w-full max-w-md space-y-3 rounded-2xl bg-white p-4 shadow-xl">
+                @csrf
+                @method('PATCH')
+                <input type="hidden" name="return_to" value="bill">
+                <input type="hidden" name="supplier_id" value="">
+                <div class="flex items-center justify-between gap-3"><h2 class="text-sm font-black text-slate-950">New vendor</h2><button type="button" onclick="closeBillVendorOverlays()" class="h-9 w-9 rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close new vendor form">×</button></div>
+                <input required name="vendor_name" placeholder="Vendor name" class="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold focus:border-teal-500 focus:bg-white focus:outline-none">
+                <input required name="vendor_mobile_number" type="tel" inputmode="numeric" placeholder="Mobile number" class="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold focus:border-teal-500 focus:bg-white focus:outline-none">
+                <input name="vendor_location" placeholder="Location (optional)" class="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold focus:border-teal-500 focus:bg-white focus:outline-none">
+                <button type="submit" class="h-10 w-full rounded-xl bg-teal-600 text-xs font-black text-white hover:bg-teal-500">Create and select vendor</button>
+            </form>
+        </div>
     </div>
 
     <script>
         (() => {
             const priceInputs = Array.from(document.querySelectorAll('.bill-price'));
+            const quantityInputs = Array.from(document.querySelectorAll('.bill-quantity'));
             const subtotalNode = document.getElementById('bill-subtotal');
             let currentSubtotal = 0;
             let currentDiffMode = 'discount';
             let userToggledDiffMode = false;
             let currentPaymentMethod = 'Cash';
 
-            const formatCurrency = (value) => `₹${Number(value).toFixed(2)}`;
+            const formatCurrency = (value) => `₹${new Intl.NumberFormat('en-IN', {
+                maximumFractionDigits: 2,
+                minimumFractionDigits: 0,
+            }).format(Number(value))}`;
+            const formatDecimalInput = (value) => String(Number(value));
 
             const recalculateSubtotal = () => {
                 let subtotal = 0;
                 priceInputs.forEach((input) => {
-                    const quantity = Number(input.dataset.quantity || 0);
+                    const quantity = Number(document.getElementById(`quantity-${input.dataset.itemId}`)?.value || 0);
                     const unitPrice = Number(input.value || 0);
                     const lineTotal = quantity * unitPrice;
                     subtotal += lineTotal;
@@ -275,6 +343,7 @@
             };
 
             priceInputs.forEach((input) => input.addEventListener('input', recalculateSubtotal));
+            quantityInputs.forEach((input) => input.addEventListener('input', recalculateSubtotal));
 
             window.syncBillNumber = (val) => {
                 const hiddenInput = document.getElementById('bill_number_hidden');
@@ -358,7 +427,7 @@
                     let discountVal = Math.max(0, Number(creditDiscInput?.value || 0));
                     if (discountVal > totalBill) {
                         discountVal = totalBill;
-                        if (creditDiscInput) creditDiscInput.value = totalBill.toFixed(2);
+                        if (creditDiscInput) creditDiscInput.value = formatDecimalInput(totalBill);
                     }
 
                     const creditAmount = Math.max(0, totalBill - discountVal);
@@ -368,7 +437,7 @@
                     if (hiddenPaidInput) hiddenPaidInput.value = '0.00';
                     if (hiddenNoteInput) hiddenNoteInput.value = creditNoteInput?.value || '';
 
-                    if (creditDiscNode) creditDiscNode.textContent = `-₹${discountVal.toFixed(2)}`;
+                    if (creditDiscNode) creditDiscNode.textContent = `-₹${formatDecimalInput(discountVal)}`;
                     if (creditAmtNode) creditAmtNode.textContent = formatCurrency(creditAmount);
                     if (balanceNode) {
                         balanceNode.textContent = formatCurrency(remainingBalance);
@@ -454,5 +523,56 @@
             selectPaymentMethod('{{ old('payment_method', $cart->payment_method ?: 'Cash') }}');
             recalculateSubtotal();
         })();
+
+        let billVendorSearchTimer;
+        const billVendorPicker = document.getElementById('bill-vendor-picker');
+        const billVendorCreate = document.getElementById('bill-vendor-create');
+        const billVendorResults = document.getElementById('bill-vendor-results');
+        const billVendorSearch = document.getElementById('bill-vendor-search');
+        const billVendorSearchUrl = @json(route('purchaser-v2.suppliers.search'));
+
+        window.closeBillVendorOverlays = () => {
+            billVendorPicker.classList.add('hidden');
+            billVendorPicker.classList.remove('flex');
+            billVendorCreate.classList.add('hidden');
+            billVendorCreate.classList.remove('flex');
+        };
+        window.openVendorPicker = () => {
+            billVendorPicker.classList.remove('hidden');
+            billVendorPicker.classList.add('flex');
+            billVendorSearch.value = '';
+            billVendorResults.innerHTML = '<p class="px-2 py-3 text-xs font-semibold text-slate-500">Type to search vendors.</p>';
+            billVendorSearch.focus();
+        };
+        window.openVendorCreate = () => {
+            billVendorPicker.classList.add('hidden');
+            billVendorPicker.classList.remove('flex');
+            billVendorCreate.classList.remove('hidden');
+            billVendorCreate.classList.add('flex');
+        };
+        billVendorSearch?.addEventListener('input', () => {
+            window.clearTimeout(billVendorSearchTimer);
+            const query = billVendorSearch.value.trim();
+            if (query.length < 2) {
+                billVendorResults.innerHTML = '<p class="px-2 py-3 text-xs font-semibold text-slate-500">Type at least two characters.</p>';
+                return;
+            }
+            billVendorSearchTimer = window.setTimeout(async () => {
+                const response = await fetch(`${billVendorSearchUrl}?q=${encodeURIComponent(query)}`, { headers: { Accept: 'application/json' } });
+                const payload = await response.json();
+                const vendors = payload.data || [];
+                billVendorResults.replaceChildren(...vendors.map((vendor) => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-slate-50';
+                    button.innerHTML = `<span class="min-w-0"><span class="block truncate text-sm font-black text-slate-900"></span><span class="block text-xs font-semibold text-slate-500"></span></span>`;
+                    button.querySelectorAll('span')[1].textContent = vendor.name;
+                    button.querySelectorAll('span')[2].textContent = vendor.mobile_number || '';
+                    button.addEventListener('click', () => { document.getElementById('bill-vendor-supplier-id').value = vendor.id; document.getElementById('bill-vendor-assign-form').submit(); });
+                    return button;
+                }));
+                if (! vendors.length) billVendorResults.innerHTML = '<p class="px-2 py-3 text-xs font-semibold text-slate-500">No matching vendors.</p>';
+            }, 250);
+        });
     </script>
 </x-layouts.app>

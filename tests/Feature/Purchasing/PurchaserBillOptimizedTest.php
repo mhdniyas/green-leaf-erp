@@ -123,7 +123,10 @@ class PurchaserBillOptimizedTest extends TestCase
             ->assertSee('Farm Fresh Vendor')
             ->assertSee('Tomato Local')
             ->assertSee('Potato Agra')
-            ->assertSee('1,500.00');
+            ->assertSee('1,500')
+            ->assertSee('bill-vendor-picker')
+            ->assertSee('bill-remove-'.$cart->items()->firstOrFail()->id)
+            ->assertSee('name="items['.$cart->items()->firstOrFail()->id.'][quantity]"', false);
 
         // Check query count is capped and flat
         $this->assertLessThanOrEqual(20, count($queries), 'Query count must remain under 20 queries');

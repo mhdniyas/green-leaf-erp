@@ -800,10 +800,19 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
         $request->validate([
             'q' => ['nullable', 'string', 'max:80'],
+            'category' => ['nullable', 'string', 'max:80'],
+            'category_id' => ['nullable', 'integer'],
             'purchase_grade' => ['nullable', 'string', 'in:A,B'],
-            'limit' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
+
         $user = $request->user();
+        $limit = (int) ($request->integer('limit') ?: 24);
+        $page = (int) ($request->integer('page') ?: 1);
+        $category = $request->string('category')->toString();
+        $categoryId = $request->integer('category_id');
+
         $query = Product::query()
             ->select(['id', 'category_id', 'name', 'sku', 'unit'])
             ->with('category:id,name')
@@ -813,17 +822,268 @@ class PurchaserDashboardController extends Controller
                 $term = '%'.addcslashes($request->string('q')->toString(), '%_').'%';
                 $builder->where(fn ($inner) => $inner->where('name', 'like', $term)->orWhere('sku', 'like', $term));
             })
+            ->when($categoryId > 0, fn ($builder) => $builder->where('category_id', $categoryId))
+            ->when($category && ! in_array($category, ['All', 'Frequent'], true), function ($builder) use ($category): void {
+                $builder->whereHas('category', fn ($cat) => $cat->where('name', $category));
+            })
+            ->when($category === 'Frequent', function ($builder) use ($user): void {
+                $frequentIds = $this->frequentProductIds((int) $user->id);
+                if (count($frequentIds) > 0) {
+                    $builder->whereIn('id', $frequentIds);
+                }
+            })
             ->when($user->hasAssignedCategoryFilter(), fn ($builder) => $builder->whereIn('category_id', $user->assignedCategoryIds()))
-            ->orderBy('name')
-            ->limit((int) ($request->integer('limit') ?: 20));
+            ->ordered();
 
-        return response()->json($query->get()->map(fn (Product $product): array => [
+        $paginator = $query->paginate(perPage: $limit, page: $page);
+
+        $items = collect($paginator->items())->map(fn (Product $product): array => [
             'id' => $product->id,
             'name' => $product->name,
             'sku' => $product->sku,
             'unit' => $product->unit,
-            'category_name' => $product->category?->name,
-        ])->values());
+            'category_name' => $product->category?->name ?? 'Other',
+        ])->values();
+
+        return response()->json([
+            'data' => $items,
+            'current_page' => $paginator->currentPage(),
+            'has_more' => $paginator->hasMorePages(),
+            'total' => $paginator->total(),
+            'last_page' => $paginator->lastPage(),
+        ]);
+    }
+
+    public function storeBulkBuyAddons(Request $request): JsonResponse|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'purchase_grade' => ['nullable', 'string', 'in:A,B'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.quantity' => ['required', 'numeric', 'gt:0'],
+        ]);
+
+        $businessDate = Carbon::parse($validated['date']);
+        $purchaseGrade = ($validated['purchase_grade'] ?? 'A') === 'B' ? 'B' : 'A';
+        $user = $request->user();
+
+        $setting = BusinessSetting::query()
+            ->where('key', 'default_purchaser_user_id')
+            ->first();
+        $purchaserUser = $setting?->value ? User::query()->find((int) $setting->value) : null;
+        if (! ($purchaserUser instanceof User && $purchaserUser->hasRole('purchaser'))) {
+            $purchaserUser = $user->hasRole('purchaser') ? $user : User::role('purchaser')->first();
+        }
+
+        $order = DB::transaction(function () use ($businessDate, $user, $purchaserUser, $purchaseGrade, $validated): ShopOrder {
+            $shopOrder = ShopOrder::query()->create([
+                'shop_id' => null,
+                'business_date' => $businessDate,
+                'order_source' => 'admin_direct_purchase',
+                'state' => 'approved',
+                'is_late' => false,
+                'submitted_at' => now(),
+                'reviewed_by' => $user->id,
+                'reviewed_at' => now(),
+                'created_by' => $purchaserUser ? $purchaserUser->id : $user->id,
+                'manager_note' => 'Purchaser Add-on',
+            ]);
+
+            $productIds = collect($validated['items'])->pluck('product_id')->unique()->all();
+            $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
+            foreach ($validated['items'] as $item) {
+                $product = $products->get((int) $item['product_id']);
+                if (! $product) {
+                    continue;
+                }
+                $qty = round((float) $item['quantity'], 2);
+                if ($qty <= 0) {
+                    continue;
+                }
+
+                ShopOrderItem::query()->create([
+                    'shop_order_id' => $shopOrder->id,
+                    'product_id' => $product->id,
+                    'product_grade' => $purchaseGrade,
+                    'approved_qty' => $qty,
+                    'requested_qty' => $qty,
+                    'unit' => $product->unit,
+                    'notes' => 'Purchaser Add-on',
+                ]);
+            }
+
+            return $shopOrder->fresh(['items.product']);
+        });
+
+        $this->readCacheService->invalidate(['orders', 'carts', 'products']);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Purchaser add-on order {$order->order_number} added to purchaser demand.",
+                'order_number' => $order->order_number,
+                'items_count' => $order->items->count(),
+                'redirect_url' => route('purchaser.bulk-buy', [
+                    'date' => $businessDate->toDateString(),
+                    'purchase_grade' => $purchaseGrade,
+                ]),
+            ]);
+        }
+
+        return redirect()
+            ->route('purchaser.bulk-buy', [
+                'date' => $businessDate->toDateString(),
+                'purchase_grade' => $purchaseGrade,
+            ])
+            ->with('success', "Purchaser add-on order {$order->order_number} added to purchaser demand.");
+    }
+
+    public function storeAddonsToCart(Request $request): JsonResponse|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'purchase_grade' => ['nullable', 'string', 'in:A,B'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.quantity' => ['required', 'numeric', 'gt:0'],
+        ]);
+
+        $businessDate = Carbon::parse($validated['date']);
+        $purchaseGrade = ($validated['purchase_grade'] ?? 'A') === 'B' ? 'B' : 'A';
+        $destinationShopId = null;
+        $user = $request->user();
+
+        $setting = BusinessSetting::query()
+            ->where('key', 'default_purchaser_user_id')
+            ->first();
+        $purchaserUser = $setting?->value ? User::query()->find((int) $setting->value) : null;
+        if (! ($purchaserUser instanceof User && $purchaserUser->hasRole('purchaser'))) {
+            $purchaserUser = $user->hasRole('purchaser') ? $user : User::role('purchaser')->first();
+        }
+
+        $productIds = collect($validated['items'])->pluck('product_id')->unique()->map(fn ($id): int => (int) $id)->all();
+        $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
+        $result = DB::transaction(function () use ($businessDate, $user, $purchaserUser, $purchaseGrade, $validated, $products, $destinationShopId): array {
+            // 1. Create Add-on demand (same as storeBulkBuyAddons)
+            $shopOrder = ShopOrder::query()->create([
+                'shop_id' => null,
+                'business_date' => $businessDate,
+                'order_source' => 'admin_direct_purchase',
+                'state' => 'approved',
+                'is_late' => false,
+                'submitted_at' => now(),
+                'reviewed_by' => $user->id,
+                'reviewed_at' => now(),
+                'created_by' => $purchaserUser ? $purchaserUser->id : $user->id,
+                'manager_note' => 'Purchaser Add-on',
+            ]);
+
+            foreach ($validated['items'] as $item) {
+                $product = $products->get((int) $item['product_id']);
+                if (! $product) {
+                    continue;
+                }
+                $qty = round((float) $item['quantity'], 2);
+                if ($qty <= 0) {
+                    continue;
+                }
+                ShopOrderItem::query()->create([
+                    'shop_order_id' => $shopOrder->id,
+                    'product_id' => $product->id,
+                    'product_grade' => $purchaseGrade,
+                    'approved_qty' => $qty,
+                    'requested_qty' => $qty,
+                    'unit' => $product->unit,
+                    'notes' => 'Purchaser Add-on',
+                ]);
+            }
+
+            // 2. Find or create a draft cart for the current user/date/grade
+            $cart = PurchaserCart::query()
+                ->where('user_id', $user->id)
+                ->whereDate('business_date', $businessDate)
+                ->whereNull('supplier_id')
+                ->where('status', 'draft')
+                ->where('purchase_grade', $purchaseGrade)
+                ->where('destination_shop_id', $destinationShopId)
+                ->first()
+                ?? PurchaserCart::query()->create([
+                    'user_id' => $user->id,
+                    'business_date' => $businessDate,
+                    'cart_number' => PurchaserCart::generateCartNumber($businessDate),
+                    'status' => 'draft',
+                    'purchase_grade' => $purchaseGrade,
+                    'destination_shop_id' => $destinationShopId,
+                    'purchase_source' => $purchaseGrade === 'B' ? 'green_leaf_direct_purchase' : 'shop_order',
+                ]);
+
+            // 3. Add each item to the cart (upsert)
+            foreach ($validated['items'] as $item) {
+                $product = $products->get((int) $item['product_id']);
+                if (! $product) {
+                    continue;
+                }
+                $qty = round((float) $item['quantity'], 2);
+                if ($qty <= 0) {
+                    continue;
+                }
+
+                $unitPrice = $this->purchaseGradePriceResolver->resolve(
+                    (int) $product->id,
+                    $businessDate->toDateString(),
+                    $purchaseGrade,
+                );
+
+                $existingItem = $cart->items()->where('product_id', $product->id)->where('grade', $purchaseGrade)->first();
+
+                if ($existingItem instanceof PurchaserCartItem) {
+                    $newQty = (float) $existingItem->quantity + $qty;
+                    $existingItem->update([
+                        'quantity' => $newQty,
+                        'unit_price' => $unitPrice,
+                        'line_total' => round($newQty * $unitPrice, 2),
+                        'is_extra_purchase' => false,
+                    ]);
+                } else {
+                    $cart->items()->create([
+                        'product_id' => $product->id,
+                        'grade' => $purchaseGrade,
+                        'quantity' => $qty,
+                        'unit_price' => $unitPrice,
+                        'line_total' => round($qty * $unitPrice, 2),
+                        'is_extra_purchase' => false,
+                    ]);
+                }
+            }
+
+            return ['order' => $shopOrder->fresh(['items.product']), 'cart' => $cart];
+        });
+
+        $this->readCacheService->invalidate(['orders', 'carts', 'products']);
+
+        $order = $result['order'];
+        $cart = $result['cart'];
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Add-on demand {$order->order_number} created and added to draft cart.",
+                'order_number' => $order->order_number,
+                'items_count' => $order->items->count(),
+                'redirect_url' => route('purchaser.bill', ['cart' => $cart, 'date' => $businessDate->toDateString()]),
+            ]);
+        }
+
+        return redirect()
+            ->route('purchaser.bill', ['cart' => $cart, 'date' => $businessDate->toDateString()])
+            ->with('success', "Add-on demand {$order->order_number} created and added to draft cart.");
     }
 
     public function bulkBuyDetails(Request $request): View|RedirectResponse
@@ -2455,7 +2715,7 @@ class PurchaserDashboardController extends Controller
         }
 
         return redirect()
-            ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
+            ->route('purchaser.bill', ['cart' => $cart, 'date' => $date->format('Y-m-d')])
             ->with('success', "{$addedCount} {$productLabel} added to cart.")
             ->with('cart_success_actions', true)
             ->with('cart_success_date', $date->format('Y-m-d'));
@@ -2653,27 +2913,7 @@ class PurchaserDashboardController extends Controller
         ]);
 
         DB::transaction(function () use ($validated, $cart): void {
-            $itemsData = collect($validated['items']);
-            $productIds = $cart->items->pluck('product_id')->map(fn ($id): int => (int) $id)->all();
-            $remainingByProduct = $this->remainingApprovedQuantitiesForProducts($cart->business_date, $productIds, (int) $cart->id, (string) $cart->purchase_grade);
-            foreach ($cart->items as $cartItem) {
-                $itemInput = $itemsData->get((string) $cartItem->id);
-                if (! $itemInput) {
-                    continue;
-                }
-
-                $quantity = (float) $itemInput['quantity'];
-                $unitPrice = (float) $itemInput['unit_price'];
-                $remainingApproved = $remainingByProduct[(int) $cartItem->product_id] ?? 0.0;
-
-                $cartItem->update([
-                    'quantity' => $quantity,
-                    'unit_price' => $unitPrice,
-                    'line_total' => round($quantity * $unitPrice, 2),
-                    'is_extra_purchase' => $quantity > $remainingApproved,
-                    'notes' => $itemInput['notes'] ?? null,
-                ]);
-            }
+            $this->persistCartItemUpdates($cart, $validated['items']);
 
             if ($cart->status === 'submitted' && $cart->purchaseInvoice) {
                 app(PurchaseInvoiceService::class)->fixCalculationError($cart->purchaseInvoice);
@@ -3068,16 +3308,7 @@ class PurchaserDashboardController extends Controller
                 }
             }
 
-            $cartItemsData = collect($request->input('items', []));
-            foreach ($cart->items as $cartItem) {
-                $itemInput = $cartItemsData->get((string) $cartItem->id, []);
-                $unitPrice = (float) ($itemInput['unit_price'] ?? $cartItem->unit_price ?? 0);
-
-                $cartItem->update([
-                    'unit_price' => $unitPrice,
-                    'line_total' => round((float) $cartItem->quantity * $unitPrice, 2),
-                ]);
-            }
+            $this->persistCartItemUpdates($cart, $request->validated()['items']);
 
             $cart->refresh()->load('items.product');
 
@@ -3650,6 +3881,40 @@ class PurchaserDashboardController extends Controller
             ->get();
     }
 
+    /**
+     * @param  array<int|string, array{quantity: numeric, unit_price: numeric, notes?: string|null}>  $items
+     */
+    private function persistCartItemUpdates(PurchaserCart $cart, array $items): void
+    {
+        $itemsData = collect($items);
+        $productIds = $cart->items->pluck('product_id')->map(fn ($id): int => (int) $id)->all();
+        $remainingByProduct = $this->remainingApprovedQuantitiesForProducts(
+            $cart->business_date,
+            $productIds,
+            (int) $cart->id,
+            (string) $cart->purchase_grade,
+        );
+
+        foreach ($cart->items as $cartItem) {
+            $itemInput = $itemsData->get((string) $cartItem->id);
+            if (! $itemInput) {
+                continue;
+            }
+
+            $quantity = (float) ($itemInput['quantity'] ?? $cartItem->quantity);
+            $unitPrice = (float) $itemInput['unit_price'];
+            $remainingApproved = $remainingByProduct[(int) $cartItem->product_id] ?? 0.0;
+
+            $cartItem->update([
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'line_total' => round($quantity * $unitPrice, 2),
+                'is_extra_purchase' => $quantity > $remainingApproved,
+                'notes' => $itemInput['notes'] ?? null,
+            ]);
+        }
+    }
+
     private function findReusableDraftCart(int $userId, Carbon $date, ?int $supplierId, string $purchaseGrade = 'A', ?int $destinationShopId = null, ?int $exceptCartId = null): ?PurchaserCart
     {
         return PurchaserCart::query()
@@ -3865,7 +4130,7 @@ class PurchaserDashboardController extends Controller
                     ->where('product_grade', $purchaseGrade)
                     ->when($productIds !== null, fn ($query) => $query->whereIn('product_id', $productIds))
                     ->whereHas('order', function ($query) use ($dateString): void {
-                        $query->where('business_date', $dateString)->where('state', 'approved');
+                        $query->whereDate('business_date', $dateString)->where('state', 'approved');
                     })
                     ->with($this->dailySummaryRelations($includeDetails))
                     ->get();
@@ -3879,38 +4144,47 @@ class PurchaserDashboardController extends Controller
                     ->where('grade', $purchaseGrade)
                     ->when($productIds !== null, fn ($query) => $query->whereIn('product_id', $productIds))
                     ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
-                        $query->where('business_date', $dateString)
+                        $query->whereDate('business_date', $dateString)
                             ->where('status', 'draft')
                             ->where('purchase_grade', $purchaseGrade);
                     })
                     ->with($includeDetails ? 'cart.user' : 'cart')
                     ->get()
-                    ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'));
+                    ->groupBy(fn ($item) => (int) $item->product_id);
 
-                $submittedQuantities = PurchaserCartItem::query()
+                $submittedCartItems = PurchaserCartItem::query()
                     ->where('grade', $purchaseGrade)
                     ->when($productIds !== null, fn ($query) => $query->whereIn('product_id', $productIds))
                     ->whereHas('cart', function ($query) use ($dateString, $purchaseGrade): void {
-                        $query->where('business_date', $dateString)
+                        $query->whereDate('business_date', $dateString)
                             ->where('status', 'submitted')
                             ->where('purchase_grade', $purchaseGrade);
                     })
                     ->with('cart')
                     ->get()
-                    ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
-                    ->map(fn ($group) => (float) $group->sum('quantity'));
+                    ->groupBy(fn ($item) => (int) $item->product_id);
 
                 return $approvedItems
-                    ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'_'.$item->order->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
-                    ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedQuantities, $frequentProductIds, $date, $includeDetails): ?array {
-                        [$productId, $itemDateStr] = explode('_', $key);
+                    ->groupBy(function (ShopOrderItem $item): string {
+                        $dateStr = $item->order->business_date->timezone(config('app.timezone'))->format('Y-m-d');
+                        if ($item->order->isAdminDirectPurchase()) {
+                            return $item->product_id.'_'.$dateStr.'_addon_'.$item->shop_order_id;
+                        }
+
+                        return $item->product_id.'_'.$dateStr;
+                    })
+                    ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedCartItems, $frequentProductIds, $date, $includeDetails): ?array {
+                        $parts = explode('_', $key);
+                        $productId = (int) $parts[0];
+                        $itemDateStr = $parts[1];
+                        $isAddon = isset($parts[2]) && $parts[2] === 'addon';
                         $itemDate = Carbon::parse($itemDateStr);
 
                         /** @var ShopOrderItem $firstItem */
                         $firstItem = $items->first();
                         $product = $firstItem->product;
 
-                        $productDraftItems = $draftCartItems->get($key) ?? collect();
+                        $productDraftItems = $draftCartItems->get($productId, collect());
                         $draftQty = (float) $productDraftItems->sum('quantity');
                         $draftPurchasers = $includeDetails
                             ? $productDraftItems
@@ -3927,23 +4201,39 @@ class PurchaserDashboardController extends Controller
                                 ->all()
                             : [];
 
-                        $boughtQty = (float) ($submittedQuantities->get($key) ?? 0);
+                        $productSubmitted = $submittedCartItems->get($productId, collect());
+                        if ($isAddon) {
+                            $orderTime = $firstItem->order->created_at ?? $firstItem->order->submitted_at;
+                            $cartsForAddon = $productSubmitted->filter(function ($c) use ($orderTime): bool {
+                                $cartTime = $c->cart->submitted_at ?? $c->cart->created_at;
+
+                                return $cartTime && $orderTime && $cartTime->gte($orderTime);
+                            });
+                            $boughtQty = (float) $cartsForAddon->sum('quantity');
+                        } else {
+                            $boughtQty = (float) $productSubmitted->sum('quantity');
+                        }
+
                         $totalApprovedQty = (float) $items->sum('approved_qty');
                         $remainingQty = max(0, $totalApprovedQty - $boughtQty);
 
-                        if ($itemDate->lt($date) && $remainingQty <= 0) {
+                        if ($itemDate->copy()->startOfDay()->lt($date->copy()->startOfDay()) && $remainingQty <= 0) {
                             return null;
                         }
 
                         $categoryName = (string) ($product->category?->name ?? '');
 
                         $summary = [
-                            'product_id' => (int) $productId,
+                            'product_id' => $productId,
                             'product_name' => $product->name,
                             'sku' => $product->sku,
                             'unit' => $product->unit,
                             'category_name' => $categoryName,
-                            'is_frequent' => in_array((int) $productId, $frequentProductIds, true),
+                            'is_frequent' => in_array($productId, $frequentProductIds, true),
+                            'is_addon' => $isAddon,
+                            'is_direct_purchase' => $isAddon,
+                            'order_id' => $isAddon ? (int) $firstItem->shop_order_id : null,
+                            'order_number' => $isAddon ? $firstItem->order->order_number : null,
                             'total_approved_qty' => $totalApprovedQty,
                             'bought_qty' => $boughtQty,
                             'draft_qty' => $draftQty,
@@ -3978,7 +4268,15 @@ class PurchaserDashboardController extends Controller
                         return $summary;
                     })
                     ->filter()
-                    ->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date'])
+                    ->sortBy(function (array $item): string {
+                        if (! empty($item['is_addon'])) {
+                            $orderId = (int) ($item['order_id'] ?? 0);
+
+                            return sprintf('0_%010d_%s', 9999999999 - $orderId, Product::sortableSku((string) $item['sku']));
+                        }
+
+                        return sprintf('1_%s_%s', Product::sortableSku((string) $item['sku']), (string) ($item['order_date'] ?? ''));
+                    })
                     ->values()
                     ->all();
             },
